@@ -1,145 +1,170 @@
 #!/usr/bin/env python3
-# 123NET FreePBX Tools — version_check.py (Py3.6-safe)
+# 123NET FreePBX Tools - Version Policy Checker (Python 3.6 safe)
 
-from __future__ import print_function
-import argparse, json, os, re, subprocess, sys
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from typing import Optional, Dict, Any, List, Tuple
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_POLICY = os.environ.get("VERSION_POLICY_JSON", os.path.join(SCRIPT_DIR, "version_policy.json"))
+DEFAULT_POLICY = "/usr/local/123net/freepbx-tools/version_policy.json"
 
-def sh(cmd):
+def sh(cmd: List[str]) -> str:
     try:
-        out = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-        return out.decode("utf-8", "replace").strip()
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        return out.decode("utf-8", "ignore").strip()
     except Exception:
         return ""
 
-def parse_version_from_freepbx(s):
-    # typical: "fwconsole version 16.0.40.13" or "FreePBX 16.0.40.13"
-    m = re.search(r'(\d+(?:\.\d+)+)', s or "")
-    return m.group(1) if m else ""
+def detect_freepbx_version() -> Optional[str]:
+    # Typical: fwconsole --version -> "... 16.0.40.13"
+    out = sh(["fwconsole", "--version"])
+    if out:
+        toks = out.split()
+        if toks:
+            return toks[-1]
+    return None
 
-def parse_version_from_asterisk(s):
-    # typical: "Asterisk 16.28.0 ..." (core show version) or "Asterisk 16.28.0"
-    m = re.search(r'Asterisk\s+(\d+(?:\.\d+)+)', s or "", re.I)
+def detect_asterisk_version() -> Optional[str]:
+    # Prefer detailed runtime banner
+    out = sh(["asterisk", "-rx", "core show version"])
+    m = re.search(r"Asterisk\s+([0-9]+(?:\.[0-9]+)*)", out or "")
     if m:
         return m.group(1)
-    m = re.search(r'(\d+(?:\.\d+)+)', s or "")
-    return m.group(1) if m else ""
+    # Fallback
+    out = sh(["asterisk", "-V"])
+    m = re.search(r"Asterisk\s+([0-9]+(?:\.[0-9]+)*)", out or "")
+    return m.group(1) if m else None
 
-def detect_freepbx_version():
-    # Try fwconsole --version, fall back to fwconsole version
-    out = sh("/var/lib/asterisk/bin/fwconsole --version")
-    if not out:
-        out = sh("fwconsole --version")
-    if not out:
-        out = sh("fwconsole version")
-    return parse_version_from_freepbx(out)
-
-def detect_asterisk_version():
-    out = sh("asterisk -rx 'core show version'")
-    if not out:
-        out = sh("asterisk -V")
-    return parse_version_from_asterisk(out)
-
-def major_of(v):
-    m = re.match(r'^\s*(\d+)', v or "")
+def major_of(s: Optional[str]) -> Optional[int]:
+    if not s:
+        return None
+    m = re.match(r"([0-9]+)", s)
     return int(m.group(1)) if m else None
 
-def load_policy(path):
+def load_policy(path: str) -> Dict[str, Any]:
+    with open(path, "r") as f:
+        return json.load(f)
+
+def save_policy(path: str, policy: Dict[str, Any]) -> None:
+    d = os.path.dirname(path)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(policy, f, indent=2, sort_keys=True)
+
+def normalize_allowed_majors(v: Any) -> List[int]:
+    out = []
+    if isinstance(v, list):
+        for item in v:
+            try:
+                out.append(int(item))
+            except Exception:
+                pass
+    return out
+
+def normalize_allowed_ranges(v: Any) -> List[Tuple[int, int]]:
+    ranges = []
+    if isinstance(v, list):
+        for pair in v:
+            if (isinstance(pair, list) or isinstance(pair, tuple)) and len(pair) == 2:
+                try:
+                    lo = int(pair[0]); hi = int(pair[1])
+                    if lo <= hi:
+                        ranges.append((lo, hi))
+                except Exception:
+                    pass
+    return ranges
+
+def major_allowed(major: Optional[int], comp_policy: Dict[str, Any]) -> bool:
+    if major is None:
+        return False
+    # Support either:
+    #  - "allowed_majors": [16, 18]
+    #  - "allowed_ranges": [[16,18], [20,20]]
+    majors = normalize_allowed_majors(comp_policy.get("allowed_majors"))
+    if majors and major in majors:
+        return True
+    ranges = normalize_allowed_ranges(comp_policy.get("allowed_ranges"))
+    for lo, hi in ranges:
+        if lo <= major <= hi:
+            return True
+    # Also support simple "min_major"/"max_major" if present
     try:
-        with open(path, "r") as f:
-            return json.load(f)
+        mn = int(comp_policy.get("min_major")) if comp_policy.get("min_major") is not None else None
+        mx = int(comp_policy.get("max_major")) if comp_policy.get("max_major") is not None else None
+        if mn is not None and mx is not None and mn <= major <= mx:
+            return True
+        if mn is not None and mx is None and major >= mn:
+            return True
+        if mx is not None and mn is None and major <= mx:
+            return True
     except Exception:
-        return None
+        pass
+    return False
 
-def check_policy(component, version, policy):
-    """Return (ok_bool, majors_list_or_None)."""
-    majors = None
-    if policy and isinstance(policy, dict):
-        entry = policy.get(component) or {}
-        majors = entry.get("allowed_majors")
-        if majors is not None and not isinstance(majors, list):
-            majors = None
-
-    if not version:
-        return (False, majors)
-
-    maj = major_of(version)
-    if maj is None:
-        return (False, majors)
-
-    if majors is None:
-        # No explicit policy — treat as OK
-        return (True, None)
-
-    return ((maj in majors), majors)
-
-def print_banner(results, policy_path, learned=False):
-    print("=" * 66)
-    print(" FreePBX / Asterisk Version Policy Check")
-    if policy_path:
-        print(" Policy file: {}".format(policy_path))
-    elif learned:
-        print(" Policy: auto-learned from current host (no file present)")
-    else:
-        print(" Policy: (none)")
-    print("-" * 66)
-    print("{:<10} {:<16} {}".format("Component", "Version", "Policy Status"))
-    for comp, data in results.items():
-        ver = data.get("version") or "unknown"
-        ok = data.get("ok")
-        status = "IN-POLICY" if ok else "OUT-OF-POLICY"
-        print("{:<10} {:<16} {}".format(comp, ver, status))
+def banner_line():
     print("=" * 66)
 
-def main(argv=None):
-    p = argparse.ArgumentParser(description="Check FreePBX/Asterisk versions against version_policy.json")
-    p.add_argument("--policy", default=DEFAULT_POLICY, help="Path to version_policy.json")
-    p.add_argument("--quiet", action="store_true", help="No banner output; exit status only if requested")
-    p.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p.add_argument("--exit-nonzero-if-out", action="store_true", help="Exit 2 if any component is OUT-OF-POLICY")
-    args = p.parse_args(argv)
+def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
+    # Detect versions
+    fpbx_ver = detect_freepbx_version()
+    ast_ver  = detect_asterisk_version()
+    fpbx_maj = major_of(fpbx_ver)
+    ast_maj  = major_of(ast_ver)
 
-    fpbx = detect_freepbx_version()
-    ast  = detect_asterisk_version()
-
-    policy = load_policy(args.policy)
-    learned = False
-    policy_path_for_banner = args.policy if policy else None
-
-    if policy is None:
-        # Auto-learn a permissive in-memory policy from current majors (do not write file)
-        policy = {}
-        fpbx_maj = major_of(fpbx)
-        ast_maj  = major_of(ast)
-        if fpbx_maj is not None:
-            policy["FreePBX"] = {"allowed_majors": [fpbx_maj]}
-        if ast_maj is not None:
-            policy["Asterisk"] = {"allowed_majors": [ast_maj]}
-        learned = True
-
-    ok_fpbx, _ = check_policy("FreePBX", fpbx, policy)
-    ok_ast,  _ = check_policy("Asterisk", ast, policy)
-
-    results = {
-        "FreePBX": {"version": fpbx, "ok": bool(ok_fpbx)},
-        "Asterisk": {"version": ast, "ok": bool(ok_ast)},
-    }
-
-    if args.json:
-        payload = {
-            "policy_file": policy_path_for_banner,
-            "auto_learned": learned,
-            "results": results,
+    # Load or autolearn policy
+    policy = {}  # type: Dict[str, Any]
+    if os.path.isfile(policy_path):
+        try:
+            policy = load_policy(policy_path)
+        except Exception:
+            policy = {}
+    elif autolearn:
+        policy = {
+            "FreePBX":  {"allowed_majors": [fpbx_maj] if fpbx_maj is not None else [16]},
+            "Asterisk": {"allowed_majors": [ast_maj]  if ast_maj  is not None else [16, 18]},
         }
-        print(json.dumps(payload))
-    elif not args.quiet:
-        print_banner(results, policy_path_for_banner, learned=learned)
+        try:
+            save_policy(policy_path, policy)
+        except Exception:
+            # Non-fatal: continue without writing
+            pass
 
-    if args.exit_nonzero_if_out and (not ok_fpbx or not ok_ast):
-        return 2
-    return 0
+    fpbx_policy = policy.get("FreePBX", {})
+    ast_policy  = policy.get("Asterisk", {})
+
+    fpbx_ok = major_allowed(fpbx_maj, fpbx_policy)
+    ast_ok  = major_allowed(ast_maj,  ast_policy)
+
+    if not quiet:
+        banner_line()
+        print(" FreePBX / Asterisk Version Policy Check")
+        print(" Policy file: {}".format(policy_path))
+        print("-" * 66)
+        print("{:<10} {:<16} {}".format("Component", "Version", "Policy Status"))
+        print("{:<10} {:<16} {}".format("FreePBX", fpbx_ver or "", "IN-POLICY" if fpbx_ok else "OUT-OF-POLICY"))
+        print("{:<10} {:<16} {}".format("Asterisk", ast_ver or "", "IN-POLICY" if ast_ok else "OUT-OF-POLICY"))
+        banner_line()
+
+    # Exit code: 0 if both known and in policy; 1 otherwise (non-fatal for installer)
+    if (fpbx_ver and ast_ver and fpbx_ok and ast_ok):
+        return 0
+    return 1
+
+def main():
+    ap = argparse.ArgumentParser(description="Check FreePBX/Asterisk versions against version_policy.json")
+    ap.add_argument("--policy", default=os.environ.get("VERSION_POLICY_JSON", DEFAULT_POLICY),
+                    help="Path to version_policy.json (default: %(default)s)")
+    ap.add_argument("--quiet", action="store_true", help="Suppress human-readable banner")
+    ap.add_argument("--no-autolearn", action="store_true",
+                    help="Do not write a minimal policy file if missing")
+    args = ap.parse_args()
+
+    rc = run(args.policy, args.quiet, autolearn=(not args.no_autolearn))
+    sys.exit(rc)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
