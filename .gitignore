@@ -1,1 +1,37 @@
 123NET Admin.csv
+ProductionServers.txt
+
+# System files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+env/
+venv/
+*.egg-info/
+
+# VS Code settings
+.vscode/
+
+# SSH/keys
+*.pem
+*.key
+
+# Output files
+env_check_*.txt
+freepbx_host_profile.conf
+
+# Sensitve Files
+ProductionServers.txt
+server_ips.txt

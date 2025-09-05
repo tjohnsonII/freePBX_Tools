@@ -1,7 +1,10 @@
+#!/usr/bin/env bash
 # 123NET FreePBX Tools - Installer
 # - Installs to /usr/local/123net/freepbx-tools
-# - Symlinks into /usr/local/bin
+# - Symlinks into /usr/local/bin (both friendly and legacy names)
 # - Ensures deps (jq, graphviz/dot, mysql client, python3) with EL7 python36u safety
+# - Normalizes shebangs, makes bin scripts executable
+# - Applies Python <3.7 compat tweak (text=True -> universal_newlines=True)
 # - Creates /home/123net/callflows and prints version policy banner
 
 set -Eeuo pipefail
@@ -19,7 +22,7 @@ is_el()  { [[ -f /etc/redhat-release ]]; }
 is_el7() { is_el && grep -qE 'release 7\.' /etc/redhat-release; }
 is_el8() { is_el && grep -qE 'release 8\.' /etc/redhat-release; }
 is_el9() { is_el && grep -qE 'release 9\.' /etc/redhat-release; }
-is_deb(){ [[ -f /etc/debian_version ]] || have apt-get; }
+is_deb() { [[ -f /etc/debian_version ]] || have apt-get; }
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -36,39 +39,48 @@ enable_epel_if_needed() {
 
 # Ensure a usable python3 without tripping EL7's IUS python36u conflicts
 ensure_python3() {
-  if have python3; then return 0; fi
+  echo ">>> Ensuring python3 is installed and on PATH..."
+  if have python3; then
+    python3 -V || true
+    return 0
+  fi
 
   if is_el7; then
-    # If IUS python36u already present, do NOT pull in base python3 (conflicts).
+    # If IUS python36u already present, do NOT pull in base python3 (they conflict).
     if rpm -q python36u python36u-libs >/dev/null 2>&1; then
       yum install -y python36u python36u-libs python36u-pip || true
-      [[ -x /usr/bin/python3 ]] || ln -sf /usr/bin/python3.6 /usr/bin/python3
-      return 0
+      mkdir -p /usr/local/bin
+      [[ -x /usr/bin/python3.6 ]] && ln -sfn /usr/bin/python3.6 /usr/local/bin/python3
+      export PATH="/usr/local/bin:$PATH"
+      have python3 && { python3 -V || true; return 0; }
     fi
     # Try base/EPEL python3 first
     yum install -y python3 || true
-    if have python3; then return 0; fi
+    if have python3; then python3 -V || true; return 0; fi
     # Last resort: bring in IUS and python36u
     rpm -q ius-release >/dev/null 2>&1 || yum install -y https://repo.ius.io/ius-release-el7.rpm || true
     yum install -y python36u python36u-libs python36u-pip || true
-    [[ -x /usr/bin/python3 ]] || ln -sf /usr/bin/python3.6 /usr/bin/python3
-    return 0
-  fi
-
-  if is_el8 || is_el9; then
+    mkdir -p /usr/local/bin
+    [[ -x /usr/bin/python3.6 ]] && ln -sfn /usr/bin/python3.6 /usr/local/bin/python3
+    export PATH="/usr/local/bin:$PATH"
+    have python3 && { python3 -V || true; return 0; }
+  elif is_el8 || is_el9; then
     (dnf -y install python3 || yum -y install python3) || true
-    return 0
-  fi
-
-  if is_deb; then
+    have python3 && { python3 -V || true; return 0; }
+  elif is_deb; then
     apt-get update -y || true
     apt-get install -y python3 || true
-    return 0
+    have python3 && { python3 -V || true; return 0; }
+  fi
+
+  if ! have python3; then
+    echo "ERROR: python3 could not be installed. Check repositories and rerun." >&2
+    exit 1
   fi
 }
 
 ensure_pkgset() {
-  # jq, graphviz (dot), mysql client
+  echo ">>> Installing jq, graphviz (dot), and MySQL client..."
   if is_el; then
     (yum -y install jq graphviz mariadb || dnf -y install jq graphviz mariadb) || true
   elif is_deb; then
@@ -107,56 +119,88 @@ check_after_installs() {
 }
 
 install_files() {
+  echo ">>> Copying files to $INSTALL_DIR ..."
   local src_dir
   src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
   mkdir -p "$INSTALL_DIR"
   cp -a "$src_dir/." "$INSTALL_DIR/"
 
-  chmod +x "$INSTALL_DIR"/install.sh                2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/uninstall.sh              2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/version_check.sh          2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/freepbx_full_diagnostic.sh 2>/dev/null || true
+  # Normalize shebangs for Python entrypoints and make executables
+  for rel in bin/freepbx_dump.py bin/freepbx_callflow_menu.py bin/freepbx_callflow_graphV2.py; do
+    [[ -f "$INSTALL_DIR/$rel" ]] || continue
+    sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true
+    chmod +x "$INSTALL_DIR/$rel" || true
+  done
 
-  if [[ -f "$INSTALL_DIR/freepbx_dump.py" ]]; then
-    sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/freepbx_dump.py" || true
-    chmod +x "$INSTALL_DIR/freepbx_dump.py" || true
-  fi
+  # Ensure execute bits across bin
+  chmod +x "$INSTALL_DIR"/bin/freepbx_render_from_dump.sh 2>/dev/null || true
+  chmod +x "$INSTALL_DIR"/bin/*.py                       2>/dev/null || true
+  chmod +x "$INSTALL_DIR"/version_check.sh               2>/dev/null || true
+  chmod +x "$INSTALL_DIR"/install.sh                     2>/dev/null || true
+  chmod +x "$INSTALL_DIR"/uninstall.sh                   2>/dev/null || true
 
+  # Output directory for graphs
   mkdir -p "$CALLFLOWS_DIR"
   if id asterisk >/dev/null 2>&1; then
     chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true
   fi
 }
 
+# Make subprocess.run(..., text=True) work on Python < 3.7 by swapping to universal_newlines=True
+patch_py36_text_kwarg() {
+  have python3 || return 0
+  if python3 - <<'PY' >/dev/null 2>&1; then
+import sys; raise SystemExit(0 if sys.version_info < (3,7) else 1)
+PY
+  then
+    local d="$INSTALL_DIR/bin"
+    [[ -d "$d" ]] || return 0
+    echo ">>> Adapting subprocess.run(..., text=True) for Python < 3.7"
+    for f in "$d"/*.py; do
+      [[ -f "$f" ]] || continue
+      [[ -f "${f}.bak" ]] || cp -a "$f" "${f}.bak"
+      sed -i 's/text=True/universal_newlines=True/g' "$f" || true
+    done
+  fi
+}
+
 install_symlinks() {
+  echo ">>> Creating CLI symlinks in $BIN_DIR ..."
   mkdir -p "$BIN_DIR"
-  ln -sf "$INSTALL_DIR/freepbx_full_diagnostic.sh" "$BIN_DIR/freepbx-diagnostic"      2>/dev/null || true
-  ln -sf "$INSTALL_DIR/freepbx_dump.py"            "$BIN_DIR/freepbx-dump"            2>/dev/null || true
-  ln -sf "$INSTALL_DIR/version_check.sh"           "$BIN_DIR/freepbx-version-check"   2>/dev/null || true
-  ln -sf "$INSTALL_DIR/install.sh"                 "$BIN_DIR/freepbx-install"         2>/dev/null || true
-  ln -sf "$INSTALL_DIR/uninstall.sh"               "$BIN_DIR/freepbx-uninstall"       2>/dev/null || true
+
+  # Friendly names
+  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_menu.py"    "$BIN_DIR/freepbx-callflows"        2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx-render"           2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx-dump"             2>/dev/null || true
+  ln -sf "$INSTALL_DIR/version_check.sh"                "$BIN_DIR/freepbx-version-check"    2>/dev/null || true
+  ln -sf "$INSTALL_DIR/install.sh"                      "$BIN_DIR/freepbx-install"          2>/dev/null || true
+  ln -sf "$INSTALL_DIR/uninstall.sh"                    "$BIN_DIR/freepbx-uninstall"        2>/dev/null || true
+
+  # Legacy names required by menu/scripts
+  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"          2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
 }
 
 print_policy_banner() {
   local policy_file="$INSTALL_DIR/version_policy.json"
-  # Create a minimal policy if missing
   if [[ ! -f "$policy_file" ]]; then
     local FWC AST_MAJ FPBX_MAJ
     FWC="$(command -v fwconsole || echo /var/lib/asterisk/bin/fwconsole)"
     FPBX_MAJ="$("$FWC" --version 2>/dev/null | awk '{print $NF}' | cut -d. -f1)"
-    AST_MAJ="$(asterisk -rx 'core show version' 2>/dev/null | sed -n 's/^Asterisk \([0-9.]+\).*/\1/p' | cut -d. -f1)"
-    [[ -z "$AST_MAJ" ]] && AST_MAJ="$(asterisk -V 2>/dev/null | sed -n 's/^Asterisk \([0-9.]+\).*/\1/p' | cut -d. -f1)"
+    AST_MAJ="$(asterisk -rx 'core show version' 2>/dev/null | sed -n 's/^Asterisk \([0-9.]\+\).*/\1/p' | cut -d. -f1)"
+    [[ -z "$AST_MAJ" ]] && AST_MAJ="$(asterisk -V 2>/dev/null | sed -n 's/^Asterisk \([0-9.]\+\).*/\1/p' | cut -d. -f1)"
     cat > "$policy_file" <<EOF
 {
-  "FreePBX": { "allowed_majors": [${FPBX_MAJ:-16}] },
-  "Asterisk": { "allowed_majors": [${AST_MAJ:-16}, 18] }
+  "FreePBX":  { "accepted_majors": [${FPBX_MAJ:-16}] },
+  "Asterisk": { "accepted_majors": [${AST_MAJ:-16}, 18] }
 }
 EOF
     warn "Created default version_policy.json at $policy_file"
   fi
 
-  # Prefer bash checker; then python
+  # Prefer bash checker; then python (if present)
   if [[ -x "$INSTALL_DIR/version_check.sh" ]]; then
     "$INSTALL_DIR/version_check.sh" || true
   fi
@@ -172,11 +216,12 @@ main() {
   ensure_pkgset
   check_after_installs
   install_files
+  patch_py36_text_kwarg
   install_symlinks
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
   log "Symlinks created in $BIN_DIR:"
-  ls -l "$BIN_DIR"/freepbx-* 2>/dev/null || true
+  ls -l "$BIN_DIR"/freepbx-* "$BIN_DIR"/freepbx_* 2>/dev/null || true
   log "Output directory: $CALLFLOWS_DIR"
   print_policy_banner
   log "Done."

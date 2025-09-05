@@ -1,0 +1,8 @@
+=== FreePBX System Report Generated Tue Aug 26 19:27:57 EDT 2025 ===
+
+Linux pbx.bf7.123.net 2.6.32-431.el6.x86_64 #1 SMP Fri Nov 22 03:15:09 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux
+Asterisk 12.8.1 built by mockbuild @ jenkins2.schmoozecom.net on a x86_64 running Linux on 2015-01-28 23:28:43 UTC
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda2        98G  5.6G   87G   7% /
+tmpfs           1.9G     0  1.9G   0% /dev/shm
+/dev/sda1       291M   34M  243M  13% /boot

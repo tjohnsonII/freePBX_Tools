@@ -1,0 +1,2352 @@
+id	keyword	data	flags
+10999	force_avp	no	19
+10999	canreinvite	no	4
+10999	context	from-internal	5
+10999	host	dynamic	6
+10999	defaultuser		7
+10999	trustrpid	yes	8
+10999	secret	6ef7a8504a098b7d6572a8092d962380	2
+10999	user_eq_phone	no	9
+10999	dial	SIP/10999	26
+10999	type	friend	11
+10999	sendrpid	yes	10
+10999	dtmfmode	rfc2833	3
+10999	avpf	no	18
+10999	transport	udp,tcp,tls	17
+10999	port	5060	14
+10999	qualify	yes	15
+10999	sessiontimers	accept	12
+10999	nat	yes	13
+10999	qualifyfreq	60	16
+10999	encryption	no	20
+10999	videosupport	inherit	21
+10999	namedcallgroup		22
+10999	namedpickupgroup		23
+10999	disallow		24
+10999	allow		25
+10999	accountcode		27
+10999	deny	0.0.0.0/0.0.0.0	28
+10999	permit	0.0.0.0/0.0.0.0	29
+10999	secret_origional	6ef7a8504a098b7d6572a8092d962380	30
+10999	sipdriver	chan_sip	31
+10999	account	10999	32
+10999	callerid	prtgmonitor <10999>	33
+201	icesupport	no	20
+201	secret	7d736b9aed87fc9ed62d1c937c1dcfde	4
+201	dtmfmode	rfc2833	5
+201	canreinvite	no	6
+201	context	from-internal	7
+201	sipdriver	chan_sip	2
+201	host	dynamic	8
+201	dial	SIP/201	26
+201	media_encryption	no	10
+201	trustrpid	yes	9
+201	secret_origional	7d736b9aed87fc9ed62d1c937c1dcfde	3
+201	force_avp	no	19
+201	transport	udp,tcp,tls	17
+201	avpf	no	18
+201	sendrpid	yes	11
+201	type	friend	12
+201	nat	yes	13
+201	port	5060	14
+201	qualify	yes	15
+201	qualifyfreq	60	16
+201	encryption	no	21
+201	namedcallgroup		22
+201	namedpickupgroup		23
+201	disallow		24
+201	allow		25
+201	accountcode		27
+201	mailbox	101@default	28
+201	deny	0.0.0.0/0.0.0.0	29
+201	permit	0.0.0.0/0.0.0.0	30
+201	account	201	31
+201	callerid	Office Counter <201>	32
+202	sessiontimers	accept	12
+202	nat	yes	13
+202	port	5060	14
+202	qualify	yes	15
+202	qualifyfreq	60	16
+202	transport	udp,tcp,tls	17
+202	trustrpid	yes	8
+202	user_eq_phone	no	9
+202	sendrpid	yes	10
+202	type	friend	11
+202	dtmfmode	rfc2833	3
+202	canreinvite	no	4
+202	context	from-internal	5
+202	host	dynamic	6
+202	defaultuser		7
+202	dial	SIP/202	26
+202	secret	969c94d47306ce5cfeb4265a28de5bd8	2
+202	force_avp	no	19
+202	avpf	no	18
+202	mailbox	102@default	28
+202	accountcode		27
+202	namedcallgroup		22
+202	namedpickupgroup		23
+202	disallow		24
+202	encryption	no	20
+202	videosupport	inherit	21
+202	allow		25
+202	deny	0.0.0.0/0.0.0.0	29
+202	permit	0.0.0.0/0.0.0.0	30
+202	secret_origional	969c94d47306ce5cfeb4265a28de5bd8	31
+202	sipdriver	chan_sip	32
+202	account	202	33
+202	callerid	Kevin Swift <202>	34
+203	sessiontimers	accept	12
+203	nat	yes	13
+203	port	5060	14
+203	qualify	yes	15
+203	qualifyfreq	60	16
+203	transport	udp,tcp,tls	17
+203	trustrpid	yes	8
+203	user_eq_phone	no	9
+203	sendrpid	yes	10
+203	type	friend	11
+203	dtmfmode	rfc2833	3
+203	canreinvite	no	4
+203	context	from-internal	5
+203	host	dynamic	6
+203	defaultuser		7
+203	dial	SIP/203	26
+203	secret	ccf1f38bf023d43b7946abdaba6270ca	2
+203	force_avp	no	19
+203	avpf	no	18
+203	mailbox	103@default	28
+203	accountcode		27
+203	namedcallgroup		22
+203	namedpickupgroup		23
+203	disallow		24
+203	encryption	no	20
+203	videosupport	inherit	21
+203	allow		25
+203	deny	0.0.0.0/0.0.0.0	29
+203	permit	0.0.0.0/0.0.0.0	30
+203	secret_origional	ccf1f38bf023d43b7946abdaba6270ca	31
+203	sipdriver	chan_sip	32
+203	account	203	33
+203	callerid	103 <203>	34
+204	sessiontimers	accept	12
+204	nat	yes	13
+204	port	5060	14
+204	qualify	yes	15
+204	qualifyfreq	60	16
+204	transport	udp,tcp,tls	17
+204	trustrpid	yes	8
+204	user_eq_phone	no	9
+204	sendrpid	yes	10
+204	type	friend	11
+204	dtmfmode	rfc2833	3
+204	canreinvite	no	4
+204	context	from-internal	5
+204	host	dynamic	6
+204	defaultuser		7
+204	dial	SIP/204	26
+204	secret	47116b49e6685807c4cc7705a3af7ce6	2
+204	force_avp	no	19
+204	avpf	no	18
+204	mailbox	104@default	28
+204	accountcode		27
+204	namedcallgroup		22
+204	namedpickupgroup		23
+204	disallow		24
+204	encryption	no	20
+204	videosupport	inherit	21
+204	allow		25
+204	deny	0.0.0.0/0.0.0.0	29
+204	permit	0.0.0.0/0.0.0.0	30
+204	secret_origional	47116b49e6685807c4cc7705a3af7ce6	31
+204	sipdriver	chan_sip	32
+204	account	204	33
+204	callerid	Matthew Daniels <204>	34
+205	mailbox	105@default	28
+205	namedcallgroup		22
+205	sessiontimers	accept	11
+205	dial	SIP/205	26
+205	secret	dc5e253a2811843512d5ac4aef10fafb	2
+205	avpf	no	17
+205	force_avp	no	18
+205	nat	yes	12
+205	port	5060	13
+205	qualify	yes	14
+205	qualifyfreq	60	15
+205	transport	udp,tcp,tls	16
+205	dtmfmode	rfc2833	3
+205	canreinvite	no	4
+205	context	from-internal	5
+205	host	dynamic	6
+205	defaultuser		7
+205	trustrpid	yes	8
+205	sendrpid	yes	9
+205	type	friend	10
+205	permit	0.0.0.0/0.0.0.0	30
+205	deny	0.0.0.0/0.0.0.0	29
+205	accountcode		27
+205	disallow		24
+205	allow		25
+205	videosupport	inherit	21
+205	encryption	no	20
+205	secret_origional	dc5e253a2811843512d5ac4aef10fafb	31
+205	namedpickupgroup		23
+205	icesupport	no	19
+205	sipdriver	chan_sip	32
+205	account	205	33
+205	callerid	Auction <205>	34
+206	sessiontimers	accept	12
+206	nat	yes	13
+206	port	5060	14
+206	qualify	yes	15
+206	qualifyfreq	60	16
+206	transport	udp,tcp,tls	17
+206	trustrpid	yes	8
+206	user_eq_phone	no	9
+206	sendrpid	yes	10
+206	type	friend	11
+206	dtmfmode	rfc2833	3
+206	canreinvite	no	4
+206	context	from-internal	5
+206	host	dynamic	6
+206	defaultuser		7
+206	dial	SIP/206	26
+206	secret	0a4889d063b1839240b546829a966ec7	2
+206	force_avp	no	19
+206	avpf	no	18
+206	mailbox	106@default	28
+206	accountcode		27
+206	namedcallgroup		22
+206	namedpickupgroup		23
+206	disallow		24
+206	encryption	no	20
+206	videosupport	inherit	21
+206	allow		25
+206	deny	0.0.0.0/0.0.0.0	29
+206	permit	0.0.0.0/0.0.0.0	30
+206	secret_origional	0a4889d063b1839240b546829a966ec7	31
+206	sipdriver	chan_sip	32
+206	account	206	33
+206	callerid	Deb Cotton <206>	34
+207	deny	0.0.0.0/0.0.0.0	29
+207	disallow		24
+207	trustrpid	yes	8
+207	dial	SIP/207	26
+207	secret	effc9a8711906939b48357894b443cc4	2
+207	nat	yes	13
+207	port	5060	14
+207	qualify	yes	15
+207	qualifyfreq	60	16
+207	transport	udp,tcp,tls	17
+207	user_eq_phone	no	9
+207	sendrpid	yes	10
+207	type	friend	11
+207	sessiontimers	accept	12
+207	dtmfmode	rfc2833	3
+207	canreinvite	no	4
+207	context	from-internal	5
+207	host	dynamic	6
+207	defaultuser		7
+207	secret_origional	effc9a8711906939b48357894b443cc4	31
+207	permit	0.0.0.0/0.0.0.0	30
+207	mailbox	107@default	28
+207	allow		25
+207	accountcode		27
+207	namedpickupgroup		23
+207	force_avp	no	19
+207	encryption	no	20
+207	videosupport	inherit	21
+207	namedcallgroup		22
+207	avpf	no	18
+207	sipdriver	chan_sip	32
+207	account	207	33
+207	callerid	Mimi Lewalski Pit <207>	34
+227	avpf	no	17
+227	transport	udp,tcp,tls	16
+227	qualifyfreq	60	15
+227	qualify	yes	14
+227	permit	0.0.0.0/0.0.0.0	30
+227	accountcode		27
+227	mailbox	127@default	28
+227	namedcallgroup		22
+227	secret_origional	f848d58c386fe7f30f0792dc78ed264d	31
+227	allow		25
+227	namedpickupgroup		23
+227	disallow		24
+227	videosupport	inherit	21
+227	icesupport	no	19
+227	encryption	no	20
+227	sessiontimers	accept	11
+227	nat	yes	12
+227	port	5060	13
+227	dial	SIP/227	26
+227	secret	f848d58c386fe7f30f0792dc78ed264d	2
+227	dtmfmode	rfc2833	3
+227	canreinvite	no	4
+227	context	from-internal	5
+227	host	dynamic	6
+227	defaultuser		7
+227	trustrpid	yes	8
+227	sendrpid	yes	9
+227	type	friend	10
+227	deny	0.0.0.0/0.0.0.0	29
+227	force_avp	no	18
+227	sipdriver	chan_sip	32
+227	account	227	33
+227	callerid	Elizabeth Madsen <227>	34
+228	permit	0.0.0.0/0.0.0.0	30
+228	disallow		24
+228	mailbox	128@default	28
+228	namedpickupgroup		23
+228	trustrpid	yes	8
+228	dial	SIP/228	26
+228	secret	1554da0f489e0f9b9570cc6b9a796962	2
+228	nat	yes	13
+228	port	5060	14
+228	qualify	yes	15
+228	qualifyfreq	60	16
+228	transport	udp,tcp,tls	17
+228	user_eq_phone	no	9
+228	sendrpid	yes	10
+228	type	friend	11
+228	sessiontimers	accept	12
+228	dtmfmode	rfc2833	3
+228	canreinvite	no	4
+228	context	from-internal	5
+228	host	dynamic	6
+228	defaultuser		7
+228	deny	0.0.0.0/0.0.0.0	29
+228	accountcode		27
+228	allow		25
+228	namedcallgroup		22
+228	force_avp	no	19
+228	encryption	no	20
+228	videosupport	inherit	21
+228	avpf	no	18
+228	secret_origional	1554da0f489e0f9b9570cc6b9a796962	31
+228	sipdriver	chan_sip	32
+228	account	228	33
+228	callerid	Teachers Lounge <228>	34
+229	allow		25
+229	accountcode		27
+229	mailbox	129@default	28
+229	deny	0.0.0.0/0.0.0.0	29
+229	permit	0.0.0.0/0.0.0.0	30
+229	trustrpid	yes	9
+229	media_encryption	no	10
+229	sendrpid	yes	11
+229	type	friend	12
+229	nat	yes	13
+229	port	5060	14
+229	qualify	yes	15
+229	qualifyfreq	60	16
+229	transport	udp,tcp,tls	17
+229	avpf	no	18
+229	force_avp	no	19
+229	icesupport	no	20
+229	encryption	no	21
+229	namedcallgroup		22
+229	namedpickupgroup		23
+229	dtmfmode	rfc2833	5
+229	canreinvite	no	6
+229	context	from-internal	7
+229	host	dynamic	8
+229	dial	SIP/229	26
+229	sipdriver	chan_sip	2
+229	secret_origional	49a614763bd1f54b694b72216c21cc57	3
+229	secret	49a614763bd1f54b694b72216c21cc57	4
+229	account	229	31
+229	callerid	Frank Accavitti <229>	32
+229	disallow		24
+230	qualify	yes	15
+230	qualifyfreq	60	16
+230	transport	udp,tcp,tls	17
+230	avpf	no	18
+230	force_avp	no	19
+230	encryption	no	20
+230	account	230	33
+230	deny	0.0.0.0/0.0.0.0	29
+230	dial	SIP/230	26
+230	secret	0575685957540663115219b1e9c6435e	2
+230	dtmfmode	rfc2833	3
+230	canreinvite	no	4
+230	context	from-internal	5
+230	host	dynamic	6
+230	defaultuser		7
+230	trustrpid	yes	8
+230	user_eq_phone	no	9
+230	sendrpid	yes	10
+230	type	friend	11
+230	sessiontimers	accept	12
+230	nat	yes	13
+230	port	5060	14
+230	secret_origional	0575685957540663115219b1e9c6435e	31
+230	videosupport	inherit	21
+230	namedcallgroup		22
+230	namedpickupgroup		23
+230	disallow		24
+230	allow		25
+230	accountcode		27
+230	mailbox	130@default	28
+230	permit	0.0.0.0/0.0.0.0	30
+230	sipdriver	chan_sip	32
+230	callerid	Kathy Morris <230>	34
+231	permit	0.0.0.0/0.0.0.0	30
+231	mailbox	131@default	28
+231	accountcode		27
+231	allow		25
+231	videosupport	inherit	21
+231	namedcallgroup		22
+231	force_avp	no	19
+231	encryption	no	20
+231	defaultuser		7
+231	trustrpid	yes	8
+231	user_eq_phone	no	9
+231	sendrpid	yes	10
+231	type	friend	11
+231	sessiontimers	accept	12
+231	nat	yes	13
+231	port	5060	14
+231	qualify	yes	15
+231	qualifyfreq	60	16
+231	transport	udp,tcp,tls	17
+231	avpf	no	18
+231	secret_origional	a3b322ce7d2af16bb53898176aea00bd	31
+231	dial	SIP/231	26
+231	secret	a3b322ce7d2af16bb53898176aea00bd	2
+231	dtmfmode	rfc2833	3
+231	canreinvite	no	4
+231	context	from-internal	5
+231	host	dynamic	6
+231	account	231	33
+231	deny	0.0.0.0/0.0.0.0	29
+231	disallow		24
+231	namedpickupgroup		23
+231	sipdriver	chan_sip	32
+231	callerid	Michaele Dean <231>	34
+232	permit	0.0.0.0/0.0.0.0	30
+232	accountcode		27
+232	disallow		24
+232	allow		25
+232	encryption	no	20
+232	dial	SIP/232	26
+232	secret	005f40a0a65b53a4e6c445a6a817dd5a	2
+232	dtmfmode	rfc2833	3
+232	canreinvite	no	4
+232	context	from-internal	5
+232	host	dynamic	6
+232	defaultuser		7
+232	trustrpid	yes	8
+232	user_eq_phone	no	9
+232	sendrpid	yes	10
+232	type	friend	11
+232	sessiontimers	accept	12
+232	nat	yes	13
+232	port	5060	14
+232	namedcallgroup		22
+232	videosupport	inherit	21
+232	secret_origional	005f40a0a65b53a4e6c445a6a817dd5a	31
+232	qualify	yes	15
+232	qualifyfreq	60	16
+232	transport	udp,tcp,tls	17
+232	avpf	no	18
+232	force_avp	no	19
+232	mailbox	132@default	28
+232	namedpickupgroup		23
+232	deny	0.0.0.0/0.0.0.0	29
+232	sipdriver	chan_sip	32
+232	account	232	33
+232	callerid	Fan Cave <232>	34
+233	sipdriver	chan_sip	32
+233	port	5060	14
+233	qualify	yes	15
+233	qualifyfreq	60	16
+233	transport	udp,tcp,tls	17
+233	avpf	no	18
+233	force_avp	no	19
+233	encryption	no	20
+233	videosupport	inherit	21
+233	namedcallgroup		22
+233	canreinvite	no	4
+233	context	from-internal	5
+233	host	dynamic	6
+233	defaultuser		7
+233	trustrpid	yes	8
+233	user_eq_phone	no	9
+233	sendrpid	yes	10
+233	type	friend	11
+233	sessiontimers	accept	12
+233	nat	yes	13
+233	allow		25
+233	accountcode		27
+233	mailbox	133@default	28
+233	deny	0.0.0.0/0.0.0.0	29
+233	permit	0.0.0.0/0.0.0.0	30
+233	secret_origional	7a96427450f8276aa4488d16d5dd7160	31
+233	dial	SIP/233	26
+233	secret	7a96427450f8276aa4488d16d5dd7160	2
+233	dtmfmode	rfc2833	3
+233	disallow		24
+233	namedpickupgroup		23
+233	account	233	33
+233	callerid	Mike Maltese <233>	34
+234	callerid	Brian Barnes <234>	34
+234	namedcallgroup		22
+234	nat	yes	13
+234	port	5060	14
+234	qualify	yes	15
+234	qualifyfreq	60	16
+234	transport	udp,tcp,tls	17
+234	avpf	no	18
+234	force_avp	no	19
+234	encryption	no	20
+234	videosupport	inherit	21
+234	sendrpid	yes	10
+234	dtmfmode	rfc2833	3
+234	canreinvite	no	4
+234	context	from-internal	5
+234	host	dynamic	6
+234	defaultuser		7
+234	trustrpid	yes	8
+234	user_eq_phone	no	9
+234	permit	0.0.0.0/0.0.0.0	30
+234	namedpickupgroup		23
+234	disallow		24
+234	allow		25
+234	accountcode		27
+234	mailbox	134@default	28
+234	deny	0.0.0.0/0.0.0.0	29
+234	sessiontimers	accept	12
+234	account	234	33
+234	secret_origional	4dea364ed199acb36358c528802f5d8b	31
+234	dial	SIP/234	26
+234	secret	4dea364ed199acb36358c528802f5d8b	2
+234	type	friend	11
+234	sipdriver	chan_sip	32
+235	sessiontimers	accept	12
+235	nat	yes	13
+235	port	5060	14
+235	qualify	yes	15
+235	qualifyfreq	60	16
+235	transport	udp,tcp,tls	17
+235	trustrpid	yes	8
+235	user_eq_phone	no	9
+235	sendrpid	yes	10
+235	type	friend	11
+235	dtmfmode	rfc2833	3
+235	canreinvite	no	4
+235	context	from-internal	5
+235	host	dynamic	6
+235	defaultuser		7
+235	dial	SIP/235	26
+235	secret	c45e341dac97dda59d84acaa014da900	2
+235	force_avp	no	19
+235	avpf	no	18
+235	mailbox	135@default	28
+235	accountcode		27
+235	namedcallgroup		22
+235	namedpickupgroup		23
+235	disallow		24
+235	encryption	no	20
+235	videosupport	inherit	21
+235	allow		25
+235	deny	0.0.0.0/0.0.0.0	29
+235	permit	0.0.0.0/0.0.0.0	30
+235	secret_origional	c45e341dac97dda59d84acaa014da900	31
+235	sipdriver	chan_sip	32
+235	account	235	33
+235	callerid	Emma Peurach <235>	34
+236	namedpickupgroup		23
+236	disallow		24
+236	allow		25
+236	accountcode		27
+236	mailbox	136@default	28
+236	videosupport	inherit	21
+236	encryption	no	20
+236	defaultuser		7
+236	trustrpid	yes	8
+236	user_eq_phone	no	9
+236	sendrpid	yes	10
+236	type	friend	11
+236	sessiontimers	accept	12
+236	nat	yes	13
+236	port	5060	14
+236	qualify	yes	15
+236	qualifyfreq	60	16
+236	transport	udp,tcp,tls	17
+236	avpf	no	18
+236	force_avp	no	19
+236	secret_origional	4ca592e097463c66965b55e39c6405fd	31
+236	dial	SIP/236	26
+236	secret	4ca592e097463c66965b55e39c6405fd	2
+236	dtmfmode	rfc2833	3
+236	canreinvite	no	4
+236	context	from-internal	5
+236	host	dynamic	6
+236	account	236	33
+236	callerid	Allison Hoover <236>	34
+236	permit	0.0.0.0/0.0.0.0	30
+236	deny	0.0.0.0/0.0.0.0	29
+236	namedcallgroup		22
+236	sipdriver	chan_sip	32
+237	icesupport	no	20
+237	secret	d5a0f5f3341595b907671a321fa96806	4
+237	dtmfmode	rfc2833	5
+237	canreinvite	no	6
+237	context	from-internal	7
+237	sipdriver	chan_sip	2
+237	host	dynamic	8
+237	dial	SIP/237	26
+237	media_encryption	no	10
+237	trustrpid	yes	9
+237	secret_origional	d5a0f5f3341595b907671a321fa96806	3
+237	force_avp	no	19
+237	transport	udp,tcp,tls	17
+237	avpf	no	18
+237	sendrpid	yes	11
+237	type	friend	12
+237	nat	yes	13
+237	port	5060	14
+237	qualify	yes	15
+237	qualifyfreq	60	16
+237	encryption	no	21
+237	namedcallgroup		22
+237	namedpickupgroup		23
+237	disallow		24
+237	allow		25
+237	accountcode		27
+237	mailbox	137@default	28
+237	deny	0.0.0.0/0.0.0.0	29
+237	permit	0.0.0.0/0.0.0.0	30
+237	account	237	31
+237	callerid	Andrea Harden <237>	32
+238	secret_origional	ad1d28eaef26e003c41dd3fedd9dd9c1	30
+238	deny	0.0.0.0/0.0.0.0	28
+238	mailbox	138@default	27
+238	accountcode		26
+238	namedcallgroup		21
+238	namedpickupgroup		22
+238	encryption	no	19
+238	videosupport	inherit	20
+238	defaultuser		7
+238	trustrpid	yes	8
+238	sendrpid	yes	9
+238	type	friend	10
+238	sessiontimers	accept	11
+238	nat	yes	12
+238	port	5060	13
+238	qualify	yes	14
+238	qualifyfreq	60	15
+238	transport	udp,tcp,tls	16
+238	avpf	no	17
+238	force_avp	no	18
+238	dial	SIP/238	25
+238	secret	ad1d28eaef26e003c41dd3fedd9dd9c1	2
+238	dtmfmode	rfc2833	3
+238	canreinvite	no	4
+238	context	from-internal	5
+238	host	dynamic	6
+238	callerid	Trevor Tyle <238>	33
+238	sipdriver	chan_sip	31
+238	permit	0.0.0.0/0.0.0.0	29
+238	allow		24
+238	disallow		23
+238	account	238	32
+239	accountcode		27
+239	videosupport	inherit	21
+239	trustrpid	yes	8
+239	dial	SIP/239	26
+239	secret	74f06b80705ed7c536967f44938d5df7	2
+239	nat	yes	13
+239	port	5060	14
+239	qualify	yes	15
+239	qualifyfreq	60	16
+239	transport	udp,tcp,tls	17
+239	user_eq_phone	no	9
+239	sendrpid	yes	10
+239	type	friend	11
+239	sessiontimers	accept	12
+239	dtmfmode	rfc2833	3
+239	canreinvite	no	4
+239	context	from-internal	5
+239	host	dynamic	6
+239	defaultuser		7
+239	permit	0.0.0.0/0.0.0.0	30
+239	deny	0.0.0.0/0.0.0.0	29
+239	allow		25
+239	namedpickupgroup		23
+239	disallow		24
+239	encryption	no	20
+239	force_avp	no	19
+239	secret_origional	74f06b80705ed7c536967f44938d5df7	31
+239	namedcallgroup		22
+239	avpf	no	18
+239	mailbox	139@default	28
+239	sipdriver	chan_sip	32
+239	account	239	33
+239	callerid	Ashley Hursin <239>	34
+240	icesupport	no	20
+240	secret	865c5efd4622cf411db8d16c4d534b3c	4
+240	dtmfmode	rfc2833	5
+240	canreinvite	no	6
+240	context	from-internal	7
+240	sipdriver	chan_sip	2
+240	host	dynamic	8
+240	dial	SIP/240	26
+240	media_encryption	no	10
+240	trustrpid	yes	9
+240	secret_origional	865c5efd4622cf411db8d16c4d534b3c	3
+240	force_avp	no	19
+240	transport	udp,tcp,tls	17
+240	avpf	no	18
+240	sendrpid	yes	11
+240	type	friend	12
+240	nat	yes	13
+240	port	5060	14
+240	qualify	yes	15
+240	qualifyfreq	60	16
+240	encryption	no	21
+240	namedcallgroup		22
+240	namedpickupgroup		23
+240	disallow		24
+240	allow		25
+240	accountcode		27
+240	mailbox	140@default	28
+240	deny	0.0.0.0/0.0.0.0	29
+240	permit	0.0.0.0/0.0.0.0	30
+240	account	240	31
+240	callerid	Nona Moore <240>	32
+241	icesupport	no	20
+241	secret	61754732b92e6ded3de4dfcb7258d8b7	4
+241	dtmfmode	rfc2833	5
+241	canreinvite	no	6
+241	context	from-internal	7
+241	sipdriver	chan_sip	2
+241	host	dynamic	8
+241	dial	SIP/241	26
+241	media_encryption	no	10
+241	trustrpid	yes	9
+241	secret_origional	61754732b92e6ded3de4dfcb7258d8b7	3
+241	force_avp	no	19
+241	transport	udp,tcp,tls	17
+241	avpf	no	18
+241	sendrpid	yes	11
+241	type	friend	12
+241	nat	yes	13
+241	port	5060	14
+241	qualify	yes	15
+241	qualifyfreq	60	16
+241	encryption	no	21
+241	namedcallgroup		22
+241	namedpickupgroup		23
+241	disallow		24
+241	allow		25
+241	accountcode		27
+241	mailbox	141@default	28
+241	deny	0.0.0.0/0.0.0.0	29
+241	permit	0.0.0.0/0.0.0.0	30
+241	account	241	31
+241	callerid	Valerie Sipsock <241>	32
+242	deny	0.0.0.0/0.0.0.0	29
+242	sipdriver	chan_sip	32
+242	secret_origional	29eb713f5b44917cf4a1e0808efbad51	31
+242	permit	0.0.0.0/0.0.0.0	30
+242	dial	SIP/242	26
+242	secret	29eb713f5b44917cf4a1e0808efbad51	2
+242	dtmfmode	rfc2833	3
+242	canreinvite	no	4
+242	context	from-internal	5
+242	host	dynamic	6
+242	defaultuser		7
+242	trustrpid	yes	8
+242	user_eq_phone	no	9
+242	sendrpid	yes	10
+242	type	friend	11
+242	sessiontimers	accept	12
+242	nat	yes	13
+242	encryption	no	20
+242	videosupport	inherit	21
+242	namedcallgroup		22
+242	namedpickupgroup		23
+242	disallow		24
+242	allow		25
+242	accountcode		27
+242	mailbox	142@default	28
+242	account	242	33
+242	callerid	Calla Baumgartner <242>	34
+242	port	5060	14
+242	qualify	yes	15
+242	qualifyfreq	60	16
+242	transport	udp,tcp,tls	17
+242	avpf	no	18
+242	force_avp	no	19
+243	sessiontimers	accept	12
+243	nat	yes	13
+243	port	5060	14
+243	qualify	yes	15
+243	qualifyfreq	60	16
+243	transport	udp,tcp,tls	17
+243	trustrpid	yes	8
+243	user_eq_phone	no	9
+243	sendrpid	yes	10
+243	type	friend	11
+243	dtmfmode	rfc2833	3
+243	canreinvite	no	4
+243	context	from-internal	5
+243	host	dynamic	6
+243	defaultuser		7
+243	dial	SIP/243	26
+243	secret	97c1a86fe945a0371697736ce3cd4333	2
+243	force_avp	no	19
+243	avpf	no	18
+243	mailbox	143@default	28
+243	accountcode		27
+243	namedcallgroup		22
+243	namedpickupgroup		23
+243	disallow		24
+243	encryption	no	20
+243	videosupport	inherit	21
+243	allow		25
+243	deny	0.0.0.0/0.0.0.0	29
+243	permit	0.0.0.0/0.0.0.0	30
+243	secret_origional	97c1a86fe945a0371697736ce3cd4333	31
+243	sipdriver	chan_sip	32
+243	account	243	33
+243	callerid	Weight Room <243>	34
+244	icesupport	no	20
+244	secret	92497c1f79b8ddd1e1033ad6a9fb5757	4
+244	dtmfmode	rfc2833	5
+244	canreinvite	no	6
+244	context	from-internal	7
+244	sipdriver	chan_sip	2
+244	host	dynamic	8
+244	dial	SIP/244	26
+244	media_encryption	no	10
+244	trustrpid	yes	9
+244	secret_origional	92497c1f79b8ddd1e1033ad6a9fb5757	3
+244	force_avp	no	19
+244	transport	udp,tcp,tls	17
+244	avpf	no	18
+244	sendrpid	yes	11
+244	type	friend	12
+244	nat	yes	13
+244	port	5060	14
+244	qualify	yes	15
+244	qualifyfreq	60	16
+244	encryption	no	21
+244	namedcallgroup		22
+244	namedpickupgroup		23
+244	disallow		24
+244	allow		25
+244	accountcode		27
+244	mailbox	144@default	28
+244	deny	0.0.0.0/0.0.0.0	29
+244	permit	0.0.0.0/0.0.0.0	30
+244	account	244	31
+244	callerid	Dan Elmore <244>	32
+245	account	245	33
+245	permit	0.0.0.0/0.0.0.0	30
+245	secret_origional	f88bd3437d5290c56f34c00c20248ce9	31
+245	sipdriver	chan_sip	32
+245	videosupport	inherit	21
+245	namedcallgroup		22
+245	namedpickupgroup		23
+245	disallow		24
+245	allow		25
+245	accountcode		27
+245	mailbox	145@default	28
+245	port	5060	14
+245	dtmfmode	rfc2833	3
+245	canreinvite	no	4
+245	context	from-internal	5
+245	host	dynamic	6
+245	defaultuser		7
+245	trustrpid	yes	8
+245	user_eq_phone	no	9
+245	sendrpid	yes	10
+245	type	friend	11
+245	sessiontimers	accept	12
+245	nat	yes	13
+245	dial	SIP/245	26
+245	secret	f88bd3437d5290c56f34c00c20248ce9	2
+245	callerid	Thea Augustyn <245>	34
+245	deny	0.0.0.0/0.0.0.0	29
+245	avpf	no	18
+245	force_avp	no	19
+245	encryption	no	20
+245	qualify	yes	15
+245	qualifyfreq	60	16
+245	transport	udp,tcp,tls	17
+246	sessiontimers	accept	12
+246	nat	yes	13
+246	port	5060	14
+246	qualify	yes	15
+246	qualifyfreq	60	16
+246	transport	udp,tcp,tls	17
+246	trustrpid	yes	8
+246	user_eq_phone	no	9
+246	sendrpid	yes	10
+246	type	friend	11
+246	dtmfmode	rfc2833	3
+246	canreinvite	no	4
+246	context	from-internal	5
+246	host	dynamic	6
+246	defaultuser		7
+246	dial	SIP/246	26
+246	secret	497282a739039a88e333747fb6cbeb80	2
+246	force_avp	no	19
+246	avpf	no	18
+246	mailbox	146@default	28
+246	accountcode		27
+246	namedcallgroup		22
+246	namedpickupgroup		23
+246	disallow		24
+246	encryption	no	20
+246	videosupport	inherit	21
+246	allow		25
+246	deny	0.0.0.0/0.0.0.0	29
+246	permit	0.0.0.0/0.0.0.0	30
+246	secret_origional	497282a739039a88e333747fb6cbeb80	31
+246	sipdriver	chan_sip	32
+246	account	246	33
+246	callerid	Carol Al Ansour <246>	34
+247	disallow		24
+247	media_encryption	no	10
+247	sendrpid	yes	11
+247	type	friend	12
+247	nat	yes	13
+247	port	5060	14
+247	qualify	yes	15
+247	dtmfmode	rfc2833	5
+247	canreinvite	no	6
+247	context	from-internal	7
+247	host	dynamic	8
+247	secret_origional	d2c674b11e7d1a49beaf14edaca57273	3
+247	secret	d2c674b11e7d1a49beaf14edaca57273	4
+247	trustrpid	yes	9
+247	dial	SIP/247	26
+247	sipdriver	chan_sip	2
+247	transport	udp,tcp,tls	17
+247	qualifyfreq	60	16
+247	allow		25
+247	avpf	no	18
+247	force_avp	no	19
+247	icesupport	no	20
+247	encryption	no	21
+247	namedcallgroup		22
+247	namedpickupgroup		23
+247	accountcode		27
+247	mailbox	147@default	28
+247	deny	0.0.0.0/0.0.0.0	29
+247	permit	0.0.0.0/0.0.0.0	30
+247	account	247	31
+247	callerid	John Crombe <247>	32
+248	permit	0.0.0.0/0.0.0.0	30
+248	mailbox	148@default	28
+248	accountcode		27
+248	allow		25
+248	videosupport	inherit	21
+248	namedcallgroup		22
+248	force_avp	no	19
+248	encryption	no	20
+248	defaultuser		7
+248	trustrpid	yes	8
+248	user_eq_phone	no	9
+248	sendrpid	yes	10
+248	type	friend	11
+248	sessiontimers	accept	12
+248	nat	yes	13
+248	port	5060	14
+248	qualify	yes	15
+248	qualifyfreq	60	16
+248	transport	udp,tcp,tls	17
+248	avpf	no	18
+248	secret_origional	2d3ba1b8d38fcd88d89d2a004df38e17	31
+248	dial	SIP/248	26
+248	secret	2d3ba1b8d38fcd88d89d2a004df38e17	2
+248	dtmfmode	rfc2833	3
+248	canreinvite	no	4
+248	context	from-internal	5
+248	host	dynamic	6
+248	account	248	33
+248	deny	0.0.0.0/0.0.0.0	29
+248	disallow		24
+248	namedpickupgroup		23
+248	sipdriver	chan_sip	32
+248	callerid	Sal Trupiano <248>	34
+249	mailbox	149@default	27
+249	nat	yes	12
+249	port	5060	13
+249	qualify	yes	14
+249	qualifyfreq	60	15
+249	transport	udp,tcp,tls	16
+249	avpf	no	17
+249	trustrpid	yes	8
+249	sendrpid	yes	9
+249	type	friend	10
+249	sessiontimers	accept	11
+249	dtmfmode	rfc2833	3
+249	canreinvite	no	4
+249	context	from-internal	5
+249	host	dynamic	6
+249	defaultuser		7
+249	dial	SIP/249	25
+249	secret	0798e8c72dd07777eab649f6c1768932	2
+249	encryption	no	19
+249	force_avp	no	18
+249	namedpickupgroup		22
+249	disallow		23
+249	allow		24
+249	videosupport	inherit	20
+249	deny	0.0.0.0/0.0.0.0	28
+249	namedcallgroup		21
+249	accountcode		26
+249	permit	0.0.0.0/0.0.0.0	29
+249	secret_origional	0798e8c72dd07777eab649f6c1768932	30
+249	sipdriver	chan_sip	31
+249	account	249	32
+249	callerid	Kaitlyn Chornoby <249>	33
+250	dial	SIP/250	26
+250	secret	826b668adb02104a05691e2462086edf	2
+250	dtmfmode	rfc2833	3
+250	canreinvite	no	4
+250	context	from-internal	5
+250	host	dynamic	6
+250	defaultuser		7
+250	trustrpid	yes	8
+250	user_eq_phone	no	9
+250	sendrpid	yes	10
+250	type	friend	11
+250	sessiontimers	accept	12
+250	nat	yes	13
+250	port	5060	14
+250	qualify	yes	15
+250	qualifyfreq	60	16
+250	transport	udp,tcp,tls	17
+250	avpf	no	18
+250	force_avp	no	19
+250	encryption	no	20
+250	videosupport	inherit	21
+250	namedcallgroup		22
+250	namedpickupgroup		23
+250	disallow		24
+250	allow		25
+250	accountcode		27
+250	mailbox	350@default	28
+250	deny	0.0.0.0/0.0.0.0	29
+250	permit	0.0.0.0/0.0.0.0	30
+250	secret_origional		31
+250	sipdriver	chan_sip	32
+250	account	250	33
+250	callerid	Amanda Jagow <250>	34
+251	dial	SIP/251	26
+251	secret	e75343f20a08d3dee00ce788d1d7d5aa	2
+251	dtmfmode	rfc2833	3
+251	canreinvite	no	4
+251	context	from-internal	5
+251	host	dynamic	6
+251	defaultuser		7
+251	trustrpid	yes	8
+251	user_eq_phone	no	9
+251	sendrpid	yes	10
+251	type	friend	11
+251	sessiontimers	accept	12
+251	nat	yes	13
+251	port	5060	14
+251	qualify	yes	15
+251	qualifyfreq	60	16
+251	transport	udp,tcp,tls	17
+251	avpf	no	18
+251	force_avp	no	19
+251	encryption	no	20
+251	videosupport	inherit	21
+251	namedcallgroup		22
+251	namedpickupgroup		23
+251	disallow		24
+251	allow		25
+251	accountcode		27
+251	mailbox	351@default	28
+251	deny	0.0.0.0/0.0.0.0	29
+251	permit	0.0.0.0/0.0.0.0	30
+251	secret_origional		31
+251	sipdriver	chan_sip	32
+251	account	251	33
+251	callerid	Marylee Petty <251>	34
+252	dial	SIP/252	26
+252	secret	eb1eea7ca67917e0afd630db378baa86	2
+252	dtmfmode	rfc2833	3
+252	canreinvite	no	4
+252	context	from-internal	5
+252	host	dynamic	6
+252	defaultuser		7
+252	trustrpid	yes	8
+252	user_eq_phone	no	9
+252	sendrpid	yes	10
+252	type	friend	11
+252	sessiontimers	accept	12
+252	nat	yes	13
+252	port	5060	14
+252	qualify	yes	15
+252	qualifyfreq	60	16
+252	transport	udp,tcp,tls	17
+252	avpf	no	18
+252	force_avp	no	19
+252	encryption	no	20
+252	videosupport	inherit	21
+252	namedcallgroup		22
+252	namedpickupgroup		23
+252	disallow		24
+252	allow		25
+252	accountcode		27
+252	mailbox	352@default	28
+252	deny	0.0.0.0/0.0.0.0	29
+252	permit	0.0.0.0/0.0.0.0	30
+252	secret_origional		31
+252	sipdriver	chan_sip	32
+252	account	252	33
+252	callerid	Timothy McCormick <252>	34
+253	videosupport	inherit	21
+253	trustrpid	yes	8
+253	user_eq_phone	no	9
+253	sendrpid	yes	10
+253	type	friend	11
+253	sessiontimers	accept	12
+253	context	from-internal	5
+253	secret	e45446e5d65fd9252ef526da39d87a06	2
+253	dtmfmode	rfc2833	3
+253	canreinvite	no	4
+253	port	5060	14
+253	nat	yes	13
+253	encryption	no	20
+253	dial	SIP/253	26
+253	qualifyfreq	60	16
+253	transport	udp,tcp,tls	17
+253	avpf	no	18
+253	force_avp	no	19
+253	qualify	yes	15
+253	defaultuser		7
+253	host	dynamic	6
+253	namedcallgroup		22
+253	namedpickupgroup		23
+253	disallow		24
+253	allow		25
+253	accountcode		27
+253	mailbox	353@default	28
+253	deny	0.0.0.0/0.0.0.0	29
+253	permit	0.0.0.0/0.0.0.0	30
+253	secret_origional	e45446e5d65fd9252ef526da39d87a06	31
+253	sipdriver	chan_sip	32
+253	account	253	33
+253	callerid	Evan Hughes - Art <253>	34
+254	dial	SIP/254	26
+254	secret	0b75fa9cd6a48762f59c4e59580d5ce2	2
+254	dtmfmode	rfc2833	3
+254	canreinvite	no	4
+254	context	from-internal	5
+254	host	dynamic	6
+254	defaultuser		7
+254	trustrpid	yes	8
+254	user_eq_phone	no	9
+254	sendrpid	yes	10
+254	type	friend	11
+254	sessiontimers	accept	12
+254	nat	yes	13
+254	port	5060	14
+254	qualify	yes	15
+254	qualifyfreq	60	16
+254	transport	udp,tcp,tls	17
+254	avpf	no	18
+254	force_avp	no	19
+254	encryption	no	20
+254	videosupport	inherit	21
+254	namedcallgroup		22
+254	namedpickupgroup		23
+254	disallow		24
+254	allow		25
+254	accountcode		27
+254	mailbox	354@default	28
+254	deny	0.0.0.0/0.0.0.0	29
+254	permit	0.0.0.0/0.0.0.0	30
+254	secret_origional		31
+254	sipdriver	chan_sip	32
+254	account	254	33
+254	callerid	Monica Katharopoulos <254>	34
+255	secret	969a98732a257534f9f46a7a2a78fdb6	2
+255	dtmfmode	rfc2833	3
+255	canreinvite	no	4
+255	context	from-internal	5
+255	host	dynamic	6
+255	defaultuser		7
+255	trustrpid	yes	8
+255	user_eq_phone	no	9
+255	sendrpid	yes	10
+255	type	friend	11
+255	sessiontimers	accept	12
+255	nat	yes	13
+255	port	5060	14
+255	qualify	yes	15
+255	qualifyfreq	60	16
+255	transport	udp,tcp,tls	17
+255	avpf	no	18
+255	force_avp	no	19
+255	encryption	no	20
+255	videosupport	inherit	21
+255	namedcallgroup		22
+255	namedpickupgroup		23
+255	dial	SIP/255	26
+255	secret_origional	969a98732a257534f9f46a7a2a78fdb6	31
+255	mailbox	355@default	28
+255	deny	0.0.0.0/0.0.0.0	29
+255	permit	0.0.0.0/0.0.0.0	30
+255	accountcode		27
+255	allow		25
+255	disallow		24
+255	sipdriver	chan_sip	32
+255	account	255	33
+255	callerid	Brianne Turczynski <255>	34
+256	dial	SIP/256	26
+256	secret	adce37a7d311db5074bab8c45ec17d1d	2
+256	dtmfmode	rfc2833	3
+256	canreinvite	no	4
+256	context	from-internal	5
+256	host	dynamic	6
+256	defaultuser		7
+256	trustrpid	yes	8
+256	user_eq_phone	no	9
+256	sendrpid	yes	10
+256	type	friend	11
+256	sessiontimers	accept	12
+256	nat	yes	13
+256	port	5060	14
+256	qualify	yes	15
+256	qualifyfreq	60	16
+256	transport	udp,tcp,tls	17
+256	avpf	no	18
+256	force_avp	no	19
+256	encryption	no	20
+256	videosupport	inherit	21
+256	namedcallgroup		22
+256	namedpickupgroup		23
+256	disallow		24
+256	allow		25
+256	accountcode		27
+256	mailbox	356@default	28
+256	deny	0.0.0.0/0.0.0.0	29
+256	permit	0.0.0.0/0.0.0.0	30
+256	secret_origional		31
+256	sipdriver	chan_sip	32
+256	account	256	33
+256	callerid	Nicole Hughes <256>	34
+257	dial	SIP/257	26
+257	secret	adfd8cd1491898ef1b99e6907dbbe77a	2
+257	dtmfmode	rfc2833	3
+257	canreinvite	no	4
+257	context	from-internal	5
+257	host	dynamic	6
+257	defaultuser		7
+257	trustrpid	yes	8
+257	user_eq_phone	no	9
+257	sendrpid	yes	10
+257	type	friend	11
+257	sessiontimers	accept	12
+257	nat	yes	13
+257	port	5060	14
+257	qualify	yes	15
+257	qualifyfreq	60	16
+257	transport	udp,tcp,tls	17
+257	avpf	no	18
+257	force_avp	no	19
+257	encryption	no	20
+257	videosupport	inherit	21
+257	namedcallgroup		22
+257	namedpickupgroup		23
+257	disallow		24
+257	allow		25
+257	accountcode		27
+257	mailbox	357@default	28
+257	deny	0.0.0.0/0.0.0.0	29
+257	permit	0.0.0.0/0.0.0.0	30
+257	secret_origional		31
+257	sipdriver	chan_sip	32
+257	account	257	33
+257	callerid	Ken Pullis <257>	34
+258	videosupport	inherit	21
+258	trustrpid	yes	8
+258	user_eq_phone	no	9
+258	sendrpid	yes	10
+258	type	friend	11
+258	sessiontimers	accept	12
+258	context	from-internal	5
+258	secret	52ef7cfefe44ca173d6792ef8ff3fde4	2
+258	dtmfmode	rfc2833	3
+258	canreinvite	no	4
+258	port	5060	14
+258	nat	yes	13
+258	encryption	no	20
+258	dial	SIP/258	26
+258	qualifyfreq	60	16
+258	transport	udp,tcp,tls	17
+258	avpf	no	18
+258	force_avp	no	19
+258	qualify	yes	15
+258	defaultuser		7
+258	host	dynamic	6
+258	namedcallgroup		22
+258	namedpickupgroup		23
+258	disallow		24
+258	allow		25
+258	accountcode		27
+258	mailbox	358@default	28
+258	deny	0.0.0.0/0.0.0.0	29
+258	permit	0.0.0.0/0.0.0.0	30
+258	secret_origional	52ef7cfefe44ca173d6792ef8ff3fde4	31
+258	sipdriver	chan_sip	32
+258	account	258	33
+258	callerid	Erin Ray <258>	34
+259	videosupport	inherit	21
+259	trustrpid	yes	8
+259	user_eq_phone	no	9
+259	sendrpid	yes	10
+259	type	friend	11
+259	sessiontimers	accept	12
+259	context	from-internal	5
+259	secret	f05823849cbb5371bc4b13e92d91ac39	2
+259	dtmfmode	rfc2833	3
+259	canreinvite	no	4
+259	port	5060	14
+259	nat	yes	13
+259	encryption	no	20
+259	dial	SIP/259	26
+259	qualifyfreq	60	16
+259	transport	udp,tcp,tls	17
+259	avpf	no	18
+259	force_avp	no	19
+259	qualify	yes	15
+259	defaultuser		7
+259	host	dynamic	6
+259	namedcallgroup		22
+259	namedpickupgroup		23
+259	disallow		24
+259	allow		25
+259	accountcode		27
+259	mailbox	359@default	28
+259	deny	0.0.0.0/0.0.0.0	29
+259	permit	0.0.0.0/0.0.0.0	30
+259	secret_origional	f05823849cbb5371bc4b13e92d91ac39	31
+259	sipdriver	chan_sip	32
+259	account	259	33
+259	callerid	Nicole Hughes Lab <259>	34
+260	dial	SIP/260	26
+260	secret	70edfa0a603ed06e59db01b1ef763b94	2
+260	dtmfmode	rfc2833	3
+260	canreinvite	no	4
+260	context	from-internal	5
+260	host	dynamic	6
+260	defaultuser		7
+260	trustrpid	yes	8
+260	user_eq_phone	no	9
+260	sendrpid	yes	10
+260	type	friend	11
+260	sessiontimers	accept	12
+260	nat	yes	13
+260	port	5060	14
+260	qualify	yes	15
+260	qualifyfreq	60	16
+260	transport	udp,tcp,tls	17
+260	avpf	no	18
+260	force_avp	no	19
+260	encryption	no	20
+260	videosupport	inherit	21
+260	namedcallgroup		22
+260	namedpickupgroup		23
+260	disallow		24
+260	allow		25
+260	accountcode		27
+260	mailbox	360@default	28
+260	deny	0.0.0.0/0.0.0.0	29
+260	permit	0.0.0.0/0.0.0.0	30
+260	secret_origional		31
+260	sipdriver	chan_sip	32
+260	account	260	33
+260	callerid	Erin Masen <260>	34
+261	videosupport	inherit	21
+261	trustrpid	yes	8
+261	user_eq_phone	no	9
+261	sendrpid	yes	10
+261	type	friend	11
+261	sessiontimers	accept	12
+261	context	from-internal	5
+261	secret	6ade0285442122ac31ae436f9ff7a3c4	2
+261	dtmfmode	rfc2833	3
+261	canreinvite	no	4
+261	port	5060	14
+261	nat	yes	13
+261	encryption	no	20
+261	dial	SIP/261	26
+261	qualifyfreq	60	16
+261	transport	udp,tcp,tls	17
+261	avpf	no	18
+261	force_avp	no	19
+261	qualify	yes	15
+261	defaultuser		7
+261	host	dynamic	6
+261	namedcallgroup		22
+261	namedpickupgroup		23
+261	disallow		24
+261	allow		25
+261	accountcode		27
+261	mailbox	361@default	28
+261	deny	0.0.0.0/0.0.0.0	29
+261	permit	0.0.0.0/0.0.0.0	30
+261	secret_origional	6ade0285442122ac31ae436f9ff7a3c4	31
+261	sipdriver	chan_sip	32
+261	account	261	33
+261	callerid	Evan Hughes Pottery <261>	34
+262	dial	SIP/262	26
+262	secret	70cffc45a284c0b1bc8fbb7390e315d1	2
+262	dtmfmode	rfc2833	3
+262	canreinvite	no	4
+262	context	from-internal	5
+262	host	dynamic	6
+262	defaultuser		7
+262	trustrpid	yes	8
+262	user_eq_phone	no	9
+262	sendrpid	yes	10
+262	type	friend	11
+262	sessiontimers	accept	12
+262	nat	yes	13
+262	port	5060	14
+262	qualify	yes	15
+262	qualifyfreq	60	16
+262	transport	udp,tcp,tls	17
+262	avpf	no	18
+262	force_avp	no	19
+262	encryption	no	20
+262	videosupport	inherit	21
+262	namedcallgroup		22
+262	namedpickupgroup		23
+262	disallow		24
+262	allow		25
+262	accountcode		27
+262	mailbox	362@default	28
+262	deny	0.0.0.0/0.0.0.0	29
+262	permit	0.0.0.0/0.0.0.0	30
+262	secret_origional		31
+262	sipdriver	chan_sip	32
+262	account	262	33
+262	callerid	Chad Merricle <262>	34
+263	deny	0.0.0.0/0.0.0.0	29
+263	permit	0.0.0.0/0.0.0.0	30
+263	secret_origional	bb9380bffef3912c47b4a737c87b8247	31
+263	sipdriver	chan_sip	32
+263	account	263	33
+263	qualifyfreq	60	16
+263	canreinvite	no	4
+263	context	from-internal	5
+263	host	dynamic	6
+263	defaultuser		7
+263	trustrpid	yes	8
+263	user_eq_phone	no	9
+263	sendrpid	yes	10
+263	type	friend	11
+263	sessiontimers	accept	12
+263	nat	yes	13
+263	port	5060	14
+263	qualify	yes	15
+263	dial	SIP/263	26
+263	secret	bb9380bffef3912c47b4a737c87b8247	2
+263	dtmfmode	rfc2833	3
+263	encryption	no	20
+263	videosupport	inherit	21
+263	namedcallgroup		22
+263	namedpickupgroup		23
+263	disallow		24
+263	allow		25
+263	accountcode		27
+263	mailbox	363@default	28
+263	force_avp	no	19
+263	avpf	no	18
+263	transport	udp,tcp,tls	17
+263	callerid	Adam Novajovsky <263>	34
+264	dial	SIP/264	26
+264	secret	aa0b78cf902c681d1e157178aafad122	2
+264	dtmfmode	rfc2833	3
+264	canreinvite	no	4
+264	context	from-internal	5
+264	host	dynamic	6
+264	defaultuser		7
+264	trustrpid	yes	8
+264	user_eq_phone	no	9
+264	sendrpid	yes	10
+264	type	friend	11
+264	sessiontimers	accept	12
+264	nat	yes	13
+264	port	5060	14
+264	qualify	yes	15
+264	qualifyfreq	60	16
+264	transport	udp,tcp,tls	17
+264	avpf	no	18
+264	force_avp	no	19
+264	encryption	no	20
+264	videosupport	inherit	21
+264	namedcallgroup		22
+264	namedpickupgroup		23
+264	disallow		24
+264	allow		25
+264	accountcode		27
+264	mailbox	364@default	28
+264	deny	0.0.0.0/0.0.0.0	29
+264	permit	0.0.0.0/0.0.0.0	30
+264	secret_origional		31
+264	sipdriver	chan_sip	32
+264	account	264	33
+264	callerid	Shonna Proctor <264>	34
+265	dial	SIP/265	26
+265	secret	8918e44cf7e6460394758efebfe316cb	2
+265	dtmfmode	rfc2833	3
+265	canreinvite	no	4
+265	context	from-internal	5
+265	host	dynamic	6
+265	defaultuser		7
+265	trustrpid	yes	8
+265	user_eq_phone	no	9
+265	sendrpid	yes	10
+265	type	friend	11
+265	sessiontimers	accept	12
+265	nat	yes	13
+265	port	5060	14
+265	qualify	yes	15
+265	qualifyfreq	60	16
+265	transport	udp,tcp,tls	17
+265	avpf	no	18
+265	force_avp	no	19
+265	encryption	no	20
+265	videosupport	inherit	21
+265	namedcallgroup		22
+265	namedpickupgroup		23
+265	disallow		24
+265	allow		25
+265	accountcode		27
+265	mailbox	365@default	28
+265	deny	0.0.0.0/0.0.0.0	29
+265	permit	0.0.0.0/0.0.0.0	30
+265	secret_origional		31
+265	sipdriver	chan_sip	32
+265	account	265	33
+265	callerid	Alicia Horton <265>	34
+266	dial	SIP/266	26
+266	secret	4af2e060bc9e73033e787da147146df5	2
+266	dtmfmode	rfc2833	3
+266	canreinvite	no	4
+266	context	from-internal	5
+266	host	dynamic	6
+266	defaultuser		7
+266	trustrpid	yes	8
+266	user_eq_phone	no	9
+266	sendrpid	yes	10
+266	type	friend	11
+266	sessiontimers	accept	12
+266	nat	yes	13
+266	port	5060	14
+266	qualify	yes	15
+266	qualifyfreq	60	16
+266	transport	udp,tcp,tls	17
+266	avpf	no	18
+266	force_avp	no	19
+266	encryption	no	20
+266	videosupport	inherit	21
+266	namedcallgroup		22
+266	namedpickupgroup		23
+266	disallow		24
+266	allow		25
+266	accountcode		27
+266	mailbox	366@default	28
+266	deny	0.0.0.0/0.0.0.0	29
+266	permit	0.0.0.0/0.0.0.0	30
+266	secret_origional		31
+266	sipdriver	chan_sip	32
+266	account	266	33
+266	callerid	Adam Novajovsky <266>	34
+267	videosupport	inherit	21
+267	trustrpid	yes	8
+267	user_eq_phone	no	9
+267	sendrpid	yes	10
+267	type	friend	11
+267	sessiontimers	accept	12
+267	context	from-internal	5
+267	secret	6213e68dfd591a1751c0948653d01c73	2
+267	dtmfmode	rfc2833	3
+267	canreinvite	no	4
+267	port	5060	14
+267	nat	yes	13
+267	encryption	no	20
+267	dial	SIP/267	26
+267	qualifyfreq	60	16
+267	transport	udp,tcp,tls	17
+267	avpf	no	18
+267	force_avp	no	19
+267	qualify	yes	15
+267	defaultuser		7
+267	host	dynamic	6
+267	namedcallgroup		22
+267	namedpickupgroup		23
+267	disallow		24
+267	allow		25
+267	accountcode		27
+267	mailbox	367@default	28
+267	deny	0.0.0.0/0.0.0.0	29
+267	permit	0.0.0.0/0.0.0.0	30
+267	secret_origional	6213e68dfd591a1751c0948653d01c73	31
+267	sipdriver	chan_sip	32
+267	account	267	33
+267	callerid	Matt Salgat <267>	34
+268	dial	SIP/268	26
+268	secret	875fcd6c02ecc411330975e0d52536dd	2
+268	dtmfmode	rfc2833	3
+268	canreinvite	no	4
+268	context	from-internal	5
+268	host	dynamic	6
+268	defaultuser		7
+268	trustrpid	yes	8
+268	user_eq_phone	no	9
+268	sendrpid	yes	10
+268	type	friend	11
+268	sessiontimers	accept	12
+268	nat	yes	13
+268	port	5060	14
+268	qualify	yes	15
+268	qualifyfreq	60	16
+268	transport	udp,tcp,tls	17
+268	avpf	no	18
+268	force_avp	no	19
+268	encryption	no	20
+268	videosupport	inherit	21
+268	namedcallgroup		22
+268	namedpickupgroup		23
+268	disallow		24
+268	allow		25
+268	accountcode		27
+268	mailbox	368@default	28
+268	deny	0.0.0.0/0.0.0.0	29
+268	permit	0.0.0.0/0.0.0.0	30
+268	secret_origional		31
+268	sipdriver	chan_sip	32
+268	account	268	33
+268	callerid	Jill Simcox <268>	34
+269	dial	SIP/269	26
+269	secret	a4b0df41459a3b9a0e1cd6e503f154ce	2
+269	dtmfmode	rfc2833	3
+269	canreinvite	no	4
+269	context	from-internal	5
+269	host	dynamic	6
+269	defaultuser		7
+269	trustrpid	yes	8
+269	user_eq_phone	no	9
+269	sendrpid	yes	10
+269	type	friend	11
+269	sessiontimers	accept	12
+269	nat	yes	13
+269	port	5060	14
+269	qualify	yes	15
+269	qualifyfreq	60	16
+269	transport	udp,tcp,tls	17
+269	avpf	no	18
+269	force_avp	no	19
+269	encryption	no	20
+269	videosupport	inherit	21
+269	namedcallgroup		22
+269	namedpickupgroup		23
+269	disallow		24
+269	allow		25
+269	accountcode		27
+269	mailbox	369@default	28
+269	deny	0.0.0.0/0.0.0.0	29
+269	permit	0.0.0.0/0.0.0.0	30
+269	secret_origional		31
+269	sipdriver	chan_sip	32
+269	account	269	33
+269	callerid	Mimi Lewalski Office <269>	34
+270	dial	SIP/270	26
+270	secret	804c4b176df0a7c0fe6348e5a82e09b1	2
+270	dtmfmode	rfc2833	3
+270	canreinvite	no	4
+270	context	from-internal	5
+270	host	dynamic	6
+270	defaultuser		7
+270	trustrpid	yes	8
+270	user_eq_phone	no	9
+270	sendrpid	yes	10
+270	type	friend	11
+270	sessiontimers	accept	12
+270	nat	yes	13
+270	port	5060	14
+270	qualify	yes	15
+270	qualifyfreq	60	16
+270	transport	udp,tcp,tls	17
+270	avpf	no	18
+270	force_avp	no	19
+270	encryption	no	20
+270	videosupport	inherit	21
+270	namedcallgroup		22
+270	namedpickupgroup		23
+270	disallow		24
+270	allow		25
+270	accountcode		27
+270	mailbox	370@default	28
+270	deny	0.0.0.0/0.0.0.0	29
+270	permit	0.0.0.0/0.0.0.0	30
+270	secret_origional		31
+270	sipdriver	chan_sip	32
+270	account	270	33
+270	callerid	Steve Petty <270>	34
+272	videosupport	inherit	21
+272	trustrpid	yes	8
+272	user_eq_phone	no	9
+272	sendrpid	yes	10
+272	type	friend	11
+272	sessiontimers	accept	12
+272	context	from-internal	5
+272	secret	de9f8d123ab99b147a7c721f011e9ff7	2
+272	dtmfmode	rfc2833	3
+272	canreinvite	no	4
+272	port	5060	14
+272	nat	yes	13
+272	encryption	no	20
+272	dial	SIP/272	26
+272	qualifyfreq	60	16
+272	transport	udp,tcp,tls	17
+272	avpf	no	18
+272	force_avp	no	19
+272	qualify	yes	15
+272	defaultuser		7
+272	host	dynamic	6
+272	namedcallgroup		22
+272	namedpickupgroup		23
+272	disallow		24
+272	allow		25
+272	accountcode		27
+272	mailbox	372@default	28
+272	deny	0.0.0.0/0.0.0.0	29
+272	permit	0.0.0.0/0.0.0.0	30
+272	secret_origional	de9f8d123ab99b147a7c721f011e9ff7	31
+272	sipdriver	chan_sip	32
+272	account	272	33
+272	callerid	Lanzio Palombo <272>	34
+273	videosupport	inherit	21
+273	trustrpid	yes	8
+273	user_eq_phone	no	9
+273	sendrpid	yes	10
+273	type	friend	11
+273	sessiontimers	accept	12
+273	context	from-internal	5
+273	secret	3b2a637578bd6d553a69449dd9e0bc7c	2
+273	dtmfmode	rfc2833	3
+273	canreinvite	no	4
+273	port	5060	14
+273	nat	yes	13
+273	encryption	no	20
+273	dial	SIP/273	26
+273	qualifyfreq	60	16
+273	transport	udp,tcp,tls	17
+273	avpf	no	18
+273	force_avp	no	19
+273	qualify	yes	15
+273	defaultuser		7
+273	host	dynamic	6
+273	namedcallgroup		22
+273	namedpickupgroup		23
+273	disallow		24
+273	allow		25
+273	accountcode		27
+273	mailbox	373@default	28
+273	deny	0.0.0.0/0.0.0.0	29
+273	permit	0.0.0.0/0.0.0.0	30
+273	secret_origional	3b2a637578bd6d553a69449dd9e0bc7c	31
+273	sipdriver	chan_sip	32
+273	account	273	33
+273	callerid	Robotics Build Room <273>	34
+281	dial	SIP/281	26
+281	secret	5e28ef2e2ea5df46ad2e8df9887dcc4f	2
+281	dtmfmode	rfc2833	3
+281	canreinvite	no	4
+281	context	from-internal	5
+281	host	dynamic	6
+281	defaultuser		7
+281	trustrpid	yes	8
+281	user_eq_phone	no	9
+281	sendrpid	yes	10
+281	type	friend	11
+281	sessiontimers	accept	12
+281	nat	yes	13
+281	port	5060	14
+281	qualify	yes	15
+281	qualifyfreq	60	16
+281	transport	udp,tcp,tls	17
+281	avpf	no	18
+281	force_avp	no	19
+281	encryption	no	20
+281	videosupport	inherit	21
+281	namedcallgroup		22
+281	namedpickupgroup		23
+281	disallow		24
+281	allow		25
+281	accountcode		27
+281	mailbox	381@default	28
+281	deny	0.0.0.0/0.0.0.0	29
+281	permit	0.0.0.0/0.0.0.0	30
+281	secret_origional		31
+281	sipdriver	chan_sip	32
+281	account	281	33
+281	callerid	Lab 1 <281>	34
+282	dial	SIP/282	26
+282	secret	a0f28f6df6a43ba08e81048e0d3e33ec	2
+282	dtmfmode	rfc2833	3
+282	canreinvite	no	4
+282	context	from-internal	5
+282	host	dynamic	6
+282	defaultuser		7
+282	trustrpid	yes	8
+282	user_eq_phone	no	9
+282	sendrpid	yes	10
+282	type	friend	11
+282	sessiontimers	accept	12
+282	nat	yes	13
+282	port	5060	14
+282	qualify	yes	15
+282	qualifyfreq	60	16
+282	transport	udp,tcp,tls	17
+282	avpf	no	18
+282	force_avp	no	19
+282	encryption	no	20
+282	videosupport	inherit	21
+282	namedcallgroup		22
+282	namedpickupgroup		23
+282	disallow		24
+282	allow		25
+282	accountcode		27
+282	mailbox	382@default	28
+282	deny	0.0.0.0/0.0.0.0	29
+282	permit	0.0.0.0/0.0.0.0	30
+282	secret_origional		31
+282	sipdriver	chan_sip	32
+282	account	282	33
+282	callerid	Lab 2 <282>	34
+283	secret	12efa988dfac9a698fca677d9508e38b	2
+283	dtmfmode	rfc2833	3
+283	canreinvite	no	4
+283	context	from-internal	5
+283	host	dynamic	6
+283	defaultuser		7
+283	trustrpid	yes	8
+283	user_eq_phone	no	9
+283	sendrpid	yes	10
+283	type	friend	11
+283	sessiontimers	accept	12
+283	nat	yes	13
+283	port	5060	14
+283	qualify	yes	15
+283	qualifyfreq	60	16
+283	transport	udp,tcp,tls	17
+283	avpf	no	18
+283	force_avp	no	19
+283	encryption	no	20
+283	videosupport	inherit	21
+283	namedcallgroup		22
+283	namedpickupgroup		23
+283	dial	SIP/283	26
+283	secret_origional	12efa988dfac9a698fca677d9508e38b	31
+283	mailbox	383@default	28
+283	deny	0.0.0.0/0.0.0.0	29
+283	permit	0.0.0.0/0.0.0.0	30
+283	accountcode		27
+283	allow		25
+283	disallow		24
+283	sipdriver	chan_sip	32
+283	account	283	33
+283	callerid	Matt Daniels - English <283>	34
+284	videosupport	inherit	21
+284	trustrpid	yes	8
+284	user_eq_phone	no	9
+284	sendrpid	yes	10
+284	type	friend	11
+284	sessiontimers	accept	12
+284	context	from-internal	5
+284	secret	41633c023387b6f19ebc3916b6b883b7	2
+284	dtmfmode	rfc2833	3
+284	canreinvite	no	4
+284	port	5060	14
+284	nat	yes	13
+284	encryption	no	20
+284	dial	SIP/284	26
+284	qualifyfreq	60	16
+284	transport	udp,tcp,tls	17
+284	avpf	no	18
+284	force_avp	no	19
+284	qualify	yes	15
+284	defaultuser		7
+284	host	dynamic	6
+284	namedcallgroup		22
+284	namedpickupgroup		23
+284	disallow		24
+284	allow		25
+284	accountcode		27
+284	mailbox	384@default	28
+284	deny	0.0.0.0/0.0.0.0	29
+284	permit	0.0.0.0/0.0.0.0	30
+284	secret_origional	41633c023387b6f19ebc3916b6b883b7	31
+284	sipdriver	chan_sip	32
+284	account	284	33
+284	callerid	Carol Osborn <284>	34
+285	sipdriver	chan_sip	31
+285	nat	yes	13
+285	port	5060	14
+285	qualify	yes	15
+285	qualifyfreq	60	16
+285	transport	udp,tcp,tls	17
+285	avpf	no	18
+285	force_avp	no	19
+285	encryption	no	20
+285	videosupport	inherit	21
+285	namedcallgroup		22
+285	namedpickupgroup		23
+285	disallow		24
+285	allow		25
+285	accountcode		27
+285	deny	0.0.0.0/0.0.0.0	28
+285	permit	0.0.0.0/0.0.0.0	29
+285	secret_origional	995bc62ef2f218a961967f94d6101f46	30
+285	account	285	32
+285	callerid	Conference Room <285>	33
+285	sessiontimers	accept	12
+285	host	dynamic	6
+285	defaultuser		7
+285	trustrpid	yes	8
+285	user_eq_phone	no	9
+285	sendrpid	yes	10
+285	type	friend	11
+285	dial	SIP/285	26
+285	secret	995bc62ef2f218a961967f94d6101f46	2
+285	dtmfmode	rfc2833	3
+285	canreinvite	no	4
+285	context	from-internal	5
+339	encryption	no	20
+339	trustrpid	yes	8
+339	user_eq_phone	no	9
+339	sendrpid	yes	10
+339	type	friend	11
+339	sessiontimers	accept	12
+339	context	from-internal	5
+339	secret	63aea710e1a69fc9e0284e93f9958052	2
+339	dtmfmode	rfc2833	3
+339	canreinvite	no	4
+339	port	5060	14
+339	nat	yes	13
+339	force_avp	no	19
+339	dial	SIP/339	26
+339	qualifyfreq	60	16
+339	transport	udp,tcp,tls	17
+339	avpf	no	18
+339	qualify	yes	15
+339	defaultuser		7
+339	host	dynamic	6
+339	videosupport	inherit	21
+339	namedcallgroup		22
+339	namedpickupgroup		23
+339	disallow		24
+339	allow		25
+339	accountcode		27
+339	deny	0.0.0.0/0.0.0.0	28
+339	permit	0.0.0.0/0.0.0.0	29
+339	secret_origional	63aea710e1a69fc9e0284e93f9958052	30
+339	sipdriver	chan_sip	31
+339	account	339	32
+339	callerid	Ashley Hursin <339>	33
+450	dial	SIP/450	26
+450	secret	b329c6c230182e7540cbf7ccd956d5d0	2
+450	dtmfmode	rfc2833	3
+450	canreinvite	no	4
+450	context	from-internal	5
+450	host	dynamic	6
+450	defaultuser		7
+450	trustrpid	yes	8
+450	user_eq_phone	no	9
+450	sendrpid	yes	10
+450	type	friend	11
+450	sessiontimers	accept	12
+450	nat	yes	13
+450	port	5060	14
+450	qualify	yes	15
+450	qualifyfreq	60	16
+450	transport	udp,tcp,tls	17
+450	avpf	no	18
+450	force_avp	no	19
+450	encryption	no	20
+450	videosupport	inherit	21
+450	namedcallgroup		22
+450	namedpickupgroup		23
+450	disallow		24
+450	allow		25
+450	accountcode		27
+450	deny	0.0.0.0/0.0.0.0	28
+450	permit	0.0.0.0/0.0.0.0	29
+450	secret_origional	b329c6c230182e7540cbf7ccd956d5d0	30
+450	sipdriver	chan_sip	31
+450	account	450	32
+450	callerid	Counseling Room <450>	33
+827	dial	SIP/827	26
+827	secret	4cff5a800cdbe73c608703fcfd392a16	2
+827	dtmfmode	rfc2833	3
+827	canreinvite	no	4
+827	context	from-internal	5
+827	host	dynamic	6
+827	defaultuser		7
+827	trustrpid	yes	8
+827	user_eq_phone	no	9
+827	sendrpid	yes	10
+827	type	friend	11
+827	sessiontimers	accept	12
+827	nat	yes	13
+827	port	5060	14
+827	qualify	yes	15
+827	qualifyfreq	60	16
+827	transport	udp,tcp,tls	17
+827	avpf	no	18
+827	force_avp	no	19
+827	encryption	no	20
+827	videosupport	inherit	21
+827	namedcallgroup		22
+827	namedpickupgroup		23
+827	disallow		24
+827	allow		25
+827	accountcode		27
+827	deny	0.0.0.0/0.0.0.0	28
+827	permit	0.0.0.0/0.0.0.0	29
+827	secret_origional		30
+827	sipdriver	chan_sip	31
+827	account	827	32
+827	callerid	Michael Madsen Softphone <827>	33
+829	port	5060	14
+829	qualify	yes	15
+829	qualifyfreq	60	16
+829	transport	udp,tcp,tls	17
+829	avpf	no	18
+829	force_avp	no	19
+829	encryption	no	20
+829	videosupport	inherit	21
+829	namedcallgroup		22
+829	namedpickupgroup		23
+829	disallow		24
+829	allow		25
+829	accountcode		27
+829	deny	0.0.0.0/0.0.0.0	28
+829	permit	0.0.0.0/0.0.0.0	29
+829	secret_origional	0d0be54e58e462c39b4e12ef2f8516f9	30
+829	sipdriver	chan_sip	31
+829	account	829	32
+829	callerid	Frank Accavitti's Softphone <829>	33
+829	host	dynamic	6
+829	canreinvite	no	4
+829	context	from-internal	5
+829	defaultuser		7
+829	trustrpid	yes	8
+829	user_eq_phone	no	9
+829	sendrpid	yes	10
+829	type	friend	11
+829	sessiontimers	accept	12
+829	nat	yes	13
+829	dial	SIP/829	26
+829	secret	0d0be54e58e462c39b4e12ef2f8516f9	2
+829	dtmfmode	rfc2833	3
+835	permit	0.0.0.0/0.0.0.0	29
+835	secret_origional		30
+835	sipdriver	chan_sip	31
+835	account	835	32
+835	disallow		24
+835	videosupport	inherit	21
+835	namedcallgroup		22
+835	namedpickupgroup		23
+835	callerid	Emma Peurach Softphone <835>	33
+835	allow		25
+835	encryption	no	20
+835	deny	0.0.0.0/0.0.0.0	28
+835	accountcode		27
+835	force_avp	no	19
+835	port	5060	14
+835	qualify	yes	15
+835	qualifyfreq	60	16
+835	transport	udp,tcp,tls	17
+835	avpf	no	18
+835	nat	yes	13
+835	sessiontimers	accept	12
+835	host	dynamic	6
+835	defaultuser		7
+835	trustrpid	yes	8
+835	user_eq_phone	no	9
+835	sendrpid	yes	10
+835	type	friend	11
+835	dial	SIP/835	26
+835	secret	26212a525364c1ed64da509e853a3acd	2
+835	dtmfmode	rfc2833	3
+835	canreinvite	no	4
+835	context	from-internal	5
+838	dial	SIP/838	26
+838	secret	1a79b296a7157381a06a9405c627f687	2
+838	dtmfmode	rfc2833	3
+838	canreinvite	no	4
+838	context	from-internal	5
+838	host	dynamic	6
+838	defaultuser		7
+838	trustrpid	yes	8
+838	user_eq_phone	no	9
+838	sendrpid	yes	10
+838	type	friend	11
+838	sessiontimers	accept	12
+838	nat	yes	13
+838	port	5060	14
+838	qualify	yes	15
+838	qualifyfreq	60	16
+838	transport	udp,tcp,tls	17
+838	avpf	no	18
+838	force_avp	no	19
+838	encryption	no	20
+838	videosupport	inherit	21
+838	namedcallgroup		22
+838	namedpickupgroup		23
+838	disallow		24
+838	allow		25
+838	accountcode		27
+838	deny	0.0.0.0/0.0.0.0	28
+838	permit	0.0.0.0/0.0.0.0	29
+838	secret_origional		30
+838	sipdriver	chan_sip	31
+838	account	838	32
+838	callerid	Trevor Tyle Softphone <838>	33
+840	dial	SIP/840	26
+840	secret	f337240d81f96b3349138d7186453a72	2
+840	dtmfmode	rfc2833	3
+840	canreinvite	no	4
+840	context	from-internal	5
+840	host	dynamic	6
+840	defaultuser		7
+840	trustrpid	yes	8
+840	user_eq_phone	no	9
+840	sendrpid	yes	10
+840	type	friend	11
+840	sessiontimers	accept	12
+840	nat	yes	13
+840	port	5060	14
+840	qualify	yes	15
+840	qualifyfreq	60	16
+840	transport	udp,tcp,tls	17
+840	avpf	no	18
+840	force_avp	no	19
+840	encryption	no	20
+840	videosupport	inherit	21
+840	namedcallgroup		22
+840	namedpickupgroup		23
+840	disallow		24
+840	allow		25
+840	accountcode		27
+840	deny	0.0.0.0/0.0.0.0	28
+840	permit	0.0.0.0/0.0.0.0	29
+840	secret_origional		30
+840	sipdriver	chan_sip	31
+840	account	840	32
+840	callerid	Nona Moore Softphone <840>	33
+845	dial	SIP/845	26
+845	secret	d24c63cabc4a3f248ab7cac963fe2c5e	2
+845	dtmfmode	rfc2833	3
+845	canreinvite	no	4
+845	context	from-internal	5
+845	host	dynamic	6
+845	defaultuser		7
+845	trustrpid	yes	8
+845	user_eq_phone	no	9
+845	sendrpid	yes	10
+845	type	friend	11
+845	sessiontimers	accept	12
+845	nat	yes	13
+845	port	5060	14
+845	qualify	yes	15
+845	qualifyfreq	60	16
+845	transport	udp,tcp,tls	17
+845	avpf	no	18
+845	force_avp	no	19
+845	encryption	no	20
+845	videosupport	inherit	21
+845	namedcallgroup		22
+845	namedpickupgroup		23
+845	disallow		24
+845	allow		25
+845	accountcode		27
+845	deny	0.0.0.0/0.0.0.0	28
+845	permit	0.0.0.0/0.0.0.0	29
+845	secret_origional		30
+845	sipdriver	chan_sip	31
+845	account	845	32
+845	callerid	Michelle Graczyk Softphone <845>	33
+847	dial	SIP/847	26
+847	secret	696a9ea2fdf3ec40f8388d9c9fd1d262	2
+847	dtmfmode	rfc2833	3
+847	canreinvite	no	4
+847	context	from-internal	5
+847	host	dynamic	6
+847	defaultuser		7
+847	trustrpid	yes	8
+847	user_eq_phone	no	9
+847	sendrpid	yes	10
+847	type	friend	11
+847	sessiontimers	accept	12
+847	nat	yes	13
+847	port	5060	14
+847	qualify	yes	15
+847	qualifyfreq	60	16
+847	transport	udp,tcp,tls	17
+847	avpf	no	18
+847	force_avp	no	19
+847	encryption	no	20
+847	videosupport	inherit	21
+847	namedcallgroup		22
+847	namedpickupgroup		23
+847	disallow		24
+847	allow		25
+847	accountcode		27
+847	deny	0.0.0.0/0.0.0.0	28
+847	permit	0.0.0.0/0.0.0.0	29
+847	secret_origional		30
+847	sipdriver	chan_sip	31
+847	account	847	32
+847	callerid	John Crombe Softphone <847>	33
+848	dial	SIP/848	26
+848	secret	c6fbffda32c0ab5b11f3d62336a152a4	2
+848	dtmfmode	rfc2833	3
+848	canreinvite	no	4
+848	context	from-internal	5
+848	host	dynamic	6
+848	defaultuser		7
+848	trustrpid	yes	8
+848	user_eq_phone	no	9
+848	sendrpid	yes	10
+848	type	friend	11
+848	sessiontimers	accept	12
+848	nat	yes	13
+848	port	5060	14
+848	qualify	yes	15
+848	qualifyfreq	60	16
+848	transport	udp,tcp,tls	17
+848	avpf	no	18
+848	force_avp	no	19
+848	encryption	no	20
+848	videosupport	inherit	21
+848	namedcallgroup		22
+848	namedpickupgroup		23
+848	disallow		24
+848	allow		25
+848	accountcode		27
+848	deny	0.0.0.0/0.0.0.0	28
+848	permit	0.0.0.0/0.0.0.0	29
+848	secret_origional		30
+848	sipdriver	chan_sip	31
+848	account	848	32
+848	callerid	Sal Trupiano Softphone <848>	33
+852	dial	SIP/852	26
+852	secret	3c91da646c59f2afa0e4cda64262b9f3	2
+852	dtmfmode	rfc2833	3
+852	canreinvite	no	4
+852	context	from-internal	5
+852	host	dynamic	6
+852	defaultuser		7
+852	trustrpid	yes	8
+852	user_eq_phone	no	9
+852	sendrpid	yes	10
+852	type	friend	11
+852	sessiontimers	accept	12
+852	nat	yes	13
+852	port	5060	14
+852	qualify	yes	15
+852	qualifyfreq	60	16
+852	transport	udp,tcp,tls	17
+852	avpf	no	18
+852	force_avp	no	19
+852	encryption	no	20
+852	videosupport	inherit	21
+852	namedcallgroup		22
+852	namedpickupgroup		23
+852	disallow		24
+852	allow		25
+852	accountcode		27
+852	deny	0.0.0.0/0.0.0.0	28
+852	permit	0.0.0.0/0.0.0.0	29
+852	secret_origional		30
+852	sipdriver	chan_sip	31
+852	account	852	32
+852	callerid	Timothy McCormick <852>	33
+884	namedpickupgroup		23
+884	disallow		24
+884	allow		25
+884	accountcode		27
+884	deny	0.0.0.0/0.0.0.0	28
+884	permit	0.0.0.0/0.0.0.0	29
+884	secret_origional	4d3e864e1505e3d244396d060d6644b2	30
+884	sipdriver	chan_sip	31
+884	dial	SIP/884	26
+884	secret	4d3e864e1505e3d244396d060d6644b2	2
+884	dtmfmode	rfc2833	3
+884	canreinvite	no	4
+884	context	from-internal	5
+884	host	dynamic	6
+884	defaultuser		7
+884	trustrpid	yes	8
+884	user_eq_phone	no	9
+884	sendrpid	yes	10
+884	type	friend	11
+884	sessiontimers	accept	12
+884	nat	yes	13
+884	port	5060	14
+884	qualify	yes	15
+884	qualifyfreq	60	16
+884	transport	udp,tcp,tls	17
+884	avpf	no	18
+884	force_avp	no	19
+884	encryption	no	20
+884	videosupport	inherit	21
+884	namedcallgroup		22
+884	callerid	Carol Osborn Softphone <884>	33
+884	account	884	32
+900	dial	SIP/900	26
+900	secret	6bd27b5956258461fbbcf1bda0e24269	2
+900	dtmfmode	rfc2833	3
+900	canreinvite	no	4
+900	context	from-internal	5
+900	host	dynamic	6
+900	defaultuser		7
+900	trustrpid	yes	8
+900	user_eq_phone	no	9
+900	sendrpid	yes	10
+900	type	friend	11
+900	sessiontimers	accept	12
+900	nat	yes	13
+900	port	5060	14
+900	qualify	yes	15
+900	qualifyfreq	60	16
+900	transport	udp,tcp,tls	17
+900	avpf	no	18
+900	force_avp	no	19
+900	encryption	no	20
+900	videosupport	inherit	21
+900	namedcallgroup		22
+900	namedpickupgroup		23
+900	disallow		24
+900	allow		25
+900	accountcode		27
+900	deny	0.0.0.0/0.0.0.0	28
+900	permit	0.0.0.0/0.0.0.0	29
+900	secret_origional		30
+900	sipdriver	chan_sip	31
+900	account	900	32
+900	callerid	Paging System <900>	33
+tr-peer-2	type	peer	4
+tr-peer-2	host	216.234.105.74	3
+tr-peer-2	account	SIP-OUT	2
+tr-user-2	account	SIP-IN	2
+tr-user-2	type	user	3
+tr-user-2	context	from-trunk	4

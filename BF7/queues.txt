@@ -1,0 +1,2 @@
+extension	descr	grppre	alertinfo	ringing	maxwait	password	ivr_id	dest	cwignore	queuewait	use_queue_context	togglehint	qnoanswer	callconfirm	callconfirm_id	qregex	agentannounce_id	joinannounce_id	monitor_type	monitor_heard	monitor_spoken	callback_id
+700	Front Desk Queue			1	300		none	ext-local,vmu130,1	0	0	0	0	0	0	NULL		NULL	NULL		0	0	none
