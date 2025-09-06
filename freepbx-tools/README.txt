@@ -1,44 +1,84 @@
-# 123NET FreePBX Tools
+123NET FreePBX Tools
 
-A collection of helper scripts for documenting and troubleshooting FreePBX / Asterisk systems.
+A suite of helper scripts for documenting and troubleshooting FreePBX / Asterisk systems.
 
-This package provides:
+⚡ Quick Reference
+Command	Purpose	Output Location
+freepbx-callflows	Interactive menu: snapshot, diagrams, TC status, diagnostics	/home/123net/callflows/
+freepbx-dump	Take a JSON snapshot of FreePBX DB	freepbx_dump.json
+freepbx-render	Render call-flow diagrams from last snapshot	callflow_<DID>.svg
+freepbx-tc-status	Show Time Condition override state + last feature code use	Console output
+freepbx-diagnostic	Full system + Asterisk diagnostic	full_diagnostic_<timestamp>.txt
+freepbx-version-check	Compare FreePBX/Asterisk versions to policy	Console output
+asterisk-full-diagnostic.sh	Same as freepbx-diagnostic (legacy)	Same as above
+📈 Features
 
-- **Call-flow generator**: Extracts routes, time conditions, queues, etc. from the FreePBX database and renders them into Graphviz diagrams (`.svg`).
-- **Snapshot utilities**: Exports a JSON snapshot of FreePBX configuration for offline use.
-- **Full diagnostic script**: Collects system and Asterisk status into a plain-text report.
-- **Version checker**: Verifies Asterisk and FreePBX major versions against a local policy.
+Call-Flow Generator – renders inbound routes, IVRs, time conditions, queues, etc. into .svg diagrams.
 
----
+Snapshot Utility – exports FreePBX config to normalized JSON.
 
-## Installation
+Time Condition Status Tool – shows overrides + last feature code dial from CDRs.
 
-Clone or copy the files to a host, then run:
+Full Diagnostics – collects system and PBX state into text report.
 
-```bash
+Version Checker – validates PBX against policy.
+
+123NET FreePBX Tools
+
+A suite of helper scripts for documenting and troubleshooting FreePBX / Asterisk systems.
+
+This toolkit provides:
+
+📈 Call-Flow Generator
+Extracts inbound routes, time conditions, IVRs, queues, ring groups, and more from the FreePBX database, then renders them into clean Graphviz diagrams (.svg).
+
+📦 Snapshot Utility
+Exports a normalized JSON snapshot of FreePBX configuration for offline review and consistency across versions.
+
+🩺 Full Diagnostic Script
+Collects system, Asterisk, and FreePBX runtime data into a text report.
+
+📊 Time Condition Status Tool
+Shows the current override state of each Time Condition and the last time its feature code (*xxx) was dialed (from CDRs).
+
+✅ Version Checker
+Verifies Asterisk and FreePBX major versions against a local version policy.
+
+🚀 Installation
+
+Copy or clone this repo to your PBX host.
+
+Run the installer:
+
 sudo ./install.sh
+
 
 This will:
 
-Install dependencies (Python 3, jq, Graphviz dot, MySQL client).
+Install dependencies (python3, jq, graphviz/dot, mysql/mariadb client).
 
-Normalize scripts (fix shebangs, CRLF, exec bits).
+Normalize scripts (shebangs, CRLF line endings, exec bits).
 
-Place the toolset under /usr/local/123net/freepbx-tools/.
+Place all tools under:
 
-Create symlinks in /usr/local/bin/ for easy access.
+/usr/local/123net/freepbx-tools/
 
-Create /home/123net/callflows/ for diagram output.
 
-Key Commands
+Create symlinks in:
 
-After install, the following entrypoints are available globally:
+/usr/local/bin/
 
+
+Create the output directory for diagrams/reports:
+
+/home/123net/callflows/
+
+🔑 Key Commands
 Interactive Call-Flow Menu
 freepbx-callflows
 
 
-Options include:
+From the menu you can:
 
 Refresh DB snapshot
 
@@ -48,31 +88,31 @@ Generate call-flow for selected DID(s)
 
 Generate call-flows for all DIDs
 
-Generate call-flows for all DIDs (skipping “OPEN” labels)
+Generate call-flows for all DIDs (skip “OPEN” labels)
+
+Show Time Condition status (+ last feature code use)
 
 Run full Asterisk diagnostic
 
 Quit
 
-Output diagrams are saved under:
+Outputs are saved in /home/123net/callflows/.
 
-/home/123net/callflows/
-
-Non-interactive Helpers
+Non-Interactive Helpers
 
 Take a fresh FreePBX DB snapshot
 
 freepbx-dump
 
 
-→ Writes freepbx_dump.json in /home/123net/callflows/.
+→ Creates freepbx_dump.json in /home/123net/callflows/.
 
 Render diagrams from the last dump
 
 freepbx-render
 
 
-→ Creates callflow_<DID>.svg files in /home/123net/callflows/.
+→ Produces callflow_<DID>.svg files in /home/123net/callflows/.
 
 Run diagnostics
 
@@ -84,17 +124,50 @@ or
 asterisk-full-diagnostic.sh
 
 
-→ Produces full_diagnostic_<timestamp>.txt with system, Asterisk, and CDR details.
+→ Generates full_diagnostic_<timestamp>.txt.
+
+*Check Time Condition overrides & last code use
+
+freepbx-tc-status
+
+
+→ Displays a table of all Time Conditions, showing:
+
+ID, name, and mode (Time Group / Calendar)
+
+Dialable feature code (e.g., *271)
+
+Current override state (MATCHED/UNMATCHED/No Override)
+
+Last time the feature code was dialed (from CDRs)
 
 Check versions
 
 freepbx-version-check
 
-Requirements
 
-CentOS / Sangoma 7+ or Debian/Ubuntu host running FreePBX
+→ Compares current FreePBX & Asterisk major versions against the local policy file.
 
-Python 3 (3.6+; installer patches Python <3.7 automatically)
+📂 Outputs
+
+Call-Flows:
+/home/123net/callflows/callflow_<DID>.svg
+
+Diagnostics:
+/home/123net/callflows/full_diagnostic_<timestamp>.txt
+
+Snapshot:
+/home/123net/callflows/freepbx_dump.json
+
+SVGs can be opened in any browser or converted:
+
+dot -Tpdf callflow_2696729277.svg -o callflow_2696729277.pdf
+
+⚙️ Requirements
+
+FreePBX host (CentOS/Sangoma 7+, Debian/Ubuntu, or equivalent)
+
+Python 3.6+ (installer patches text=True for <3.7 automatically)
 
 Graphviz (dot)
 
@@ -102,49 +175,41 @@ jq
 
 MySQL/MariaDB client
 
-Access to /etc/freepbx.conf and the Asterisk DB (usually as freepbxuser)
+Read access to FreePBX DB (via /etc/freepbx.conf or DB creds)
 
-Outputs
-
-Call-flows: callflow_<DID>.svg diagrams under /home/123net/callflows/
-
-Diagnostic reports: full_diagnostic_<timestamp>.txt under the same directory
-
-Snapshot: freepbx_dump.json
-
-You can open SVGs in any browser or convert to PNG/PDF with dot -Tpng or dot -Tpdf.
-
-Example Workflow
+🧩 Example Workflow
 
 Run the menu:
 
 freepbx-callflows
 
 
-Select 4 to generate call-flows for all DIDs.
+Choose option 4 to generate call-flows for all DIDs.
 
-Retrieve diagrams:
+View results:
 
 ls /home/123net/callflows/callflow_*.svg
 
 
-Run full diagnostics:
+Run diagnostics:
 
 freepbx-diagnostic
 
 
-(Optional) Convert diagrams to PDF:
+Check time condition states:
 
-dot -Tpdf /home/123net/callflows/callflow_2696729277.svg \
-    -o /home/123net/callflows/callflow_2696729277.pdf
+freepbx-tc-status
 
-Troubleshooting
+🛠 Troubleshooting
 
-If you see Exec format error, ensure scripts have UNIX line endings:
+Exec format error:
+Ensure scripts have UNIX line endings:
 
 dos2unix /usr/local/123net/freepbx-tools/bin/*.sh
 
 
-If Python errors mention text=True, run the installer again to patch for Python <3.7.
+Python errors mentioning text=True:
+Re-run the installer to auto-patch for Python <3.7.
 
-Check /home/123net/callflows/ for outputs.
+No outputs found:
+Check /home/123net/callflows/ for generated files.
