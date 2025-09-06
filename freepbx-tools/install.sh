@@ -3,7 +3,7 @@
 # - Installs to /usr/local/123net/freepbx-tools
 # - Symlinks into /usr/local/bin (both friendly and legacy names)
 # - Ensures deps (jq, graphviz/dot, mysql client, python3) with EL7 python36u safety
-# - Normalizes shebangs, makes bin scripts executable
+# - Normalizes shebangs/line-endings for all shell scripts; makes executables
 # - Applies Python <3.7 compat tweak (text=True -> universal_newlines=True)
 # - Creates /home/123net/callflows and prints version policy banner
 
@@ -126,14 +126,28 @@ install_files() {
   mkdir -p "$INSTALL_DIR"
   cp -a "$src_dir/." "$INSTALL_DIR/"
 
-  # Normalize shebangs for Python entrypoints and make executables
+  # Normalize Python entrypoints and make executables
   for rel in bin/freepbx_dump.py bin/freepbx_callflow_menu.py bin/freepbx_callflow_graphV2.py; do
     [[ -f "$INSTALL_DIR/$rel" ]] || continue
     sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true
     chmod +x "$INSTALL_DIR/$rel" || true
   done
 
-  # Ensure execute bits across bin
+  # >>> Baked fix: Normalize ALL shell scripts (CRLF/BOM → LF, ensure bash shebang, chmod +x)
+  if command -v find >/dev/null 2>&1; then
+    while IFS= read -r -d '' s; do
+      # strip CRLFs and BOMs
+      sed -i -e 's/\r$//' -e '1s/^\xEF\xBB\xBF//' "$s" || true
+      # ensure shebang if missing
+      if ! head -n1 "$s" | grep -q '^#!'; then
+        sed -i '1i #!/usr/bin/env bash' "$s" || true
+      fi
+      chmod +x "$s" || true
+    done < <(find "$INSTALL_DIR" -type f -name "*.sh" -print0)
+  fi
+  # <<< End baked fix
+
+  # Ensure execute bits across bin (defense in depth)
   chmod +x "$INSTALL_DIR"/bin/freepbx_render_from_dump.sh 2>/dev/null || true
   chmod +x "$INSTALL_DIR"/bin/*.py                       2>/dev/null || true
   chmod +x "$INSTALL_DIR"/version_check.sh               2>/dev/null || true
@@ -170,17 +184,21 @@ install_symlinks() {
   mkdir -p "$BIN_DIR"
 
   # Friendly names
-  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_menu.py"    "$BIN_DIR/freepbx-callflows"        2>/dev/null || true
-  ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx-render"           2>/dev/null || true
-  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx-dump"             2>/dev/null || true
-  ln -sf "$INSTALL_DIR/version_check.sh"                "$BIN_DIR/freepbx-version-check"    2>/dev/null || true
-  ln -sf "$INSTALL_DIR/install.sh"                      "$BIN_DIR/freepbx-install"          2>/dev/null || true
-  ln -sf "$INSTALL_DIR/uninstall.sh"                    "$BIN_DIR/freepbx-uninstall"        2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_menu.py"    "$BIN_DIR/freepbx-callflows"           2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx-render"              2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx-dump"                2>/dev/null || true
+  ln -sf "$INSTALL_DIR/version_check.sh"                "$BIN_DIR/freepbx-version-check"       2>/dev/null || true
+  ln -sf "$INSTALL_DIR/install.sh"                      "$BIN_DIR/freepbx-install"             2>/dev/null || true
+  ln -sf "$INSTALL_DIR/uninstall.sh"                    "$BIN_DIR/freepbx-uninstall"           2>/dev/null || true
 
   # Legacy names required by menu/scripts
-  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"          2>/dev/null || true
-  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
+
+  # >>> Baked fix: Ensure public symlink for the diagnostic
+  ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
+  # <<< End baked fix
 }
 
 print_policy_banner() {
@@ -221,7 +239,7 @@ main() {
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
   log "Symlinks created in $BIN_DIR:"
-  ls -l "$BIN_DIR"/freepbx-* "$BIN_DIR"/freepbx_* 2>/dev/null || true
+  ls -l "$BIN_DIR"/freepbx-* "$BIN_DIR"/freepbx_* "$BIN_DIR"/asterisk-full-diagnostic.sh 2>/dev/null || true
   log "Output directory: $CALLFLOWS_DIR"
   print_policy_banner
   log "Done."
