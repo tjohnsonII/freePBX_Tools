@@ -146,10 +146,9 @@ install_files() {
 # Make subprocess.run(..., text=True) work on Python < 3.7
 patch_py36_text_kwarg() {
   have python3 || return 0
-  if python3 - <<'PY' >/dev/null 2>&1; then
-import sys; raise SystemExit(0 if sys.version_info < (3,7) else 1)
-PY
-  then
+
+  # returns 0 on Python < 3.7, 1 otherwise
+  if python3 -c 'import sys; raise SystemExit(0 if sys.version_info < (3,7) else 1)'; then
     local d="$INSTALL_DIR/bin"
     [[ -d "$d" ]] || return 0
     echo ">>> Adapting subprocess.run(..., text=True) for Python < 3.7"
