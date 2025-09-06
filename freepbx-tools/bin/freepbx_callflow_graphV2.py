@@ -3,137 +3,131 @@
 # Build a call-flow SVG for a DID, expanding Time Conditions, IVRs, Ring Groups, Queues, etc.
 # No Python DB drivers needed: we shell out to the mysql CLI.
 
-import argparse, subprocess, shlex, sys, re, textwrap
+import argparse, subprocess, sys, re
 
 DB = "asterisk"
+
+# ---------- DB helper ---------------------------------------------------------
 
 def q(sql, socket=None, user="root", password=None):
     """
     Execute a SQL query using the mysql CLI and return results as a list of tuples.
-    - sql: SQL query string.
-    - socket: Optional MySQL socket path.
-    - user: MySQL username.
-    - password: MySQL password.
-    Returns: List of tuples, each tuple is a row of strings.
     """
     cmd = ["mysql", "-NBe", sql, DB, "-u", user]
-    if password: cmd += ["-p"+password]
-    if socket:   cmd += ["--socket", socket]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if password:
+        cmd += ["-p" + password]
+    if socket:
+        cmd += ["--socket", socket]
+    # py3.6-safe: use universal_newlines instead of text=True
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if p.returncode != 0:
         sys.stderr.write(p.stderr)
         return []
     out = p.stdout.strip()
     if not out:
         return []
-    rows = []
-    for line in out.splitlines():
-        rows.append(tuple(line.split("\t")))
-    return rows
+    return [tuple(line.split("\t")) for line in out.splitlines()]
+
+# ---------- Friendly labels / lookups ----------------------------------------
 
 def human_time_rules(rows):
-    """
-    Convert FreePBX timegroup rules to a human-readable multiline string.
-    - rows: List of (timegroupid, time_string) tuples.
-    Returns: Pretty string describing time rules.
-    """
+    """Convert FreePBX timegroup rules to a readable multiline string."""
     def pretty(rule):
         # FreePBX stores "HH:MM-HH:MM|mday|mon|dow"
         parts = rule.split("|")
-        # Defensive parsing in case format varies
-        time    = parts[0] if len(parts)>0 else "*"
-        mday    = parts[1] if len(parts)>1 else "*"
-        mon     = parts[2] if len(parts)>2 else "*"
-        dow     = parts[3] if len(parts)>3 else "*"
-        def star2any(x): return "any" if (x.strip()=="*" or x.strip()=="") else x
-        time = time.replace(":", "h", 1).replace(":", "m", 1).replace("h","h",1)
-        return f"{time} | day:{star2any(mday)} | mon:{star2any(mon)} | dow:{star2any(dow)}"
+        time = parts[0] if len(parts) > 0 else "*"
+        mday = parts[1] if len(parts) > 1 else "*"
+        mon  = parts[2] if len(parts) > 2 else "*"
+        dow  = parts[3] if len(parts) > 3 else "*"
+
+        def anyify(x): return "any" if (x.strip() == "*" or x.strip() == "") else x
+        # 09:00-17:00 -> 09h00-17h00
+        time = time.replace(":", "h", 1).replace(":", "m", 1)
+        return f"{time} | day:{anyify(mday)} | mon:{anyify(mon)} | dow:{anyify(dow)}"
+
     rules = [pretty(r[1]) for r in rows]
-    return "\\n".join(rules) if rules else "no rules"
+    return "\n".join(rules) if rules else "no rules"
 
 def fetch_users_map(socket, user, password):
-    """
-    Fetch mapping of extension numbers to user names.
-    Returns: Dict {extension: name}
-    """
     rows = q("SELECT extension,name FROM users;", socket, user, password)
-    return {ext:name for (ext,name) in rows}
+    return {ext: name for (ext, name) in rows}
 
 def fetch_ringgroup(grpnum, socket, user, password):
-    """
-    Fetch details for a ring group by group number.
-    Returns: Tuple (grpnum, description, grplist, strategy, grptime, postdest) or None.
-    """
-    rg = q(f"SELECT grpnum,description,grplist,strategy,grptime,COALESCE(postdest,'') FROM ringgroups WHERE grpnum='{grpnum}'",
-           socket, user, password)
+    sql = ("SELECT grpnum,description,grplist,strategy,grptime,COALESCE(postdest,'') "
+           "FROM ringgroups WHERE grpnum='{g}'").format(g=grpnum)
+    rg = q(sql, socket, user, password)
     return rg[0] if rg else None
 
 def fetch_queue_details(queue_id, socket, user, password):
-    """
-    Fetch details for a queue: name, strategy, timeout, members.
-    Returns: (name, strategy, timeout, members)
-    """
-    rows = q(f"""
+    """Return (name, strategy, timeout, members_csv)"""
+    rows = q("""
         SELECT id,
                MAX(CASE WHEN keyword='strategy' THEN data END),
                MAX(CASE WHEN keyword='timeout'  THEN data END)
-        FROM queues_details WHERE id='{queue_id}';""", socket, user, password)
-    strategy, timeout = (rows[0][1], rows[0][2]) if rows else ("","")
-    mem = q(f"""
+        FROM queues_details WHERE id='%s';""" % queue_id, socket, user, password)
+    strategy, timeout = (rows[0][1], rows[0][2]) if rows else ("", "")
+
+    mem = q("""
         SELECT GROUP_CONCAT(
                  TRIM(BOTH ',' FROM SUBSTRING_INDEX(SUBSTRING_INDEX(data,'@',1),'/',-1))
                  ORDER BY data SEPARATOR ',')
-        FROM queues_details WHERE id='{queue_id}' AND keyword='member';""", socket, user, password)
+        FROM queues_details WHERE id='%s' AND keyword='member';""" % queue_id, socket, user, password)
     members = mem[0][0] if mem and mem[0][0] else ""
-    qc = q(f"SELECT extension,descr FROM queues_config WHERE extension='{queue_id}'", socket, user, password)
+
+    qc = q("SELECT extension,descr FROM queues_config WHERE extension='%s'" % queue_id,
+           socket, user, password)
     name = qc[0][1] if qc else ""
     return name, strategy, timeout, members
 
 def fetch_ivr(ivr_id, socket, user, password):
-    """
-    Fetch IVR details and menu options.
-    Returns: (name, [(selection, dest), ...])
-    """
-    head = q(f"SELECT id,name,announcement FROM ivr_details WHERE id='{ivr_id}'", socket, user, password)
-    if not head: return None, []
+    head = q("SELECT id,name,announcement FROM ivr_details WHERE id='%s'" % ivr_id,
+             socket, user, password)
+    if not head:
+        return None, []
     name = head[0][1]
-    entries = q(f"SELECT ivr_id, selection, dest FROM ivr_entries WHERE ivr_id='{ivr_id}' ORDER BY selection",
+    entries = q("SELECT ivr_id, selection, dest FROM ivr_entries "
+                "WHERE ivr_id='%s' ORDER BY selection" % ivr_id,
                 socket, user, password)
     return name, [(sel, dest) for (_ivr, sel, dest) in entries]
 
 def fetch_timecondition(tc_id, socket, user, password):
-    """
-    Fetch time condition details and associated time group rules.
-    Returns: Dict with display name, time group id, rules, true/false destinations.
-    """
-    rows = q(f"SELECT timeconditions_id,displayname,`time`,COALESCE(truegoto,''),COALESCE(falsegoto,'') "
-             f"FROM timeconditions WHERE timeconditions_id='{tc_id}'",
+    rows = q(("SELECT timeconditions_id,displayname,`time`,"
+              "COALESCE(truegoto,''),COALESCE(falsegoto,'') "
+              "FROM timeconditions WHERE timeconditions_id='%s'") % tc_id,
              socket, user, password)
-    if not rows: return None
+    if not rows:
+        return None
     _id, display, tg_id, truegoto, falsegoto = rows[0]
-    tg_rows = q(f"SELECT timegroupid, `time` FROM timegroups_details WHERE timegroupid='{tg_id}' ORDER BY id",
-                socket, user, password)
-    rules = human_time_rules(tg_rows)
-    return {"display":display, "tg_id":tg_id, "rules":rules,
-            "true":truegoto, "false":falsegoto}
+    tg_rows = q("SELECT timegroupid, `time` FROM timegroups_details "
+                "WHERE timegroupid='%s' ORDER BY id" % tg_id, socket, user, password)
+    return {"display": display, "tg_id": tg_id,
+            "rules": human_time_rules(tg_rows),
+            "true": truegoto, "false": falsegoto}
 
-def parse_dest(dest):
-    """
-    Parse a FreePBX destination string into context and arguments.
-    Returns: (context, [args], raw string)
-    """
-    parts = dest.split(",")
-    if not parts: return ("raw", dest, [])
-    ctx = parts[0]
-    return (ctx, parts[1:] , dest)
+def fetch_announcement(ann_id, socket, user, password):
+    """Return (description, post_dest) or (None, None)"""
+    rows = q(("SELECT description, COALESCE(post_dest,'') "
+              "FROM announcement WHERE announcement_id='%s'") % ann_id,
+             socket, user, password)
+    if not rows:
+        return None, None
+    return rows[0][0], rows[0][1]
 
-# ----- Graph builder ---------------------------------------------------------
+def fetch_system_recording(rec_id, socket, user, password):
+    """Return display name of a system recording id, or None."""
+    # FreePBX uses table `recordings` (id, displayname, ...) in recent versions.
+    rows = q("SELECT displayname FROM recordings WHERE id='%s'" % rec_id,
+             socket, user, password)
+    if rows:
+        return rows[0][0]
+    # Some installs use `systemrecordings` (older schema)
+    rows = q("SELECT displayname FROM systemrecordings WHERE id='%s'" % rec_id,
+             socket, user, password)
+    return rows[0][0] if rows else None
+
+# ---------- Graph helper ------------------------------------------------------
 
 class Graph:
-    """
-    Simple directed graph builder for dot/graphviz output.
-    Tracks nodes and edges, assigns unique node IDs, and renders to dot format.
-    """
     def __init__(self):
         self.lines = [
             'digraph G {',
@@ -142,21 +136,13 @@ class Graph:
             '  edge [fontname="Helvetica"];'
         ]
         self.ids = 0
-        self.node_ids = {}   # key -> node_id
-        self.visited = set()
+        self.node_ids = {}
 
     def new_id(self):
-        """Generate a new unique node ID."""
         self.ids += 1
         return f"n{self.ids}"
 
     def add_node(self, key, label):
-        """
-        Add a node to the graph if not already present.
-        - key: Unique identifier for the node.
-        - label: Node label (displayed in SVG).
-        Returns: Node ID.
-        """
         if key in self.node_ids:
             return self.node_ids[key]
         nid = self.new_id()
@@ -166,63 +152,48 @@ class Graph:
         return nid
 
     def add_edge(self, a, b, label=None):
-        """
-        Add a directed edge from node a to node b.
-        - label: Optional edge label.
-        """
         if label:
             self.lines.append(f'  {a} -> {b} [label="{label}"];')
         else:
             self.lines.append(f'  {a} -> {b};')
 
     def render(self):
-        """Render the graph to dot format as a string."""
         self.lines.append('}')
         return "\n".join(self.lines)
 
+# ---------- Resolver ----------------------------------------------------------
+
+def parse_dest(dest):
+    parts = dest.split(",")
+    if not parts:
+        return ("raw", dest, [])
+    return (parts[0], parts[1:], dest)
+
 def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth=0, max_depth=25):
-    """
-    Recursively resolve a FreePBX destination, expanding Time Conditions, IVRs, Ring Groups, etc.
-    Adds nodes and edges to the graph for each step in the call flow.
-    - graph: Graph object.
-    - key: Unique key for this node.
-    - dest: FreePBX destination string.
-    - users_map: Extension-to-name mapping.
-    - depth: Current recursion depth (prevents infinite loops).
-    - max_depth: Maximum recursion depth.
-    Returns: Node ID for this destination.
-    """
     if depth > max_depth:
         return graph.add_node(key, f"Max depth reached at {dest}")
 
     ctx, rest, raw = parse_dest(dest)
 
-    # Helper to add a terminal node for simple destinations
     def add_terminal(lbl):
         return graph.add_node(key, lbl)
 
-    # Expand Time Condition nodes
+    # Time Conditions
     if ctx == "timeconditions":
         tc_id = rest[0]
         info = fetch_timecondition(tc_id, socket, user, password)
         if not info:
             return add_terminal(f"Time Condition {tc_id} (not found)")
-        lbl = f"Time Condition: {info['display']}\\nTime Group {info['tg_id']}\\n{info['rules']}"
+        lbl = f"Time Condition: {info['display']}\nTime Group {info['tg_id']}\n{info['rules']}"
         nid = graph.add_node(key, lbl)
-
-        # TRUE branch
-        tkey = f"{raw}#T"
-        tchild = resolve_recursive(graph, tkey, info["true"], users_map, socket, user, password, depth+1, max_depth)
+        tchild = resolve_recursive(graph, f"{raw}#T", info["true"], users_map, socket, user, password, depth+1, max_depth)
+        fchild = resolve_recursive(graph, f"{raw}#F", info["false"], users_map, socket, user, password, depth+1, max_depth)
         graph.add_edge(nid, tchild, "TRUE")
-
-        # FALSE branch
-        fkey = f"{raw}#F"
-        fchild = resolve_recursive(graph, fkey, info["false"], users_map, socket, user, password, depth+1, max_depth)
         graph.add_edge(nid, fchild, "FALSE")
         return nid
 
-    # Expand IVR nodes
-    elif ctx == "ivr-2" or ctx == "ivr-3" or ctx.startswith("ivr-"):
+    # IVR
+    elif ctx.startswith("ivr-"):
         ivr_id = ctx.split("-")[1]
         name, options = fetch_ivr(ivr_id, socket, user, password)
         if name is None:
@@ -233,7 +204,43 @@ def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth
             graph.add_edge(nid, child, sel)
         return nid
 
-    # Expand Ring Group nodes
+    # Announcements (app-announcement-<id>,s,1)
+    elif ctx.startswith("app-announcement-"):
+        ann_id = ctx.split("-")[-1]
+        desc, post = fetch_announcement(ann_id, socket, user, password)
+        lbl = f"Announcement {ann_id}: {desc or '(no description)'}"
+        nid = graph.add_node(key, lbl)
+        if post:
+            child = resolve_recursive(graph, f"{raw}#post", post, users_map, socket, user, password, depth+1, max_depth)
+            graph.add_edge(nid, child, "after")
+        return nid
+
+    # Play System Recording (play-system-recording,<id>,1)
+    elif ctx == "play-system-recording":
+        rec_id = rest[0] if rest else ""
+        name = fetch_system_recording(rec_id, socket, user, password) if rec_id else None
+        return add_terminal(f"Play System Recording: {name or rec_id or '(unknown)'}")
+
+    # Queues (ext-queues,<qid>,1)
+    elif ctx == "ext-queues":
+        qid = rest[0]
+        name, strategy, timeout, members = fetch_queue_details(qid, socket, user, password)
+        # Map queue member extensions to names where possible
+        pretty_members = []
+        for m in (members.split(",") if members else []):
+            m = m.strip()
+            if not m:
+                continue
+            if m.endswith("#"):   # external number
+                pretty_members.append(m)
+            else:
+                pretty_members.append(f"{m} {users_map.get(m,'')}".strip())
+        label = (f"Queue {qid}: {name or '[no name]'}\n"
+                 f"strategy={strategy or '-'} timeout={timeout or '-'}\n"
+                 f"members: {', '.join(pretty_members) if pretty_members else '-'}")
+        return add_terminal(label)
+
+    # Ring Group (ext-group,<grp>,1)
     elif ctx == "ext-group":
         grp = rest[0]
         rg = fetch_ringgroup(grp, socket, user, password)
@@ -243,12 +250,15 @@ def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth
         members = []
         for token in (grplist or "").split("-"):
             token = token.strip()
+            if not token:
+                continue
             if token.endswith("#"):
                 members.append(token)  # external number
             else:
-                members.append(f"{token} {users_map.get(token,'')}".strip())
-        label = f"Ring Group {grp}: {desc}\\nstrategy={strategy} ring={grptime}s\\n" \
-                f"members: {', '.join(members) if members else '-'}"
+                members.append(f"{token} {users_map.get(token, '')}".strip())
+        label = (f"Ring Group {grp}: {desc}\n"
+                 f"strategy={strategy} ring={grptime}s\n"
+                 f"members: {', '.join(members) if members else '-'}")
         nid = graph.add_node(key, label)
         if postdest:
             child = resolve_recursive(graph, f"{raw}#post", postdest, users_map, socket, user, password, depth+1, max_depth)
@@ -259,41 +269,40 @@ def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth
     elif ctx == "from-did-direct":
         ext = rest[0]
         name = users_map.get(ext, "")
-        return add_terminal(f"Extension {ext}{(' — '+name) if name else ''}")
+        return add_terminal(f"Extension {ext}{(' — ' + name) if name else ''}")
 
-    # Voicemail destinations
+    # Voicemail
     elif ctx == "ext-local":
-        target = rest[0]
+        target = rest[0] if rest else ""
         m = re.match(r"(vm[usi])(\d+)", target)
         if m:
             vmtype, ext = m.groups()
-            suffix = {"vmu":"unavailable", "vms":"busy", "vmi":"immediate"}.get(vmtype, vmtype)
+            suffix = {"vmu": "unavailable", "vms": "busy", "vmi": "immediate"}.get(vmtype, vmtype)
             name = users_map.get(ext, "")
-            return add_terminal(f"Voicemail {ext}{(' — '+name) if name else ''} ({suffix})")
+            return add_terminal(f"Voicemail {ext}{(' — ' + name) if name else ''} ({suffix})")
         return add_terminal(f"ext-local → {target}")
 
     # Directory
     elif ctx == "directory":
         return add_terminal("Directory")
 
-    # Conference room
+    # Conference
     elif ctx == "ext-meetme":
-        room = rest[0]
+        room = rest[0] if rest else ""
         return add_terminal(f"Conference {room}")
 
-    # Terminate call (blackhole)
+    # Blackhole / terminate
     elif ctx == "app-blackhole":
         return add_terminal("Terminate Call (blackhole)")
 
-    # Unknown/rare module: display raw destination
+    # Fallback: show the raw target for unknown modules
     else:
-        return add_terminal(f"{raw}")
+        return add_terminal(raw)
+
+# ---------- CLI ---------------------------------------------------------------
 
 def main():
-    """
-    Main entry point: parses arguments, builds call flow graph, and renders SVG.
-    """
-    ap = argparse.ArgumentParser(description="Render FreePBX callflow for a DID to SVG (expands Time Conditions)")
+    ap = argparse.ArgumentParser(description="Render FreePBX callflow for a DID to SVG (expands Time Conditions, IVR, Queues, Ring Groups, Announcements)")
     ap.add_argument("--did", required=True, help="DID to render (incoming.extension)")
     ap.add_argument("--out", required=True, help="Output SVG path")
     ap.add_argument("--db-user", default="root")
@@ -302,19 +311,18 @@ def main():
     args = ap.parse_args()
 
     # Find inbound route for this DID
-    rows = q(f"SELECT extension, COALESCE(description,''), destination FROM incoming WHERE extension='{args.did}';",
+    rows = q("SELECT extension, COALESCE(description,''), destination "
+             "FROM incoming WHERE extension='%s';" % args.did,
              args.socket, args.db_user, args.db_pass)
     if not rows:
-        sys.stderr.write(f"No inbound route for DID {args.did}\n")
+        sys.stderr.write("No inbound route for DID %s\n" % args.did)
         sys.exit(2)
     did, label, dest = rows[0]
 
-    # Fetch user extension-to-name mapping
     users_map = fetch_users_map(args.socket, args.db_user, args.db_pass)
 
-    # Build graph
     g = Graph()
-    root = g.add_node(("root", did), f"DID: {did}\\n{label or '(no label)'}")
+    root = g.add_node(("root", did), f"DID: {did}\n{label or '(no label)'}")
     child = resolve_recursive(g, ("dest", dest), dest, users_map, args.socket, args.db_user, args.db_pass)
     g.add_edge(root, child)
 
