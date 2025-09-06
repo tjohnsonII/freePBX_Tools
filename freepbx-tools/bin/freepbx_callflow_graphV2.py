@@ -274,13 +274,12 @@ def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth
     # Voicemail
     elif ctx == "ext-local":
         target = rest[0] if rest else ""
-        m = re.match(r"(vm[usi])(\d+)", target)
+        m = re.match(r"vm([ubsi])(\d+)", target)
         if m:
-            vmtype, ext = m.groups()
-            suffix = {"vmu": "unavailable", "vms": "busy", "vmi": "immediate"}.get(vmtype, vmtype)
+            code, ext = m.groups()
+            suffix = {"u":"unavailable", "b":"busy", "s":"no message", "i":"immediate"}[code]
             name = users_map.get(ext, "")
-            return add_terminal(f"Voicemail {ext}{(' — ' + name) if name else ''} ({suffix})")
-        return add_terminal(f"ext-local → {target}")
+            return add_terminal(f"Voicemail {ext}{(' — '+name) if name else ''} ({suffix})")
 
     # Directory
     elif ctx == "directory":
