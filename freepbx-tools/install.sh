@@ -5,7 +5,8 @@
 # - Ensures deps (jq, graphviz/dot, mysql client, python3) with EL7 python36u safety
 # - Normalizes shebangs/line-endings for all shell scripts; makes executables
 # - Applies Python <3.7 compat tweak (text=True -> universal_newlines=True)
-# - Creates /home/123net/callflows and prints version policy banner
+# - Creates /home/123net/callflows, prints version policy banner
+# - Runs a post-install smoke test (python3, dot, mysql, callflows help)
 
 set -Eeuo pipefail
 
@@ -40,13 +41,9 @@ enable_epel_if_needed() {
 # Ensure a usable python3 without tripping EL7's IUS python36u conflicts
 ensure_python3() {
   echo ">>> Ensuring python3 is installed and on PATH..."
-  if have python3; then
-    python3 -V || true
-    return 0
-  fi
+  if have python3; then python3 -V || true; return 0; fi
 
   if is_el7; then
-    # If IUS python36u already present, do NOT pull in base python3 (they conflict).
     if rpm -q python36u python36u-libs >/dev/null 2>&1; then
       yum install -y python36u python36u-libs python36u-pip || true
       mkdir -p /usr/local/bin
@@ -54,10 +51,8 @@ ensure_python3() {
       export PATH="/usr/local/bin:$PATH"
       have python3 && { python3 -V || true; return 0; }
     fi
-    # Try base/EPEL python3 first
     yum install -y python3 || true
     if have python3; then python3 -V || true; return 0; fi
-    # Last resort: bring in IUS and python36u
     rpm -q ius-release >/dev/null 2>&1 || yum install -y https://repo.ius.io/ius-release-el7.rpm || true
     yum install -y python36u python36u-libs python36u-pip || true
     mkdir -p /usr/local/bin
@@ -87,8 +82,6 @@ ensure_pkgset() {
     apt-get update -y || true
     apt-get install -y jq graphviz default-mysql-client || apt-get install -y jq graphviz mariadb-client || true
   fi
-
-  # Convenience symlinks if CLI tools exist at common locations
   have asterisk  || ln -sf /usr/sbin/asterisk /usr/local/bin/asterisk  2>/dev/null || true
   have fwconsole || ln -sf /var/lib/asterisk/bin/fwconsole /usr/local/bin/fwconsole 2>/dev/null || true
 }
@@ -97,18 +90,11 @@ check_after_installs() {
   local missing=0
   for c in python3 jq dot mysql; do
     case "$c" in
-      dot)
-        have dot || { warn "Missing dependency: dot (graphviz)"; ((missing++)); }
-        ;;
-      mysql)
-        have mysql || { warn "Missing dependency: mysql client"; ((missing++)); }
-        ;;
-      *)
-        have "$c" || { warn "Missing dependency: $c"; ((missing++)); }
-        ;;
+      dot)   have dot   || { warn "Missing dependency: dot (graphviz)"; ((missing++)); } ;;
+      mysql) have mysql || { warn "Missing dependency: mysql client";   ((missing++)); } ;;
+      *)     have "$c"  || { warn "Missing dependency: $c";             ((missing++)); } ;;
     esac
   done
-
   if (( missing > 0 )); then
     warn "Some optional dependencies are missing."
     warn "  Required at runtime on most hosts: mysql, python3"
@@ -133,19 +119,16 @@ install_files() {
     chmod +x "$INSTALL_DIR/$rel" || true
   done
 
-  # >>> Baked fix: Normalize ALL shell scripts (CRLF/BOM → LF, ensure bash shebang, chmod +x)
+  # Normalize ALL shell scripts (CRLF/BOM → LF, ensure bash shebang, chmod +x)
   if command -v find >/dev/null 2>&1; then
     while IFS= read -r -d '' s; do
-      # strip CRLFs and BOMs
       sed -i -e 's/\r$//' -e '1s/^\xEF\xBB\xBF//' "$s" || true
-      # ensure shebang if missing
       if ! head -n1 "$s" | grep -q '^#!'; then
         sed -i '1i #!/usr/bin/env bash' "$s" || true
       fi
       chmod +x "$s" || true
     done < <(find "$INSTALL_DIR" -type f -name "*.sh" -print0)
   fi
-  # <<< End baked fix
 
   # Ensure execute bits across bin (defense in depth)
   chmod +x "$INSTALL_DIR"/bin/freepbx_render_from_dump.sh 2>/dev/null || true
@@ -154,14 +137,13 @@ install_files() {
   chmod +x "$INSTALL_DIR"/install.sh                     2>/dev/null || true
   chmod +x "$INSTALL_DIR"/uninstall.sh                   2>/dev/null || true
 
-  # Output directory for graphs
   mkdir -p "$CALLFLOWS_DIR"
   if id asterisk >/dev/null 2>&1; then
     chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true
   fi
 }
 
-# Make subprocess.run(..., text=True) work on Python < 3.7 by swapping to universal_newlines=True
+# Make subprocess.run(..., text=True) work on Python < 3.7
 patch_py36_text_kwarg() {
   have python3 || return 0
   if python3 - <<'PY' >/dev/null 2>&1; then
@@ -196,9 +178,8 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
 
-  # >>> Baked fix: Ensure public symlink for the diagnostic
+  # Diagnostic symlink
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
-  # <<< End baked fix
 }
 
 print_policy_banner() {
@@ -218,7 +199,6 @@ EOF
     warn "Created default version_policy.json at $policy_file"
   fi
 
-  # Prefer bash checker; then python (if present)
   if [[ -x "$INSTALL_DIR/version_check.sh" ]]; then
     "$INSTALL_DIR/version_check.sh" || true
   fi
@@ -226,6 +206,52 @@ EOF
     python3 "$INSTALL_DIR/version_check.py" --quiet || true
   fi
 }
+
+# -------- Post-install smoke test ----------
+post_install_smoke() {
+  echo ">>> Running post-install smoke test..."
+  local ok=0 fail=0
+
+  if have python3; then
+    echo "  [OK] python3: $(python3 -V 2>&1)"
+    ((ok++))
+  else
+    warn "  [FAIL] python3 not found on PATH"
+    ((fail++))
+  fi
+
+  if have dot; then
+    echo "  [OK] graphviz 'dot': $(dot -V 2>&1)"
+    ((ok++))
+  else
+    warn "  [FAIL] graphviz 'dot' not found"
+    ((fail++))
+  fi
+
+  if have mysql; then
+    echo "  [OK] mysql client present"
+    ((ok++))
+  else
+    warn "  [FAIL] mysql client not found"
+    ((fail++))
+  fi
+
+  # Try to show help for the callflows entrypoint (won't error the install if it returns nonzero)
+  if [[ -f "$INSTALL_DIR/bin/freepbx_callflow_menu.py" ]]; then
+    if python3 "$INSTALL_DIR/bin/freepbx_callflow_menu.py" --help >/dev/null 2>&1 || true; then
+      echo "  [OK] freepbx-callflows script is runnable"
+      ((ok++))
+    else
+      warn "  [WARN] freepbx-callflows help check returned non-zero (may be expected)."
+    fi
+  fi
+
+  echo ">>> Smoke test summary: PASS=$ok, FAIL=$fail"
+  if (( fail > 0 )); then
+    warn "Some checks failed. Tools may still work, but you might want to install missing deps."
+  fi
+}
+# -------------------------------------------
 
 main() {
   require_root
@@ -242,6 +268,9 @@ main() {
   ls -l "$BIN_DIR"/freepbx-* "$BIN_DIR"/freepbx_* "$BIN_DIR"/asterisk-full-diagnostic.sh 2>/dev/null || true
   log "Output directory: $CALLFLOWS_DIR"
   print_policy_banner
+
+  post_install_smoke
+
   log "Done."
 }
 
