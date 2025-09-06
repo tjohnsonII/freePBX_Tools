@@ -113,11 +113,16 @@ install_files() {
   cp -a "$src_dir/." "$INSTALL_DIR/"
 
   # Normalize Python entrypoints and make executables
-  for rel in bin/freepbx_dump.py bin/freepbx_callflow_menu.py bin/freepbx_callflow_graphV2.py; do
-    [[ -f "$INSTALL_DIR/$rel" ]] || continue
-    sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true
-    chmod +x "$INSTALL_DIR/$rel" || true
-  done
+  for rel in \
+  bin/freepbx_dump.py \
+  bin/freepbx_callflow_menu.py \
+  bin/freepbx_callflow_graphV2.py \
+  bin/freepbx_tc_status.py
+do
+  [[ -f "$INSTALL_DIR/$rel" ]] || continue
+  sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true
+  chmod +x "$INSTALL_DIR/$rel" || true
+done
 
   # Normalize ALL shell scripts (CRLF/BOM → LF, ensure bash shebang, chmod +x)
   if command -v find >/dev/null 2>&1; then
@@ -171,11 +176,14 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/version_check.sh"                "$BIN_DIR/freepbx-version-check"       2>/dev/null || true
   ln -sf "$INSTALL_DIR/install.sh"                      "$BIN_DIR/freepbx-install"             2>/dev/null || true
   ln -sf "$INSTALL_DIR/uninstall.sh"                    "$BIN_DIR/freepbx-uninstall"           2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx-tc-status" 2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx_tc_status.py" 2>/dev/null || true
+
 
   # Diagnostic symlink
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
@@ -207,6 +215,7 @@ EOF
 }
 
 # -------- Post-install smoke test ----------
+# -------- Post-install smoke test ----------
 post_install_smoke() {
   echo ">>> Running post-install smoke test..."
   local ok=0 fail=0
@@ -235,7 +244,7 @@ post_install_smoke() {
     ((fail++))
   fi
 
-  # Try to show help for the callflows entrypoint (won't error the install if it returns nonzero)
+  # Try to show help for the callflows entrypoint
   if [[ -f "$INSTALL_DIR/bin/freepbx_callflow_menu.py" ]]; then
     if python3 "$INSTALL_DIR/bin/freepbx_callflow_menu.py" --help >/dev/null 2>&1 || true; then
       echo "  [OK] freepbx-callflows script is runnable"
@@ -245,11 +254,22 @@ post_install_smoke() {
     fi
   fi
 
+  # Check time-condition status tool
+  if [[ -f "$INSTALL_DIR/bin/freepbx_tc_status.py" ]]; then
+    if python3 "$INSTALL_DIR/bin/freepbx_tc_status.py" --help >/dev/null 2>&1 || true; then
+      echo "  [OK] freepbx-tc-status script is runnable"
+      ((ok++))
+    else
+      warn "  [WARN] freepbx-tc-status help check returned non-zero."
+    fi
+  fi
+
   echo ">>> Smoke test summary: PASS=$ok, FAIL=$fail"
   if (( fail > 0 )); then
     warn "Some checks failed. Tools may still work, but you might want to install missing deps."
   fi
 }
+
 # -------------------------------------------
 
 main() {

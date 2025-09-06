@@ -16,6 +16,21 @@ OUT_DIR       = "/home/123net/callflows"
 DUMP_PATH     = os.path.join(OUT_DIR, "freepbx_dump.json")
 DB_USER       = "root"
 DEFAULT_SOCK  = "/var/lib/mysql/mysql.sock"
+TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
+
+
+def run_tc_status(sock):
+    """Invoke the time-condition status tool."""
+    if not os.path.isfile(TC_STATUS_SCRIPT):
+        print("Time Condition status tool not found at", TC_STATUS_SCRIPT)
+        return
+    print("\n=== Time Conditions: current override + last *code use ===\n")
+    rc, out, err = run(["python3", TC_STATUS_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc == 0:
+        print(out, end="")
+    else:
+        print((err or out).strip())
+
 
 # ---------------- helpers ----------------
 
@@ -164,8 +179,9 @@ def main():
         print(" 3) Generate call-flow for selected DID(s)")
         print(" 4) Generate call-flows for ALL DIDs")
         print(" 5) Generate call-flows for ALL DIDs (skip labels: OPEN)")
-        print(" 6) Run full Asterisk diagnostic")
-        print(" 7) Quit")
+        print(" 6) Show Time-Condition status (+ last *code use)")
+        print(" 7) Run full Asterisk diagnostic")
+        print(" 8) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -199,6 +215,9 @@ def main():
                         skip_labels=set(["open"]))
 
         elif choice == "6":
+            run_tc_status(sock)
+
+        elif choice == "7":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -207,7 +226,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "7":
+        elif choice == "8":
             print("Bye.")
             break
         else:
