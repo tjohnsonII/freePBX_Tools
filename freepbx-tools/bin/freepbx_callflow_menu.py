@@ -17,6 +17,7 @@ DUMP_PATH     = os.path.join(OUT_DIR, "freepbx_dump.json")
 DB_USER       = "root"
 DEFAULT_SOCK  = "/var/lib/mysql/mysql.sock"
 TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
+MODULE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_module_analyzer.py"
 
 
 def run_tc_status(sock):
@@ -26,6 +27,19 @@ def run_tc_status(sock):
         return
     print("\n=== Time Conditions: current override + last *code use ===\n")
     rc, out, err = run(["python3", TC_STATUS_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc == 0:
+        print(out, end="")
+    else:
+        print((err or out).strip())
+
+
+def run_module_analyzer(sock):
+    """Invoke the FreePBX module analyzer tool."""
+    if not os.path.isfile(MODULE_ANALYZER_SCRIPT):
+        print("Module analyzer tool not found at", MODULE_ANALYZER_SCRIPT)
+        return
+    print("\n=== FreePBX Module Analysis ===\n")
+    rc, out, err = run(["python3", MODULE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
@@ -180,8 +194,9 @@ def main():
         print(" 4) Generate call-flows for ALL DIDs")
         print(" 5) Generate call-flows for ALL DIDs (skip labels: OPEN)")
         print(" 6) Show Time-Condition status (+ last *code use)")
-        print(" 7) Run full Asterisk diagnostic")
-        print(" 8) Quit")
+        print(" 7) Run FreePBX module analysis")
+        print(" 8) Run full Asterisk diagnostic")
+        print(" 9) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -218,6 +233,9 @@ def main():
             run_tc_status(sock)
 
         elif choice == "7":
+            run_module_analyzer(sock)
+
+        elif choice == "8":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -226,7 +244,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "8":
+        elif choice == "9":
             print("Bye.")
             break
         else:

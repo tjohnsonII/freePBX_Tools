@@ -8,6 +8,8 @@ freepbx-callflows	Interactive menu: snapshot, diagrams, TC status, diagnostics	/
 freepbx-dump	Take a JSON snapshot of FreePBX DB	freepbx_dump.json
 freepbx-render	Render call-flow diagrams from last snapshot	callflow_<DID>.svg
 freepbx-tc-status	Show Time Condition override state + last feature code use	Console output
+freepbx-module-analyzer	Analyze all FreePBX modules and their configurations	Console output / JSON
+freepbx-module-status	Quick FreePBX module status overview (enabled/disabled)	Console output
 freepbx-diagnostic	Full system + Asterisk diagnostic	full_diagnostic_<timestamp>.txt
 freepbx-version-check	Compare FreePBX/Asterisk versions to policy	Console output
 asterisk-full-diagnostic.sh	Same as freepbx-diagnostic (legacy)	Same as above
@@ -18,6 +20,8 @@ Call-Flow Generator – renders inbound routes, IVRs, time conditions, queues, e
 Snapshot Utility – exports FreePBX config to normalized JSON.
 
 Time Condition Status Tool – shows overrides + last feature code dial from CDRs.
+
+Module Analyzer – comprehensive analysis of all FreePBX modules and their configurations.
 
 Full Diagnostics – collects system and PBX state into text report.
 
@@ -41,16 +45,44 @@ Collects system, Asterisk, and FreePBX runtime data into a text report.
 📊 Time Condition Status Tool
 Shows the current override state of each Time Condition and the last time its feature code (*xxx) was dialed (from CDRs).
 
+📦 Module Analyzer
+Comprehensive analysis of all FreePBX modules, their status, versions, and configurations. Evaluates core components like extensions, trunks, queues, and provides detailed configuration insights.
+
 ✅ Version Checker
 Verifies Asterisk and FreePBX major versions against a local version policy.
 
 🚀 Installation
 
-Copy or clone this repo to your PBX host.
+Copy the freepbx-tools directory to your FreePBX server.
 
-Run the installer:
+**Quick Setup:**
+```bash
+# 🚀 Ultimate lazy one-liner (avoids the chmod chicken-and-egg problem):
+bash bootstrap.sh
 
+# Or the traditional approach:
+chmod +x make_executable.sh && ./make_executable.sh
+
+# Or do it all manually:
+chmod +x *.sh bin/*.sh *.py bin/*.py
+
+# Then install
 sudo ./install.sh
+```
+
+**Even Lazier One-Liner:**
+```bash
+# Copy-paste this single command to make everything executable:
+chmod +x *.sh bin/*.sh *.py bin/*.py 2>/dev/null && echo "✅ Ready for installation: sudo ./install.sh"
+```
+
+**Typical Deployment Workflow:**
+1. Develop/modify on Windows using VS Code
+2. Copy to FreePBX server: `scp -r freepbx-tools/ user@freepbx-server:/tmp/`
+3. SSH to server: `ssh user@freepbx-server`
+4. Navigate: `cd /tmp/freepbx-tools/`
+5. Make executable: `./make_executable.sh`
+6. Install: `sudo ./install.sh`
 
 
 This will:

@@ -177,13 +177,16 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/install.sh"                      "$BIN_DIR/freepbx-install"             2>/dev/null || true
   ln -sf "$INSTALL_DIR/uninstall.sh"                    "$BIN_DIR/freepbx-uninstall"           2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx-tc-status" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_module_analyzer.py" "$BIN_DIR/freepbx-module-analyzer" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_module_status.py" "$BIN_DIR/freepbx-module-status" 2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx_tc_status.py" 2>/dev/null || true
-
+  ln -sf "$INSTALL_DIR/bin/freepbx_module_analyzer.py" "$BIN_DIR/freepbx_module_analyzer.py" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_module_status.py" "$BIN_DIR/freepbx_module_status.py" 2>/dev/null || true
 
   # Diagnostic symlink
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
