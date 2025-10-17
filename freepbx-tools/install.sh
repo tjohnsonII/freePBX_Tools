@@ -179,6 +179,7 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx-tc-status" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_module_analyzer.py" "$BIN_DIR/freepbx-module-analyzer" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_module_status.py" "$BIN_DIR/freepbx-module-status" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_paging_fax_analyzer.py" "$BIN_DIR/freepbx-paging-fax-analyzer" 2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
@@ -187,6 +188,7 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx_tc_status.py" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_module_analyzer.py" "$BIN_DIR/freepbx_module_analyzer.py" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_module_status.py" "$BIN_DIR/freepbx_module_status.py" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_paging_fax_analyzer.py" "$BIN_DIR/freepbx_paging_fax_analyzer.py" 2>/dev/null || true
 
   # Diagnostic symlink
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true

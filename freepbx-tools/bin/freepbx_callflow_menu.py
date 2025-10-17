@@ -18,6 +18,7 @@ DB_USER       = "root"
 DEFAULT_SOCK  = "/var/lib/mysql/mysql.sock"
 TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
 MODULE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_module_analyzer.py"
+PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_paging_fax_analyzer.py"
 
 
 def run_tc_status(sock):
@@ -40,6 +41,19 @@ def run_module_analyzer(sock):
         return
     print("\n=== FreePBX Module Analysis ===\n")
     rc, out, err = run(["python3", MODULE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc == 0:
+        print(out, end="")
+    else:
+        print((err or out).strip())
+
+
+def run_paging_fax_analyzer(sock):
+    """Invoke the FreePBX paging/fax analyzer tool."""
+    if not os.path.isfile(PAGING_FAX_ANALYZER_SCRIPT):
+        print("Paging/Fax analyzer tool not found at", PAGING_FAX_ANALYZER_SCRIPT)
+        return
+    print("\n=== Paging, Overhead & Fax Analysis ===\n")
+    rc, out, err = run(["python3", PAGING_FAX_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
@@ -195,8 +209,9 @@ def main():
         print(" 5) Generate call-flows for ALL DIDs (skip labels: OPEN)")
         print(" 6) Show Time-Condition status (+ last *code use)")
         print(" 7) Run FreePBX module analysis")
-        print(" 8) Run full Asterisk diagnostic")
-        print(" 9) Quit")
+        print(" 8) Run paging, overhead & fax analysis")
+        print(" 9) Run full Asterisk diagnostic")
+        print("10) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -236,6 +251,9 @@ def main():
             run_module_analyzer(sock)
 
         elif choice == "8":
+            run_paging_fax_analyzer(sock)
+
+        elif choice == "9":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -244,7 +262,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "9":
+        elif choice == "10":
             print("Bye.")
             break
         else:
