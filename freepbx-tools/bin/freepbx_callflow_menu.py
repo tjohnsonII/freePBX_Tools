@@ -19,6 +19,7 @@ DEFAULT_SOCK  = "/var/lib/mysql/mysql.sock"
 TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
 MODULE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_module_analyzer.py"
 PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_paging_fax_analyzer.py"
+COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_comprehensive_analyzer.py"
 
 
 def run_tc_status(sock):
@@ -54,6 +55,19 @@ def run_paging_fax_analyzer(sock):
         return
     print("\n=== Paging, Overhead & Fax Analysis ===\n")
     rc, out, err = run(["python3", PAGING_FAX_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc == 0:
+        print(out, end="")
+    else:
+        print((err or out).strip())
+
+
+def run_comprehensive_analyzer(sock):
+    """Invoke the comprehensive FreePBX component analyzer."""
+    if not os.path.isfile(COMPREHENSIVE_ANALYZER_SCRIPT):
+        print("Comprehensive analyzer tool not found at", COMPREHENSIVE_ANALYZER_SCRIPT)
+        return
+    print("\n=== Comprehensive Component Analysis ===\n")
+    rc, out, err = run(["python3", COMPREHENSIVE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
@@ -210,8 +224,9 @@ def main():
         print(" 6) Show Time-Condition status (+ last *code use)")
         print(" 7) Run FreePBX module analysis")
         print(" 8) Run paging, overhead & fax analysis")
-        print(" 9) Run full Asterisk diagnostic")
-        print("10) Quit")
+        print(" 9) Run comprehensive component analysis")
+        print("10) Run full Asterisk diagnostic")
+        print("11) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -254,6 +269,9 @@ def main():
             run_paging_fax_analyzer(sock)
 
         elif choice == "9":
+            run_comprehensive_analyzer(sock)
+
+        elif choice == "10":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -262,7 +280,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "10":
+        elif choice == "11":
             print("Bye.")
             break
         else:

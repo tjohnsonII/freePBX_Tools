@@ -11,6 +11,7 @@ freepbx-tc-status	Show Time Condition override state + last feature code use	Con
 freepbx-module-analyzer	Analyze all FreePBX modules and their configurations	Console output / JSON
 freepbx-module-status	Quick FreePBX module status overview (enabled/disabled)	Console output
 freepbx-paging-fax-analyzer	Specialized analysis of paging, overhead speakers & fax	Console output / JSON
+freepbx-comprehensive-analyzer	Complete analysis of all major FreePBX components	Console output / JSON
 freepbx-diagnostic	Full system + Asterisk diagnostic	full_diagnostic_<timestamp>.txt
 freepbx-version-check	Compare FreePBX/Asterisk versions to policy	Console output
 asterisk-full-diagnostic.sh	Same as freepbx-diagnostic (legacy)	Same as above
@@ -51,6 +52,9 @@ Comprehensive analysis of all FreePBX modules, their status, versions, and confi
 
 📞 Paging & Fax Analyzer
 Specialized analysis of paging systems, overhead speakers, and fax configurations. Examines Paging Pro groups, multicast devices, SIP/PJSIP speakers, fax engines, and related dialplan features.
+
+🔍 Comprehensive Component Analyzer
+Complete analysis of all major FreePBX components including Announcements, Calendar, Call Flow Control, Call Recording, Conferences, Directory, Extensions, Follow Me, IVR, Misc Destinations, Paging & Intercom, Parking, Queues, Ring Groups, Set CallerID, Time Conditions, and Time Groups.
 
 ✅ Version Checker
 Verifies Asterisk and FreePBX major versions against a local version policy.
