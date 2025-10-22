@@ -144,28 +144,28 @@ class ASCIIFlowGenerator:
         
         # Visual styling constants
         self.STYLES = {
-            'inbound': {'icon': '📞', 'border': '═', 'color': 'cyan'},
-            'time_condition': {'icon': '🕒', 'border': '─', 'color': 'yellow'},
-            'timegroup': {'icon': '⏰', 'border': '─', 'color': 'yellow'},
-            'calendar': {'icon': '📅', 'border': '─', 'color': 'blue'},
-            'callflow_toggle': {'icon': '🔄', 'border': '═', 'color': 'blue'},
-            'ivr': {'icon': '🎯', 'border': '═', 'color': 'blue'},
-            'queue': {'icon': '📋', 'border': '─', 'color': 'green'},
-            'ringgroup': {'icon': '🔔', 'border': '─', 'color': 'magenta'},
-            'extension': {'icon': '📱', 'border': '─', 'color': 'white'},
-            'announcement': {'icon': '📢', 'border': '─', 'color': 'orange'},
-            'voicemail': {'icon': '📧', 'border': '─', 'color': 'gray'},
-            'conference': {'icon': '🎤', 'border': '─', 'color': 'purple'},
-            'paging': {'icon': '📯', 'border': '─', 'color': 'red'},
-            'fax': {'icon': '📠', 'border': '─', 'color': 'brown'},
-            'call_recording': {'icon': '🎙️', 'border': '─', 'color': 'red'},
-            'followme': {'icon': '📲', 'border': '─', 'color': 'cyan'},
-            'misc_destination': {'icon': '🎛️', 'border': '─', 'color': 'gray'},
-            'parking': {'icon': '🅿️', 'border': '─', 'color': 'yellow'},
-            'directory': {'icon': '📖', 'border': '─', 'color': 'green'},
-            'setcid': {'icon': '🆔', 'border': '─', 'color': 'blue'},
-            'failover': {'icon': '⚠️', 'border': '┅', 'color': 'red'},
-            'hangup': {'icon': '📞', 'border': '╋', 'color': 'red'}
+            'inbound': {'icon': '[IN]', 'border': '=', 'color': 'cyan'},
+            'time_condition': {'icon': '[TC]', 'border': '-', 'color': 'yellow'},
+            'timegroup': {'icon': '[TIME]', 'border': '-', 'color': 'yellow'},
+            'calendar': {'icon': '[CAL]', 'border': '-', 'color': 'blue'},
+            'callflow_toggle': {'icon': '[CFC]', 'border': '=', 'color': 'blue'},
+            'ivr': {'icon': '[IVR]', 'border': '=', 'color': 'blue'},
+            'queue': {'icon': '[Q]', 'border': '-', 'color': 'green'},
+            'ringgroup': {'icon': '[RG]', 'border': '-', 'color': 'magenta'},
+            'extension': {'icon': '[EXT]', 'border': '-', 'color': 'white'},
+            'announcement': {'icon': '[ANN]', 'border': '-', 'color': 'orange'},
+            'voicemail': {'icon': '[VM]', 'border': '-', 'color': 'gray'},
+            'conference': {'icon': '[CONF]', 'border': '-', 'color': 'purple'},
+            'paging': {'icon': '[PAGE]', 'border': '-', 'color': 'red'},
+            'fax': {'icon': '[FAX]', 'border': '-', 'color': 'brown'},
+            'call_recording': {'icon': '[REC]', 'border': '-', 'color': 'red'},
+            'followme': {'icon': '[FM]', 'border': '-', 'color': 'cyan'},
+            'misc_destination': {'icon': '[MISC]', 'border': '-', 'color': 'gray'},
+            'parking': {'icon': '[PARK]', 'border': '-', 'color': 'yellow'},
+            'directory': {'icon': '[DIR]', 'border': '-', 'color': 'green'},
+            'setcid': {'icon': '[CID]', 'border': '-', 'color': 'blue'},
+            'failover': {'icon': '[FAIL]', 'border': ':', 'color': 'red'},
+            'hangup': {'icon': '[END]', 'border': '+', 'color': 'red'}
         }
     
     def create_box(self, title, subtitle="", box_type="normal", width=None):
@@ -215,7 +215,7 @@ class ASCIIFlowGenerator:
         """Create connecting lines between elements."""
         connectors = {
             'normal': '─',
-            'true': '═',    # Thick line for TRUE path
+            'true': '=',    # Thick line for TRUE path
             'false': '┅',   # Dotted line for FALSE path  
             'failover': '╋', # Cross pattern for failover
             'timeout': '┈'   # Different dots for timeout
@@ -255,11 +255,35 @@ class ASCIIFlowGenerator:
     
     def load_all_data(self):
         """Pre-load ALL FreePBX data needed for call flow generation."""
-        print("🔄 Loading FreePBX configuration data...")
+        print("Loading FreePBX configuration data...")
+        
+        # Initialize all data structures to prevent KeyError issues
+        self.data = {
+            'timeconditions': {},
+            'timegroups': {},
+            'calendar': {},
+            'calendar_events': {},
+            'ivrs': {},
+            'ivr_options': {},
+            'extensions': {},
+            'queues': {},
+            'ringgroups': {},
+            'announcements': {},
+            'conferences': {},
+            'paging': {},
+            'fax': {},
+            'callflow_toggle': {},
+            'followme': {},
+            'misc_destinations': {},
+            'call_recording': {},
+            'directory': {},
+            'setcid': {},
+            'parking': {}
+        }
         
         # 1. Load Time Conditions
         if has_table("timeconditions", **self.kw):
-            print("   📅 Time conditions...")
+            print("   * Time conditions...")
             try:
                 # Try multiple column name variations
                 for tc_query in [
@@ -284,11 +308,11 @@ class ASCIIFlowGenerator:
                     except Exception as e:
                         continue
             except Exception as e:
-                print(f"      ❌ Time conditions: {e}")
+                print(f"      ERROR: Time conditions: {e}")
         
         # 2. Load IVRs
         if has_table("ivr_details", **self.kw):
-            print("   🎯 IVR menus...")
+            print("   * IVR menus...")
             try:
                 result = run_mysql("""
                     SELECT id, name, announcement, timeout_destination, invalid_destination 
@@ -331,7 +355,7 @@ class ASCIIFlowGenerator:
         
         # 4. Load Extensions
         if has_table("users", **self.kw):
-            print("   📱 Extensions...")
+            print("   * Extensions...")
             try:
                 result = run_mysql("""
                     SELECT extension, name, voicemail, 
@@ -415,7 +439,7 @@ class ASCIIFlowGenerator:
         
         # 8. Load Conferences
         if has_table("meetme", **self.kw) or has_table("conferences", **self.kw):
-            print("   🎤 Conferences...")
+            print("   * Conferences...")
             try:
                 for table in ["conferences", "meetme"]:
                     if has_table(table, **self.kw):
@@ -434,7 +458,7 @@ class ASCIIFlowGenerator:
         
         # 9. Load Call Flow Toggle Control (CFC)
         if has_table("callflow_toggle", **self.kw):
-            print("   🔄 Call Flow Toggle Control...")
+            print("   * Call Flow Toggle Control...")
             try:
                 result = run_mysql("""
                     SELECT id, description, state, dest_enabled, dest_disabled, 
@@ -463,7 +487,7 @@ class ASCIIFlowGenerator:
         
         # Also check for older CFC table names or alternative schemas
         elif has_table("cfc", **self.kw):
-            print("   🔄 Call Flow Control (legacy)...")
+            print("   * Call Flow Control (legacy)...")
             try:
                 result = run_mysql("SELECT id, description, state, dest_true, dest_false FROM cfc", **self.kw)
                 if result.strip():
@@ -505,7 +529,7 @@ class ASCIIFlowGenerator:
         
         # 11. Load Calendar & Calendar Events
         if has_table("calendar", **self.kw):
-            print("   📅 Calendar...")
+            print("   * Calendar...")
             try:
                 result = run_mysql("SELECT id, description, url FROM calendar", **self.kw)
                 if result.strip():
@@ -563,7 +587,7 @@ class ASCIIFlowGenerator:
         
         # 13. Load Misc Destinations
         if has_table("miscdests", **self.kw):
-            print("   🎛️  Misc destinations...")
+            print("   * Misc destinations...")
             try:
                 result = run_mysql("SELECT id, description, dial, notes FROM miscdests", **self.kw)
                 if result.strip():
@@ -581,7 +605,7 @@ class ASCIIFlowGenerator:
         
         # 14. Load Call Recording settings
         if has_table("recordings", **self.kw) or has_table("call_recording", **self.kw):
-            print("   🎙️  Call recording...")
+            print("   * Call recording...")
             try:
                 for table in ["call_recording", "recordings"]:
                     if has_table(table, **self.kw):
@@ -601,7 +625,7 @@ class ASCIIFlowGenerator:
         
         # 15. Load Parking configuration  
         if has_table("parkinglots", **self.kw) or has_table("parking", **self.kw):
-            print("   🅿️  Call parking...")
+            print("   * Call parking...")
             try:
                 for table in ["parkinglots", "parking"]:
                     if has_table(table, **self.kw):
@@ -657,7 +681,7 @@ class ASCIIFlowGenerator:
         
         # 18. Get current CFC states from asterisk database (live states)
         if self.data['callflow_toggle']:
-            print("   🔄 Checking live CFC states...")
+            print("   * Checking live CFC states...")
             try:
                 # Query asterisk database for current toggle states
                 result = run_mysql("""
@@ -686,9 +710,9 @@ class ASCIIFlowGenerator:
                 
                 print(f"      ✓ Updated {len(live_states)} live toggle states")
             except Exception as e:
-                print(f"      ⚠️  Live states: {e}")
+                print(f"      WARNING: Live states: {e}")
         
-        print("✅ Data loading complete!")
+        print("Data loading complete!")
         return True
     
     def parse_destination(self, dest_string, depth=0):
@@ -718,10 +742,14 @@ class ASCIIFlowGenerator:
         - Call Parking (Park & retrieve calls)
         - Hangup/Busy (Call termination)
         """
-        if not dest_string or depth > 10:  # Prevent infinite loops
-            hangup_box, _ = self.create_box("CALL ENDS", "Hangup", "hangup")
-            for line in hangup_box:
-                self.add_to_canvas(line)
+        try:
+            if not dest_string or depth > 10:  # Prevent infinite loops
+                hangup_box, _ = self.create_box("CALL ENDS", "Hangup", "hangup")
+                for line in hangup_box:
+                    self.add_to_canvas(line)
+                return
+        except Exception as e:
+            print(f"ERROR: Error in parse_destination early check: {e}")
             return
         
         # Avoid revisiting same destinations (loop detection)
@@ -735,6 +763,18 @@ class ASCIIFlowGenerator:
         self.visited_destinations.add(dest_string)
         dest_lower = dest_string.lower()
         
+        # Main parsing logic with error handling
+        try:
+            self._parse_destination_internal(dest_string, dest_lower, depth)
+        except Exception as e:
+            print(f"❌ Error parsing destination '{dest_string}': {e}")
+            # Show error box instead of crashing
+            error_box, _ = self.create_box("Parse Error", f"Error: {str(e)[:20]}", "failover")
+            for line in error_box:
+                self.add_to_canvas(line)
+    
+    def _parse_destination_internal(self, dest_string, dest_lower, depth):
+        """Internal parsing logic separated for error handling."""
         # Enhanced Extension handling (using pre-loaded data)
         if dest_string.startswith("ext-"):
             ext_num = dest_string.split(",")[1] if "," in dest_string else "Unknown"
@@ -1255,7 +1295,6 @@ class ASCIIFlowGenerator:
                     if part.isdigit():
                         return part
             # Fallback - look for any digits in the string
-            import re
             match = re.search(r'\d+', dest_string)
             if match:
                 return match.group()
@@ -1484,12 +1523,12 @@ class ASCIIFlowGenerator:
         
         route = routes[0]
         
-        # Enhanced Header with DID info
-        self.add_to_canvas("╔" + "═" * 80 + "╗")
-        self.add_to_canvas(f"║{'📞 FREEPBX CALL FLOW DIAGRAM':^80}║")
-        self.add_to_canvas("╠" + "═" * 80 + "╣")
-        self.add_to_canvas(f"║ DID: {did:<25} Route: {route['description'][:40]:<40} ║")
-        self.add_to_canvas("╚" + "═" * 80 + "╝")
+        # Enhanced Header with DID info (ASCII safe)
+        self.add_to_canvas("+" + "=" * 80 + "+")
+        self.add_to_canvas(f"|{'FREEPBX CALL FLOW DIAGRAM':^80}|")
+        self.add_to_canvas("+" + "=" * 80 + "+")
+        self.add_to_canvas(f"| DID: {did:<25} Route: {route['description'][:40]:<40} |")
+        self.add_to_canvas("+" + "=" * 80 + "+")
         self.add_to_canvas("")
         
         # Inbound call entry point  
@@ -1529,30 +1568,38 @@ class ASCIIFlowGenerator:
         return "\n".join(self.canvas)
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate ASCII art call flow diagrams")
-    parser.add_argument("--did", required=True, help="DID/Extension to analyze")
-    parser.add_argument("--socket", default=DEFAULT_SOCK, help="MySQL socket path")
-    parser.add_argument("--db-user", default="root", help="MySQL user")
-    parser.add_argument("--db-password", help="MySQL password")
-    parser.add_argument("--output", "-o", help="Output file")
-    
-    args = parser.parse_args()
-    
-    kw = {
-        "socket": args.socket,
-        "user": args.db_user,
-        "password": args.db_password
-    }
-    
-    generator = ASCIIFlowGenerator(**kw)
-    flow_chart = generator.generate_inbound_flow(args.did)
-    
-    if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(flow_chart)
-        print(f"✅ ASCII flow chart saved to: {args.output}")
-    else:
-        print(flow_chart)
+    try:
+        parser = argparse.ArgumentParser(description="Generate ASCII art call flow diagrams")
+        parser.add_argument("--did", required=True, help="DID/Extension to analyze")
+        parser.add_argument("--socket", default=DEFAULT_SOCK, help="MySQL socket path")
+        parser.add_argument("--db-user", default="root", help="MySQL user")
+        parser.add_argument("--db-password", help="MySQL password")
+        parser.add_argument("--output", "-o", help="Output file")
+        
+        args = parser.parse_args()
+        
+        kw = {
+            "socket": args.socket,
+            "user": args.db_user,
+            "password": args.db_password
+        }
+        
+        print(f"Generating ASCII flow for DID: {args.did}")
+        generator = ASCIIFlowGenerator(**kw)
+        flow_chart = generator.generate_inbound_flow(args.did)
+        
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                f.write(flow_chart)
+            print(f"ASCII flow chart saved to: {args.output}")
+        else:
+            print(flow_chart)
+            
+    except Exception as e:
+        print(f"ERROR: Fatal error in main: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
