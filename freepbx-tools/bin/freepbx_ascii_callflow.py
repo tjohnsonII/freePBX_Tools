@@ -58,6 +58,57 @@ def has_table(t, **kw):
 # ASCII Art Flow Generator
 # ---------------------------
 
+"""
+FreePBX ASCII Call Flow Generator - Comprehensive Module Support
+
+This tool generates sophisticated ASCII art call flow diagrams for FreePBX systems,
+supporting all major FreePBX applications and modules shown in the Applications menu:
+
+CORE ROUTING COMPONENTS:
+✓ Extensions (SIP/PJSIP endpoints) - Individual phone extensions
+✓ Ring Groups - Hunt groups with sequential/simultaneous ring strategies  
+✓ Queues - Call center queuing with agent management and statistics
+✓ IVR/Digital Receptionist - Multi-level interactive voice response menus
+✓ Time Conditions - Schedule-based call routing (business hours, holidays)
+✓ Inbound Routes - DID processing and call routing from external sources
+✓ Outbound Routes - Call routing rules for external destinations
+
+COMMUNICATION FEATURES:
+✓ Voicemail - Message recording and delivery systems
+✓ Announcements - Audio playback for greetings and information
+✓ Conferences/MeetMe - Conference room management and participant control
+✓ Paging/Intercom - Group notification and intercom systems
+✓ Fax - Fax-to-email processing and virtual fax handling
+
+ADVANCED ROUTING:
+✓ Call Flow Toggle Control (CFC) - Dynamic routing control with toggle states
+✓ Follow Me (Find Me/Follow Me) - Multi-device ring strategies with failover
+✓ Misc Destinations - Custom routing destinations and integrations
+✓ Call Recording - Call recording options and management
+✓ Directory - Dial-by-name directory services
+✓ Set CallerID - Dynamic caller ID modification
+
+TIME & SCHEDULING:
+✓ Calendar - Event-based routing using calendar integrations
+✓ Calendar Event Groups - Grouped calendar events for complex scheduling
+✓ Time Groups - Time schedule definitions used by Time Conditions
+
+CALL MANAGEMENT:
+✓ Call Parking - Park and retrieve calls with timeout handling
+✓ Hangup/Busy - Call termination and busy handling
+
+VISUAL FEATURES:
+- Unicode box-drawing characters for professional appearance
+- Component-specific icons and styling
+- Pre-loading data strategy for performance
+- Sophisticated routing visualization with branch indicators
+- Loop detection and depth limiting for safety
+- Detailed component information display
+
+The generator uses a pre-loading architecture that bulk loads all FreePBX configuration
+data once, then renders call flows using cached data for optimal performance.
+"""
+
 class ASCIIFlowGenerator:
     def __init__(self, **kw):
         self.kw = kw
@@ -67,10 +118,37 @@ class ASCIIFlowGenerator:
         self.current_row = 0
         self.visited_destinations = set()  # Prevent infinite loops
         
+        # Pre-loaded data structures - populated by load_all_data()
+        self.data = {
+            'timeconditions': {},     # tc_id -> {name, true_dest, false_dest}
+            'timegroups': {},         # tg_id -> {name, times, days}
+            'calendar': {},           # cal_id -> {name, events, url}
+            'calendar_events': {},    # event_id -> {name, start, end, calendar_id}
+            'ivrs': {},               # ivr_id -> {name, announcement, timeout_dest}
+            'ivr_options': {},        # ivr_id -> [selection, dest] pairs
+            'extensions': {},         # ext_num -> {name, voicemail, etc}
+            'queues': {},             # queue_id -> {name, strategy, maxwait, etc}
+            'ringgroups': {},         # rg_id -> {description, members, strategy, etc}
+            'announcements': {},      # ann_id -> {description, post_dest}
+            'conferences': {},        # conf_id -> {description, maxusers, pin}
+            'paging': {},             # page_id -> {description, devices}
+            'routes': {},             # did -> {description, destination, cid}
+            'followme': {},           # ext -> {numbers, strategy}
+            'callflow_toggle': {},    # cfc_id -> {description, state, true_dest, false_dest, feature_code}
+            'call_recording': {},     # rec_id -> {description, mode, format}
+            'misc_destinations': {},  # dest_id -> {description, dial, notes}
+            'parking': {},            # parking lots and settings
+            'directory': {},          # dir_id -> {name, entries, announcement}
+            'setcid': {}             # cid_id -> {description, cid_name, cid_num}
+        }
+        
         # Visual styling constants
         self.STYLES = {
             'inbound': {'icon': '📞', 'border': '═', 'color': 'cyan'},
             'time_condition': {'icon': '🕒', 'border': '─', 'color': 'yellow'},
+            'timegroup': {'icon': '⏰', 'border': '─', 'color': 'yellow'},
+            'calendar': {'icon': '📅', 'border': '─', 'color': 'blue'},
+            'callflow_toggle': {'icon': '🔄', 'border': '═', 'color': 'blue'},
             'ivr': {'icon': '🎯', 'border': '═', 'color': 'blue'},
             'queue': {'icon': '📋', 'border': '─', 'color': 'green'},
             'ringgroup': {'icon': '🔔', 'border': '─', 'color': 'magenta'},
@@ -80,6 +158,12 @@ class ASCIIFlowGenerator:
             'conference': {'icon': '🎤', 'border': '─', 'color': 'purple'},
             'paging': {'icon': '📯', 'border': '─', 'color': 'red'},
             'fax': {'icon': '📠', 'border': '─', 'color': 'brown'},
+            'call_recording': {'icon': '🎙️', 'border': '─', 'color': 'red'},
+            'followme': {'icon': '📲', 'border': '─', 'color': 'cyan'},
+            'misc_destination': {'icon': '🎛️', 'border': '─', 'color': 'gray'},
+            'parking': {'icon': '🅿️', 'border': '─', 'color': 'yellow'},
+            'directory': {'icon': '📖', 'border': '─', 'color': 'green'},
+            'setcid': {'icon': '🆔', 'border': '─', 'color': 'blue'},
             'failover': {'icon': '⚠️', 'border': '┅', 'color': 'red'},
             'hangup': {'icon': '📞', 'border': '╋', 'color': 'red'}
         }
@@ -114,18 +198,16 @@ class ASCIIFlowGenerator:
         return lines, content_width + 2
     
     def create_decision_diamond(self, question, width=None):
-        """Create a diamond-shaped decision box for time conditions, IVR choices."""
-        q_width = width or len(question) + 6
-        q_width = max(q_width, 20)
+        """Create a decision point visualization."""
+        q_width = width or max(len(question) + 4, 25)
         
-        # Diamond shape using Unicode
+        # Simplified decision box
         lines = []
-        lines.append(f"     {'╱' + ' ' * (q_width-2) + '╲'}")
-        lines.append(f"    ╱ {question.center(q_width-2)} ╲")
-        lines.append(f"   ╱ {'?' * (q_width-2)} ╲")
-        lines.append(f"  ╲ {'Decision Point'.center(q_width-2)} ╱")
-        lines.append(f"   ╲ {' ' * (q_width-2)} ╱")
-        lines.append(f"    ╲{'_' * (q_width-2)}╱")
+        lines.append("     ┌" + "─" * (q_width-2) + "┐")
+        lines.append(f"     │ ❓ {question:<{q_width-6}} │")
+        lines.append("     │" + " " * (q_width-2) + "│")
+        lines.append("     └" + "┬" * (q_width-2) + "┘")
+        lines.append("      " + " " * ((q_width-4)//2) + "│")
         
         return lines, q_width
     
@@ -171,8 +253,471 @@ class ASCIIFlowGenerator:
         self.canvas.append(line)
         self.current_row += 1
     
+    def load_all_data(self):
+        """Pre-load ALL FreePBX data needed for call flow generation."""
+        print("🔄 Loading FreePBX configuration data...")
+        
+        # 1. Load Time Conditions
+        if has_table("timeconditions", **self.kw):
+            print("   📅 Time conditions...")
+            try:
+                # Try multiple column name variations
+                for tc_query in [
+                    "SELECT timeconditions_id, displayname, truegoto, falsegoto FROM timeconditions",
+                    "SELECT id as timeconditions_id, displayname, truegoto, falsegoto FROM timeconditions", 
+                    "SELECT timeconditions_id, description as displayname, truegoto, falsegoto FROM timeconditions",
+                    "SELECT timeconditions_id, displayname, destination_true as truegoto, destination_false as falsegoto FROM timeconditions"
+                ]:
+                    try:
+                        result = run_mysql(tc_query, **self.kw)
+                        if result.strip():
+                            for line in result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 4:
+                                    self.data['timeconditions'][parts[0]] = {
+                                        'name': parts[1] or f'Time Condition {parts[0]}',
+                                        'true_dest': parts[2] or '',
+                                        'false_dest': parts[3] or ''
+                                    }
+                            print(f"      ✓ Loaded {len(self.data['timeconditions'])} time conditions")
+                            break
+                    except Exception as e:
+                        continue
+            except Exception as e:
+                print(f"      ❌ Time conditions: {e}")
+        
+        # 2. Load IVRs
+        if has_table("ivr_details", **self.kw):
+            print("   🎯 IVR menus...")
+            try:
+                result = run_mysql("""
+                    SELECT id, name, announcement, timeout_destination, invalid_destination 
+                    FROM ivr_details
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['ivrs'][parts[0]] = {
+                                'name': parts[1] or f'IVR {parts[0]}',
+                                'announcement': parts[2] if len(parts) > 2 else '',
+                                'timeout_dest': parts[3] if len(parts) > 3 else '',
+                                'invalid_dest': parts[4] if len(parts) > 4 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['ivrs'])} IVR menus")
+            except Exception as e:
+                print(f"      ❌ IVR menus: {e}")
+        
+        # 3. Load IVR Options
+        if has_table("ivr_entries", **self.kw):
+            print("   🔢 IVR options...")
+            try:
+                result = run_mysql("SELECT ivr_id, selection, dest FROM ivr_entries ORDER BY ivr_id, selection", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 3:
+                            ivr_id = parts[0]
+                            if ivr_id not in self.data['ivr_options']:
+                                self.data['ivr_options'][ivr_id] = []
+                            self.data['ivr_options'][ivr_id].append({
+                                'selection': parts[1],
+                                'dest': parts[2]
+                            })
+                total_options = sum(len(opts) for opts in self.data['ivr_options'].values())
+                print(f"      ✓ Loaded {total_options} IVR options")
+            except Exception as e:
+                print(f"      ❌ IVR options: {e}")
+        
+        # 4. Load Extensions
+        if has_table("users", **self.kw):
+            print("   📱 Extensions...")
+            try:
+                result = run_mysql("""
+                    SELECT extension, name, voicemail, 
+                           COALESCE(name, CONCAT('Extension ', extension)) as display_name
+                    FROM users
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['extensions'][parts[0]] = {
+                                'name': parts[3] if len(parts) > 3 else parts[1],
+                                'voicemail': parts[2] if len(parts) > 2 else 'novm'
+                            }
+                print(f"      ✓ Loaded {len(self.data['extensions'])} extensions")
+            except Exception as e:
+                print(f"      ❌ Extensions: {e}")
+        
+        # 5. Load Queues
+        if has_table("queues_config", **self.kw):
+            print("   📋 Call queues...")
+            try:
+                result = run_mysql("SELECT extension, descr FROM queues_config", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['queues'][parts[0]] = {
+                                'name': parts[1] or f'Queue {parts[0]}',
+                                'strategy': 'ringall',  # default
+                                'maxwait': '300'        # default
+                            }
+                
+                # Get queue details if available
+                if has_table("queues_details", **self.kw):
+                    result = run_mysql("SELECT id, keyword, data FROM queues_details WHERE keyword IN ('strategy', 'maxwait')", **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 3 and parts[0] in self.data['queues']:
+                                self.data['queues'][parts[0]][parts[1]] = parts[2]
+                
+                print(f"      ✓ Loaded {len(self.data['queues'])} queues")
+            except Exception as e:
+                print(f"      ❌ Queues: {e}")
+        
+        # 6. Load Ring Groups
+        if has_table("ringgroups", **self.kw):
+            print("   🔔 Ring groups...")
+            try:
+                result = run_mysql("SELECT grpnum, description, grplist, strategy FROM ringgroups", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['ringgroups'][parts[0]] = {
+                                'description': parts[1] or f'Ring Group {parts[0]}',
+                                'members': parts[2].split('-') if len(parts) > 2 and parts[2] else [],
+                                'strategy': parts[3] if len(parts) > 3 else 'ringall'
+                            }
+                print(f"      ✓ Loaded {len(self.data['ringgroups'])} ring groups")
+            except Exception as e:
+                print(f"      ❌ Ring groups: {e}")
+        
+        # 7. Load Announcements
+        if has_table("announcements", **self.kw):
+            print("   📢 Announcements...")
+            try:
+                result = run_mysql("SELECT id, description, post_dest FROM announcements", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['announcements'][parts[0]] = {
+                                'description': parts[1] or f'Announcement {parts[0]}',
+                                'post_dest': parts[2] if len(parts) > 2 else 'hangup'
+                            }
+                print(f"      ✓ Loaded {len(self.data['announcements'])} announcements")
+            except Exception as e:
+                print(f"      ❌ Announcements: {e}")
+        
+        # 8. Load Conferences
+        if has_table("meetme", **self.kw) or has_table("conferences", **self.kw):
+            print("   🎤 Conferences...")
+            try:
+                for table in ["conferences", "meetme"]:
+                    if has_table(table, **self.kw):
+                        result = run_mysql(f"SELECT exten, description FROM {table}", **self.kw)
+                        if result.strip():
+                            for line in result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 2:
+                                    self.data['conferences'][parts[0]] = {
+                                        'description': parts[1] or f'Conference {parts[0]}'
+                                    }
+                        break
+                print(f"      ✓ Loaded {len(self.data['conferences'])} conferences")
+            except Exception as e:
+                print(f"      ❌ Conferences: {e}")
+        
+        # 9. Load Call Flow Toggle Control (CFC)
+        if has_table("callflow_toggle", **self.kw):
+            print("   🔄 Call Flow Toggle Control...")
+            try:
+                result = run_mysql("""
+                    SELECT id, description, state, dest_enabled, dest_disabled, 
+                           COALESCE(feature_code, '') as feature_code
+                    FROM callflow_toggle
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 4:
+                            cfc_id = parts[0]
+                            state = parts[2] if len(parts) > 2 else '0'
+                            current_state = 'ENABLED' if state == '1' else 'DISABLED'
+                            
+                            self.data['callflow_toggle'][cfc_id] = {
+                                'description': parts[1] or f'Toggle {cfc_id}',
+                                'state': current_state,
+                                'enabled_dest': parts[3] if len(parts) > 3 else '',
+                                'disabled_dest': parts[4] if len(parts) > 4 else '',
+                                'feature_code': parts[5] if len(parts) > 5 else f'*{cfc_id}'
+                            }
+                
+                print(f"      ✓ Loaded {len(self.data['callflow_toggle'])} call flow toggles")
+            except Exception as e:
+                print(f"      ❌ Call Flow Toggle: {e}")
+        
+        # Also check for older CFC table names or alternative schemas
+        elif has_table("cfc", **self.kw):
+            print("   🔄 Call Flow Control (legacy)...")
+            try:
+                result = run_mysql("SELECT id, description, state, dest_true, dest_false FROM cfc", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 4:
+                            cfc_id = parts[0]
+                            state = parts[2] if len(parts) > 2 else '0'
+                            current_state = 'ENABLED' if state == '1' else 'DISABLED'
+                            
+                            self.data['callflow_toggle'][cfc_id] = {
+                                'description': parts[1] or f'Flow Control {cfc_id}',
+                                'state': current_state,
+                                'enabled_dest': parts[3] if len(parts) > 3 else '',
+                                'disabled_dest': parts[4] if len(parts) > 4 else '',
+                                'feature_code': f'*{cfc_id}'
+                            }
+                
+                print(f"      ✓ Loaded {len(self.data['callflow_toggle'])} flow controls (legacy)")
+            except Exception as e:
+                print(f"      ❌ Call Flow Control: {e}")
+        
+        # 10. Load Time Groups  
+        if has_table("timegroups_groups", **self.kw):
+            print("   ⏰ Time groups...")
+            try:
+                result = run_mysql("SELECT id, description FROM timegroups_groups", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['timegroups'][parts[0]] = {
+                                'name': parts[1] or f'Time Group {parts[0]}',
+                                'times': []  # Could load details from timegroups_details if needed
+                            }
+                print(f"      ✓ Loaded {len(self.data['timegroups'])} time groups")
+            except Exception as e:
+                print(f"      ❌ Time groups: {e}")
+        
+        # 11. Load Calendar & Calendar Events
+        if has_table("calendar", **self.kw):
+            print("   📅 Calendar...")
+            try:
+                result = run_mysql("SELECT id, description, url FROM calendar", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['calendar'][parts[0]] = {
+                                'name': parts[1] or f'Calendar {parts[0]}',
+                                'url': parts[2] if len(parts) > 2 else '',
+                                'events': []
+                            }
+                
+                # Load calendar events if table exists
+                if has_table("calendar_events", **self.kw):
+                    result = run_mysql("SELECT id, title, start_date, end_date, calendar_id FROM calendar_events", **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 4:
+                                self.data['calendar_events'][parts[0]] = {
+                                    'title': parts[1],
+                                    'start': parts[2],
+                                    'end': parts[3],
+                                    'calendar_id': parts[4] if len(parts) > 4 else ''
+                                }
+                
+                print(f"      ✓ Loaded {len(self.data['calendar'])} calendars, {len(self.data['calendar_events'])} events")
+            except Exception as e:
+                print(f"      ❌ Calendar: {e}")
+        
+        # 12. Load Follow Me configurations
+        if has_table("findmefollow", **self.kw):
+            print("   📲 Follow Me...")
+            try:
+                result = run_mysql("""
+                    SELECT extension, grplist, strategy, grptime, 
+                           COALESCE(description, CONCAT('Follow Me ', extension)) as description
+                    FROM findmefollow
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            ext_id = parts[0]
+                            numbers = parts[1].split('-') if parts[1] else []
+                            self.data['followme'][ext_id] = {
+                                'numbers': [n.strip() for n in numbers if n.strip()],
+                                'strategy': parts[2] if len(parts) > 2 else 'ringallv2',
+                                'ringtime': parts[3] if len(parts) > 3 else '20',
+                                'description': parts[4] if len(parts) > 4 else f'Follow Me {ext_id}'
+                            }
+                print(f"      ✓ Loaded {len(self.data['followme'])} Follow Me configs")
+            except Exception as e:
+                print(f"      ❌ Follow Me: {e}")
+        
+        # 13. Load Misc Destinations
+        if has_table("miscdests", **self.kw):
+            print("   🎛️  Misc destinations...")
+            try:
+                result = run_mysql("SELECT id, description, dial, notes FROM miscdests", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 3:
+                            self.data['misc_destinations'][parts[0]] = {
+                                'description': parts[1] or f'Misc Dest {parts[0]}',
+                                'dial': parts[2],
+                                'notes': parts[3] if len(parts) > 3 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['misc_destinations'])} misc destinations")
+            except Exception as e:
+                print(f"      ❌ Misc destinations: {e}")
+        
+        # 14. Load Call Recording settings
+        if has_table("recordings", **self.kw) or has_table("call_recording", **self.kw):
+            print("   🎙️  Call recording...")
+            try:
+                for table in ["call_recording", "recordings"]:
+                    if has_table(table, **self.kw):
+                        result = run_mysql(f"SELECT id, displayname, filename FROM {table}", **self.kw)
+                        if result.strip():
+                            for line in result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 2:
+                                    self.data['call_recording'][parts[0]] = {
+                                        'name': parts[1] or f'Recording {parts[0]}',
+                                        'filename': parts[2] if len(parts) > 2 else ''
+                                    }
+                        break
+                print(f"      ✓ Loaded {len(self.data['call_recording'])} recordings")
+            except Exception as e:
+                print(f"      ❌ Call recording: {e}")
+        
+        # 15. Load Parking configuration  
+        if has_table("parkinglots", **self.kw) or has_table("parking", **self.kw):
+            print("   🅿️  Call parking...")
+            try:
+                for table in ["parkinglots", "parking"]:
+                    if has_table(table, **self.kw):
+                        result = run_mysql(f"SELECT id, name, parkext, parkpos FROM {table}", **self.kw)
+                        if result.strip():
+                            for line in result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 2:
+                                    self.data['parking'][parts[0]] = {
+                                        'name': parts[1] or f'Parking Lot {parts[0]}',
+                                        'extension': parts[2] if len(parts) > 2 else '',
+                                        'positions': parts[3] if len(parts) > 3 else ''
+                                    }
+                        break
+                print(f"      ✓ Loaded {len(self.data['parking'])} parking lots")
+            except Exception as e:
+                print(f"      ❌ Call parking: {e}")
+        
+        # 16. Load Directory configurations
+        if has_table("directory", **self.kw):
+            print("   📖 Directory...")
+            try:
+                result = run_mysql("SELECT dirname, description, announcement FROM directory", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['directory'][parts[0]] = {
+                                'name': parts[1] or f'Directory {parts[0]}',
+                                'announcement': parts[2] if len(parts) > 2 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['directory'])} directories")
+            except Exception as e:
+                print(f"      ❌ Directory: {e}")
+        
+        # 17. Load Set CallerID configurations
+        if has_table("setcid", **self.kw):
+            print("   🆔 Set CallerID...")
+            try:
+                result = run_mysql("SELECT id, description, cid_name, cid_num FROM setcid", **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            self.data['setcid'][parts[0]] = {
+                                'description': parts[1] or f'Set CID {parts[0]}',
+                                'cid_name': parts[2] if len(parts) > 2 else '',
+                                'cid_num': parts[3] if len(parts) > 3 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['setcid'])} CallerID rules")
+            except Exception as e:
+                print(f"      ❌ Set CallerID: {e}")
+        
+        # 18. Get current CFC states from asterisk database (live states)
+        if self.data['callflow_toggle']:
+            print("   🔄 Checking live CFC states...")
+            try:
+                # Query asterisk database for current toggle states
+                result = run_mysql("""
+                    SELECT family, key_name, value FROM astdb 
+                    WHERE family LIKE '%CFC%' OR family LIKE '%TOGGLE%' 
+                    OR family = 'CALLFLOW_TOGGLE'
+                """, **self.kw)
+                
+                live_states = {}
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 3:
+                            family, key, value = parts[0], parts[1], parts[2]
+                            # Parse various CFC state formats
+                            if 'CFC' in family or 'TOGGLE' in family:
+                                live_states[key] = 'ENABLED' if value in ['1', 'true', 'enabled'] else 'DISABLED'
+                
+                # Update our CFC data with live states
+                for cfc_id, cfc_data in self.data['callflow_toggle'].items():
+                    if cfc_id in live_states:
+                        cfc_data['state'] = live_states[cfc_id]
+                        cfc_data['live_state'] = True
+                    else:
+                        cfc_data['live_state'] = False
+                
+                print(f"      ✓ Updated {len(live_states)} live toggle states")
+            except Exception as e:
+                print(f"      ⚠️  Live states: {e}")
+        
+        print("✅ Data loading complete!")
+        return True
+    
     def parse_destination(self, dest_string, depth=0):
-        """Enhanced destination parsing with sophisticated visual elements."""
+        """Enhanced destination parsing with sophisticated visual elements.
+        
+        Supported FreePBX Components:
+        - Extensions (SIP/PJSIP endpoints)
+        - Ring Groups (Hunt Groups, Sequential/Simultaneous ring)
+        - Queues (Call Center queuing with agents)
+        - IVR/Digital Receptionist (Multi-option menus)
+        - Time Conditions (Schedule-based routing)
+        - Inbound Routes (DID processing)
+        - Outbound Routes (Call routing rules)
+        - Voicemail (Message boxes)
+        - Announcements (Audio playback)
+        - Conferences/MeetMe (Conference rooms)
+        - Paging/Intercom (Group notifications)
+        - Fax (Fax-to-email handling)
+        - Call Flow Toggle Control (Dynamic routing)
+        - Follow Me (Multi-device ring strategies)
+        - Misc Destinations (Custom routes)
+        - Call Recording (Record call options)
+        - Directory (Dial-by-name directory)
+        - Set CallerID (CallerID modification)
+        - Calendar (Event-based routing)
+        - Time Groups (Time schedule definitions)
+        - Call Parking (Park & retrieve calls)
+        - Hangup/Busy (Call termination)
+        """
         if not dest_string or depth > 10:  # Prevent infinite loops
             hangup_box, _ = self.create_box("CALL ENDS", "Hangup", "hangup")
             for line in hangup_box:
@@ -190,114 +735,167 @@ class ASCIIFlowGenerator:
         self.visited_destinations.add(dest_string)
         dest_lower = dest_string.lower()
         
-        # Enhanced Extension handling
+        # Enhanced Extension handling (using pre-loaded data)
         if dest_string.startswith("ext-"):
             ext_num = dest_string.split(",")[1] if "," in dest_string else "Unknown"
-            ext_info = self.get_extension_info(ext_num)
+            ext_info = self.data['extensions'].get(ext_num)
             
             box_lines, width = self.create_box(f"Extension {ext_num}", 
-                                               ext_info.get('name', 'No Name') if ext_info else '', 
+                                               ext_info.get('name', f'Extension {ext_num}') if ext_info else f'Extension {ext_num}', 
                                                "extension")
             for line in box_lines:
                 self.add_to_canvas(line)
             
             # Show voicemail option if available
-            if ext_info and ext_info.get('voicemail'):
+            if ext_info and ext_info.get('voicemail') != 'novm':
                 self.add_to_canvas("     │")
                 self.add_to_canvas("     ├── No Answer ────────┐")
                 vm_box, _ = self.create_box("Voicemail", f"Box {ext_num}", "voicemail", width=18)
                 for line in vm_box:
                     self.add_to_canvas(f"                        {line}")
         
-        # Enhanced IVR handling with option tree
+        # Enhanced IVR handling with option tree (using pre-loaded data)
         elif "ivr-" in dest_string:
             ivr_id = self.extract_id_from_dest(dest_string, "ivr-")
-            ivr_info = self.get_ivr_info(ivr_id)
+            ivr_info = self.data['ivrs'].get(ivr_id)
             
             box_lines, _ = self.create_box(f"IVR Menu {ivr_id}", 
-                                           ivr_info.get('name', 'Unnamed Menu') if ivr_info else '', 
+                                           ivr_info.get('name', f'IVR {ivr_id}') if ivr_info else f'IVR {ivr_id}', 
                                            "ivr")
             for line in box_lines:
                 self.add_to_canvas(line)
             
-            if ivr_info:
+            # Show IVR options from pre-loaded data
+            options = self.data['ivr_options'].get(ivr_id, [])
+            if options:
                 self.add_to_canvas("     │")
                 self.add_to_canvas("     ├── MENU OPTIONS ────────┐")
-                self.render_ivr_options(ivr_id, depth + 1)
+                for i, option in enumerate(options[:6]):  # Show first 6 options
+                    connector = "├──" if i < min(len(options), 6) - 1 else "└──"
+                    dest_desc = self.get_destination_type(option['dest'])
+                    self.add_to_canvas(f"                            {connector} Press {option['selection']} → {dest_desc}")
+                
+                if len(options) > 6:
+                    self.add_to_canvas(f"                            └── ... +{len(options)-6} more options")
         
-        # Enhanced Time Condition with visual decision tree
-        elif "timeconditions" in dest_string or "tc-" in dest_string:
-            tc_id = self.extract_id_from_dest(dest_string, ["timeconditions", "tc-"])
-            tc_info = self.get_timecondition_info(tc_id)
+        # Call Flow Toggle Control (CFC) - Dynamic routing based on toggle state
+        if "cfc" in dest_string or "callflow_toggle" in dest_string or "flowcontrol" in dest_string:
+            cfc_id = self.extract_id_from_dest(dest_string, ["cfc", "callflow_toggle", "flowcontrol"])
+            cfc_info = self.data['callflow_toggle'].get(cfc_id)
             
-            # Create decision diamond
-            question = f"Time Match: {tc_info.get('name', f'TC-{tc_id}') if tc_info else f'TC-{tc_id}'}"
-            diamond_lines, width = self.create_decision_diamond(question)
-            for line in diamond_lines:
+            # Create call flow toggle box
+            cfc_name = cfc_info.get('description', f'Call Flow Toggle {cfc_id}') if cfc_info else f'Toggle {cfc_id}'
+            current_state = cfc_info.get('state', 'UNKNOWN') if cfc_info else 'UNKNOWN'
+            
+            box_lines, _ = self.create_box(f"🔄 {cfc_name}", f"Current: {current_state}", "callflow_toggle")
+            for line in box_lines:
                 self.add_to_canvas(line)
             
-            if tc_info:
-                # TRUE path (business hours)
-                self.add_to_canvas("           │")
-                self.add_to_canvas("      ┌────┴────┐")
-                self.add_to_canvas("      │  TRUE   │ ╔═══ BUSINESS HOURS ═══╗")
-                self.add_to_canvas("      │ (Match) │")
-                self.add_to_canvas("      └────┬────┘")
-                self.add_to_canvas("           │")
+            if cfc_info:
+                feature_code = cfc_info.get('feature_code', f'*{cfc_id}')
+                self.add_to_canvas("     │")
+                self.add_to_canvas(f"     │ Toggle Code: {feature_code}")
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     ├── TOGGLE ROUTING ───────┐")
                 
+                # ENABLED path
+                if cfc_info.get('enabled_dest'):
+                    state_icon = "🟢" if current_state == 'ENABLED' else "⚪"
+                    self.add_to_canvas("     │                         │")
+                    self.add_to_canvas(f"     ├── {state_icon} ENABLED STATE ─────┐")
+                    if current_state == 'ENABLED':
+                        self.add_to_canvas("     │              ↑ ACTIVE    │")
+                    self.parse_destination(cfc_info['enabled_dest'], depth + 1)
+                    self.add_to_canvas("")
+                
+                # DISABLED path  
+                if cfc_info.get('disabled_dest'):
+                    state_icon = "🔴" if current_state == 'DISABLED' else "⚪"
+                    self.add_to_canvas(f"     └── {state_icon} DISABLED STATE ────┐")
+                    if current_state == 'DISABLED':
+                        self.add_to_canvas("                    ↑ ACTIVE    │")
+                    self.parse_destination(cfc_info['disabled_dest'], depth + 1)
+                
+            else:
+                # No CFC info found
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     └── ⚠️  Toggle not configured")
+                hangup_box, _ = self.create_box("Config Issue", 
+                                               f"CFC {cfc_id} not found", 
+                                               "failover")
+                for line in hangup_box:
+                    self.add_to_canvas(line)
+
+        # Enhanced Time Condition with visual decision tree (using pre-loaded data)
+        elif "timeconditions" in dest_string or "tc-" in dest_string:
+            tc_id = self.extract_id_from_dest(dest_string, ["timeconditions", "tc-"])
+            tc_info = self.data['timeconditions'].get(tc_id)
+            
+            # Create time condition box
+            tc_name = tc_info.get('name', f'Time Condition {tc_id}') if tc_info else f'Time Condition {tc_id}'
+            box_lines, _ = self.create_box(f"⏰ {tc_name}", "Business Hours Check", "time_condition")
+            for line in box_lines:
+                self.add_to_canvas(line)
+            
+            if tc_info and (tc_info.get('true_dest') or tc_info.get('false_dest')):
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     ├── TIME ROUTING ─────────┐")
+                
+                # TRUE path (business hours)
                 if tc_info.get('true_dest'):
+                    self.add_to_canvas("     │                         │")
+                    self.add_to_canvas("     ├── ✅ BUSINESS HOURS ────┐")
                     self.parse_destination(tc_info['true_dest'], depth + 1)
+                    self.add_to_canvas("")
                 
                 # FALSE path (after hours)  
-                self.add_to_canvas("")
-                self.add_to_canvas("      ┌─────────┐")
-                self.add_to_canvas("      │  FALSE  │ ╠═══ AFTER HOURS ═══╣")
-                self.add_to_canvas("      │(No Match│")
-                self.add_to_canvas("      └────┬────┘")
-                self.add_to_canvas("           │")
-                
                 if tc_info.get('false_dest'):
+                    self.add_to_canvas("     └── ❌ AFTER HOURS ──────┐")
                     self.parse_destination(tc_info['false_dest'], depth + 1)
+                
+            else:
+                # No time condition info found or no destinations
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     └── ⚠️  No routing configured")
+                hangup_box, _ = self.create_box("Config Issue", 
+                                               f"TC {tc_id} missing destinations" if tc_info else "TC not found", 
+                                               "failover")
+                for line in hangup_box:
+                    self.add_to_canvas(line)
         
-        # Enhanced Ring Group with member display
+        # Enhanced Ring Group with member display (using pre-loaded data)
         elif "rg-" in dest_string or "ringgr" in dest_string:
             rg_id = self.extract_id_from_dest(dest_string, ["rg-", "ringgr"])
-            rg_info = self.get_ringgroup_info(rg_id)
+            rg_info = self.data['ringgroups'].get(rg_id)
             
             title = f"Ring Group {rg_id}"
-            subtitle = f"Strategy: {rg_info.get('strategy', 'Unknown')}" if rg_info else ""
+            subtitle = f"Strategy: {rg_info.get('strategy', 'ringall')}" if rg_info else "Ring Group"
             
             box_lines, _ = self.create_box(title, subtitle, "ringgroup")
             for line in box_lines:
                 self.add_to_canvas(line)
             
-            if rg_info and rg_info.get('grplist'):
-                members = [e.strip() for e in rg_info['grplist'].split('-') if e.strip()]
+            if rg_info and rg_info.get('members'):
+                members = rg_info['members']
                 self.add_to_canvas("     │")
                 self.add_to_canvas("     ├── RING GROUP MEMBERS ──┐")
                 
                 for i, member in enumerate(members[:6]):  # Show first 6 members
                     connector = "├──" if i < min(len(members), 6) - 1 else "└──"
-                    self.add_to_canvas(f"                            {connector} Extension {member}")
+                    ext_name = self.data['extensions'].get(member, {}).get('name', '')
+                    display_name = f" ({ext_name})" if ext_name else ""
+                    self.add_to_canvas(f"                            {connector} Extension {member}{display_name}")
                 
                 if len(members) > 6:
                     self.add_to_canvas(f"                            └── ... +{len(members)-6} more")
-                
-                # Show failover destination
-                if rg_info.get('postdest'):
-                    self.add_to_canvas("")
-                    self.add_to_canvas("     ├── NO ANSWER FAILOVER ──┐")
-                    failover_box, _ = self.create_box("Failover Route", "No Answer", "failover", width=16)
-                    for line in failover_box:
-                        self.add_to_canvas(f"                            {line}")
         
-        # Enhanced Queue with comprehensive info
+        # Enhanced Queue with comprehensive info (using pre-loaded data)
         elif "qq-" in dest_string or "queue" in dest_string:
             q_id = self.extract_id_from_dest(dest_string, ["qq-", "queue"])
-            q_info = self.get_queue_info(q_id)
+            q_info = self.data['queues'].get(q_id)
             
             title = f"Call Queue {q_id}"
-            subtitle = f"Strategy: {q_info.get('strategy', 'Unknown')}" if q_info else ""
+            subtitle = f"Strategy: {q_info.get('strategy', 'ringall')}" if q_info else "Call Queue"
             
             box_lines, _ = self.create_box(title, subtitle, "queue")
             for line in box_lines:
@@ -306,21 +904,9 @@ class ASCIIFlowGenerator:
             if q_info:
                 self.add_to_canvas("     │")
                 self.add_to_canvas("     ├── QUEUE DETAILS ─────────┐")
-                self.add_to_canvas(f"                              ├─ Max Wait: {q_info.get('maxwait', 'Unlimited')}")
-                self.add_to_canvas(f"                              ├─ Retry: {q_info.get('retry', 'Default')}s")
-                self.add_to_canvas(f"                              └─ Agents: Dynamic")
-                
-                # Show queue failover destinations
-                failovers = []
-                if q_info.get('eventfail'): failovers.append(('Agent Fail', q_info['eventfail']))
-                if q_info.get('eventmemberhangup'): failovers.append(('Timeout', q_info['eventmemberhangup']))
-                
-                for fail_type, fail_dest in failovers:
-                    self.add_to_canvas("")
-                    self.add_to_canvas(f"     ├── {fail_type.upper()} ROUTE ──┐")
-                    # Recursively parse failover destination
-                    if depth < 8:  # Prevent deep recursion
-                        self.parse_destination(fail_dest, depth + 1)
+                self.add_to_canvas(f"                              ├─ Name: {q_info.get('name', 'Unnamed')}")
+                self.add_to_canvas(f"                              ├─ Max Wait: {q_info.get('maxwait', '300')}s")
+                self.add_to_canvas(f"                              └─ Strategy: {q_info.get('strategy', 'ringall')}")
         
         # Enhanced Paging Groups
         elif "page-" in dest_string or "paging" in dest_string:
@@ -359,10 +945,10 @@ class ASCIIFlowGenerator:
             self.add_to_canvas("                              ├─ Storage: /var/spool/fax")
             self.add_to_canvas("                              └─ Email: Configured")
         
-        # Enhanced Conference rooms
-        elif "conferences" in dest_string or "conf-" in dest_string:
-            conf_id = self.extract_id_from_dest(dest_string, ["conferences", "conf-"])
-            conf_info = self.get_conference_info(conf_id)
+        # Enhanced Conference rooms (using pre-loaded data)
+        elif "conferences" in dest_string or "conf-" in dest_string or "meetme" in dest_string:
+            conf_id = self.extract_id_from_dest(dest_string, ["conferences", "conf-", "meetme"])
+            conf_info = self.data['conferences'].get(conf_id)
             
             title = f"Conference {conf_id}"
             subtitle = conf_info.get('description', 'Conference Room') if conf_info else 'Conference Room'
@@ -373,15 +959,125 @@ class ASCIIFlowGenerator:
             
             if conf_info:
                 self.add_to_canvas("     │")
-                self.add_to_canvas("     ├── CONFERENCE OPTIONS ────┐")
-                self.add_to_canvas(f"                              ├─ Max Users: {conf_info.get('maxusers', 'Unlimited')}")
-                self.add_to_canvas(f"                              ├─ PIN Required: {'Yes' if conf_info.get('pin') else 'No'}")
-                self.add_to_canvas(f"                              └─ Recording: {'Yes' if conf_info.get('recording') else 'No'}")
+                self.add_to_canvas("     └── Conference Room Ready")
         
-        # Enhanced Announcements
+        # Follow Me - Enhanced with pre-loaded data
+        elif "fm-" in dest_string or "findmefollow" in dest_string:
+            fm_id = self.extract_id_from_dest(dest_string, ["fm-", "findmefollow"])
+            fm_info = self.data['followme'].get(fm_id)
+            
+            title = f"Follow Me {fm_id}"
+            subtitle = f"Ring Strategy: {fm_info.get('strategy', 'ringallv2')}" if fm_info else "Multi-device Ring"
+            
+            box_lines, _ = self.create_box(title, subtitle, "followme")
+            for line in box_lines:
+                self.add_to_canvas(line)
+            
+            if fm_info and fm_info.get('numbers'):
+                numbers = fm_info['numbers']
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     ├── FOLLOW ME NUMBERS ────┐")
+                for i, number in enumerate(numbers[:4]):
+                    connector = "├──" if i < min(len(numbers), 4) - 1 else "└──"
+                    self.add_to_canvas(f"                            {connector} {number}")
+                
+                if len(numbers) > 4:
+                    self.add_to_canvas(f"                            └── ... +{len(numbers)-4} more")
+        
+        # Misc Destinations
+        elif "miscdest" in dest_string or "misc-" in dest_string:
+            misc_id = self.extract_id_from_dest(dest_string, ["miscdest", "misc-"])
+            misc_info = self.data['misc_destinations'].get(misc_id)
+            
+            title = f"Misc Destination {misc_id}"
+            subtitle = misc_info.get('description', 'Custom Route') if misc_info else 'Custom Route'
+            
+            box_lines, _ = self.create_box(title, subtitle, "misc_destination")
+            for line in box_lines:
+                self.add_to_canvas(line)
+            
+            if misc_info:
+                dial = misc_info.get('dial', '')
+                self.add_to_canvas("     │")
+                self.add_to_canvas(f"     └── Dials: {dial[:25]}")
+        
+        # Call Recording
+        elif "record" in dest_string and ("app-record" in dest_string or "call-record" in dest_string):
+            rec_id = self.extract_id_from_dest(dest_string, ["record", "call-record"])
+            rec_info = self.data['call_recording'].get(rec_id)
+            
+            title = f"Call Recording"
+            subtitle = rec_info.get('name', 'Record Call') if rec_info else 'Record Call'
+            
+            box_lines, _ = self.create_box(title, subtitle, "call_recording")
+            for line in box_lines:
+                self.add_to_canvas(line)
+        
+        # Directory
+        elif "directory" in dest_string or "dir-" in dest_string:
+            dir_id = self.extract_id_from_dest(dest_string, ["directory", "dir-"])
+            dir_info = self.data['directory'].get(dir_id)
+            
+            title = f"Directory {dir_id}"
+            subtitle = dir_info.get('name', 'Phone Directory') if dir_info else 'Phone Directory'
+            
+            box_lines, _ = self.create_box(title, subtitle, "directory")
+            for line in box_lines:
+                self.add_to_canvas(line)
+            
+            if dir_info:
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     └── Dial by Name Directory")
+        
+        # Set CallerID
+        elif "setcid" in dest_string or "cid-" in dest_string:
+            cid_id = self.extract_id_from_dest(dest_string, ["setcid", "cid-"])
+            cid_info = self.data['setcid'].get(cid_id)
+            
+            title = f"Set CallerID {cid_id}"
+            if cid_info:
+                cid_name = cid_info.get('cid_name', '')
+                cid_num = cid_info.get('cid_num', '')
+                subtitle = f"{cid_name} <{cid_num}>" if cid_name or cid_num else 'Modify CallerID'
+            else:
+                subtitle = 'Modify CallerID'
+            
+            box_lines, _ = self.create_box(title, subtitle, "setcid")
+            for line in box_lines:
+                self.add_to_canvas(line)
+        
+        # Calendar Event Groups
+        elif "calendar" in dest_string:
+            cal_id = self.extract_id_from_dest(dest_string, "calendar")
+            cal_info = self.data['calendar'].get(cal_id)
+            
+            title = f"Calendar {cal_id}"
+            subtitle = cal_info.get('name', 'Calendar Check') if cal_info else 'Calendar Check'
+            
+            box_lines, _ = self.create_box(title, subtitle, "calendar")
+            for line in box_lines:
+                self.add_to_canvas(line)
+            
+            if cal_info:
+                self.add_to_canvas("     │")
+                self.add_to_canvas("     └── Event-based Routing")
+        
+        # Time Groups (referenced by Time Conditions)
+        elif "timegroup" in dest_string or "tg-" in dest_string:
+            tg_id = self.extract_id_from_dest(dest_string, ["timegroup", "tg-"])
+            tg_info = self.data['timegroups'].get(tg_id)
+            
+            title = f"Time Group {tg_id}"
+            subtitle = tg_info.get('name', 'Time Schedule') if tg_info else 'Time Schedule'
+            
+            box_lines, _ = self.create_box(title, subtitle, "timegroup")
+            for line in box_lines:
+                self.add_to_canvas(line)
+        
+        # Enhanced Announcements (using pre-loaded data)
         elif "app-announcement" in dest_string:
             ann_id = self.extract_id_from_dest(dest_string, "app-announcement")
-            ann_info = self.get_announcement_info(ann_id)
+            ann_info = self.data['announcements'].get(ann_id)
             
             title = f"Announcement {ann_id}"
             subtitle = ann_info.get('description', 'Audio Message') if ann_info else 'Audio Message'
@@ -434,11 +1130,28 @@ class ASCIIFlowGenerator:
             for line in box_lines:
                 self.add_to_canvas(line)
         
-        # Call Parking
+        # Call Parking - Enhanced with pre-loaded data
         elif "park" in dest_string:
-            box_lines, _ = self.create_box("Call Parking", "Park & Retrieve", "extension")
+            park_id = self.extract_id_from_dest(dest_string, ["park", "parking"])
+            park_info = self.data['parking'].get(park_id) if park_id else None
+            
+            title = f"Call Parking {park_id}" if park_id else "Call Parking"
+            if park_info:
+                lot_name = park_info.get('name', '')
+                lot_start = park_info.get('parkingstart', '')
+                lot_end = park_info.get('parkingend', '')
+                subtitle = f"{lot_name} ({lot_start}-{lot_end})" if lot_start and lot_end else lot_name or "Park & Retrieve"
+            else:
+                subtitle = "Park & Retrieve"
+            
+            box_lines, _ = self.create_box(title, subtitle, "parking")
             for line in box_lines:
                 self.add_to_canvas(line)
+            
+            if park_info:
+                timeout = park_info.get('parkingtimeout', '')
+                self.add_to_canvas("     │")
+                self.add_to_canvas(f"     └── Timeout: {timeout}s" if timeout else "     └── Standard Timeout")
         
         # Hangup/Busy
         elif "hangup" in dest_lower or "busy" in dest_lower:
@@ -483,6 +1196,9 @@ class ASCIIFlowGenerator:
         """Get a short description of destination type."""
         if not dest_string:
             return "Hangup"
+        elif "cfc" in dest_string or "callflow_toggle" in dest_string or "flowcontrol" in dest_string:
+            cfc_id = self.extract_id_from_dest(dest_string, ["cfc", "callflow_toggle", "flowcontrol"])
+            return f"Toggle {cfc_id}"
         elif "ext-" in dest_string:
             ext_num = dest_string.split(",")[1] if "," in dest_string else "?"
             return f"Ext {ext_num}"
@@ -517,6 +1233,33 @@ class ASCIIFlowGenerator:
         """Extract ID from destination string."""
         if isinstance(prefixes, str):
             prefixes = [prefixes]
+        
+        # Special handling for timeconditions - extract from comma-separated format
+        if "timeconditions" in dest_string:
+            # Format: timeconditions,2,1 - extract the middle number
+            parts = dest_string.split(',')
+            if len(parts) >= 2:
+                return parts[1]
+            return "unknown"
+        
+        # Special handling for Call Flow Control/Toggle - multiple possible formats
+        if any(cfc_prefix in dest_string for cfc_prefix in ["cfc", "callflow_toggle", "flowcontrol"]):
+            # Possible formats:
+            # cfc,1,1
+            # callflow_toggle,2,1  
+            # flowcontrol-1,s,1
+            parts = dest_string.replace('-', ',').split(',')
+            if len(parts) >= 2:
+                # Extract numeric part
+                for part in parts[1:]:
+                    if part.isdigit():
+                        return part
+            # Fallback - look for any digits in the string
+            import re
+            match = re.search(r'\d+', dest_string)
+            if match:
+                return match.group()
+            return "unknown"
         
         for prefix in prefixes:
             if prefix in dest_string:
@@ -592,14 +1335,48 @@ class ASCIIFlowGenerator:
         """Get time condition information."""
         if not has_table("timeconditions", **self.kw):
             return None
-            
-        tcs = rows_as_dicts(f"""
-            SELECT displayname as name, destination_true as true_dest, 
-                   destination_false as false_dest
-            FROM timeconditions WHERE timeconditions_id = '{tc_id}';
-        """, ["name", "true_dest", "false_dest"], **self.kw)
         
-        return tcs[0] if tcs else None
+        # Try multiple possible column combinations for different FreePBX versions
+        try:
+            # First try: standard column names
+            tcs = rows_as_dicts(f"""
+                SELECT COALESCE(displayname, description, 'Time Condition') as name, 
+                       truegoto as true_dest, 
+                       falsegoto as false_dest 
+                FROM timeconditions WHERE timeconditions_id = '{tc_id}';
+            """, ["name", "true_dest", "false_dest"], **self.kw)
+            
+            if tcs:
+                return tcs[0]
+            
+            # Second try: alternative column names
+            tcs = rows_as_dicts(f"""
+                SELECT COALESCE(displayname, description, 'Time Condition') as name,
+                       destination_true as true_dest, 
+                       destination_false as false_dest 
+                FROM timeconditions WHERE timeconditions_id = '{tc_id}';
+            """, ["name", "true_dest", "false_dest"], **self.kw)
+            
+            if tcs:
+                return tcs[0]
+            
+            # Third try: with different ID column
+            tcs = rows_as_dicts(f"""
+                SELECT COALESCE(displayname, description, 'Time Condition') as name,
+                       truegoto as true_dest, 
+                       falsegoto as false_dest 
+                FROM timeconditions WHERE id = '{tc_id}';
+            """, ["name", "true_dest", "false_dest"], **self.kw)
+            
+            return tcs[0] if tcs else None
+            
+        except Exception:
+            # Return a basic structure if database queries fail
+            return {
+                'name': f'Time Condition {tc_id}',
+                'true_dest': None,
+                'false_dest': None
+            }
     
     def get_ringgroup_info(self, rg_id):
         """Get ring group information."""
@@ -685,6 +1462,9 @@ class ASCIIFlowGenerator:
         self.current_row = 0
         self.visited_destinations = set()
         
+        # Pre-load all FreePBX data (this is the key improvement!)
+        self.load_all_data()
+        
         # Get inbound route info
         if not has_table("incoming", **self.kw):
             return "❌ No incoming table found"
@@ -712,8 +1492,8 @@ class ASCIIFlowGenerator:
         self.add_to_canvas("╚" + "═" * 80 + "╝")
         self.add_to_canvas("")
         
-        # Inbound call entry point
-        entry_box, _ = self.create_box(f"📞 INBOUND: {did}", 
+        # Inbound call entry point  
+        entry_box, _ = self.create_box(f"INBOUND: {did}", 
                                        route['description'] or "Unnamed Route", 
                                        "inbound", width=30)
         for line in entry_box:
