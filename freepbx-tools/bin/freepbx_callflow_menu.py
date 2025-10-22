@@ -20,6 +20,7 @@ TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
 MODULE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_module_analyzer.py"
 PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_paging_fax_analyzer.py"
 COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_comprehensive_analyzer.py"
+ASCII_CALLFLOW_SCRIPT = "/usr/local/bin/freepbx_ascii_callflow.py"
 
 
 def run_tc_status(sock):
@@ -72,6 +73,68 @@ def run_comprehensive_analyzer(sock):
         print(out, end="")
     else:
         print((err or out).strip())
+
+
+def run_ascii_callflow(sock, did_rows):
+    """Generate ASCII art call flow for selected DIDs."""
+    if not os.path.isfile(ASCII_CALLFLOW_SCRIPT):
+        print("ASCII callflow tool not found at", ASCII_CALLFLOW_SCRIPT)
+        return
+    
+    print("\n=== ASCII Art Call Flow Generator ===")
+    print("Select DID(s) for ASCII flow chart generation:")
+    print()
+    
+    if not did_rows:
+        print("No DID data available. Please refresh the snapshot first.")
+        return
+    
+    # Show available DIDs
+    for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
+        print(f"{i:>2}. {did:<15} {label}")
+    
+    if len(did_rows) > 20:
+        print(f"... and {len(did_rows) - 20} more DIDs")
+    
+    print()
+    selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
+    
+    if not selection:
+        return
+    
+    # Parse selection
+    if selection.lower() in ("all", "*"):
+        selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
+        print("Note: Limited to first 10 DIDs for ASCII output")
+    else:
+        selected_indices = parse_selection(selection, len(did_rows))
+    
+    if not selected_indices:
+        print("No valid selection.")
+        return
+    
+    print(f"\n🎨 Generating ASCII call flows for {len(selected_indices)} DID(s)...")
+    print("=" * 60)
+    
+    for i, idx in enumerate(selected_indices):
+        if i >= 10:  # Limit ASCII output
+            print(f"\n... {len(selected_indices) - 10} more DIDs not shown (use individual analysis for more)")
+            break
+            
+        _, did, label, _, _ = did_rows[idx - 1]
+        print(f"\n[{i+1}/{min(len(selected_indices), 10)}] Generating flow for DID: {did}")
+        print("-" * 60)
+        
+        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did)]
+        rc, out, err = run(cmd)
+        
+        if rc == 0:
+            print(out)
+        else:
+            print(f"❌ Error generating flow for {did}: {err or out}")
+        
+        if i < min(len(selected_indices), 10) - 1:
+            print("\n" + "=" * 60)
 
 
 # ---------------- helpers ----------------
@@ -225,8 +288,9 @@ def main():
         print(" 7) Run FreePBX module analysis")
         print(" 8) Run paging, overhead & fax analysis")
         print(" 9) Run comprehensive component analysis")
-        print("10) Run full Asterisk diagnostic")
-        print("11) Quit")
+        print("10) Generate ASCII art call-flows")
+        print("11) Run full Asterisk diagnostic")
+        print("12) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -272,6 +336,11 @@ def main():
             run_comprehensive_analyzer(sock)
 
         elif choice == "10":
+            did_rows = list_dids(data)
+            if did_rows:
+                run_ascii_callflow(sock, did_rows)
+
+        elif choice == "11":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -280,7 +349,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "11":
+        elif choice == "12":
             print("Bye.")
             break
         else:

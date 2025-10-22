@@ -12,12 +12,15 @@ freepbx-module-analyzer	Analyze all FreePBX modules and their configurations	Con
 freepbx-module-status	Quick FreePBX module status overview (enabled/disabled)	Console output
 freepbx-paging-fax-analyzer	Specialized analysis of paging, overhead speakers & fax	Console output / JSON
 freepbx-comprehensive-analyzer	Complete analysis of all major FreePBX components	Console output / JSON
+freepbx-ascii-callflow	Generate ASCII art call flow diagrams	Console output
 freepbx-diagnostic	Full system + Asterisk diagnostic	full_diagnostic_<timestamp>.txt
 freepbx-version-check	Compare FreePBX/Asterisk versions to policy	Console output
 asterisk-full-diagnostic.sh	Same as freepbx-diagnostic (legacy)	Same as above
 📈 Features
 
 Call-Flow Generator – renders inbound routes, IVRs, time conditions, queues, etc. into .svg diagrams.
+
+ASCII Call-Flow Generator – creates text-based call flow diagrams for console/email viewing.
 
 Snapshot Utility – exports FreePBX config to normalized JSON.
 
