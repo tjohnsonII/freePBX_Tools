@@ -694,8 +694,12 @@ class FreePBXUniversalCollector:
                     if tc:
                         print(f"├─ ⏰ Time Condition: {tc.get('name', dest_id)}")
                         print("│  │")
-                        print(f"│  ├─ ✅ Business Hours → {tc.get('true_dest', 'Unknown')}")
-                        print(f"│  └─ ❌ After Hours → {tc.get('false_dest', 'Unknown')}")
+                        
+                        # Get appropriate labels for this time condition
+                        true_label, false_label = self._get_time_condition_labels(tc)
+                        
+                        print(f"│  ├─ ✅ {true_label} → {self._resolve_destination_display(tc.get('true_dest', 'Unknown'))}")
+                        print(f"│  └─ ❌ {false_label} → {self._resolve_destination_display(tc.get('false_dest', 'Unknown'))}")
                     else:
                         print(f"├─ ⏰ Time Condition: {dest_id} (details not found)")
                 
@@ -745,12 +749,97 @@ class FreePBXUniversalCollector:
         
         print()
     
+    def _resolve_destination_display(self, destination):
+        """Resolve destination to display format with names."""
+        if not destination:
+            return "❓ Unknown"
+            
+        if ',' in destination:
+            parts = destination.split(',')
+            dest_type = parts[0]
+            dest_id = parts[1] if len(parts) > 1 else 'Unknown'
+            
+            if dest_type == 'ext-local':
+                # Handle voicemail (vmuXXX) vs direct extension
+                if dest_id.startswith('vmu'):
+                    ext_num = dest_id[3:]  # Remove 'vmu' prefix
+                    ext = self._find_extension(ext_num)
+                    if ext:
+                        return f"📧 {ext.get('name', f'Extension {ext_num}')} Voicemail"
+                    return f"📧 Extension {ext_num} Voicemail"
+                else:
+                    ext = self._find_extension(dest_id)
+                    if ext:
+                        return f"📞 {ext.get('name', f'Extension {dest_id}')}"
+                    return f"📞 Extension {dest_id}"
+                    
+            elif dest_type == 'timeconditions':
+                tc = self._find_time_condition(dest_id)
+                if tc:
+                    return f"⏰ {tc.get('name', f'Time Condition {dest_id}')}"
+                return f"⏰ Time Condition {dest_id}"
+                
+            elif dest_type == 'ext-group':
+                rg = self._find_ring_group(dest_id)
+                if rg:
+                    return f"🔔 {rg.get('description', f'Ring Group {dest_id}')}"
+                return f"🔔 Ring Group {dest_id}"
+                
+            elif dest_type.startswith('ivr'):
+                ivr = self._find_ivr_menu(dest_id)
+                if ivr:
+                    return f"🎵 {ivr.get('name', f'IVR {dest_id}')}"
+                return f"🎵 IVR {dest_id}"
+                
+            else:
+                return f"❓ {dest_type}: {dest_id}"
+        else:
+            return f"❓ {destination}"
+    
     def _find_time_condition(self, tc_id):
         """Find time condition by ID."""
         for tc in self.data.get('time_conditions', []):
             if str(tc.get('id')) == str(tc_id):
                 return tc
         return None
+    
+    def _get_time_condition_labels(self, tc):
+        """Generate appropriate labels for time condition branches based on condition type"""
+        if not tc:
+            return "Condition True", "Condition False"
+            
+        name = tc.get('name', '').lower()
+        mode = tc.get('mode', 'time-group')
+        
+        # Calendar-based conditions (holidays, special events)
+        if mode == 'calendar-group':
+            if 'holiday' in name:
+                return "IS Holiday", "NOT Holiday"
+            elif 'vacation' in name:
+                return "IS Vacation", "NOT Vacation"
+            elif 'closed' in name:
+                return "IS Closed", "NOT Closed"
+            elif 'special' in name or 'event' in name:
+                return "IS Special Event", "NOT Special Event"
+            else:
+                return "Calendar Match", "Calendar No Match"
+        
+        # Time-group conditions (business hours, day/night)
+        elif mode == 'time-group':
+            if 'business' in name or 'office' in name:
+                return "Business Hours", "After Hours"
+            elif 'night' in name:
+                return "Night Hours", "Day Hours"
+            elif 'weekend' in name:
+                return "Weekend", "Weekday"
+            elif 'lunch' in name:
+                return "Lunch Time", "Not Lunch"
+            else:
+                return "Time Match", "Time No Match"
+        
+        # Default for unknown modes
+        else:
+            return "Condition True", "Condition False"
     
     def _find_ring_group(self, rg_id):
         """Find ring group by ID."""
