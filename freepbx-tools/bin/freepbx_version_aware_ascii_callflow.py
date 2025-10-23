@@ -348,6 +348,12 @@ class FreePBXUniversalCollector:
                         if field in columns:
                             fields['moh'] = field
                             break
+                    
+                    # Failover destination - handle different field names
+                    for field in ['postdest', 'dest', 'destination', 'failover_dest']:
+                        if field in columns:
+                            fields['failover_dest'] = field
+                            break
                             
                     if 'group_num' in fields:
                         return {'table': table, 'columns': columns, 'fields': fields}
@@ -673,7 +679,7 @@ class FreePBXUniversalCollector:
         self._render_simple_flow(did, route)
     
     def _render_simple_flow(self, did, route):
-        """Render a simple ASCII call flow."""
+        """Render a complete ASCII call flow tree."""
         print(f"\n📞 CALL FLOW: {did}")
         print("=" * 50)
         
@@ -684,70 +690,156 @@ class FreePBXUniversalCollector:
         print("│")
         
         if destination:
-            if ',' in destination:
-                dest_parts = destination.split(',')
-                dest_type = dest_parts[0]
-                dest_id = dest_parts[1] if len(dest_parts) > 1 else 'Unknown'
-                
-                if dest_type == 'timeconditions':
-                    tc = self._find_time_condition(dest_id)
-                    if tc:
-                        print(f"├─ ⏰ Time Condition: {tc.get('name', dest_id)}")
-                        print("│  │")
-                        
-                        # Get appropriate labels for this time condition
-                        true_label, false_label = self._get_time_condition_labels(tc)
-                        
-                        print(f"│  ├─ ✅ {true_label} → {self._resolve_destination_display(tc.get('true_dest', 'Unknown'))}")
-                        print(f"│  └─ ❌ {false_label} → {self._resolve_destination_display(tc.get('false_dest', 'Unknown'))}")
-                    else:
-                        print(f"├─ ⏰ Time Condition: {dest_id} (details not found)")
-                
-                elif dest_type == 'ext-group':
-                    rg = self._find_ring_group(dest_id)
-                    if rg:
-                        print(f"└─ 🔔 Ring Group: {rg.get('description', dest_id)}")
-                        if rg.get('member_list'):
-                            members = rg['member_list'].split('-')
-                            for i, member in enumerate(members[:3]):
-                                if member:
-                                    connector = "├─" if i < len(members[:3]) - 1 else "└─"
-                                    print(f"   {connector} 📞 Extension: {member}")
-                            if len(members) > 3:
-                                print(f"   └─ ... and {len(members) - 3} more extensions")
-                    else:
-                        print(f"└─ 🔔 Ring Group: {dest_id} (details not found)")
-                
-                elif dest_type.startswith('ivr'):
-                    ivr = self._find_ivr_menu(dest_id)
-                    if ivr:
-                        print(f"└─ 🎵 IVR Menu: {ivr.get('name', dest_id)}")
-                        options = self._find_ivr_options(dest_id)
-                        for i, opt in enumerate(options[:5]):
-                            selection = opt.get('selection', 'Unknown')
-                            dest = opt.get('destination', 'Unknown')
-                            connector = "├─" if i < len(options[:5]) - 1 else "└─"
-                            print(f"   {connector} [{selection}] → {dest}")
-                        if len(options) > 5:
-                            print(f"   └─ ... and {len(options) - 5} more options")
-                    else:
-                        print(f"└─ 🎵 IVR Menu: {dest_id} (details not found)")
-                
-                elif dest_type == 'from-did-direct':
-                    ext = self._find_extension(dest_id)
-                    if ext:
-                        print(f"└─ 📞 Direct Extension: {dest_id} ({ext.get('name', 'Unknown')})")
-                    else:
-                        print(f"└─ 📞 Direct Extension: {dest_id}")
-                
-                else:
-                    print(f"└─ ❓ {dest_type}: {dest_id}")
-            else:
-                print(f"└─ ❓ Destination: {destination}")
+            self._render_destination_tree(destination, "", True)
         else:
             print("└─ ❓ No destination configured")
         
         print()
+
+    def _render_destination_tree(self, destination, prefix="", is_last=True, visited=None, depth=0):
+        """Recursively render the complete call tree for a destination."""
+        if visited is None:
+            visited = set()
+        
+        # Prevent infinite loops
+        if destination in visited or depth > 10:
+            connector = "└─" if is_last else "├─"
+            print(f"{prefix}{connector} 🔄 Loop detected or max depth reached: {destination}")
+            return
+        
+        visited.add(destination)
+        
+        # Parse destination
+        if ',' in destination:
+            dest_parts = destination.split(',')
+            dest_type = dest_parts[0]
+            dest_id = dest_parts[1] if len(dest_parts) > 1 else 'Unknown'
+        else:
+            dest_type = destination
+            dest_id = destination
+        
+        connector = "└─" if is_last else "├─"
+        child_prefix = prefix + ("   " if is_last else "│  ")
+        
+        if dest_type == 'timeconditions':
+            tc = self._find_time_condition(dest_id)
+            if tc:
+                print(f"{prefix}{connector} ⏰ Time Condition: {tc.get('name', dest_id)}")
+                print(f"{child_prefix}│")
+                
+                # Get appropriate labels for this time condition
+                true_label, false_label = self._get_time_condition_labels(tc)
+                
+                true_dest = tc.get('true_dest', '')
+                false_dest = tc.get('false_dest', '')
+                
+                # Render true branch
+                print(f"{child_prefix}├─ ✅ {true_label}")
+                if true_dest:
+                    self._render_destination_tree(true_dest, child_prefix + "│  ", False, visited.copy(), depth + 1)
+                else:
+                    print(f"{child_prefix}│  └─ ❓ No true destination")
+                
+                print(f"{child_prefix}│")
+                
+                # Render false branch
+                print(f"{child_prefix}└─ ❌ {false_label}")
+                if false_dest:
+                    self._render_destination_tree(false_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
+                else:
+                    print(f"{child_prefix}   └─ ❓ No false destination")
+            else:
+                print(f"{prefix}{connector} ⏰ Time Condition: {dest_id} (details not found)")
+        
+        elif dest_type == 'ext-group':
+            rg = self._find_ring_group(dest_id)
+            if rg:
+                print(f"{prefix}{connector} 🔔 Ring Group: {rg.get('description', dest_id)}")
+                
+                # Show ring group members
+                if rg.get('member_list'):
+                    members = [m for m in rg['member_list'].split('-') if m]
+                    print(f"{child_prefix}├─ 👥 Members:")
+                    for i, member in enumerate(members[:5]):  # Show up to 5 members
+                        mem_connector = "├─" if i < min(len(members), 5) - 1 else "└─"
+                        ext = self._find_extension(member)
+                        ext_name = ext.get('name', 'Unknown') if ext else 'Unknown'
+                        print(f"{child_prefix}│  {mem_connector} 📞 {member} ({ext_name})")
+                    if len(members) > 5:
+                        print(f"{child_prefix}│  └─ ... and {len(members) - 5} more")
+                
+                # Show failover destination if exists
+                failover_dest = rg.get('postdest', '') or rg.get('dest', '')
+                if failover_dest and failover_dest != 'app-blackhole,hangup,1':
+                    print(f"{child_prefix}│")
+                    print(f"{child_prefix}└─ 🔀 No Answer Failover:")
+                    self._render_destination_tree(failover_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
+                else:
+                    print(f"{child_prefix}└─ 🔚 No failover (call ends)")
+            else:
+                print(f"{prefix}{connector} 🔔 Ring Group: {dest_id} (details not found)")
+        
+        elif dest_type.startswith('ivr'):
+            ivr = self._find_ivr_menu(dest_id)
+            if ivr:
+                print(f"{prefix}{connector} 🎵 IVR Menu: {ivr.get('name', dest_id)}")
+                
+                # Show IVR options
+                options = self._find_ivr_options(dest_id)
+                if options:
+                    print(f"{child_prefix}├─ 🔢 Options:")
+                    for i, opt in enumerate(options[:5]):  # Show up to 5 options
+                        opt_connector = "├─" if i < min(len(options), 5) - 1 else "└─"
+                        selection = opt.get('selection', '?')
+                        opt_dest = opt.get('dest', 'Unknown')
+                        print(f"{child_prefix}│  {opt_connector} [{selection}] →")
+                        if opt_dest and opt_dest != 'Unknown':
+                            self._render_destination_tree(opt_dest, child_prefix + "│  " + ("   " if i == min(len(options), 5) - 1 else "│  "), True, visited.copy(), depth + 1)
+                    if len(options) > 5:
+                        print(f"{child_prefix}│  └─ ... and {len(options) - 5} more options")
+                
+                print(f"{child_prefix}└─ 🔚 (IVR timeout/invalid handling)")
+            else:
+                print(f"{prefix}{connector} 🎵 IVR Menu: {dest_id} (details not found)")
+        
+        elif dest_type == 'from-did-direct':
+            ext = self._find_extension(dest_id)
+            if ext:
+                print(f"{prefix}{connector} 📞 Direct Extension: {dest_id} ({ext.get('name', 'Unknown')})")
+                print(f"{child_prefix}└─ 📧 Voicemail: {ext.get('name', 'Unknown')} (if no answer)")
+            else:
+                print(f"{prefix}{connector} 📞 Direct Extension: {dest_id}")
+                print(f"{child_prefix}└─ 📧 Voicemail (if no answer)")
+        
+        elif dest_type == 'ext-local':
+            # Handle voicemail, announcements, etc.
+            if 'vmu' in dest_id:
+                ext_num = dest_id.replace('vmu', '')
+                ext = self._find_extension(ext_num)
+                if ext:
+                    print(f"{prefix}{connector} 📧 Voicemail: {ext.get('name', 'Unknown')} ({ext_num})")
+                else:
+                    print(f"{prefix}{connector} 📧 Voicemail: Extension {ext_num}")
+            else:
+                print(f"{prefix}{connector} 📱 Local Extension: {dest_id}")
+                # Could chain to voicemail on no answer
+        
+        elif dest_type == 'app-blackhole':
+            print(f"{prefix}{connector} 🔚 Hangup")
+        
+        elif dest_type == 'app-announcement':
+            print(f"{prefix}{connector} 📢 Announcement: {dest_id}")
+        
+        elif dest_type == 'app-setcid':
+            print(f"{prefix}{connector} 🆔 Set Caller ID: {dest_id}")
+            # This typically chains to another destination - but we'd need more data
+        
+        else:
+            # Generic destination
+            display = self._resolve_destination_display(destination)
+            print(f"{prefix}{connector} 🎯 {display}")
+        
+        visited.remove(destination)
     
     def _resolve_destination_display(self, destination):
         """Resolve destination to display format with names."""
