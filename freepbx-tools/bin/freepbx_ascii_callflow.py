@@ -1697,23 +1697,50 @@ class ASCIIFlowGenerator:
             for line in box_lines:
                 self.add_to_canvas(line)
         
-        # Unknown/Other destinations - try to provide more helpful info
+        # Unknown/Other destinations - try to use loaded data for better names
         else:
-            # Try to extract useful information from the destination string
+            title = "Unknown Route"
+            subtitle = dest_string[:20]
+            
+            # Try to resolve using loaded data
             if dest_string.startswith("app-"):
                 title = "FreePBX App"
                 subtitle = dest_string.replace("app-", "").replace("-", " ").title()[:20]
             elif "," in dest_string:
                 parts = dest_string.split(",")
-                title = f"Route: {parts[0]}"
-                subtitle = f"Args: {','.join(parts[1:3])}"  # Show first 2 args
+                dest_id = parts[0]
+                
+                # Try to resolve the destination ID using loaded data
+                resolved_name = self._resolve_destination_name(dest_id)
+                if resolved_name:
+                    title = resolved_name
+                    subtitle = f"Args: {','.join(parts[1:3])}" if len(parts) > 1 else ""
+                else:
+                    title = f"Route: {dest_id}"
+                    subtitle = f"Args: {','.join(parts[1:3])}"  # Show first 2 args
             elif "-" in dest_string:
                 parts = dest_string.split("-", 1)
-                title = f"Dest: {parts[0].title()}"
-                subtitle = parts[1][:20] if len(parts) > 1 else "Custom Route"
+                dest_base = parts[0]
+                dest_id = parts[1] if len(parts) > 1 else ""
+                
+                # Try to resolve using loaded data
+                resolved_name = self._resolve_destination_name(dest_string)
+                if resolved_name:
+                    title = resolved_name
+                    subtitle = ""
+                else:
+                    # Fallback to parsing
+                    title = f"Dest: {dest_base.title()}"
+                    subtitle = dest_id[:20] if dest_id else "Custom Route"
             else:
-                title = "Unknown Route"
-                subtitle = dest_string[:20]
+                # Try simple resolution
+                resolved_name = self._resolve_destination_name(dest_string)
+                if resolved_name:
+                    title = resolved_name
+                    subtitle = ""
+                else:
+                    title = "Unknown Route"
+                    subtitle = dest_string[:20]
                 
             box_lines, _ = self.create_box(title, subtitle, "failover")
             for line in box_lines:
@@ -1746,6 +1773,91 @@ class ASCIIFlowGenerator:
         if len(options) > 8:
             self.add_to_canvas(f"                            └── ... +{len(options)-8} more options")
     
+    def _resolve_destination_name(self, dest_string):
+        """Try to resolve a destination string to a meaningful name using loaded data."""
+        if not dest_string:
+            return None
+            
+        # Direct lookup in various data types
+        dest_lower = dest_string.lower()
+        
+        # Check extensions first
+        if dest_string in self.data.get('extensions', {}):
+            ext_data = self.data['extensions'][dest_string]
+            return f"Ext: {ext_data.get('name', dest_string)}"
+        
+        # Check time conditions for simple numeric IDs (before IVRs since both can use numbers)
+        if dest_string in self.data.get('time_conditions', {}):
+            tc_data = self.data['time_conditions'][dest_string]
+            return f"Time Condition: {tc_data.get('displayname', dest_string)}"
+        
+        # Check IVRs - handle both "ivr-X" and "X" formats
+        ivr_id = None
+        if dest_string.startswith('ivr-'):
+            ivr_id = dest_string[4:]  # Remove 'ivr-' prefix
+        elif dest_string.isdigit() and dest_string not in self.data.get('time_conditions', {}):
+            # Only treat as IVR if not already found as time condition
+            ivr_id = dest_string
+            
+        if ivr_id and ivr_id in self.data.get('ivrs', {}):
+            ivr_data = self.data['ivrs'][ivr_id]
+            return f"IVR: {ivr_data.get('name', f'Menu {ivr_id}')}"
+        
+        # Check queues
+        if dest_string in self.data.get('queues', {}):
+            queue_data = self.data['queues'][dest_string]
+            return f"Queue: {queue_data.get('descr', dest_string)}"
+        
+        # Check ring groups - handle both "grp-X" and "X" formats
+        rg_id = None
+        if dest_string.startswith('grp-'):
+            rg_id = dest_string[4:]  # Remove 'grp-' prefix
+        elif dest_string.isdigit() or dest_string in self.data.get('ring_groups', {}):
+            rg_id = dest_string
+            
+        if rg_id and rg_id in self.data.get('ring_groups', {}):
+            rg_data = self.data['ring_groups'][rg_id]
+            return f"Ring Group: {rg_data.get('description', f'Group {rg_id}')}"
+        
+        # Check announcements - handle both "ann-X" and direct ID formats
+        ann_id = None
+        if dest_string.startswith('ann-'):
+            ann_id = dest_string[4:]  # Remove 'ann-' prefix
+        elif dest_string in self.data.get('announcements', {}):
+            ann_id = dest_string
+            
+        if ann_id and ann_id in self.data.get('announcements', {}):
+            ann_data = self.data['announcements'][ann_id]
+            return f"Announcement: {ann_data.get('description', dest_string)}"
+        
+        # Check conferences
+        if dest_string in self.data.get('conferences', {}):
+            conf_data = self.data['conferences'][dest_string]
+            return f"Conference: {conf_data.get('description', dest_string)}"
+        
+        # Check routes by ID or name
+        for route_id, route_data in self.data.get('routes', {}).items():
+            if dest_string == route_id or dest_string == route_data.get('name', ''):
+                return f"Route: {route_data.get('name', route_id)}"
+        
+        # Check voicemail
+        if dest_string in self.data.get('voicemail', {}):
+            vm_data = self.data['voicemail'][dest_string]
+            return f"Voicemail: {vm_data.get('name', dest_string)}"
+        
+        # Check Follow Me
+        if dest_string in self.data.get('followme', {}):
+            fm_data = self.data['followme'][dest_string]
+            return f"Follow Me: {fm_data.get('name', dest_string)}"
+        
+        # Check misc destinations
+        for misc_id, misc_data in self.data.get('misc_destinations', {}).items():
+            if dest_string == misc_id or dest_string == misc_data.get('description', ''):
+                return f"Misc: {misc_data.get('description', misc_id)}"
+        
+        # Return None if no match found
+        return None
+
     def get_destination_type(self, dest_string):
         """Get a short description of destination type with actual names when possible."""
         if not dest_string:
@@ -2032,21 +2144,397 @@ class ASCIIFlowGenerator:
         
         return options
     
+    def generate_test_flow(self, did):
+        """Generate a comprehensive test flow demonstrating end-to-end call tracing."""
+        print("Running comprehensive call flow test with mock data...")
+        
+        # Load comprehensive mock data that demonstrates complex call flows
+        self.data = {
+            'extensions': {
+                '1001': {'name': 'John Smith - Sales Manager', 'tech': 'pjsip'},
+                '1002': {'name': 'Jane Doe - Support Lead', 'tech': 'pjsip'},
+                '1003': {'name': 'Bob Wilson - Reception', 'tech': 'pjsip'},
+                '2821': {'name': 'Sturgis - Main Office', 'tech': 'pjsip'},
+                '4407': {'name': 'Greg - Operations', 'tech': 'pjsip'},
+                '4978': {'name': 'Christi - Admin', 'tech': 'pjsip'}
+            },
+            'ivrs': {
+                '1': {'name': 'Main Menu', 'timeout': 10, 'timeout_destination': '1003', 'invalid_destination': '1003'},
+                '2': {'name': 'Sales Menu', 'timeout': 5, 'timeout_destination': '100', 'invalid_destination': '100'},
+                '3': {'name': 'Support Menu', 'timeout': 8, 'timeout_destination': '200', 'invalid_destination': '1002'}
+            },
+            'queues': {
+                '100': {'descr': 'Sales Queue', 'strategy': 'ringall'},
+                '200': {'descr': 'Support Queue', 'strategy': 'leastrecent'}
+            },
+            'ring_groups': {
+                '3001': {'description': 'Sturgis - Main Line'},
+                '4000': {'description': 'Aircraft Charter Team'},
+                '600': {'description': 'Reception Ring Group'},
+                '601': {'description': 'Emergency Ring Group'}
+            },
+            'time_conditions': {
+                '1': {'displayname': 'Business Hours', 'truegoto': 'ivr-1', 'falsegoto': 'ivr-3'},
+                '2': {'displayname': 'Holiday Schedule', 'truegoto': 'grp-600', 'falsegoto': 'app-directory'}
+            },
+            'announcements': {
+                '1': {'description': 'Welcome Message'},
+                '2': {'description': 'Hold Music Announcement'},
+                '3': {'description': 'After Hours Message'}
+            },
+            'routes': {
+                'route1': {'name': 'Main Incoming Route'},
+                'route2': {'name': 'After Hours Route'}
+            }
+        }
+        
+        # Initialize canvas and state
+        self.canvas = []
+        self.visited_destinations = set()
+        
+        # Mock a complex call flow scenario
+        self.add_to_canvas("+" + "=" * 80 + "+")
+        self.add_to_canvas(f"|{'FREEPBX COMPLETE CALL FLOW ANALYSIS (TEST MODE)':^80}|")
+        self.add_to_canvas("+" + "=" * 80 + "+")
+        self.add_to_canvas(f"| DID: {did:<25} Route: Test Comprehensive Flow{'':<25} |")
+        self.add_to_canvas("+" + "=" * 80 + "+")
+        self.add_to_canvas("")
+        
+        # Demonstrate comprehensive tracing
+        self.add_to_canvas("CALL ENTRY POINT:")
+        self.add_to_canvas("=" * 20)
+        
+        entry_box, _ = self.create_box(f"INBOUND DID: {did}", "Test Route - Complete Flow Analysis", "inbound", width=35)
+        for line in entry_box:
+            self.add_to_canvas(line)
+        
+        self.add_to_canvas("")
+        self.add_to_canvas("    |")
+        self.add_to_canvas("    v")
+        self.add_to_canvas("CALL ROUTING PATH:")
+        self.add_to_canvas("=" * 20)
+        
+        # Demonstrate a complex call path: DID -> Time Condition -> IVR -> Multiple Options
+        # This simulates what would happen on your actual FreePBX servers
+        self._trace_call_path("1", level=0, path_description="Business Hours Check")  # Time condition
+        
+        # Show endpoint summary
+        self._show_endpoint_summary()
+        
+        # Add footer
+        self.add_to_canvas("")
+        self.add_to_canvas("─" * 80)
+        self.add_to_canvas(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')} | FreePBX ASCII Flow Generator v2.1")
+        self.add_to_canvas("TEST MODE: Demonstrates comprehensive call flow tracing for 500+ server deployment")
+        
+        return "\n".join(self.canvas)
+
+    def _trace_call_path(self, destination, level=0, path_description="", max_depth=10):
+        """Recursively trace a call path through all FreePBX components to final destination."""
+        # Prevent infinite loops and excessive depth
+        if level > max_depth or destination in self.visited_destinations:
+            if destination in self.visited_destinations:
+                self.add_to_canvas("    " * level + f"[LOOP DETECTED: {destination}]")
+            else:
+                self.add_to_canvas("    " * level + "[MAX DEPTH REACHED]")
+            return
+        
+        self.visited_destinations.add(destination)
+        indent = "    " * level
+        
+        # Show current step with indentation for hierarchy
+        if level > 0:
+            self.add_to_canvas("")
+            self.add_to_canvas(indent + "|")
+            self.add_to_canvas(indent + "v")
+        
+        # Parse destination type and get human-readable name
+        resolved_name = self._resolve_destination_name(destination)
+        dest_type = self._get_destination_category(destination)
+        
+        # Show the current destination step
+        if resolved_name:
+            step_title = resolved_name
+        else:
+            step_title = f"Unknown: {destination}"
+        
+        step_box, _ = self.create_box(step_title, f"Type: {dest_type}", dest_type.lower())
+        for line in step_box:
+            self.add_to_canvas(indent + line)
+        
+        # Follow the destination deeper based on its type
+        next_destinations = self._get_next_destinations(destination, dest_type)
+        
+        if next_destinations:
+            # Multiple paths (like IVR options, time condition branches)
+            if len(next_destinations) > 1:
+                for i, (next_dest, branch_desc) in enumerate(next_destinations):
+                    self.add_to_canvas("")
+                    self.add_to_canvas(indent + f"├─ {branch_desc} ─────────────")
+                    self._trace_call_path(next_dest, level + 1, branch_desc, max_depth)
+            # Single path continuation
+            else:
+                next_dest, branch_desc = next_destinations[0]
+                self._trace_call_path(next_dest, level + 1, branch_desc, max_depth)
+        else:
+            # This is a terminal destination
+            self.add_to_canvas("")
+            self.add_to_canvas(indent + "└─ [CALL ENDPOINT]")
+
+    def _get_destination_category(self, destination):
+        """Determine the broad category of a destination for flow logic."""
+        if not destination:
+            return "empty"
+        
+        dest_lower = destination.lower()
+        
+        # Check time conditions FIRST (before IVRs) since they often use simple numbers
+        if destination in self.data.get('time_conditions', {}):
+            return "time_condition"
+        # Check against loaded data to categorize correctly
+        elif destination in self.data.get('extensions', {}):
+            return "extension"
+        elif destination.startswith('ivr-'):
+            return "ivr"
+        elif destination in self.data.get('ivrs', {}):
+            return "ivr"
+        elif destination in self.data.get('queues', {}):
+            return "queue"
+        elif destination.startswith('grp-'):
+            return "ring_group"
+        elif destination in self.data.get('ring_groups', {}):
+            return "ring_group"
+        elif destination.startswith('ann-'):
+            return "announcement"
+        elif destination in self.data.get('announcements', {}):
+            return "announcement"
+        elif destination in self.data.get('conferences', {}):
+            return "conference"
+        elif destination in self.data.get('voicemail', {}):
+            return "voicemail"
+        elif destination.startswith('ext-'):
+            return "extension"
+        elif destination.startswith('app-'):
+            return "application"
+        elif 'hangup' in dest_lower:
+            return "hangup"
+        elif destination == "error":
+            return "error"
+        else:
+            return "unknown"
+
+    def _get_next_destinations(self, destination, dest_type):
+        """Get the next destination(s) that a call would route to from the current destination."""
+        next_destinations = []
+        
+        try:
+            if dest_type == "time_condition":
+                # Time conditions have truegoto and falsegoto
+                tc_id = destination
+                if tc_id in self.data.get('time_conditions', {}):
+                    tc_data = self.data['time_conditions'][tc_id]
+                    if tc_data.get('truegoto'):
+                        next_destinations.append((tc_data['truegoto'], "During Business Hours"))
+                    if tc_data.get('falsegoto'):
+                        next_destinations.append((tc_data['falsegoto'], "After Hours/Holiday"))
+            
+            elif dest_type == "ivr":
+                # IVRs have multiple options
+                ivr_id = destination.replace('ivr-', '') if destination.startswith('ivr-') else destination
+                
+                # In test mode, simulate IVR options
+                if hasattr(self, 'data') and not has_table("ivr_details", **self.kw):
+                    # Test mode - simulate realistic IVR options
+                    if ivr_id == "1":  # Main Menu
+                        next_destinations.extend([
+                            ("ivr-2", "Press 1: Sales Department"),
+                            ("200", "Press 2: Technical Support"),
+                            ("grp-3001", "Press 3: Main Office"),
+                            ("1003", "Press 0: Reception")
+                        ])
+                    elif ivr_id == "2":  # Sales Menu
+                        next_destinations.extend([
+                            ("100", "Press 1: Sales Queue"),
+                            ("1001", "Press 2: Sales Manager"),
+                            ("grp-4000", "Press 3: Aircraft Charter")
+                        ])
+                    elif ivr_id == "3":  # Support Menu  
+                        next_destinations.extend([
+                            ("200", "Press 1: Support Queue"),
+                            ("1002", "Press 2: Support Lead")
+                        ])
+                else:
+                    # Production mode - get IVR options from database
+                    if has_table("ivr_details", **self.kw):
+                        ivr_options = rows_as_dicts(f"""
+                            SELECT selection, dest, ivr_ret
+                            FROM ivr_details 
+                            WHERE id = '{ivr_id}'
+                            ORDER BY selection
+                        """, ["selection", "dest", "ivr_ret"], **self.kw)
+                        
+                        for option in ivr_options:
+                            if option['dest']:
+                                key = option['selection'] or 'default'
+                                resolved_dest_name = self._resolve_destination_name(option['dest'])
+                                desc = f"Press {key}: {resolved_dest_name or option['dest']}"
+                                next_destinations.append((option['dest'], desc))
+                
+                # Add timeout and invalid destinations from loaded data
+                if ivr_id in self.data.get('ivrs', {}):
+                    ivr_data = self.data['ivrs'][ivr_id]
+                    if ivr_data.get('timeout_destination'):
+                        resolved_name = self._resolve_destination_name(ivr_data['timeout_destination'])
+                        next_destinations.append((ivr_data['timeout_destination'], f"Timeout: {resolved_name or ivr_data['timeout_destination']}"))
+                    if ivr_data.get('invalid_destination'):
+                        resolved_name = self._resolve_destination_name(ivr_data['invalid_destination'])
+                        next_destinations.append((ivr_data['invalid_destination'], f"Invalid: {resolved_name or ivr_data['invalid_destination']}"))
+            
+            elif dest_type == "ring_group":
+                # Ring groups have extensions and failover destinations
+                rg_id = destination.replace('grp-', '') if destination.startswith('grp-') else destination
+                
+                # In test mode, simulate ring group members
+                if hasattr(self, 'data') and not has_table("ringgroups", **self.kw):
+                    # Test mode - simulate realistic ring group members
+                    if rg_id == "3001":  # Sturgis Main Line
+                        next_destinations.append(("members", "Ring Group Members: 2821 (Sturgis), 1003 (Reception)"))
+                        next_destinations.append(("ann-3", "No Answer: After Hours Message"))
+                    elif rg_id == "4000":  # Aircraft Charter
+                        next_destinations.append(("members", "Ring Group Members: 4407 (Greg), 4978 (Christi)"))
+                        next_destinations.append(("ivr-2", "No Answer: Sales Menu"))
+                    elif rg_id == "600":  # Reception
+                        next_destinations.append(("members", "Ring Group Members: 1003 (Reception)"))
+                        next_destinations.append(("app-directory", "No Answer: Directory"))
+                else:
+                    # Production mode - get ring group data from database
+                    if has_table("ringgroups", **self.kw):
+                        rg_data = rows_as_dicts(f"""
+                            SELECT grplist, postdest
+                            FROM ringgroups 
+                            WHERE grpnum = '{rg_id}'
+                        """, ["grplist", "postdest"], **self.kw)
+                        
+                        if rg_data:
+                            rg = rg_data[0]
+                            # Show ring group members
+                            if rg['grplist']:
+                                members = rg['grplist'].split('-')
+                                member_names = []
+                                for member in members:
+                                    if member and member in self.data.get('extensions', {}):
+                                        ext_name = self.data['extensions'][member].get('name', member)
+                                        member_names.append(f"{member} ({ext_name})")
+                                    elif member:
+                                        member_names.append(member)
+                                if member_names:
+                                    next_destinations.append(("extensions", f"Ring Group Members: {', '.join(member_names[:3])}"))
+                            
+                            # Failover destination
+                            if rg['postdest']:
+                                resolved_name = self._resolve_destination_name(rg['postdest'])
+                                desc = f"No Answer: {resolved_name or rg['postdest']}"
+                                next_destinations.append((rg['postdest'], desc))
+            
+            elif dest_type == "queue":
+                # Queues have agents and failover destinations
+                queue_id = destination
+                if has_table("queues_config", **self.kw):
+                    queue_data = rows_as_dicts(f"""
+                        SELECT data FROM queues_config 
+                        WHERE extension = '{queue_id}' AND keyword = 'goto'
+                    """, ["data"], **self.kw)
+                    
+                    if queue_data and queue_data[0]['data']:
+                        failover_dest = queue_data[0]['data']
+                        resolved_name = self._resolve_destination_name(failover_dest)
+                        desc = f"Queue Failover: {resolved_name or failover_dest}"
+                        next_destinations.append((failover_dest, desc))
+            
+            elif dest_type == "extension":
+                # Extensions might have voicemail, forwarding, etc.
+                ext_id = destination.replace('ext-', '') if destination.startswith('ext-') else destination
+                if ext_id in self.data.get('extensions', {}):
+                    ext_data = self.data['extensions'][ext_id]
+                    ext_name = ext_data.get('name', ext_id)
+                    # This is typically a terminal destination
+                    next_destinations.append(("voicemail", f"Voicemail for {ext_name}"))
+        
+        except Exception as e:
+            # Graceful degradation on database errors
+            print(f"Warning: Error tracing destination {destination}: {str(e)}")
+            # Don't add error destinations to the flow
+            pass
+        
+        return next_destinations
+
+    def _show_endpoint_summary(self):
+        """Show a summary of all discovered call endpoints."""
+        self.add_to_canvas("")
+        self.add_to_canvas("=" * 80)
+        self.add_to_canvas("CALL FLOW ANALYSIS SUMMARY:")
+        self.add_to_canvas("=" * 80)
+        
+        # Categorize discovered destinations
+        extensions_found = []
+        ivrs_found = []
+        queues_found = []
+        ring_groups_found = []
+        other_found = []
+        
+        for dest in self.visited_destinations:
+            dest_type = self._get_destination_category(dest)
+            resolved_name = self._resolve_destination_name(dest)
+            display_name = resolved_name or dest
+            
+            if dest_type == "extension":
+                extensions_found.append(display_name)
+            elif dest_type == "ivr":
+                ivrs_found.append(display_name)
+            elif dest_type == "queue":
+                queues_found.append(display_name)
+            elif dest_type == "ring_group":
+                ring_groups_found.append(display_name)
+            else:
+                other_found.append(display_name)
+        
+        # Display categorized summary
+        if extensions_found:
+            self.add_to_canvas(f"Extensions Found: {', '.join(extensions_found[:5])}")
+            if len(extensions_found) > 5:
+                self.add_to_canvas(f"                  ... and {len(extensions_found) - 5} more")
+        
+        if ivrs_found:
+            self.add_to_canvas(f"IVR Menus Found: {', '.join(ivrs_found)}")
+        
+        if queues_found:
+            self.add_to_canvas(f"Queues Found: {', '.join(queues_found)}")
+        
+        if ring_groups_found:
+            self.add_to_canvas(f"Ring Groups Found: {', '.join(ring_groups_found)}")
+        
+        if other_found:
+            self.add_to_canvas(f"Other Destinations: {', '.join(other_found[:3])}")
+        
+        self.add_to_canvas(f"Total Destinations Analyzed: {len(self.visited_destinations)}")
+
     def generate_inbound_flow(self, did):
-        """Generate enhanced ASCII flow for an inbound DID."""
+        """Generate comprehensive end-to-end ASCII flow tracing calls from inbound route to final destination."""
         # Reset state
         self.canvas = []
         self.current_row = 0
         self.visited_destinations = set()
+        self.call_depth = 0
         
-        # Pre-load all FreePBX data (this is the key improvement!)
+        # Pre-load all FreePBX data for name resolution
+        print("Loading FreePBX configuration data...")
         self.load_all_data()
         
         # Get inbound route info
         if not has_table("incoming", **self.kw):
             return "❌ No incoming table found"
         
-        # Handle different column names
+        # Handle different column names across FreePBX versions
         did_col = "extension" if "extension" in ["extension", "did"] else "did"
         
         routes = rows_as_dicts(f"""
@@ -2061,47 +2549,58 @@ class ASCIIFlowGenerator:
         
         route = routes[0]
         
-        # Enhanced Header with DID info (ASCII safe)
+        # Enhanced Header with route information
         self.add_to_canvas("+" + "=" * 80 + "+")
-        self.add_to_canvas(f"|{'FREEPBX CALL FLOW DIAGRAM':^80}|")
+        self.add_to_canvas(f"|{'FREEPBX COMPLETE CALL FLOW ANALYSIS':^80}|")
         self.add_to_canvas("+" + "=" * 80 + "+")
         self.add_to_canvas(f"| DID: {did:<25} Route: {route['description'][:40]:<40} |")
         self.add_to_canvas("+" + "=" * 80 + "+")
         self.add_to_canvas("")
         
-        # Inbound call entry point  
-        entry_box, _ = self.create_box(f"INBOUND: {did}", 
+        # Start the call flow tree
+        self.add_to_canvas("CALL ENTRY POINT:")
+        self.add_to_canvas("=" * 20)
+        
+        # Show inbound route entry
+        entry_box, _ = self.create_box(f"INBOUND DID: {did}", 
                                        route['description'] or "Unnamed Route", 
-                                       "inbound", width=30)
+                                       "inbound", width=35)
         for line in entry_box:
             self.add_to_canvas(line)
         
-        # CID restriction check
+        # CID restriction check if present
         if route['cid']:
-            self.add_to_canvas("     │")
-            self.add_to_canvas("     ├── CALLER ID CHECK ─────────┐")
-            cid_box, _ = self.create_box("🔍 CID Filter", f"Must match: {route['cid']}", "time_condition", width=25)
-            for line in cid_box:
-                self.add_to_canvas(f"                              {line}")
             self.add_to_canvas("")
+            self.add_to_canvas("    |")
+            self.add_to_canvas("    v")
+            cid_box, _ = self.create_box("CALLER ID CHECK", f"Must match: {route['cid']}", "time_condition")
+            for line in cid_box:
+                self.add_to_canvas(line)
         
-        # Main call flow processing
-        self.add_to_canvas("     │")
-        self.add_to_canvas("     ├── CALL PROCESSING ──────────┐")
-        self.add_to_canvas("     │                             │")
+        # Main call flow - trace the complete path
+        self.add_to_canvas("")
+        self.add_to_canvas("    |")
+        self.add_to_canvas("    v")
+        self.add_to_canvas("CALL ROUTING PATH:")
+        self.add_to_canvas("=" * 20)
         
-        # Process the destination
+        # Start deep tracing from the route destination
         if route['destination']:
-            self.parse_destination(route['destination'])
+            self._trace_call_path(route['destination'], level=0, path_description="Initial Route")
         else:
-            hangup_box, _ = self.create_box("No Destination", "Call Ends", "hangup")
+            self.add_to_canvas("")
+            hangup_box, _ = self.create_box("CALL ENDS", "No destination configured", "hangup")
             for line in hangup_box:
                 self.add_to_canvas(line)
+        
+        # Show summary of all discovered endpoints
+        self._show_endpoint_summary()
         
         # Footer with generation info
         self.add_to_canvas("")
         self.add_to_canvas("─" * 80)
-        self.add_to_canvas(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')} | FreePBX ASCII Flow Generator v2.0")
+        self.add_to_canvas(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')} | FreePBX ASCII Flow Generator v2.1")
+        self.add_to_canvas(f"Server Analysis: Deep call path tracing with {len(self.visited_destinations)} destinations")
         
         return "\n".join(self.canvas)
 
@@ -2113,6 +2612,7 @@ def main():
         parser.add_argument("--db-user", default="root", help="MySQL user")
         parser.add_argument("--db-password", help="MySQL password")
         parser.add_argument("--output", "-o", help="Output file")
+        parser.add_argument("--test-mode", action="store_true", help="Test mode with mock data (no MySQL required)")
         
         args = parser.parse_args()
         
@@ -2124,7 +2624,11 @@ def main():
         
         print(f"Generating ASCII flow for DID: {args.did}")
         generator = ASCIIFlowGenerator(**kw)
-        flow_chart = generator.generate_inbound_flow(args.did)
+        
+        if args.test_mode:
+            flow_chart = generator.generate_test_flow(args.did)
+        else:
+            flow_chart = generator.generate_inbound_flow(args.did)
         
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
