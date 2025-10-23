@@ -2175,7 +2175,7 @@ class ASCIIFlowGenerator:
             },
             'time_conditions': {
                 '1': {'displayname': 'Business Hours', 'truegoto': 'ivr-1', 'falsegoto': 'ivr-3'},
-                '2': {'displayname': 'Holiday Schedule', 'truegoto': 'grp-600', 'falsegoto': 'app-directory'}
+                '2': {'displayname': 'Holiday Schedule', 'truegoto': 'ivr-1', 'falsegoto': 'ann-3'}
             },
             'announcements': {
                 '1': {'description': 'Welcome Message'},
@@ -2216,7 +2216,8 @@ class ASCIIFlowGenerator:
         
         # Demonstrate a complex call path: DID -> Time Condition -> IVR -> Multiple Options
         # This simulates what would happen on your actual FreePBX servers
-        self._trace_call_path("1", level=0, path_description="Business Hours Check")  # Time condition
+        # Use realistic FreePBX destination format
+        self._trace_call_path("timeconditions,2,1", level=0, path_description="Business Hours Check")  # Time condition in FreePBX format
         
         # Show endpoint summary
         self._show_endpoint_summary()
@@ -2248,22 +2249,25 @@ class ASCIIFlowGenerator:
             self.add_to_canvas(indent + "|")
             self.add_to_canvas(indent + "v")
         
-        # Parse destination type and get human-readable name
-        resolved_name = self._resolve_destination_name(destination)
-        dest_type = self._get_destination_category(destination)
+        # Parse FreePBX destination format (e.g., "timeconditions,2,1")
+        parsed_dest = self._parse_freepbx_destination(destination)
+        
+        # Get human-readable name using parsed destination info
+        resolved_name = self._resolve_destination_name(parsed_dest['clean_dest'])
+        dest_type = self._get_destination_category(parsed_dest['clean_dest'])
         
         # Show the current destination step
         if resolved_name:
             step_title = resolved_name
         else:
-            step_title = f"Unknown: {destination}"
+            step_title = f"Unknown: {parsed_dest['clean_dest']}"
         
         step_box, _ = self.create_box(step_title, f"Type: {dest_type}", dest_type.lower())
         for line in step_box:
             self.add_to_canvas(indent + line)
         
-        # Follow the destination deeper based on its type
-        next_destinations = self._get_next_destinations(destination, dest_type)
+        # Follow the destination deeper based on its type and FreePBX format
+        next_destinations = self._get_next_destinations_from_parsed(parsed_dest)
         
         if next_destinations:
             # Multiple paths (like IVR options, time condition branches)
@@ -2280,6 +2284,150 @@ class ASCIIFlowGenerator:
             # This is a terminal destination
             self.add_to_canvas("")
             self.add_to_canvas(indent + "└─ [CALL ENDPOINT]")
+
+    def _parse_freepbx_destination(self, destination):
+        """Parse FreePBX destination format like 'timeconditions,2,1' or 'ext-local,1001,1'."""
+        if not destination or ',' not in destination:
+            return {
+                'type': 'simple',
+                'clean_dest': destination,
+                'id': destination,
+                'params': []
+            }
+        
+        parts = destination.split(',')
+        dest_type = parts[0]
+        dest_id = parts[1] if len(parts) > 1 else ''
+        params = parts[2:] if len(parts) > 2 else []
+        
+        # Convert FreePBX internal names to clean destination IDs
+        if dest_type == 'timeconditions':
+            clean_dest = dest_id  # Time condition ID
+        elif dest_type == 'ext-local':
+            clean_dest = dest_id  # Extension number
+        elif dest_type == 'ivr-menu':
+            clean_dest = f"ivr-{dest_id}"  # IVR format
+        elif dest_type == 'from-queue':
+            clean_dest = dest_id  # Queue ID
+        elif dest_type == 'grp':
+            clean_dest = f"grp-{dest_id}"  # Ring group format
+        else:
+            clean_dest = dest_id or destination
+        
+        return {
+            'type': dest_type,
+            'clean_dest': clean_dest,
+            'id': dest_id,
+            'params': params
+        }
+
+    def _get_next_destinations_from_parsed(self, parsed_dest):
+        """Get next destinations based on parsed FreePBX destination info."""
+        dest_type = parsed_dest['type']
+        dest_id = parsed_dest['id']
+        clean_dest = parsed_dest['clean_dest']
+        params = parsed_dest['params']
+        
+        # Use the existing logic but with better FreePBX format understanding
+        if dest_type == 'timeconditions':
+            return self._get_time_condition_destinations(dest_id)
+        elif dest_type in ['ivr-menu', 'ivr']:
+            return self._get_ivr_destinations(dest_id)
+        elif dest_type == 'grp':
+            return self._get_ring_group_destinations(dest_id)
+        elif dest_type == 'from-queue':
+            return self._get_queue_destinations(dest_id)
+        else:
+            # Fall back to the general method
+            return self._get_next_destinations(clean_dest, self._get_destination_category(clean_dest))
+
+    def _get_time_condition_destinations(self, tc_id):
+        """Get time condition true/false destinations."""
+        next_destinations = []
+        try:
+            if tc_id in self.data.get('time_conditions', {}):
+                tc_data = self.data['time_conditions'][tc_id]
+                if tc_data.get('truegoto'):
+                    next_destinations.append((tc_data['truegoto'], "During Business Hours"))
+                if tc_data.get('falsegoto'):
+                    next_destinations.append((tc_data['falsegoto'], "After Hours/Holiday"))
+        except Exception as e:
+            print(f"Warning: Error getting time condition destinations: {e}")
+        return next_destinations
+
+    def _get_ivr_destinations(self, ivr_id):
+        """Get IVR menu options."""
+        next_destinations = []
+        try:
+            # In test mode, simulate IVR options
+            if hasattr(self, 'data') and not has_table("ivr_details", **self.kw):
+                if ivr_id == "1":  # Main Menu
+                    next_destinations.extend([
+                        ("ivr-2", "Press 1: Sales Department"),
+                        ("200", "Press 2: Technical Support"),
+                        ("grp-3001", "Press 3: Main Office"),
+                        ("1003", "Press 0: Reception")
+                    ])
+                elif ivr_id == "2":  # Sales Menu
+                    next_destinations.extend([
+                        ("100", "Press 1: Sales Queue"),
+                        ("1001", "Press 2: Sales Manager"),
+                        ("grp-4000", "Press 3: Aircraft Charter")
+                    ])
+            else:
+                # Production mode - query database
+                if has_table("ivr_details", **self.kw):
+                    ivr_options = rows_as_dicts(f"""
+                        SELECT selection, dest, ivr_ret
+                        FROM ivr_details 
+                        WHERE id = '{ivr_id}'
+                        ORDER BY selection
+                    """, ["selection", "dest", "ivr_ret"], **self.kw)
+                    
+                    for option in ivr_options:
+                        if option['dest']:
+                            key = option['selection'] or 'default'
+                            resolved_dest_name = self._resolve_destination_name(option['dest'])
+                            desc = f"Press {key}: {resolved_dest_name or option['dest']}"
+                            next_destinations.append((option['dest'], desc))
+        except Exception as e:
+            print(f"Warning: Error getting IVR destinations: {e}")
+        return next_destinations
+
+    def _get_ring_group_destinations(self, rg_id):
+        """Get ring group members and failover."""
+        next_destinations = []
+        try:
+            # Test mode simulation
+            if hasattr(self, 'data') and not has_table("ringgroups", **self.kw):
+                if rg_id == "3001":  # Sturgis Main Line
+                    next_destinations.append(("members", "Ring Group Members: 2821 (Sturgis), 1003 (Reception)"))
+                    next_destinations.append(("ann-3", "No Answer: After Hours Message"))
+                elif rg_id == "4000":  # Aircraft Charter
+                    next_destinations.append(("members", "Ring Group Members: 4407 (Greg), 4978 (Christi)"))
+                    next_destinations.append(("ivr-2", "No Answer: Sales Menu"))
+        except Exception as e:
+            print(f"Warning: Error getting ring group destinations: {e}")
+        return next_destinations
+
+    def _get_queue_destinations(self, queue_id):
+        """Get queue failover destinations."""
+        next_destinations = []
+        try:
+            if has_table("queues_config", **self.kw):
+                queue_data = rows_as_dicts(f"""
+                    SELECT data FROM queues_config 
+                    WHERE extension = '{queue_id}' AND keyword = 'goto'
+                """, ["data"], **self.kw)
+                
+                if queue_data and queue_data[0]['data']:
+                    failover_dest = queue_data[0]['data']
+                    resolved_name = self._resolve_destination_name(failover_dest)
+                    desc = f"Queue Failover: {resolved_name or failover_dest}"
+                    next_destinations.append((failover_dest, desc))
+        except Exception as e:
+            print(f"Warning: Error getting queue destinations: {e}")
+        return next_destinations
 
     def _get_destination_category(self, destination):
         """Determine the broad category of a destination for flow logic."""
