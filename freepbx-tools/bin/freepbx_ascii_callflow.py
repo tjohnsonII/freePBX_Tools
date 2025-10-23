@@ -254,7 +254,7 @@ class ASCIIFlowGenerator:
         self.current_row += 1
     
     def load_all_data(self):
-        """Pre-load ALL FreePBX data needed for call flow generation."""
+        """Pre-load ALL FreePBX GUI names and configuration data for complete call flow generation."""
         print("Loading FreePBX configuration data...")
         
         # Initialize all data structures to prevent KeyError issues
@@ -278,10 +278,262 @@ class ASCIIFlowGenerator:
             'call_recording': {},
             'directory': {},
             'setcid': {},
-            'parking': {}
+            'parking': {},
+            'inbound_routes': {},      # New: DID routing info
+            'outbound_routes': {},     # New: Outbound route names
+            'voicemail': {}            # New: Voicemail box info
         }
         
-        # 1. Load Time Conditions
+        # Load comprehensive GUI display names for ALL FreePBX components
+        self._load_extensions_comprehensive()
+        self._load_ivr_comprehensive()
+        self._load_queues_comprehensive()
+        self._load_ringgroups_comprehensive()
+        self._load_timeconditions_comprehensive()
+        self._load_announcements_comprehensive()
+        self._load_conferences_comprehensive()
+        self._load_routes_comprehensive()
+        self._load_voicemail_comprehensive()
+        self._load_followme_comprehensive()
+        self._load_misc_destinations_comprehensive()
+        self._load_cfc_comprehensive()
+        self._load_parking_comprehensive()
+        self._load_fax_comprehensive()
+        
+        print("Data loading complete!")
+        return True
+    
+    def _load_extensions_comprehensive(self):
+        """Load all extension info with actual user names."""
+        print("   * Extensions & User Names...")
+        try:
+            # Get comprehensive extension data
+            queries = [
+                """SELECT extension, name, voicemail, 
+                          COALESCE(name, CONCAT('User ', extension)) as display_name
+                   FROM users WHERE extension IS NOT NULL AND extension != ''""",
+                """SELECT extension, displayname as name, voicemail, displayname
+                   FROM extensions WHERE extension IS NOT NULL""",
+                """SELECT id as extension, description as name, 'novm' as voicemail, description
+                   FROM devices WHERE tech IN ('sip', 'pjsip') AND id IS NOT NULL"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 3:
+                                ext_num = parts[0]
+                                self.data['extensions'][ext_num] = {
+                                    'name': parts[1] or f'Extension {ext_num}',
+                                    'display_name': parts[3] if len(parts) > 3 else parts[1],
+                                    'voicemail': parts[2] if len(parts) > 2 else 'novm'
+                                }
+                        print(f"      ✓ Loaded {len(self.data['extensions'])} extensions")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Extensions: {e}")
+    
+    def _load_ivr_comprehensive(self):
+        """Load IVR names and all menu options."""
+        print("   * IVR Menus & Options...")
+        try:
+            # Get IVR details with proper names
+            queries = [
+                """SELECT id, name, announcement, timeout_destination, invalid_destination,
+                          COALESCE(name, CONCAT('IVR Menu ', id)) as display_name
+                   FROM ivr_details""",
+                """SELECT ivr_id as id, description as name, announcement, timeout_dest as timeout_destination,
+                          invalid_dest as invalid_destination, description as display_name
+                   FROM ivr_config"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                ivr_id = parts[0]
+                                self.data['ivrs'][ivr_id] = {
+                                    'name': parts[1] or f'IVR Menu {ivr_id}',
+                                    'display_name': parts[5] if len(parts) > 5 else parts[1],
+                                    'announcement': parts[2] if len(parts) > 2 else '',
+                                    'timeout_dest': parts[3] if len(parts) > 3 else '',
+                                    'invalid_dest': parts[4] if len(parts) > 4 else ''
+                                }
+                        
+                        # Load IVR options
+                        option_result = run_mysql("SELECT ivr_id, selection, dest FROM ivr_entries ORDER BY ivr_id, selection", **self.kw)
+                        if option_result.strip():
+                            for line in option_result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 3:
+                                    ivr_id = parts[0]
+                                    if ivr_id not in self.data['ivr_options']:
+                                        self.data['ivr_options'][ivr_id] = []
+                                    self.data['ivr_options'][ivr_id].append({
+                                        'selection': parts[1],
+                                        'dest': parts[2]
+                                    })
+                        
+                        print(f"      ✓ Loaded {len(self.data['ivrs'])} IVR menus with options")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: IVR menus: {e}")
+    
+    def _load_queues_comprehensive(self):
+        """Load queue names and configuration."""
+        print("   * Call Queues...")
+        try:
+            # Get queue names from multiple possible tables
+            queries = [
+                """SELECT extension, descr as name, 
+                          COALESCE(descr, CONCAT('Queue ', extension)) as display_name
+                   FROM queues_config""",
+                """SELECT id as extension, description as name, description as display_name
+                   FROM queues WHERE id IS NOT NULL"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                queue_id = parts[0]
+                                self.data['queues'][queue_id] = {
+                                    'name': parts[1] or f'Queue {queue_id}',
+                                    'display_name': parts[2] if len(parts) > 2 else parts[1],
+                                    'strategy': 'ringall',
+                                    'maxwait': '300'
+                                }
+                        
+                        # Get additional queue details
+                        detail_result = run_mysql("""
+                            SELECT id, keyword, data 
+                            FROM queues_details 
+                            WHERE keyword IN ('strategy', 'maxwait', 'timeout')
+                        """, **self.kw)
+                        if detail_result.strip():
+                            for line in detail_result.strip().split('\n'):
+                                parts = line.split('\t')
+                                if len(parts) >= 3 and parts[0] in self.data['queues']:
+                                    self.data['queues'][parts[0]][parts[1]] = parts[2]
+                        
+                        print(f"      ✓ Loaded {len(self.data['queues'])} queues")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Queues: {e}")
+    
+    def _load_ringgroups_comprehensive(self):
+        """Load ring group names and members."""
+        print("   * Ring Groups...")
+        try:
+            queries = [
+                """SELECT grpnum, description, strategy, grplist,
+                          COALESCE(description, CONCAT('Ring Group ', grpnum)) as display_name
+                   FROM ringgroups""",
+                """SELECT id as grpnum, name as description, strategy, members as grplist,
+                          name as display_name
+                   FROM ring_groups"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                rg_id = parts[0]
+                                self.data['ringgroups'][rg_id] = {
+                                    'description': parts[1] or f'Ring Group {rg_id}',
+                                    'display_name': parts[4] if len(parts) > 4 else parts[1],
+                                    'strategy': parts[2] if len(parts) > 2 else 'ringall',
+                                    'members': parts[3].split('-') if len(parts) > 3 and parts[3] else []
+                                }
+                        print(f"      ✓ Loaded {len(self.data['ringgroups'])} ring groups")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Ring groups: {e}")
+    
+    def _load_timeconditions_comprehensive(self):
+        """Load time condition names and routing."""
+        print("   * Time Conditions...")
+        try:
+            queries = [
+                """SELECT timeconditions_id, displayname, truegoto, falsegoto,
+                          COALESCE(displayname, CONCAT('Time Condition ', timeconditions_id)) as display_name
+                   FROM timeconditions""",
+                """SELECT id as timeconditions_id, description as displayname, true_dest as truegoto, 
+                          false_dest as falsegoto, description as display_name
+                   FROM time_conditions"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 4:
+                                tc_id = parts[0]
+                                self.data['timeconditions'][tc_id] = {
+                                    'name': parts[1] or f'Time Condition {tc_id}',
+                                    'display_name': parts[4] if len(parts) > 4 else parts[1],
+                                    'true_dest': parts[2] or '',
+                                    'false_dest': parts[3] or ''
+                                }
+                        print(f"      ✓ Loaded {len(self.data['timeconditions'])} time conditions")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Time conditions: {e}")
+    
+    def _load_announcements_comprehensive(self):
+        """Load announcement names."""
+        print("   * Announcements...")
+        try:
+            queries = [
+                """SELECT id, description, 
+                          COALESCE(description, CONCAT('Announcement ', id)) as display_name
+                   FROM announcement""",
+                """SELECT announcement_id as id, name as description, name as display_name
+                   FROM announcements"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                ann_id = parts[0]
+                                self.data['announcements'][ann_id] = {
+                                    'name': parts[1] or f'Announcement {ann_id}',
+                                    'display_name': parts[2] if len(parts) > 2 else parts[1]
+                                }
+                        print(f"      ✓ Loaded {len(self.data['announcements'])} announcements")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Announcements: {e}")
         if has_table("timeconditions", **self.kw):
             print("   * Time conditions...")
             try:
@@ -715,6 +967,225 @@ class ASCIIFlowGenerator:
         print("Data loading complete!")
         return True
     
+    def _load_conferences_comprehensive(self):
+        """Load conference room names."""
+        print("   * Conference Rooms...")
+        try:
+            queries = [
+                """SELECT confno, description, 
+                          COALESCE(description, CONCAT('Conference ', confno)) as display_name
+                   FROM meetme""",
+                """SELECT id as confno, name as description, name as display_name
+                   FROM conferences"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                conf_id = parts[0]
+                                self.data['conferences'][conf_id] = {
+                                    'description': parts[1] or f'Conference {conf_id}',
+                                    'display_name': parts[2] if len(parts) > 2 else parts[1]
+                                }
+                        print(f"      ✓ Loaded {len(self.data['conferences'])} conferences")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Conferences: {e}")
+    
+    def _load_routes_comprehensive(self):
+        """Load inbound and outbound route names."""
+        print("   * Inbound/Outbound Routes...")
+        try:
+            # Inbound routes
+            if has_table("incoming", **self.kw):
+                result = run_mysql("""
+                    SELECT extension, destination, description,
+                           COALESCE(description, CONCAT('DID ', extension)) as display_name
+                    FROM incoming
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 3:
+                            did = parts[0]
+                            self.data['inbound_routes'][did] = {
+                                'destination': parts[1],
+                                'description': parts[2] or f'DID {did}',
+                                'display_name': parts[3] if len(parts) > 3 else parts[2]
+                            }
+            
+            # Outbound routes  
+            if has_table("outbound_routes", **self.kw):
+                result = run_mysql("""
+                    SELECT route_id, name, 
+                           COALESCE(name, CONCAT('Route ', route_id)) as display_name
+                    FROM outbound_routes
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            route_id = parts[0]
+                            self.data['outbound_routes'][route_id] = {
+                                'name': parts[1] or f'Route {route_id}',
+                                'display_name': parts[2] if len(parts) > 2 else parts[1]
+                            }
+            
+            print(f"      ✓ Loaded {len(self.data['inbound_routes'])} inbound + {len(self.data['outbound_routes'])} outbound routes")
+        except Exception as e:
+            print(f"      ERROR: Routes: {e}")
+    
+    def _load_voicemail_comprehensive(self):
+        """Load voicemail box names."""
+        print("   * Voicemail Boxes...")
+        try:
+            queries = [
+                """SELECT mailbox, fullname, email,
+                          COALESCE(fullname, CONCAT('Mailbox ', mailbox)) as display_name
+                   FROM voicemail_users""",
+                """SELECT extension as mailbox, name as fullname, email, name as display_name
+                   FROM vm_users"""
+            ]
+            
+            for query in queries:
+                try:
+                    result = run_mysql(query, **self.kw)
+                    if result.strip():
+                        for line in result.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 2:
+                                box = parts[0]
+                                self.data['voicemail'][box] = {
+                                    'fullname': parts[1] or f'Mailbox {box}',
+                                    'display_name': parts[3] if len(parts) > 3 else parts[1],
+                                    'email': parts[2] if len(parts) > 2 else ''
+                                }
+                        print(f"      ✓ Loaded {len(self.data['voicemail'])} voicemail boxes")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"      ERROR: Voicemail: {e}")
+    
+    def _load_followme_comprehensive(self):
+        """Load Follow Me configurations."""
+        print("   * Follow Me...")
+        try:
+            if has_table("followme", **self.kw):
+                result = run_mysql("""
+                    SELECT extension, name, strategy, grplist
+                    FROM followme
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            ext = parts[0]
+                            self.data['followme'][ext] = {
+                                'name': parts[1] or f'Follow Me {ext}',
+                                'strategy': parts[2] if len(parts) > 2 else 'ringallv2',
+                                'numbers': parts[3].split('-') if len(parts) > 3 and parts[3] else []
+                            }
+                print(f"      ✓ Loaded {len(self.data['followme'])} Follow Me configs")
+        except Exception as e:
+            print(f"      ERROR: Follow Me: {e}")
+    
+    def _load_misc_destinations_comprehensive(self):
+        """Load Misc Destinations."""
+        print("   * Misc Destinations...")
+        try:
+            if has_table("miscdests", **self.kw):
+                result = run_mysql("""
+                    SELECT id, description, dest
+                    FROM miscdests
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            misc_id = parts[0]
+                            self.data['misc_destinations'][misc_id] = {
+                                'description': parts[1] or f'Misc Dest {misc_id}',
+                                'dial': parts[2] if len(parts) > 2 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['misc_destinations'])} misc destinations")
+        except Exception as e:
+            print(f"      ERROR: Misc Destinations: {e}")
+    
+    def _load_cfc_comprehensive(self):
+        """Load Call Flow Control/Toggle names."""
+        print("   * Call Flow Control...")
+        try:
+            if has_table("callflow_toggle", **self.kw):
+                result = run_mysql("""
+                    SELECT id, name, current_state
+                    FROM callflow_toggle
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            cfc_id = parts[0]
+                            self.data['callflow_toggle'][cfc_id] = {
+                                'name': parts[1] or f'Toggle {cfc_id}',
+                                'state': parts[2] if len(parts) > 2 else '0'
+                            }
+                print(f"      ✓ Loaded {len(self.data['callflow_toggle'])} CFC toggles")
+        except Exception as e:
+            print(f"      ERROR: CFC: {e}")
+    
+    def _load_parking_comprehensive(self):
+        """Load Call Parking lots."""
+        print("   * Call Parking...")
+        try:
+            if has_table("parking", **self.kw):
+                result = run_mysql("""
+                    SELECT id, name, parkingstart, parkingend, parkingtimeout
+                    FROM parking
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            park_id = parts[0]
+                            self.data['parking'][park_id] = {
+                                'name': parts[1] or f'Parking Lot {park_id}',
+                                'parkingstart': parts[2] if len(parts) > 2 else '701',
+                                'parkingend': parts[3] if len(parts) > 3 else '720',
+                                'parkingtimeout': parts[4] if len(parts) > 4 else '45'
+                            }
+                print(f"      ✓ Loaded {len(self.data['parking'])} parking lots")
+        except Exception as e:
+            print(f"      ERROR: Parking: {e}")
+    
+    def _load_fax_comprehensive(self):
+        """Load Fax destinations."""
+        print("   * Fax Configuration...")
+        try:
+            if has_table("fax_incoming", **self.kw):
+                result = run_mysql("""
+                    SELECT extension, description, email
+                    FROM fax_incoming
+                """, **self.kw)
+                if result.strip():
+                    for line in result.strip().split('\n'):
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            fax_id = parts[0]
+                            self.data['fax'][fax_id] = {
+                                'description': parts[1] or f'Fax {fax_id}',
+                                'email': parts[2] if len(parts) > 2 else ''
+                            }
+                print(f"      ✓ Loaded {len(self.data['fax'])} fax destinations")
+        except Exception as e:
+            print(f"      ERROR: Fax: {e}")
+
     def parse_destination(self, dest_string, depth=0):
         """Enhanced destination parsing with sophisticated visual elements.
         
