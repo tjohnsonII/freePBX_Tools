@@ -300,21 +300,49 @@ class ASCIIFlowGenerator:
         self._load_parking_comprehensive()
         self._load_fax_comprehensive()
         
+        # Show comprehensive loading summary
+        print("\n📊 COMPREHENSIVE DATA LOADING SUMMARY:")
+        print("=" * 50)
+        total_components = 0
+        for component_type, data_dict in self.data.items():
+            if isinstance(data_dict, dict) and data_dict:
+                count = len(data_dict)
+                total_components += count
+                print(f"   ✓ {component_type.title().replace('_', ' ')}: {count} loaded")
+                
+                # Show sample data for first 2 items to demonstrate detail level
+                if count > 0 and count <= 3:
+                    for key, value in list(data_dict.items())[:2]:
+                        if isinstance(value, dict):
+                            print(f"      └─ {key}: {value.get('name', value.get('displayname', key))}")
+                            if 'description' in value:
+                                print(f"         Description: {value['description']}")
+                            if 'truegoto' in value and value['truegoto']:
+                                print(f"         True Route: {value['truegoto']}")
+                            if 'falsegoto' in value and value['falsegoto']:
+                                print(f"         False Route: {value['falsegoto']}")
+        
+        print(f"\n🎯 TOTAL: {total_components} FreePBX components loaded with full details")
+        print("=" * 50)
+        
         print("Data loading complete!")
         return True
     
     def _load_extensions_comprehensive(self):
-        """Load all extension info with actual user names."""
+        """Load all extension info with actual user names - REALLY DETAILED."""
         print("   * Extensions & User Names...")
         try:
-            # Get comprehensive extension data
+            # Get comprehensive extension data with ALL possible fields
             queries = [
-                """SELECT extension, name, voicemail, 
-                          COALESCE(name, CONCAT('User ', extension)) as display_name
+                """SELECT extension, name, voicemail, email, outboundcid,
+                          COALESCE(name, CONCAT('User ', extension)) as display_name,
+                          'pjsip' as tech
                    FROM users WHERE extension IS NOT NULL AND extension != ''""",
-                """SELECT extension, displayname as name, voicemail, displayname
+                """SELECT extension, displayname as name, voicemail, '' as email, '' as outboundcid,
+                          displayname, dial as tech
                    FROM extensions WHERE extension IS NOT NULL""",
-                """SELECT id as extension, description as name, 'novm' as voicemail, description
+                """SELECT id as extension, description as name, 'novm' as voicemail, '' as email, 
+                          '' as outboundcid, description, tech
                    FROM devices WHERE tech IN ('sip', 'pjsip') AND id IS NOT NULL"""
             ]
             
@@ -326,12 +354,20 @@ class ASCIIFlowGenerator:
                             parts = line.split('\t')
                             if len(parts) >= 3:
                                 ext_num = parts[0]
+                                display_name = parts[1] or f'Extension {ext_num}'
                                 self.data['extensions'][ext_num] = {
-                                    'name': parts[1] or f'Extension {ext_num}',
-                                    'display_name': parts[3] if len(parts) > 3 else parts[1],
-                                    'voicemail': parts[2] if len(parts) > 2 else 'novm'
+                                    'id': ext_num,
+                                    'extension': ext_num,
+                                    'name': display_name,
+                                    'displayname': display_name,  # Alternative key
+                                    'description': display_name,  # Alternative key 
+                                    'display_name': parts[5] if len(parts) > 5 else display_name,
+                                    'voicemail': parts[2] if len(parts) > 2 else 'novm',
+                                    'email': parts[3] if len(parts) > 3 else '',
+                                    'outboundcid': parts[4] if len(parts) > 4 else '',
+                                    'tech': parts[6] if len(parts) > 6 else 'pjsip'
                                 }
-                        print(f"      ✓ Loaded {len(self.data['extensions'])} extensions")
+                        print(f"      ✓ Loaded {len(self.data['extensions'])} extensions with full details")
                         break
                 except Exception:
                     continue
@@ -339,16 +375,20 @@ class ASCIIFlowGenerator:
             print(f"      ERROR: Extensions: {e}")
     
     def _load_ivr_comprehensive(self):
-        """Load IVR names and all menu options."""
+        """Load IVR names and all menu options - REALLY DETAILED."""
         print("   * IVR Menus & Options...")
         try:
-            # Get IVR details with proper names
+            # Get IVR details with proper names - try multiple table structures
             queries = [
-                """SELECT id, name, announcement, timeout_destination, invalid_destination,
-                          COALESCE(name, CONCAT('IVR Menu ', id)) as display_name
-                   FROM ivr_details""",
-                """SELECT ivr_id as id, description as name, announcement, timeout_dest as timeout_destination,
-                          invalid_dest as invalid_destination, description as display_name
+                """SELECT id, displayname as name, announcement, directdial, invalid_loops, invalid_retry,
+                          invalid_recording, invalid_destination, retvm, timeout_time, timeout_recording,
+                          timeout_retry, timeout_destination, 
+                          COALESCE(displayname, CONCAT('IVR Menu ', id)) as display_name
+                   FROM ivr""",
+                """SELECT ivr_id as id, description as name, announcement, '' as directdial, 3 as invalid_loops,
+                          3 as invalid_retry, '' as invalid_recording, invalid_dest as invalid_destination,
+                          '' as retvm, timeout as timeout_time, '' as timeout_recording, 3 as timeout_retry,
+                          timeout_dest as timeout_destination, description as display_name
                    FROM ivr_config"""
             ]
             
@@ -360,29 +400,54 @@ class ASCIIFlowGenerator:
                             parts = line.split('\t')
                             if len(parts) >= 2:
                                 ivr_id = parts[0]
+                                display_name = parts[1] or f'IVR Menu {ivr_id}'
                                 self.data['ivrs'][ivr_id] = {
-                                    'name': parts[1] or f'IVR Menu {ivr_id}',
-                                    'display_name': parts[5] if len(parts) > 5 else parts[1],
+                                    'id': ivr_id,
+                                    'name': display_name,
+                                    'displayname': display_name,  # Key that resolver looks for
+                                    'description': display_name,  # Alternative key
+                                    'display_name': parts[13] if len(parts) > 13 else display_name,
                                     'announcement': parts[2] if len(parts) > 2 else '',
-                                    'timeout_dest': parts[3] if len(parts) > 3 else '',
-                                    'invalid_dest': parts[4] if len(parts) > 4 else ''
+                                    'directdial': parts[3] if len(parts) > 3 else '',
+                                    'invalid_loops': parts[4] if len(parts) > 4 else '3',
+                                    'invalid_retry': parts[5] if len(parts) > 5 else '3',
+                                    'invalid_recording': parts[6] if len(parts) > 6 else '',
+                                    'invalid_destination': parts[7] if len(parts) > 7 else '',
+                                    'retvm': parts[8] if len(parts) > 8 else '',
+                                    'timeout_time': parts[9] if len(parts) > 9 else '10',
+                                    'timeout_recording': parts[10] if len(parts) > 10 else '',
+                                    'timeout_retry': parts[11] if len(parts) > 11 else '3',
+                                    'timeout_destination': parts[12] if len(parts) > 12 else ''
                                 }
                         
-                        # Load IVR options
-                        option_result = run_mysql("SELECT ivr_id, selection, dest FROM ivr_entries ORDER BY ivr_id, selection", **self.kw)
-                        if option_result.strip():
-                            for line in option_result.strip().split('\n'):
-                                parts = line.split('\t')
-                                if len(parts) >= 3:
-                                    ivr_id = parts[0]
-                                    if ivr_id not in self.data['ivr_options']:
-                                        self.data['ivr_options'][ivr_id] = []
-                                    self.data['ivr_options'][ivr_id].append({
-                                        'selection': parts[1],
-                                        'dest': parts[2]
-                                    })
+                        # Load IVR options with detailed information
+                        option_queries = [
+                            "SELECT id as ivr_id, selection, dest, ivr_ret FROM ivr_details ORDER BY id, selection",
+                            "SELECT ivr_id, selection, dest, '' as ivr_ret FROM ivr_entries ORDER BY ivr_id, selection"
+                        ]
                         
-                        print(f"      ✓ Loaded {len(self.data['ivrs'])} IVR menus with options")
+                        for opt_query in option_queries:
+                            try:
+                                option_result = run_mysql(opt_query, **self.kw)
+                                if option_result.strip():
+                                    for line in option_result.strip().split('\n'):
+                                        parts = line.split('\t')
+                                        if len(parts) >= 3:
+                                            ivr_id = parts[0]
+                                            if ivr_id not in self.data['ivr_options']:
+                                                self.data['ivr_options'][ivr_id] = []
+                                            self.data['ivr_options'][ivr_id].append({
+                                                'ivr_id': ivr_id,
+                                                'selection': parts[1],
+                                                'dest': parts[2],
+                                                'ivr_ret': parts[3] if len(parts) > 3 else '',
+                                                'description': f"Press {parts[1]}: {parts[2]}"
+                                            })
+                                    break
+                            except Exception:
+                                continue
+                        
+                        print(f"      ✓ Loaded {len(self.data['ivrs'])} IVR menus with detailed options")
                         break
                 except Exception:
                     continue
@@ -491,13 +556,19 @@ class ASCIIFlowGenerator:
                             parts = line.split('\t')
                             if len(parts) >= 4:
                                 tc_id = parts[0]
+                                displayname = parts[1] or f'Time Condition {tc_id}'
                                 self.data['timeconditions'][tc_id] = {
-                                    'name': parts[1] or f'Time Condition {tc_id}',
-                                    'display_name': parts[4] if len(parts) > 4 else parts[1],
-                                    'true_dest': parts[2] or '',
-                                    'false_dest': parts[3] or ''
+                                    'id': tc_id,
+                                    'name': displayname,
+                                    'displayname': displayname,  # Key that resolver looks for
+                                    'description': displayname,
+                                    'truegoto': parts[2] or '',
+                                    'falsegoto': parts[3] or '',
+                                    'true_dest': parts[2] or '',   # Alternative key names
+                                    'false_dest': parts[3] or '',
+                                    'display_name': parts[4] if len(parts) > 4 else displayname
                                 }
-                        print(f"      ✓ Loaded {len(self.data['timeconditions'])} time conditions")
+                        print(f"      ✓ Loaded {len(self.data['timeconditions'])} time conditions with full details")
                         break
                 except Exception:
                     continue
@@ -1787,15 +1858,15 @@ class ASCIIFlowGenerator:
             return f"Ext: {ext_data.get('name', dest_string)}"
         
         # Check time conditions for simple numeric IDs (before IVRs since both can use numbers)
-        if dest_string in self.data.get('time_conditions', {}):
-            tc_data = self.data['time_conditions'][dest_string]
+        if dest_string in self.data.get('timeconditions', {}):
+            tc_data = self.data['timeconditions'][dest_string]
             return f"Time Condition: {tc_data.get('displayname', dest_string)}"
         
         # Check IVRs - handle both "ivr-X" and "X" formats
         ivr_id = None
         if dest_string.startswith('ivr-'):
             ivr_id = dest_string[4:]  # Remove 'ivr-' prefix
-        elif dest_string.isdigit() and dest_string not in self.data.get('time_conditions', {}):
+        elif dest_string.isdigit() and dest_string not in self.data.get('timeconditions', {}):
             # Only treat as IVR if not already found as time condition
             ivr_id = dest_string
             
@@ -2144,7 +2215,7 @@ class ASCIIFlowGenerator:
         
         return options
     
-    def generate_test_flow(self, did):
+    def generate_test_flow(self, did, show_loading=False):
         """Generate a comprehensive test flow demonstrating end-to-end call tracing."""
         print("Running comprehensive call flow test with mock data...")
         
@@ -2173,7 +2244,7 @@ class ASCIIFlowGenerator:
                 '600': {'description': 'Reception Ring Group'},
                 '601': {'description': 'Emergency Ring Group'}
             },
-            'time_conditions': {
+            'timeconditions': {
                 '1': {'displayname': 'Business Hours', 'truegoto': 'ivr-1', 'falsegoto': 'ivr-3'},
                 '2': {'displayname': 'Holiday Schedule', 'truegoto': 'ivr-1', 'falsegoto': 'ann-3'}
             },
@@ -2191,6 +2262,37 @@ class ASCIIFlowGenerator:
         # Initialize canvas and state
         self.canvas = []
         self.visited_destinations = set()
+        
+        # Show comprehensive loading summary if requested
+        if show_loading:
+            self.canvas.append("\n📊 COMPREHENSIVE DATA LOADING SUMMARY (SIMULATED):")
+            self.canvas.append("=" * 60)
+            total_components = 0
+            for component_type, data_dict in self.data.items():
+                if isinstance(data_dict, dict) and data_dict:
+                    count = len(data_dict)
+                    total_components += count
+                    self.canvas.append(f"   ✓ {component_type.title().replace('_', ' ')}: {count} loaded")
+                    
+                    # Show sample data for first 2 items to demonstrate detail level
+                    for key, value in list(data_dict.items())[:2]:
+                        if isinstance(value, dict):
+                            name = value.get('name', value.get('displayname', key))
+                            self.canvas.append(f"      └─ {key}: {name}")
+                            if 'description' in value:
+                                self.canvas.append(f"         Description: {value['description']}")
+                            if 'truegoto' in value and value['truegoto']:
+                                self.canvas.append(f"         True Route: {value['truegoto']}")
+                            if 'falsegoto' in value and value['falsegoto']:
+                                self.canvas.append(f"         False Route: {value['falsegoto']}")
+                            if 'tech' in value:
+                                self.canvas.append(f"         Technology: {value['tech']}")
+                            if 'email' in value and value['email']:
+                                self.canvas.append(f"         Email: {value['email']}")
+            
+            self.canvas.append(f"\n🎯 TOTAL: {total_components} FreePBX components with REALLY DETAILED info")
+            self.canvas.append("=" * 60)
+            self.canvas.append("")
         
         # Mock a complex call flow scenario
         self.add_to_canvas("+" + "=" * 80 + "+")
@@ -2345,8 +2447,8 @@ class ASCIIFlowGenerator:
         """Get time condition true/false destinations."""
         next_destinations = []
         try:
-            if tc_id in self.data.get('time_conditions', {}):
-                tc_data = self.data['time_conditions'][tc_id]
+            if tc_id in self.data.get('timeconditions', {}):
+                tc_data = self.data['timeconditions'][tc_id]
                 if tc_data.get('truegoto'):
                     next_destinations.append((tc_data['truegoto'], "During Business Hours"))
                 if tc_data.get('falsegoto'):
@@ -2437,7 +2539,7 @@ class ASCIIFlowGenerator:
         dest_lower = destination.lower()
         
         # Check time conditions FIRST (before IVRs) since they often use simple numbers
-        if destination in self.data.get('time_conditions', {}):
+        if destination in self.data.get('timeconditions', {}):
             return "time_condition"
         # Check against loaded data to categorize correctly
         elif destination in self.data.get('extensions', {}):
@@ -2479,8 +2581,8 @@ class ASCIIFlowGenerator:
             if dest_type == "time_condition":
                 # Time conditions have truegoto and falsegoto
                 tc_id = destination
-                if tc_id in self.data.get('time_conditions', {}):
-                    tc_data = self.data['time_conditions'][tc_id]
+                if tc_id in self.data.get('timeconditions', {}):
+                    tc_data = self.data['timeconditions'][tc_id]
                     if tc_data.get('truegoto'):
                         next_destinations.append((tc_data['truegoto'], "During Business Hours"))
                     if tc_data.get('falsegoto'):
@@ -2761,6 +2863,7 @@ def main():
         parser.add_argument("--db-password", help="MySQL password")
         parser.add_argument("--output", "-o", help="Output file")
         parser.add_argument("--test-mode", action="store_true", help="Test mode with mock data (no MySQL required)")
+        parser.add_argument("--show-loading", action="store_true", help="Show detailed loading summary (works with test mode)")
         
         args = parser.parse_args()
         
@@ -2774,7 +2877,7 @@ def main():
         generator = ASCIIFlowGenerator(**kw)
         
         if args.test_mode:
-            flow_chart = generator.generate_test_flow(args.did)
+            flow_chart = generator.generate_test_flow(args.did, show_loading=args.show_loading)
         else:
             flow_chart = generator.generate_inbound_flow(args.did)
         
