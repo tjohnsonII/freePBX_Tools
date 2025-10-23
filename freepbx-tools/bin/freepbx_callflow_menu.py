@@ -17,10 +17,10 @@ DUMP_PATH     = os.path.join(OUT_DIR, "freepbx_dump.json")
 DB_USER       = "root"
 DEFAULT_SOCK  = "/var/lib/mysql/mysql.sock"
 TC_STATUS_SCRIPT = "/usr/local/bin/freepbx_tc_status.py"
-MODULE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_module_analyzer.py"
-PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_paging_fax_analyzer.py"
-COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/bin/freepbx_comprehensive_analyzer.py"
-ASCII_CALLFLOW_SCRIPT = "/usr/local/bin/freepbx_ascii_callflow.py"
+MODULE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_module_analyzer.py"
+PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_paging_fax_analyzer.py"
+COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_comprehensive_analyzer.py"
+ASCII_CALLFLOW_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py"
 
 
 def run_tc_status(sock):
@@ -82,59 +82,118 @@ def run_ascii_callflow(sock, did_rows):
         return
     
     print("\n=== ASCII Art Call Flow Generator ===")
-    print("Select DID(s) for ASCII flow chart generation:")
+    print("Choose an option:")
+    print()
+    print("1. Generate ASCII flow for specific DID(s)")
+    print("2. Show comprehensive data collection summary")
+    print("3. Show detailed configuration data")
+    print("4. Export all data to JSON file")
+    print("5. Generate flows for ALL DIDs")
     print()
     
-    if not did_rows:
-        print("No DID data available. Please refresh the snapshot first.")
-        return
+    choice = input("Enter choice (1-5): ").strip()
     
-    # Show available DIDs
-    for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
-        print(f"{i:>2}. {did:<15} {label}")
-    
-    if len(did_rows) > 20:
-        print(f"... and {len(did_rows) - 20} more DIDs")
-    
-    print()
-    selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
-    
-    if not selection:
-        return
-    
-    # Parse selection
-    if selection.lower() in ("all", "*"):
-        selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
-        print("Note: Limited to first 10 DIDs for ASCII output")
-    else:
-        selected_indices = parse_selection(selection, len(did_rows))
-    
-    if not selected_indices:
-        print("No valid selection.")
-        return
-    
-    print(f"\n🎨 Generating ASCII call flows for {len(selected_indices)} DID(s)...")
-    print("=" * 60)
-    
-    for i, idx in enumerate(selected_indices):
-        if i >= 10:  # Limit ASCII output
-            print(f"\n... {len(selected_indices) - 10} more DIDs not shown (use individual analysis for more)")
-            break
-            
-        _, did, label, _, _ = did_rows[idx - 1]
-        print(f"\n[{i+1}/{min(len(selected_indices), 10)}] Generating flow for DID: {did}")
-        print("-" * 60)
+    if choice == "1":
+        # Original DID-specific flow generation
+        if not did_rows:
+            print("No DID data available. Please refresh the snapshot first.")
+            return
         
-        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did)]
-        rc, out, err = run(cmd)
+        print("\nSelect DID(s) for ASCII flow chart generation:")
+        print()
         
-        if rc == 0:
-            print(out)
+        # Show available DIDs
+        for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
+            print(f"{i:>2}. {did:<15} {label}")
+        
+        if len(did_rows) > 20:
+            print(f"... and {len(did_rows) - 20} more DIDs")
+        
+        print()
+        selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
+        
+        if not selection:
+            return
+        
+        # Parse selection
+        if selection.lower() in ("all", "*"):
+            selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
+            print("Note: Limited to first 10 DIDs for ASCII output")
         else:
-            print(f"❌ Error generating flow for {did}: {err or out}")
+            selected_indices = parse_selection(selection, len(did_rows))
         
-        if i < min(len(selected_indices), 10) - 1:
-            print("\n" + "=" * 60)
+        if not selected_indices:
+            print("No valid selection.")
+            return
+        
+        print(f"\n🎨 Generating ASCII call flows for {len(selected_indices)} DID(s)...")
+        print("=" * 60)
+        
+        for i, idx in enumerate(selected_indices):
+            if i >= 10:  # Limit ASCII output
+                print(f"\n... {len(selected_indices) - 10} more DIDs not shown (use individual analysis for more)")
+                break
+                
+            _, did, label, _, _ = did_rows[idx - 1]
+            print(f"\n[{i+1}/{min(len(selected_indices), 10)}] Generating flow for DID: {did}")
+            print("-" * 60)
+            
+            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did)]
+            rc, out, err = run(cmd)
+            
+            if rc == 0:
+                print(out)
+            else:
+                print(f"❌ Error generating flow for {did}: {err or out}")
+            
+            if i < min(len(selected_indices), 10) - 1:
+                print("\n" + "=" * 60)
+    
+    elif choice == "2":
+        # Show data collection summary
+        print("\nRunning comprehensive data collection with summary...")
+        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data"]
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print(out, end="")
+        else:
+            print(f"Error: {err or out}")
+    
+    elif choice == "3":
+        # Show detailed configuration data
+        print("\nRunning comprehensive data collection with detailed output...")
+        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data", "--detailed"]
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print(out, end="")
+        else:
+            print(f"Error: {err or out}")
+    
+    elif choice == "4":
+        # Export data to JSON
+        timestamp = int(time.time())
+        export_file = f"/tmp/freepbx_config_{timestamp}.json"
+        print(f"\nExporting comprehensive FreePBX data to: {export_file}")
+        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--export", export_file]
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print(out, end="")
+            print(f"\n✅ Data exported to: {export_file}")
+        else:
+            print(f"Error: {err or out}")
+    
+    elif choice == "5":
+        # Generate flows for all DIDs
+        print("\nGenerating ASCII flows for ALL DIDs...")
+        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--generate-flow"]
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print(out, end="")
+        else:
+            print(f"Error: {err or out}")
+    
+    else:
+        print("Invalid choice.")
 
 
 # ---------------- helpers ----------------
