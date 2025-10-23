@@ -1003,6 +1003,8 @@ def main():
     parser.add_argument("--db-user", default="root", help="MySQL user")
     parser.add_argument("--db-password", help="MySQL password")
     parser.add_argument("--export", help="Export data to JSON file")
+    parser.add_argument("--print-data", action="store_true", help="Print collected data to console")
+    parser.add_argument("--detailed", action="store_true", help="Show detailed data (use with --print-data)")
     parser.add_argument("--show-summary", action="store_true", help="Show detailed summary")
     
     args = parser.parse_args()
@@ -1021,12 +1023,31 @@ def main():
     # Collect all configuration data
     collector.collect_all_data()
     
+    # Print collected data to console if requested
+    if args.print_data:
+        collector.print_collected_data(detailed=args.detailed)
+    
     # Export data if requested
     if args.export:
         collector.export_data(args.export)
     
     print("\n✅ Comprehensive data collection complete!")
     print("🔄 Next: Use this data to generate intelligent ASCII call flow diagrams.")
+    
+    # Show usage examples
+    if not args.print_data and not args.export:
+        print("\n💡 USAGE EXAMPLES:")
+        print("  # Print summary of collected data:")
+        print("  python freepbx_ascii_callflow.py --print-data")
+        print()
+        print("  # Print detailed data:")
+        print("  python freepbx_ascii_callflow.py --print-data --detailed")
+        print()
+        print("  # Export data to JSON file:")
+        print("  python freepbx_ascii_callflow.py --export my_freepbx_config.json")
+        print()
+        print("  # Do both:")
+        print("  python freepbx_ascii_callflow.py --print-data --export my_config.json")
 
 if __name__ == "__main__":
     main()
