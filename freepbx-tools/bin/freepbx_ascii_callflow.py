@@ -780,9 +780,15 @@ class ASCIIFlowGenerator:
             ext_num = dest_string.split(",")[1] if "," in dest_string else "Unknown"
             ext_info = self.data['extensions'].get(ext_num)
             
-            box_lines, width = self.create_box(f"Extension {ext_num}", 
-                                               ext_info.get('name', f'Extension {ext_num}') if ext_info else f'Extension {ext_num}', 
-                                               "extension")
+            # Use actual user name if available
+            if ext_info and ext_info.get('name'):
+                title = f"Extension {ext_num}"
+                subtitle = ext_info['name']
+            else:
+                title = f"Extension {ext_num}"
+                subtitle = f"User {ext_num}"
+            
+            box_lines, width = self.create_box(title, subtitle, "extension")
             for line in box_lines:
                 self.add_to_canvas(line)
             
@@ -799,9 +805,15 @@ class ASCIIFlowGenerator:
             ivr_id = self.extract_id_from_dest(dest_string, "ivr-")
             ivr_info = self.data['ivrs'].get(ivr_id)
             
-            box_lines, _ = self.create_box(f"IVR Menu {ivr_id}", 
-                                           ivr_info.get('name', f'IVR {ivr_id}') if ivr_info else f'IVR {ivr_id}', 
-                                           "ivr")
+            # Use actual IVR name if available
+            if ivr_info and ivr_info.get('name'):
+                title = ivr_info['name']
+                subtitle = f"IVR Menu {ivr_id}"
+            else:
+                title = f"IVR Menu {ivr_id}"
+                subtitle = "Digital Receptionist"
+                
+            box_lines, _ = self.create_box(title, subtitle, "ivr")
             for line in box_lines:
                 self.add_to_canvas(line)
             
@@ -871,9 +883,15 @@ class ASCIIFlowGenerator:
             tc_id = self.extract_id_from_dest(dest_string, ["timeconditions", "tc-"])
             tc_info = self.data['timeconditions'].get(tc_id)
             
-            # Create time condition box
-            tc_name = tc_info.get('name', f'Time Condition {tc_id}') if tc_info else f'Time Condition {tc_id}'
-            box_lines, _ = self.create_box(f"⏰ {tc_name}", "Business Hours Check", "time_condition")
+            # Create time condition box with actual name
+            if tc_info and tc_info.get('name'):
+                tc_title = tc_info['name']
+                tc_subtitle = "Schedule Check"
+            else:
+                tc_title = f"Time Condition {tc_id}"
+                tc_subtitle = "Business Hours Check"
+                
+            box_lines, _ = self.create_box(tc_title, tc_subtitle, "time_condition")
             for line in box_lines:
                 self.add_to_canvas(line)
             
@@ -884,19 +902,19 @@ class ASCIIFlowGenerator:
                 # TRUE path (business hours)
                 if tc_info.get('true_dest'):
                     self.add_to_canvas("     │                         │")
-                    self.add_to_canvas("     ├── ✅ BUSINESS HOURS ────┐")
+                    self.add_to_canvas("     ├── [✓] BUSINESS HOURS ───┐")
                     self.parse_destination(tc_info['true_dest'], depth + 1)
                     self.add_to_canvas("")
                 
                 # FALSE path (after hours)  
                 if tc_info.get('false_dest'):
-                    self.add_to_canvas("     └── ❌ AFTER HOURS ──────┐")
+                    self.add_to_canvas("     └── [X] AFTER HOURS ──────┐")
                     self.parse_destination(tc_info['false_dest'], depth + 1)
                 
             else:
                 # No time condition info found or no destinations
                 self.add_to_canvas("     │")
-                self.add_to_canvas("     └── ⚠️  No routing configured")
+                self.add_to_canvas("     └── WARNING: No routing configured")
                 hangup_box, _ = self.create_box("Config Issue", 
                                                f"TC {tc_id} missing destinations" if tc_info else "TC not found", 
                                                "failover")
@@ -908,8 +926,13 @@ class ASCIIFlowGenerator:
             rg_id = self.extract_id_from_dest(dest_string, ["rg-", "ringgr"])
             rg_info = self.data['ringgroups'].get(rg_id)
             
-            title = f"Ring Group {rg_id}"
-            subtitle = f"Strategy: {rg_info.get('strategy', 'ringall')}" if rg_info else "Ring Group"
+            # Use actual ring group description if available
+            if rg_info and rg_info.get('description'):
+                title = rg_info['description']
+                subtitle = f"Strategy: {rg_info.get('strategy', 'ringall')}"
+            else:
+                title = f"Ring Group {rg_id}"
+                subtitle = "Ring Group"
             
             box_lines, _ = self.create_box(title, subtitle, "ringgroup")
             for line in box_lines:
@@ -934,8 +957,13 @@ class ASCIIFlowGenerator:
             q_id = self.extract_id_from_dest(dest_string, ["qq-", "queue"])
             q_info = self.data['queues'].get(q_id)
             
-            title = f"Call Queue {q_id}"
-            subtitle = f"Strategy: {q_info.get('strategy', 'ringall')}" if q_info else "Call Queue"
+            # Use actual queue name if available
+            if q_info and q_info.get('name'):
+                title = q_info['name']
+                subtitle = f"Queue {q_id} - {q_info.get('strategy', 'ringall')}"
+            else:
+                title = f"Call Queue {q_id}"
+                subtitle = "Call Queue"
             
             box_lines, _ = self.create_box(title, subtitle, "queue")
             for line in box_lines:
@@ -944,7 +972,6 @@ class ASCIIFlowGenerator:
             if q_info:
                 self.add_to_canvas("     │")
                 self.add_to_canvas("     ├── QUEUE DETAILS ─────────┐")
-                self.add_to_canvas(f"                              ├─ Name: {q_info.get('name', 'Unnamed')}")
                 self.add_to_canvas(f"                              ├─ Max Wait: {q_info.get('maxwait', '300')}s")
                 self.add_to_canvas(f"                              └─ Strategy: {q_info.get('strategy', 'ringall')}")
         
@@ -1199,9 +1226,25 @@ class ASCIIFlowGenerator:
             for line in box_lines:
                 self.add_to_canvas(line)
         
-        # Unknown/Other destinations
+        # Unknown/Other destinations - try to provide more helpful info
         else:
-            box_lines, _ = self.create_box("Unknown Route", dest_string[:20], "failover")
+            # Try to extract useful information from the destination string
+            if dest_string.startswith("app-"):
+                title = "FreePBX App"
+                subtitle = dest_string.replace("app-", "").replace("-", " ").title()[:20]
+            elif "," in dest_string:
+                parts = dest_string.split(",")
+                title = f"Route: {parts[0]}"
+                subtitle = f"Args: {','.join(parts[1:3])}"  # Show first 2 args
+            elif "-" in dest_string:
+                parts = dest_string.split("-", 1)
+                title = f"Dest: {parts[0].title()}"
+                subtitle = parts[1][:20] if len(parts) > 1 else "Custom Route"
+            else:
+                title = "Unknown Route"
+                subtitle = dest_string[:20]
+                
+            box_lines, _ = self.create_box(title, subtitle, "failover")
             for line in box_lines:
                 self.add_to_canvas(line)
     
@@ -1233,34 +1276,58 @@ class ASCIIFlowGenerator:
             self.add_to_canvas(f"                            └── ... +{len(options)-8} more options")
     
     def get_destination_type(self, dest_string):
-        """Get a short description of destination type."""
+        """Get a short description of destination type with actual names when possible."""
         if not dest_string:
             return "Hangup"
         elif "cfc" in dest_string or "callflow_toggle" in dest_string or "flowcontrol" in dest_string:
             cfc_id = self.extract_id_from_dest(dest_string, ["cfc", "callflow_toggle", "flowcontrol"])
+            cfc_info = self.data['callflow_toggle'].get(cfc_id)
+            if cfc_info and cfc_info.get('name'):
+                return f"Toggle: {cfc_info['name']}"
             return f"Toggle {cfc_id}"
         elif "ext-" in dest_string:
             ext_num = dest_string.split(",")[1] if "," in dest_string else "?"
+            ext_info = self.data['extensions'].get(ext_num)
+            if ext_info and ext_info.get('name'):
+                return f"Ext {ext_num}: {ext_info['name']}"
             return f"Ext {ext_num}"
         elif "ivr-" in dest_string:
             ivr_id = self.extract_id_from_dest(dest_string, "ivr-")
+            ivr_info = self.data['ivrs'].get(ivr_id)
+            if ivr_info and ivr_info.get('name'):
+                return f"IVR: {ivr_info['name']}"
             return f"IVR {ivr_id}"
         elif "qq-" in dest_string or "queue" in dest_string:
             q_id = self.extract_id_from_dest(dest_string, ["qq-", "queue"])
+            q_info = self.data['queues'].get(q_id)
+            if q_info and q_info.get('name'):
+                return f"Queue: {q_info['name']}"
             return f"Queue {q_id}"
         elif "rg-" in dest_string or "ringgr" in dest_string:
             rg_id = self.extract_id_from_dest(dest_string, ["rg-", "ringgr"])
+            rg_info = self.data['ringgroups'].get(rg_id)
+            if rg_info and rg_info.get('description'):
+                return f"RG: {rg_info['description']}"
             return f"Ring Group {rg_id}"
         elif "timeconditions" in dest_string or "tc-" in dest_string:
             tc_id = self.extract_id_from_dest(dest_string, ["timeconditions", "tc-"])
+            tc_info = self.data['timeconditions'].get(tc_id)
+            if tc_info and tc_info.get('name'):
+                return f"Time: {tc_info['name']}"
             return f"Time Condition {tc_id}"
         elif "app-announcement" in dest_string:
             ann_id = self.extract_id_from_dest(dest_string, "app-announcement")
+            ann_info = self.data['announcements'].get(ann_id)
+            if ann_info and ann_info.get('name'):
+                return f"Ann: {ann_info['name']}"
             return f"Announcement {ann_id}"
         elif "vm-" in dest_string or "voicemail" in dest_string:
             return "Voicemail"
         elif "conferences" in dest_string or "conf-" in dest_string:
             conf_id = self.extract_id_from_dest(dest_string, ["conferences", "conf-"])
+            conf_info = self.data['conferences'].get(conf_id)
+            if conf_info and conf_info.get('description'):
+                return f"Conf: {conf_info['description']}"
             return f"Conference {conf_id}"
         elif "page-" in dest_string or "paging" in dest_string:
             return "Paging"
