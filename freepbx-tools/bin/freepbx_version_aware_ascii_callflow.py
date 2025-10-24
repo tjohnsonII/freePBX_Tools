@@ -194,6 +194,8 @@ class FreePBXUniversalCollector:
             ("queues", self._map_queues),
             ("announcements", self._map_announcements),
             ("trunks", self._map_trunks),
+            ("setcid", self._map_setcid),
+            ("misc_destinations", self._map_misc_destinations),
         ]
         
         successful_mappings = 0
@@ -498,6 +500,82 @@ class FreePBXUniversalCollector:
                             break
                             
                     if 'name' in fields:
+                        return {'table': table, 'columns': columns, 'fields': fields}
+        return None
+    
+    def _map_setcid(self):
+        """Map Set Caller ID table."""
+        candidates = ['setcid', 'set_callerid']
+        
+        for table in candidates:
+            if table in self.all_tables:
+                columns = self._describe_table(table)
+                if columns:
+                    fields = {}
+                    
+                    # ID field
+                    for field in ['cid_id', 'id']:
+                        if field in columns:
+                            fields['id'] = field
+                            break
+                    
+                    # Description
+                    for field in ['description', 'descr', 'name']:
+                        if field in columns:
+                            fields['description'] = field
+                            break
+                    
+                    # Caller ID Name
+                    for field in ['cid_name', 'name']:
+                        if field in columns:
+                            fields['cid_name'] = field
+                            break
+                    
+                    # Caller ID Number
+                    for field in ['cid_num', 'number']:
+                        if field in columns:
+                            fields['cid_num'] = field
+                            break
+                    
+                    # Destination
+                    for field in ['dest', 'destination']:
+                        if field in columns:
+                            fields['dest'] = field
+                            break
+                    
+                    if 'id' in fields:
+                        return {'table': table, 'columns': columns, 'fields': fields}
+        return None
+    
+    def _map_misc_destinations(self):
+        """Map Misc Destinations table."""
+        candidates = ['miscdests', 'misc_destinations']
+        
+        for table in candidates:
+            if table in self.all_tables:
+                columns = self._describe_table(table)
+                if columns:
+                    fields = {}
+                    
+                    # ID field
+                    for field in ['id', 'dest_id']:
+                        if field in columns:
+                            fields['id'] = field
+                            break
+                    
+                    # Description
+                    for field in ['description', 'descr', 'name']:
+                        if field in columns:
+                            fields['description'] = field
+                            break
+                    
+                    # Destination
+                    for field in ['dest', 'destination']:
+                        if field in columns:
+                            fields['dest'] = field
+                            break
+                    
+                    if 'id' in fields:
                         return {'table': table, 'columns': columns, 'fields': fields}
         return None
         
@@ -831,8 +909,35 @@ class FreePBXUniversalCollector:
             print(f"{prefix}{connector} 📢 Announcement: {dest_id}")
         
         elif dest_type == 'app-setcid':
-            print(f"{prefix}{connector} 🆔 Set Caller ID: {dest_id}")
-            # This typically chains to another destination - but we'd need more data
+            setcid = self._find_setcid(dest_id)
+            if setcid:
+                desc = setcid.get('description', f'Set Caller ID {dest_id}')
+                cid_name = setcid.get('cid_name', 'Unknown')
+                cid_num = setcid.get('cid_num', 'Unknown')
+                next_dest = setcid.get('dest', '')
+                
+                print(f"{prefix}{connector} 🆔 Set Caller ID: {desc}")
+                print(f"{child_prefix}├─ 📝 Name: {cid_name}")
+                print(f"{child_prefix}├─ 📞 Number: {cid_num}")
+                
+                if next_dest:
+                    print(f"{child_prefix}│")
+                    print(f"{child_prefix}└─ ➡️  Next Destination:")
+                    self._render_destination_tree(next_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
+                else:
+                    print(f"{child_prefix}└─ 🔚 No next destination configured")
+            else:
+                print(f"{prefix}{connector} 🆔 Set Caller ID: {dest_id} (details not found)")
+        
+        elif dest_type == 'ext-miscdests':
+            misc = self._find_misc_destination(dest_id)
+            if misc:
+                desc = misc.get('description', f'Misc Destination {dest_id}')
+                final_dest = misc.get('dest', 'Unknown')
+                print(f"{prefix}{connector} 🎯 {desc}")
+                print(f"{child_prefix}└─ ☎️  Final Destination: {final_dest}")
+            else:
+                print(f"{prefix}{connector} 🎯 Misc Destination: {dest_id} (details not found)")
         
         else:
             # Generic destination
@@ -960,6 +1065,20 @@ class FreePBXUniversalCollector:
         for ext in self.data.get('extensions', []):
             if str(ext.get('extension')) == str(ext_id):
                 return ext
+        return None
+    
+    def _find_setcid(self, setcid_id):
+        """Find Set Caller ID by ID."""
+        for setcid in self.data.get('setcid', []):
+            if str(setcid.get('id')) == str(setcid_id):
+                return setcid
+        return None
+    
+    def _find_misc_destination(self, misc_id):
+        """Find Misc Destination by ID."""
+        for misc in self.data.get('misc_destinations', []):
+            if str(misc.get('id')) == str(misc_id):
+                return misc
         return None
 
 def main():
