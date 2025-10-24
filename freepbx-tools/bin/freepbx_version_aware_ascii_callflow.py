@@ -570,7 +570,7 @@ class FreePBXUniversalCollector:
                             break
                     
                     # Destination
-                    for field in ['dest', 'destination']:
+                    for field in ['destdial', 'dest', 'destination']:
                         if field in columns:
                             fields['dest'] = field
                             break
@@ -838,16 +838,14 @@ class FreePBXUniversalCollector:
                 if rg.get('member_list'):
                     members = [m for m in rg['member_list'].split('-') if m]
                     print(f"{child_prefix}├─ 👥 Members:")
-                    for i, member in enumerate(members[:5]):  # Show up to 5 members
-                        mem_connector = "├─" if i < min(len(members), 5) - 1 else "└─"
+                    for i, member in enumerate(members):  # Show ALL members
+                        mem_connector = "├─" if i < len(members) - 1 else "└─"
                         ext = self._find_extension(member)
                         ext_name = ext.get('name', 'Unknown') if ext else 'Unknown'
                         print(f"{child_prefix}│  {mem_connector} 📞 {member} ({ext_name})")
-                    if len(members) > 5:
-                        print(f"{child_prefix}│  └─ ... and {len(members) - 5} more")
                 
-                # Show failover destination if exists
-                failover_dest = rg.get('postdest', '') or rg.get('dest', '')
+                # Show failover destination if exists - use correct field mapping
+                failover_dest = rg.get('failover_dest', '') or rg.get('postdest', '') or rg.get('dest', '')
                 if failover_dest and failover_dest != 'app-blackhole,hangup,1':
                     print(f"{child_prefix}│")
                     print(f"{child_prefix}└─ 🔀 No Answer Failover:")
@@ -917,8 +915,16 @@ class FreePBXUniversalCollector:
                 next_dest = setcid.get('dest', '')
                 
                 print(f"{prefix}{connector} 🆔 Set Caller ID: {desc}")
-                print(f"{child_prefix}├─ 📝 Name: {cid_name}")
-                print(f"{child_prefix}├─ 📞 Number: {cid_num}")
+                
+                # Describe what the transformation will do
+                transformation = self._describe_callerid_transformation(cid_name, cid_num)
+                print(f"{child_prefix}├─ 🔄 {transformation}")
+                
+                # Show the raw templates for technical reference
+                if cid_name and cid_name != 'Unknown':
+                    print(f"{child_prefix}├─ � Name Template: {cid_name}")
+                if cid_num and cid_num != 'Unknown':
+                    print(f"{child_prefix}├─ 📞 Number Template: {cid_num}")
                 
                 if next_dest:
                     print(f"{child_prefix}│")
@@ -1080,6 +1086,56 @@ class FreePBXUniversalCollector:
             if str(misc.get('id')) == str(misc_id):
                 return misc
         return None
+    
+    def _describe_callerid_transformation(self, name_template, num_template):
+        """Describe what the caller ID transformation will do"""
+        if not name_template and not num_template:
+            return "No caller ID modification"
+            
+        transformations = []
+        
+        if name_template and name_template != 'Unknown':
+            if '${CALLERID(name)}' in name_template:
+                prefix = name_template.replace('${CALLERID(name)}', '').strip()
+                if prefix:
+                    transformations.append(f"Prepend '{prefix}' to caller's name")
+                else:
+                    transformations.append("Pass through caller's name unchanged")
+            else:
+                transformations.append(f"Set name to '{name_template}'")
+                
+        if num_template and num_template != 'Unknown':
+            if '${CALLERID(num)}' in num_template:
+                prefix = num_template.replace('${CALLERID(num)}', '').strip()
+                if prefix:
+                    transformations.append(f"Prepend '{prefix}' to caller's number")
+                else:
+                    transformations.append("Pass through caller's number unchanged")
+            else:
+                transformations.append(f"Set number to '{num_template}'")
+                
+        if transformations:
+            return "; ".join(transformations)
+        else:
+            return "No caller ID modification"
+
+    def _resolve_callerid_template(self, template):
+        """Resolve caller ID template variables to example values."""
+        if not template or template == 'Unknown':
+            return template
+            
+        # Common substitutions for demonstration
+        resolved = template
+        resolved = resolved.replace('${CALLERID(name)}', 'John Smith')
+        resolved = resolved.replace('${CALLERID(num)}', '555-123-4567')
+        resolved = resolved.replace('${FROM_DID}', 'DID Number')
+        resolved = resolved.replace('${CHANNEL}', 'SIP/provider-001')
+        
+        # Handle simple patterns
+        if resolved != template:
+            return resolved
+        else:
+            return template
 
 def main():
     """Main function."""
