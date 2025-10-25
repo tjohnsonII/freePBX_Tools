@@ -412,10 +412,10 @@ class FreePBXUniversalCollector:
                     # Destination
                     for field in ['dest', 'destination']:
                         if field in columns:
-                            fields['destination'] = field
+                            fields['dest'] = field
                             break
                             
-                    if 'ivr_id' in fields and 'selection' in fields:
+                    if 'ivr_id' in fields and 'selection' in fields and 'dest' in fields:
                         return {'table': table, 'columns': columns, 'fields': fields}
         return None
         
@@ -809,9 +809,7 @@ class FreePBXUniversalCollector:
             if dest_type.startswith('ivr-'):
                 dest_id = dest_type[4:]  # Extract ID from "ivr-77" -> "77"
                 dest_type = 'ivr'
-            elif dest_type.startswith('ext-group'):
-                dest_id = dest_type.split('-')[2] if len(dest_type.split('-')) > 2 else dest_id
-                dest_type = 'ext-group'
+            # ext-group destinations are already correctly parsed, no special handling needed
         else:
             dest_type = destination
             dest_id = destination
@@ -893,12 +891,19 @@ class FreePBXUniversalCollector:
                 if options:
                     print(f"{child_prefix}├─ 🔢 Options:")
                     for i, opt in enumerate(options[:5]):  # Show up to 5 options
-                        opt_connector = "├─" if i < min(len(options), 5) - 1 else "└─"
+                        is_last_option = (i == min(len(options), 5) - 1) and len(options) <= 5
+                        opt_connector = "└─" if is_last_option else "├─"
                         selection = opt.get('selection', '?')
                         opt_dest = opt.get('dest', 'Unknown')
-                        print(f"{child_prefix}│  {opt_connector} [{selection}] →")
+                        print(f"{child_prefix}│  {opt_connector} [{selection}] → ", end="")
+                        
                         if opt_dest and opt_dest != 'Unknown':
-                            self._render_destination_tree(opt_dest, child_prefix + "│  " + ("   " if i == min(len(options), 5) - 1 else "│  "), True, visited.copy(), depth + 1)
+                            # Get a short description of the destination
+                            dest_summary = self._resolve_destination_display(opt_dest)
+                            print(dest_summary)
+                        else:
+                            print("Unknown destination")
+                    
                     if len(options) > 5:
                         print(f"{child_prefix}│  └─ ... and {len(options) - 5} more options")
                 
