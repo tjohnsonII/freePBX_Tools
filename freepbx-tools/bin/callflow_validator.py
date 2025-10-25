@@ -20,9 +20,20 @@ class CallFlowValidator:
     def get_predicted_flow(self, did):
         """Get predicted call flow from our ASCII tool"""
         try:
-            cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
-                   f"python3 {self.callflow_tool} --did {did}"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            # Check if we're running on the same server - if so, run locally
+            import socket
+            local_hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(local_hostname)
+            
+            if self.server_ip in ['localhost', '127.0.0.1', local_ip] or local_hostname.startswith('pbx'):
+                # Run locally instead of SSH
+                cmd = ["python3", self.callflow_tool, "--did", did]
+            else:
+                # Run via SSH for remote servers
+                cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
+                       f"python3 {self.callflow_tool} --did {did}"]
+            
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
             
             if result.returncode == 0:
                 return self._parse_callflow_output(result.stdout)
@@ -106,7 +117,7 @@ class CallFlowValidator:
             # Get current log size for baseline
             cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
                    "wc -l /var/log/asterisk/full 2>/dev/null || echo '0'"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
             
             if result.returncode == 0:
                 self.log_baseline = int(result.stdout.strip().split()[0])
@@ -139,7 +150,7 @@ Archive: no
             cmd = f'cat > {temp_file} << "EOF"\n{call_content}EOF'
             result = subprocess.run([
                 "ssh", f"{self.ssh_user}@{self.server_ip}", cmd
-            ], capture_output=True, text=True, timeout=15)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
             
             if result.returncode != 0:
                 return {'success': False, 'error': f"Failed to create call file: {result.stderr}"}
@@ -148,13 +159,13 @@ Archive: no
             subprocess.run([
                 "ssh", f"{self.ssh_user}@{self.server_ip}", 
                 f"chown asterisk:asterisk {temp_file}"
-            ], capture_output=True, text=True, timeout=10)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
             
             # Move to spool directory
             move_result = subprocess.run([
                 "ssh", f"{self.ssh_user}@{self.server_ip}", 
                 f"mv {temp_file} {spool_file}"
-            ], capture_output=True, text=True, timeout=10)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
             
             if move_result.returncode != 0:
                 return {'success': False, 'error': f"Failed to spool call: {move_result.stderr}"}
@@ -164,7 +175,7 @@ Archive: no
             check_result = subprocess.run([
                 "ssh", f"{self.ssh_user}@{self.server_ip}", 
                 f"test -f {spool_file} && echo 'EXISTS' || echo 'PROCESSED'"
-            ], capture_output=True, text=True, timeout=10)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
             
             processed = "PROCESSED" in check_result.stdout
             
@@ -183,7 +194,7 @@ Archive: no
             # Get logs since baseline
             cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
                    f"tail -n +{self.log_baseline + 1} /var/log/asterisk/full | grep -E '(NOTICE|WARNING|ERROR|VERBOSE)' | tail -50"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
             
             if result.returncode != 0:
                 return {'error': 'Could not retrieve logs'}
