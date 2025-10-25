@@ -606,6 +606,18 @@ class FreePBXUniversalCollector:
                     
             except Exception as e:
                 print(f"   ❌ {component.replace('_', ' ').title()}: Collection error - {e}")
+        
+        # Collect toggle controls - placeholder for future enhancement
+        try:
+            self.data['toggle_controls'] = []
+            count = 0
+            total_items += count
+            
+            status = "○"
+            print(f"   {status} Toggle Controls: {count} items")
+                    
+        except Exception as e:
+            print(f"   ❌ Toggle Controls: Collection error - {e}")
                 
         print("=" * 70)
         print(f"🎯 TOTAL CONFIGURATION ITEMS: {total_items}")
@@ -802,8 +814,16 @@ class FreePBXUniversalCollector:
         if dest_type == 'timeconditions':
             tc = self._find_time_condition(dest_id)
             if tc:
-                print(f"{prefix}{connector} ⏰ Time Condition: {tc.get('name', dest_id)}")
-                print(f"{child_prefix}│")
+                tc_name = tc.get('name', dest_id)
+                
+                # Show time condition with enhanced display for toggle controls
+                if 'toggle' in tc_name.lower():
+                    print(f"{prefix}{connector} ⏰ Time Condition: {tc_name} (Toggle Control)")
+                    print(f"{child_prefix}├─ 🎛️  Toggle: Use feature codes to override")
+                    print(f"{child_prefix}│")
+                else:
+                    print(f"{prefix}{connector} ⏰ Time Condition: {tc_name}")
+                    print(f"{child_prefix}│")
                 
                 # Get appropriate labels for this time condition
                 true_label, false_label = self._get_time_condition_labels(tc)
@@ -812,7 +832,7 @@ class FreePBXUniversalCollector:
                 false_dest = tc.get('false_dest', '')
                 
                 # Render true branch
-                print(f"{child_prefix}├─ ✅ {true_label}")
+                print(f"{child_prefix}├─ {true_label}")
                 if true_dest:
                     self._render_destination_tree(true_dest, child_prefix + "│  ", False, visited.copy(), depth + 1)
                 else:
@@ -821,7 +841,7 @@ class FreePBXUniversalCollector:
                 print(f"{child_prefix}│")
                 
                 # Render false branch
-                print(f"{child_prefix}└─ ❌ {false_label}")
+                print(f"{child_prefix}└─ {false_label}")
                 if false_dest:
                     self._render_destination_tree(false_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
                 else:
@@ -1136,6 +1156,18 @@ class FreePBXUniversalCollector:
             return resolved
         else:
             return template
+    
+    def _collect_toggle_controls(self):
+        """Collect call flow toggle control information - placeholder for future enhancement."""
+        return []
+    
+    def _print_toggle_item(self, toggle):
+        """Print a toggle control item sample - placeholder for future enhancement."""
+        pass
+    
+    def _find_toggle_control(self, tc_name):
+        """Find toggle control information for a time condition - placeholder for future enhancement."""
+        return None
 
 def main():
     """Main function."""
