@@ -21,6 +21,9 @@ MODULE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_module_ana
 PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_paging_fax_analyzer.py"
 COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_comprehensive_analyzer.py"
 ASCII_CALLFLOW_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py"
+CALL_SIMULATOR_SCRIPT = "/usr/local/123net/call-simulation/call_simulator.py"
+CALLFLOW_VALIDATOR_SCRIPT = "/usr/local/123net/call-simulation/callflow_validator.py"
+SIMULATE_CALLS_SCRIPT = "/usr/local/123net/call-simulation/simulate_calls.sh"
 
 
 def run_tc_status(sock):
@@ -73,6 +76,322 @@ def run_comprehensive_analyzer(sock):
         print(out, end="")
     else:
         print((err or out).strip())
+
+
+def run_call_simulation_menu(sock, did_rows):
+    """Interactive call simulation and validation menu."""
+    print("\n=== Call Simulation & Validation Menu ===")
+    print("Test real call behavior against predicted call flows")
+    print()
+    
+    while True:
+        print("📞 Call Simulation Options:")
+        print(" 1) Test specific DID with call simulation")
+        print(" 2) Validate call flow accuracy for DID")
+        print(" 3) Test extension call")
+        print(" 4) Test voicemail call")
+        print(" 5) Test playback application")
+        print(" 6) Run comprehensive call validation")
+        print(" 7) Monitor active call simulations")
+        print(" 8) Return to main menu")
+        print()
+        
+        choice = input("Choose simulation option (1-8): ").strip()
+        
+        if choice == "1":
+            run_did_call_test(did_rows)
+        elif choice == "2":
+            run_callflow_validation(did_rows)
+        elif choice == "3":
+            run_extension_test()
+        elif choice == "4":
+            run_voicemail_test()
+        elif choice == "5":
+            run_playback_test()
+        elif choice == "6":
+            run_comprehensive_validation()
+        elif choice == "7":
+            run_call_monitoring()
+        elif choice == "8":
+            break
+        else:
+            print("Invalid choice. Please select 1-8.")
+
+
+def run_did_call_test(did_rows):
+    """Test a specific DID with call simulation."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+    
+    if not did_rows:
+        print("❌ No DID data available. Please refresh the snapshot first.")
+        return
+    
+    print("\n📞 DID Call Simulation Test")
+    print("This will create a real call file to test the DID routing.")
+    print()
+    
+    # Show available DIDs
+    for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
+        print(f"{i:>2}. {did:<15} {label}")
+    
+    if len(did_rows) > 20:
+        print(f"... and {len(did_rows) - 20} more DIDs")
+    
+    print()
+    try:
+        choice = int(input("Enter DID number to test (or 0 to cancel): ").strip())
+        if choice == 0:
+            return
+        if choice < 1 or choice > len(did_rows):
+            print("❌ Invalid selection.")
+            return
+        
+        _, did, label, _, _ = did_rows[choice - 1]
+        caller_id = input(f"Enter caller ID to use (default 7140): ").strip() or "7140"
+        
+        print(f"\n🚀 Testing DID {did} ({label}) with caller ID {caller_id}")
+        print("This will create a real call in the Asterisk system...")
+        
+        confirm = input("Continue? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Test cancelled.")
+            return
+        
+        # Run the call simulation
+        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--caller-id", caller_id]
+        print(f"Executing: {' '.join(cmd)}")
+        
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print("✅ Call simulation completed successfully!")
+            print(out)
+        else:
+            print("❌ Call simulation failed:")
+            print(err or out)
+            
+    except ValueError:
+        print("❌ Invalid input. Please enter a number.")
+    except KeyboardInterrupt:
+        print("\n❌ Test cancelled by user.")
+
+
+def run_callflow_validation(did_rows):
+    """Validate call flow accuracy for a specific DID."""
+    if not os.path.isfile(CALLFLOW_VALIDATOR_SCRIPT):
+        print("❌ Call flow validator not found. Please run deployment first.")
+        return
+    
+    if not did_rows:
+        print("❌ No DID data available. Please refresh the snapshot first.")
+        return
+    
+    print("\n🔍 Call Flow Validation Test")
+    print("This compares predicted call flows with actual call behavior.")
+    print()
+    
+    # Show available DIDs
+    for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
+        print(f"{i:>2}. {did:<15} {label}")
+    
+    if len(did_rows) > 20:
+        print(f"... and {len(did_rows) - 20} more DIDs")
+    
+    print()
+    try:
+        choice = int(input("Enter DID number to validate (or 0 to cancel): ").strip())
+        if choice == 0:
+            return
+        if choice < 1 or choice > len(did_rows):
+            print("❌ Invalid selection.")
+            return
+        
+        _, did, label, _, _ = did_rows[choice - 1]
+        
+        print(f"\n🔍 Validating call flow for DID {did} ({label})")
+        print("This will:")
+        print("1. Generate predicted call flow")
+        print("2. Simulate actual call")
+        print("3. Compare prediction vs reality")
+        print("4. Provide accuracy score")
+        
+        confirm = input("\nContinue with validation? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Validation cancelled.")
+            return
+        
+        # Run the validation
+        cmd = ["python3", CALLFLOW_VALIDATOR_SCRIPT, str(did)]
+        print(f"Executing: {' '.join(cmd)}")
+        
+        rc, out, err = run(cmd)
+        if rc == 0:
+            print("✅ Call flow validation completed!")
+            print(out)
+        else:
+            print("❌ Call flow validation failed:")
+            print(err or out)
+            
+    except ValueError:
+        print("❌ Invalid input. Please enter a number.")
+    except KeyboardInterrupt:
+        print("\n❌ Validation cancelled by user.")
+
+
+def run_extension_test():
+    """Test calling a specific extension."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+    
+    print("\n📱 Extension Call Test")
+    
+    extension = input("Enter extension number to test: ").strip()
+    if not extension:
+        print("❌ Extension number required.")
+        return
+    
+    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    
+    print(f"\n🚀 Testing extension {extension} with caller ID {caller_id}")
+    
+    confirm = input("Continue? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Test cancelled.")
+        return
+    
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--extension", extension, "--caller-id", caller_id]
+    rc, out, err = run(cmd)
+    
+    if rc == 0:
+        print("✅ Extension test completed!")
+        print(out)
+    else:
+        print("❌ Extension test failed:")
+        print(err or out)
+
+
+def run_voicemail_test():
+    """Test calling voicemail."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+    
+    print("\n📧 Voicemail Call Test")
+    
+    mailbox = input("Enter voicemail mailbox to test: ").strip()
+    if not mailbox:
+        print("❌ Mailbox number required.")
+        return
+    
+    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    
+    print(f"\n🚀 Testing voicemail {mailbox} with caller ID {caller_id}")
+    
+    confirm = input("Continue? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Test cancelled.")
+        return
+    
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--voicemail", mailbox, "--caller-id", caller_id]
+    rc, out, err = run(cmd)
+    
+    if rc == 0:
+        print("✅ Voicemail test completed!")
+        print(out)
+    else:
+        print("❌ Voicemail test failed:")
+        print(err or out)
+
+
+def run_playback_test():
+    """Test playback application (like zombies example)."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+    
+    print("\n🎵 Playback Application Test")
+    print("Common sound files: demo-congrats, demo-thanks, zombies, beep")
+    
+    sound_file = input("Enter sound file to play: ").strip()
+    if not sound_file:
+        print("❌ Sound file required.")
+        return
+    
+    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    
+    print(f"\n🚀 Testing playback of '{sound_file}' with caller ID {caller_id}")
+    
+    confirm = input("Continue? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Test cancelled.")
+        return
+    
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--playback", sound_file, "--caller-id", caller_id]
+    rc, out, err = run(cmd)
+    
+    if rc == 0:
+        print("✅ Playback test completed!")
+        print(out)
+    else:
+        print("❌ Playback test failed:")
+        print(err or out)
+
+
+def run_comprehensive_validation():
+    """Run comprehensive call validation testing."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+    
+    print("\n🧪 Comprehensive Call Validation")
+    print("This will run a full test suite including:")
+    print("- DID routing tests")
+    print("- Extension tests")
+    print("- Voicemail tests")
+    print("- Application tests")
+    print("- Performance measurement")
+    print()
+    
+    print("⚠️  WARNING: This will create multiple real calls in your system!")
+    
+    confirm = input("Continue with comprehensive testing? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Testing cancelled.")
+        return
+    
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--comprehensive"]
+    rc, out, err = run(cmd)
+    
+    if rc == 0:
+        print("✅ Comprehensive validation completed!")
+        print(out)
+    else:
+        print("❌ Comprehensive validation failed:")
+        print(err or out)
+
+
+def run_call_monitoring():
+    """Monitor active call simulations."""
+    if not os.path.isfile(SIMULATE_CALLS_SCRIPT):
+        print("❌ Call monitoring script not found. Please run deployment first.")
+        return
+    
+    print("\n📊 Call Simulation Monitor")
+    print("This will show active call files and recent Asterisk activity.")
+    print("Press Ctrl+C to stop monitoring.")
+    print()
+    
+    try:
+        cmd = [SIMULATE_CALLS_SCRIPT, "monitor"]
+        # Use subprocess.call for interactive monitoring
+        import subprocess
+        subprocess.call(cmd)
+    except KeyboardInterrupt:
+        print("\n✅ Monitoring stopped.")
+    except Exception as e:
+        print(f"❌ Monitoring failed: {str(e)}")
 
 
 def run_ascii_callflow(sock, did_rows):
@@ -337,7 +656,7 @@ def main():
         data = load_dump()
 
     while True:
-        print("\n========== FreePBX Call-Flow Menu ==========")
+        print("========== FreePBX Call-Flow Menu ==========")
         print(" 1) Refresh DB snapshot")
         print(" 2) Show inventory (counts) + list DIDs")
         print(" 3) Generate call-flow for selected DID(s)")
@@ -348,8 +667,9 @@ def main():
         print(" 8) Run paging, overhead & fax analysis")
         print(" 9) Run comprehensive component analysis")
         print("10) Generate ASCII art call-flows")
-        print("11) Run full Asterisk diagnostic")
-        print("12) Quit")
+        print("11) 📞 Call Simulation & Validation")
+        print("12) Run full Asterisk diagnostic")
+        print("13) Quit")
         choice = input("\nChoose: ").strip()
 
         if choice == "1":
@@ -400,6 +720,10 @@ def main():
                 run_ascii_callflow(sock, did_rows)
 
         elif choice == "11":
+            did_rows = list_dids(data)
+            run_call_simulation_menu(sock, did_rows)
+
+        elif choice == "12":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
@@ -408,7 +732,7 @@ def main():
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 
-        elif choice == "12":
+        elif choice == "13":
             print("Bye.")
             break
         else:

@@ -86,6 +86,47 @@ ensure_pkgset() {
   have fwconsole || ln -sf /var/lib/asterisk/bin/fwconsole /usr/local/bin/fwconsole 2>/dev/null || true
 }
 
+ensure_python_packages() {
+  echo ">>> Installing Python packages for GUI comparison tool..."
+  
+  # Try to install required Python packages for optional features
+  local pip_cmd=""
+  if have pip3; then
+    pip_cmd="pip3"
+  elif have pip; then
+    pip_cmd="pip"
+  elif python3 -m pip --version >/dev/null 2>&1; then
+    pip_cmd="python3 -m pip"
+  else
+    warn "No pip found - GUI comparison tool may not work without manual package installation"
+    warn "To use GUI comparison, install: pip3 install beautifulsoup4 requests"
+    return 0
+  fi
+  
+  # Try to install from requirements.txt if available, otherwise install directly
+  local src_dir
+  src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  
+  if [[ -f "$src_dir/requirements.txt" ]]; then
+    echo "  Installing from requirements.txt..."
+    $pip_cmd install -r "$src_dir/requirements.txt" 2>/dev/null || {
+      warn "Failed to install from requirements.txt"
+      echo "  Falling back to direct package installation..."
+      $pip_cmd install beautifulsoup4 requests 2>/dev/null || {
+        warn "Failed to install Python packages (beautifulsoup4, requests)"
+        warn "GUI comparison tool requires: pip3 install beautifulsoup4 requests"
+      }
+    }
+  else
+    # Install packages directly
+    echo "  Installing beautifulsoup4 and requests..."
+    $pip_cmd install beautifulsoup4 requests 2>/dev/null || {
+      warn "Failed to install Python packages (beautifulsoup4, requests)"
+      warn "GUI comparison tool requires: pip3 install beautifulsoup4 requests"
+    }
+  fi
+}
+
 check_after_installs() {
   local missing=0
   for c in python3 jq dot mysql; do
@@ -286,6 +327,7 @@ main() {
   enable_epel_if_needed
   ensure_python3
   ensure_pkgset
+  ensure_python_packages
   check_after_installs
   install_files
   patch_py36_text_kwarg
