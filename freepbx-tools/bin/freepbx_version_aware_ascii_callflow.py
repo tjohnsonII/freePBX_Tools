@@ -753,7 +753,9 @@ class FreePBXUniversalCollector:
             
             print(f"\n📞 DID: {did} - {description}")
             print("-" * 40)
-            print(f"✓ Destination: {destination}")
+            # Show human-readable destination instead of raw string
+            destination_display = self._resolve_destination_display(destination) if destination != 'Unknown' else destination
+            print(f"✓ Destination: {destination_display}")
             
             # Generate simple flow visualization
             self._render_simple_flow(did, route)
@@ -775,7 +777,10 @@ class FreePBXUniversalCollector:
             return
             
         print(f"✓ Found route: {route.get('description', 'Unnamed Route')}")
-        print(f"✓ Destination: {route.get('destination', 'Unknown')}")
+        # Show human-readable destination instead of raw string
+        destination = route.get('destination', 'Unknown')
+        destination_display = self._resolve_destination_display(destination) if destination != 'Unknown' else destination
+        print(f"✓ Destination: {destination_display}")
         
         # Generate flow visualization
         self._render_simple_flow(did, route)
@@ -963,11 +968,11 @@ class FreePBXUniversalCollector:
         elif dest_type == 'from-did-direct':
             ext = self._find_extension(dest_id)
             if ext:
-                print(f"{prefix}{connector} 📞 Direct Extension: {dest_id} ({ext.get('name', 'Unknown')})")
-                print(f"{child_prefix}└─ 📧 Voicemail: {ext.get('name', 'Unknown')} (if no answer)")
+                print(f"{prefix}{connector} 📞 Extension {dest_id}: {ext.get('name', 'Unknown')}")
+                print(f"{child_prefix}└─ 📧 Voicemail: {ext.get('name', 'Unknown')} (ext {dest_id})")
             else:
-                print(f"{prefix}{connector} 📞 Direct Extension: {dest_id}")
-                print(f"{child_prefix}└─ 📧 Voicemail (if no answer)")
+                print(f"{prefix}{connector} 📞 Extension {dest_id}")
+                print(f"{child_prefix}└─ 📧 Voicemail (ext {dest_id})")
         
         elif dest_type == 'ext-local':
             # Handle voicemail, announcements, etc.
@@ -975,11 +980,22 @@ class FreePBXUniversalCollector:
                 ext_num = dest_id.replace('vmu', '')
                 ext = self._find_extension(ext_num)
                 if ext:
-                    print(f"{prefix}{connector} 📧 Voicemail: {ext.get('name', 'Unknown')} ({ext_num})")
+                    print(f"{prefix}{connector} 📧 Extension {ext_num}: {ext.get('name', 'Unknown')} Voicemail (vmu{ext_num})")
                 else:
-                    print(f"{prefix}{connector} 📧 Voicemail: Extension {ext_num}")
+                    print(f"{prefix}{connector} 📧 Extension {ext_num}: Voicemail (vmu{ext_num})")
+            elif 'vmb' in dest_id:
+                ext_num = dest_id.replace('vmb', '')
+                ext = self._find_extension(ext_num)
+                if ext:
+                    print(f"{prefix}{connector} 📧 Extension {ext_num}: {ext.get('name', 'Unknown')} Voicemail (vmb{ext_num})")
+                else:
+                    print(f"{prefix}{connector} � Extension {ext_num}: Voicemail (vmb{ext_num})")
             else:
-                print(f"{prefix}{connector} 📱 Local Extension: {dest_id}")
+                ext = self._find_extension(dest_id)
+                if ext:
+                    print(f"{prefix}{connector} 📱 Extension {dest_id}: {ext.get('name', 'Unknown')}")
+                else:
+                    print(f"{prefix}{connector} 📱 Extension {dest_id}")
                 # Could chain to voicemail on no answer
         
         elif dest_type == 'app-blackhole':
@@ -1050,12 +1066,19 @@ class FreePBXUniversalCollector:
                     ext_num = dest_id[3:]  # Remove 'vmu' prefix
                     ext = self._find_extension(ext_num)
                     if ext:
-                        return f"📧 {ext.get('name', f'Extension {ext_num}')} Voicemail"
-                    return f"📧 Extension {ext_num} Voicemail"
+                        return f"📧 Extension {ext_num}: {ext.get('name', f'Extension {ext_num}')} (vmb{ext_num})"
+                    return f"📧 Extension {ext_num}: Voicemail (vmb{ext_num})"
+                elif dest_id.startswith('vmb'):
+                    # Handle vmb623 format
+                    ext_num = dest_id[3:]  # Remove 'vmb' prefix  
+                    ext = self._find_extension(ext_num)
+                    if ext:
+                        return f"📧 Extension {ext_num}: {ext.get('name', f'Extension {ext_num}')} (vmb{ext_num})"
+                    return f"📧 Extension {ext_num}: Voicemail (vmb{ext_num})"
                 else:
                     ext = self._find_extension(dest_id)
                     if ext:
-                        return f"📞 {ext.get('name', f'Extension {dest_id}')}"
+                        return f"📞 Extension {dest_id}: {ext.get('name', f'Extension {dest_id}')}"
                     return f"📞 Extension {dest_id}"
                     
             elif dest_type == 'timeconditions':
@@ -1075,6 +1098,13 @@ class FreePBXUniversalCollector:
                 if ivr:
                     return f"🎵 {ivr.get('name', f'IVR {dest_id}')}"
                 return f"🎵 IVR {dest_id}"
+                
+            elif dest_type == 'from-did-direct':
+                # Handle direct extension routing
+                ext = self._find_extension(dest_id)
+                if ext:
+                    return f"📞 Extension {dest_id}: {ext.get('name', f'Extension {dest_id}')}"
+                return f"📞 Extension {dest_id}"
                 
             else:
                 return f"❓ {dest_type}: {dest_id}"
