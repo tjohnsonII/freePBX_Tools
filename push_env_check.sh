@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Files & defaults
 SERVERS_FILE="${1:-ProductionServers.txt}"
-LOCAL_FILE="${2:-env_check.sh}"
-REMOTE_PATH="${3:-/home/123net/freepbx-tools/env_check.sh}"
+LOCAL_FILE="${2:-freepbx-tools/bin/env_check.sh}"
+REMOTE_PATH="${3:-/home/123net/freepbx-tools/bin/env_check.sh}"
 
 # First try as 123net, then fall back to root if needed
 PRIMARY_USER="${PRIMARY_USER:-123net}"
