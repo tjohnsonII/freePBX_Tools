@@ -804,6 +804,14 @@ class FreePBXUniversalCollector:
             dest_parts = destination.split(',')
             dest_type = dest_parts[0]
             dest_id = dest_parts[1] if len(dest_parts) > 1 else 'Unknown'
+            
+            # Handle special cases where the ID is embedded in the type
+            if dest_type.startswith('ivr-'):
+                dest_id = dest_type[4:]  # Extract ID from "ivr-77" -> "77"
+                dest_type = 'ivr'
+            elif dest_type.startswith('ext-group'):
+                dest_id = dest_type.split('-')[2] if len(dest_type.split('-')) > 2 else dest_id
+                dest_type = 'ext-group'
         else:
             dest_type = destination
             dest_id = destination
@@ -875,7 +883,7 @@ class FreePBXUniversalCollector:
             else:
                 print(f"{prefix}{connector} 🔔 Ring Group: {dest_id} (details not found)")
         
-        elif dest_type.startswith('ivr'):
+        elif dest_type == 'ivr':
             ivr = self._find_ivr_menu(dest_id)
             if ivr:
                 print(f"{prefix}{connector} 🎵 IVR Menu: {ivr.get('name', dest_id)}")
@@ -1008,7 +1016,7 @@ class FreePBXUniversalCollector:
                     return f"🔔 {rg.get('description', f'Ring Group {dest_id}')}"
                 return f"🔔 Ring Group {dest_id}"
                 
-            elif dest_type.startswith('ivr'):
+            elif dest_type == 'ivr':
                 ivr = self._find_ivr_menu(dest_id)
                 if ivr:
                     return f"🎵 {ivr.get('name', f'IVR {dest_id}')}"
