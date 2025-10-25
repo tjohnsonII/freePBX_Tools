@@ -382,6 +382,18 @@ class FreePBXUniversalCollector:
                         if field in columns:
                             fields['name'] = field
                             break
+                    
+                    # Timeout destination
+                    for field in ['timeout_destination', 'timeout_dest']:
+                        if field in columns:
+                            fields['timeout_dest'] = field
+                            break
+                    
+                    # Invalid destination  
+                    for field in ['invalid_destination', 'invalid_dest']:
+                        if field in columns:
+                            fields['invalid_dest'] = field
+                            break
                             
                     if 'id' in fields:
                         return {'table': table, 'columns': columns, 'fields': fields}
@@ -890,24 +902,61 @@ class FreePBXUniversalCollector:
                 options = self._find_ivr_options(dest_id)
                 if options:
                     print(f"{child_prefix}├─ 🔢 Options:")
-                    for i, opt in enumerate(options[:5]):  # Show up to 5 options
-                        is_last_option = (i == min(len(options), 5) - 1) and len(options) <= 5
+                    for i, opt in enumerate(options):  # Show ALL options
+                        is_last_option = (i == len(options) - 1)
                         opt_connector = "└─" if is_last_option else "├─"
                         selection = opt.get('selection', '?')
                         opt_dest = opt.get('dest', 'Unknown')
-                        print(f"{child_prefix}│  {opt_connector} [{selection}] → ", end="")
                         
                         if opt_dest and opt_dest != 'Unknown':
-                            # Get a short description of the destination
-                            dest_summary = self._resolve_destination_display(opt_dest)
-                            print(dest_summary)
+                            # Show the option and recursively follow its destination
+                            print(f"{child_prefix}│  {opt_connector} [{selection}] → ", end="")
+                            
+                            # Check if we can recursively follow this destination
+                            if depth < 10 and opt_dest not in visited:
+                                # Get a short description first
+                                dest_summary = self._resolve_destination_display(opt_dest)
+                                print(dest_summary)
+                                
+                                # Then recursively follow the destination tree
+                                new_visited = visited.copy()
+                                new_visited.add(opt_dest)
+                                option_prefix = f"{child_prefix}│  {'   ' if is_last_option else '│  '}"
+                                self._render_destination_tree(opt_dest, option_prefix, True, 
+                                                            new_visited, depth + 1)
+                            else:
+                                # Just show summary if we hit depth limit or loop
+                                dest_summary = self._resolve_destination_display(opt_dest)
+                                print(dest_summary)
+                                if opt_dest in visited:
+                                    print(f"{child_prefix}│  {'   ' if is_last_option else '│  '}└─ 🔄 (Already visited - loop prevention)")
                         else:
-                            print("Unknown destination")
-                    
-                    if len(options) > 5:
-                        print(f"{child_prefix}│  └─ ... and {len(options) - 5} more options")
+                            print(f"{child_prefix}│  {opt_connector} [{selection}] → Unknown destination")
                 
-                print(f"{child_prefix}└─ 🔚 (IVR timeout/invalid handling)")
+                # Show timeout and invalid handling
+                timeout_dest = ivr.get('timeout_dest')
+                invalid_dest = ivr.get('invalid_dest')
+                
+                if timeout_dest or invalid_dest:
+                    if timeout_dest and invalid_dest and timeout_dest == invalid_dest:
+                        # Same destination for both
+                        print(f"{child_prefix}└─ ⏱️ Timeout/Invalid → ", end="")
+                        dest_summary = self._resolve_destination_display(timeout_dest)
+                        print(dest_summary)
+                    else:
+                        # Different destinations or only one configured
+                        if timeout_dest:
+                            print(f"{child_prefix}├─ ⏱️ Timeout → ", end="")
+                            dest_summary = self._resolve_destination_display(timeout_dest)
+                            print(dest_summary)
+                        
+                        if invalid_dest:
+                            connector = "└─" if not timeout_dest else "└─"
+                            print(f"{child_prefix}{connector} ❌ Invalid Input → ", end="")
+                            dest_summary = self._resolve_destination_display(invalid_dest)
+                            print(dest_summary)
+                else:
+                    print(f"{child_prefix}└─ 🔚 (No timeout/invalid handling configured)")
             else:
                 print(f"{prefix}{connector} 🎵 IVR Menu: {dest_id} (details not found)")
         
