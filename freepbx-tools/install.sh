@@ -237,6 +237,10 @@ install_symlinks() {
 
   # Diagnostic symlink
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
+
+  # Call simulation directory structure (required by menu system)
+  mkdir -p "$INSTALL_ROOT/call-simulation"
+  ln -sf "$INSTALL_DIR/bin/call_simulator.py" "$INSTALL_ROOT/call-simulation/call_simulator.py" 2>/dev/null || true
 }
 
 print_policy_banner() {

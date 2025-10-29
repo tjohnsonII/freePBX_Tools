@@ -13,6 +13,7 @@ import tempfile
 import argparse
 from datetime import datetime, timedelta
 import json
+import socket
 
 class FreePBXCallSimulator:
     def __init__(self, server_ip=None, ssh_user="123net"):
@@ -22,6 +23,46 @@ class FreePBXCallSimulator:
         self.tmp_dir = "/tmp"
         self.asterisk_user = "asterisk"
         self.test_results = []
+        self.is_local_execution = self._is_local_execution()
+        
+    def _is_local_execution(self):
+        """Check if we're running on the same server as the target"""
+        try:
+            # Get local IP addresses
+            hostname = socket.gethostname()
+            local_ips = set()
+            local_ips.add(socket.gethostbyname(hostname))
+            local_ips.add("127.0.0.1")
+            local_ips.add("localhost")
+            
+            # Add all local interface IPs
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ips.add(s.getsockname()[0])
+                s.close()
+            except:
+                pass
+                
+            return self.server_ip in local_ips
+        except:
+            return False
+    
+    def _run_command(self, command, timeout=10):
+        """Run command locally or via SSH based on execution context"""
+        if self.is_local_execution:
+            # Running locally, execute directly
+            return subprocess.run(
+                command, shell=True, 
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                universal_newlines=True, timeout=timeout
+            )
+        else:
+            # Running remotely, use SSH
+            return subprocess.run([
+                "ssh", f"{self.ssh_user}@{self.server_ip}", command
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+               universal_newlines=True, timeout=timeout)
         
     def create_call_file(self, channel, caller_id, destination, context="from-internal", 
                         priority=1, wait_time=30, max_retries=2, application=None, 
@@ -76,9 +117,7 @@ class FreePBXCallSimulator:
         try:
             # Create call file on remote server
             cmd = f'cat > {temp_file} << "EOF"\n{call_content}EOF'
-            result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", cmd
-            ], capture_output=True, text=True, timeout=30)
+            result = self._run_command(cmd, timeout=30)
             
             if result.returncode != 0:
                 return {
@@ -87,17 +126,31 @@ class FreePBXCallSimulator:
                     'call_id': call_id
                 }
             
-            # Set ownership to asterisk user
+            # Set proper ownership and permissions for asterisk user
             chown_cmd = f"chown {self.asterisk_user}:{self.asterisk_user} {temp_file}"
-            subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", chown_cmd
-            ], capture_output=True, text=True, timeout=10)
+            chown_result = self._run_command(chown_cmd, timeout=10)
+            
+            if chown_result.returncode != 0:
+                print(f"   ⚠️  Warning: Could not set ownership: {chown_result.stderr}")
+            
+            # Set proper permissions (readable by asterisk)
+            chmod_cmd = f"chmod 644 {temp_file}"
+            chmod_result = self._run_command(chmod_cmd, timeout=10)
+            
+            if chmod_result.returncode != 0:
+                print(f"   ⚠️  Warning: Could not set permissions: {chmod_result.stderr}")
+            
+            # Verify file exists and has correct ownership before moving
+            verify_cmd = f"ls -l {temp_file}"
+            verify_result = self._run_command(verify_cmd, timeout=10)
+            
+            if verify_result.returncode == 0:
+                print(f"   📋 File created: {verify_result.stdout.strip()}")
             
             # Move to spool directory (this triggers the call)
+            # Using mv ensures file is moved (not copied) as required by Asterisk
             move_cmd = f"mv {temp_file} {target_file}"
-            move_result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", move_cmd
-            ], capture_output=True, text=True, timeout=10)
+            move_result = self._run_command(move_cmd, timeout=10)
             
             if move_result.returncode != 0:
                 return {
@@ -106,16 +159,35 @@ class FreePBXCallSimulator:
                     'call_id': call_id
                 }
             
-            print(f"   📁 Call file moved to spool directory")
+            # Verify the file was moved successfully to spool directory
+            verify_spool_cmd = f"ls -l {target_file}"
+            verify_spool_result = self._run_command(verify_spool_cmd, timeout=10)
+            
+            if verify_spool_result.returncode == 0:
+                print(f"   📁 Call file moved to spool directory")
+                print(f"   📋 Spool file: {verify_spool_result.stdout.strip()}")
+            else:
+                return {
+                    'success': False,
+                    'error': f"File not found in spool directory after move",
+                    'call_id': call_id
+                }
+            
+            # Verify temp file was removed (successful move)
+            temp_check_cmd = f"ls {temp_file} 2>/dev/null || echo 'TEMP_REMOVED'"
+            temp_check_result = self._run_command(temp_check_cmd, timeout=10)
+            
+            if "TEMP_REMOVED" in temp_check_result.stdout:
+                print(f"   ✅ Temporary file properly removed")
+            else:
+                print(f"   ⚠️  Warning: Temporary file still exists")
             
             # Wait a moment for Asterisk to process
             time.sleep(2)
             
             # Check if file was processed (should be gone from spool)
             check_cmd = f"ls {target_file} 2>/dev/null || echo 'FILE_PROCESSED'"
-            check_result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", check_cmd
-            ], capture_output=True, text=True, timeout=10)
+            check_result = self._run_command(check_cmd, timeout=10)
             
             processed = "FILE_PROCESSED" in check_result.stdout
             
@@ -150,9 +222,7 @@ class FreePBXCallSimulator:
         try:
             # Get logs from the last few minutes
             log_cmd = f"tail -100 /var/log/asterisk/full | grep -E '(NOTICE|WARNING|ERROR)' | tail -20"
-            result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", log_cmd
-            ], capture_output=True, text=True, timeout=15)
+            result = self._run_command(log_cmd, timeout=15)
             
             if result.returncode == 0:
                 return result.stdout.strip().split('\n')
@@ -170,7 +240,7 @@ class FreePBXCallSimulator:
         print("=" * 50)
         
         # Create call file for DID
-        channel = f"local/*{caller_id}@from-internal"
+        channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -220,7 +290,7 @@ class FreePBXCallSimulator:
         print(f"\n📱 TESTING EXTENSION CALL: {extension}")
         print("=" * 50)
         
-        channel = f"local/*{caller_id}@from-internal"
+        channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -248,7 +318,7 @@ class FreePBXCallSimulator:
         print(f"\n📧 TESTING VOICEMAIL CALL: {mailbox}")
         print("=" * 50)
         
-        channel = f"local/*{caller_id}@from-internal"
+        channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -278,7 +348,7 @@ class FreePBXCallSimulator:
         print(f"\n🎵 TESTING PLAYBACK APPLICATION: {sound_file}")
         print("=" * 50)
         
-        channel = f"local/*{caller_id}@from-internal"
+        channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
