@@ -134,7 +134,7 @@ class CallFlowValidator:
         spool_file = f"/var/spool/asterisk/outgoing/call_{call_id}.call"
         
         # Create call file content
-        call_content = f"""Channel: local/*{caller_id}@from-internal
+        call_content = f"""Channel: local/{caller_id}@from-internal
 CallerID: {caller_id}
 Context: from-internal
 Extension: {did}

@@ -542,7 +542,7 @@ def load_dump():
 
 def refresh_dump(sock):
     ensure_outdir()
-    print("\n[+] Refreshing FreePBX snapshot (this reads MySQL)…")
+    print("\n[+] Refreshing FreePBX snapshot (this reads MySQL)...")
     cmd = ["python3", DUMP_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--out", DUMP_PATH]
     rc, out, err = run(cmd)
     if rc == 0:
@@ -593,7 +593,7 @@ def list_dids(data, show_limit=50):
     for i, did, label, cid, dest in rows[:show_limit]:
         print("{:>5} | {:<13} | {:<29} | {:<5} | {}".format(i, did, label[:29], cid[:5], dest[:40]))
     if len(rows) > show_limit:
-        print("… {} more not shown. (Use selection to target them anyway.)".format(len(rows) - show_limit))
+        print("... {} more not shown. (Use selection to target them anyway.)".format(len(rows) - show_limit))
     return rows
 
 def parse_selection(sel, max_index):
@@ -728,7 +728,7 @@ def main():
             if not os.path.isfile(diag):
                 print("Diagnostic script not found at", diag)
             else:
-                print("\nRunning full diagnostic (this may take ~10–30s)…\n")
+                print("\nRunning full diagnostic (this may take ~10-30s)...\n")
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
 

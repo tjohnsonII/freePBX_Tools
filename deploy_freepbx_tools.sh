@@ -8,7 +8,7 @@ SERVER="69.39.69.102"
 USERNAME="123net"
 USER_PASSWORD="${FREEPBX_USER_PASSWORD:-}"
 ROOT_PASSWORD="${FREEPBX_ROOT_PASSWORD:-}"
-LOCAL_PATH="c:\Users\tjohnson\OneDrive - 123.Net, LLC\Documents\Hosted Ticket Folder\freePBX_Tools\freepbx-tools"
+LOCAL_PATH="./freepbx-tools"
 REMOTE_PATH="/home/123net/freepbx-tools"
 
 echo "🚀 FreePBX Tools Deployment Script"
