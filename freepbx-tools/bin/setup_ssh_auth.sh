@@ -6,7 +6,14 @@ set -euo pipefail
 
 SERVER_IP="69.39.69.102"
 SSH_USER="123net"
-SERVER_PASSWORD="dH10oQW6jQ2rc&402B%e"
+SERVER_PASSWORD="${SSH_SERVER_PASSWORD:-}"
+
+# Security check - ensure password is provided
+if [[ -z "$SERVER_PASSWORD" ]]; then
+    echo "🔐 Enter SSH password for $SSH_USER@$SERVER_IP:"
+    read -s SERVER_PASSWORD
+    echo ""
+fi
 
 # Colors
 GREEN='\033[0;32m'
@@ -83,8 +90,9 @@ echo -e "${GREEN}🎉 SSH SETUP COMPLETE!${NC}"
 echo "You can now run the call simulation tools without entering passwords."
 echo ""
 echo "Next steps:"
-echo "1. Deploy the call simulation suite:"
-echo "   ./deploy_call_simulation.sh"
+echo "1. Deploy the FreePBX tools suite:"
+echo "   ./deploy_freepbx_tools.ps1  (from Windows)"
+echo "   ./deploy_freepbx_tools.sh   (from Linux/WSL)"
 echo ""
 echo "2. Test a call simulation:"
 echo "   ssh $SSH_USER@$SERVER_IP"

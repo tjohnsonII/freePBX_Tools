@@ -5,7 +5,8 @@
 param(
     [string]$Server = "69.39.69.102",
     [string]$Username = "123net",
-    [string]$RootPassword = "123NetWorking!",
+    [string]$UserPassword,
+    [string]$RootPassword,
     [string]$LocalPath = "c:\Users\tjohnson\OneDrive - 123.Net, LLC\Documents\Hosted Ticket Folder\freePBX_Tools\freepbx-tools",
     [string]$RemotePath = "/home/123net/freepbx-tools"
 )
@@ -13,6 +14,27 @@ param(
 Write-Host "🚀 FreePBX Tools Deployment Script" -ForegroundColor Cyan
 Write-Host "=================================" -ForegroundColor Cyan
 Write-Host ""
+
+# Security check - ensure passwords are provided
+if (-not $UserPassword) {
+    if ($env:FREEPBX_USER_PASSWORD) {
+        $UserPassword = $env:FREEPBX_USER_PASSWORD
+        Write-Host "📋 Using 123net password from environment variable FREEPBX_USER_PASSWORD" -ForegroundColor Green
+    } else {
+        $securePassword = Read-Host "🔐 Enter password for 123net@$Server" -AsSecureString
+        $UserPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword))
+    }
+}
+
+if (-not $RootPassword) {
+    if ($env:FREEPBX_ROOT_PASSWORD) {
+        $RootPassword = $env:FREEPBX_ROOT_PASSWORD
+        Write-Host "📋 Using root password from environment variable FREEPBX_ROOT_PASSWORD" -ForegroundColor Green
+    } else {
+        $securePassword = Read-Host "🔐 Enter root password for $Server" -AsSecureString
+        $RootPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword))
+    }
+}
 
 # Step 1: Upload the entire freepbx-tools folder
 Write-Host "📁 Step 1: Uploading freepbx-tools folder..." -ForegroundColor Yellow

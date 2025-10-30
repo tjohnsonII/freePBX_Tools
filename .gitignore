@@ -35,3 +35,16 @@ freepbx_host_profile.conf
 # Sensitve Files
 ProductionServers.txt
 server_ips.txt
+
+# Configuration files with potential secrets
+*config.conf
+*secret*
+*password*
+.env.*
+deploy_config.ps1
+deploy_config.sh
+setup_ssh_auth.sh
+
+# Backup files that might contain sensitive data
+*.backup
+*_backup.*

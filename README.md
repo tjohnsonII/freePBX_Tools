@@ -13,6 +13,8 @@ A comprehensive suite of diagnostic and call simulation tools for FreePBX/Asteri
 - [Architecture](#-architecture)
 - [Development](#-development)
 
+> **🔒 Security Note**: This repository contains NO passwords or sensitive credentials. All authentication is handled via secure environment variables or interactive prompts. See [SECURITY.md](SECURITY.md) for best practices.
+
 ## ⚡ Quick Reference
 
 | Command | Purpose | Output Location |
@@ -25,6 +27,7 @@ A comprehensive suite of diagnostic and call simulation tools for FreePBX/Asteri
 | `freepbx-ascii-callflow` | Generate ASCII art call flow diagrams | Console output |
 | `freepbx-diagnostic` | Full system + Asterisk diagnostic | `full_diagnostic_<timestamp>.txt` |
 | `freepbx-version-check` | Compare FreePBX/Asterisk versions to policy | Console output |
+| `freepbx-callflow-validator` | **NEW:** Validate call flows with real call simulation | Console output + JSON results |
 
 ## 📈 Core Features
 
@@ -92,37 +95,60 @@ The call simulation is fully integrated into the main FreePBX menu (`freepbx-cal
 ## 🚀 Installation & Deployment
 
 ### Prerequisites
-- SSH access to FreePBX server with key authentication
-- Python 3.6+ installed locally
-- Asterisk running on target server
-- MySQL CLI access on FreePBX server
+- **Windows machine** for deployment (PowerShell)
+- **SSH access** to FreePBX server 
+- **Python 3.6+** on FreePBX server
+- **Asterisk** running on target server
+- **MySQL CLI access** on FreePBX server
+- **Root access** on FreePBX server
 
 **Optional (for GUI comparison features):**
 - Python packages: `beautifulsoup4`, `requests` (automatically installed by `install.sh`)
-- For manual installation: `pip3 install beautifulsoup4 requests`
 
-### Step 1: Deploy the Core Tools
-```bash
-# Install FreePBX diagnostic tools
-sudo ./freepbx-tools/install.sh
+### Quick Deployment (Recommended)
+
+#### Option 1: Environment Variables (Most Secure)
+```powershell
+# Set credentials as environment variables (Windows PowerShell)
+$env:FREEPBX_USER_PASSWORD = "your-123net-password"
+$env:FREEPBX_ROOT_PASSWORD = "***REMOVED***"
+
+# Deploy everything in one command
+.\deploy_freepbx_tools.ps1
 ```
 
-### Step 2: Deploy Call Simulation Suite
-```bash
-# From your local machine, deploy to FreePBX server
-./deploy_call_simulation.sh <SERVER_IP> <SSH_USER>
-
-# Example:
-./deploy_call_simulation.sh 69.39.69.102 123net
+#### Option 2: Interactive Deployment (Secure Prompts)
+```powershell
+# Run without passwords - will prompt securely
+.\deploy_freepbx_tools.ps1
 ```
 
-This will:
-- Copy all scripts to `/usr/local/123net/freepbx-tools/bin/`
-- Create convenient symlinks in `/usr/local/bin/`
-- Verify prerequisites (Asterisk, MySQL, etc.)
-- Run basic functionality tests
+#### What the Deployment Does:
+1. **Upload** entire `freepbx-tools` folder via SCP
+2. **SSH** into server as 123net user
+3. **Switch to root** using `su root` command
+4. **Run bootstrap.sh** to make all scripts executable  
+5. **Run install.sh** to complete installation
+6. **Create symlinks** in `/usr/local/bin/` for easy access
+7. **Verify installation** with automatic tests
 
-### Step 3: Set Up SSH Keys (if needed)
+### Manual Installation (Alternative)
+If you prefer manual control:
+
+```bash
+# 1. Upload files manually via SCP or WinSCP
+# 2. SSH into the server
+ssh 123net@69.39.69.102
+su root
+
+# 3. Navigate to uploaded directory and install
+cd /path/to/freepbx-tools
+./bootstrap.sh    # Make everything executable
+./install.sh      # Install with dependencies and symlinks
+```
+
+### SSH Key Setup (Optional)
+For passwordless authentication:
 ```bash
 ./freepbx-tools/bin/setup_ssh_auth.sh
 ```
@@ -132,66 +158,88 @@ This will:
 ### Test Server Configuration
 - **IP**: 69.39.69.102
 - **User**: 123net
-- **Password**: dH10oQW6jQ2rc&402B%e *(for initial setup only)*
+- **Authentication**: Secure passwords (see SECURITY.md for best practices)
 
-### Step 1: Test Connectivity
-```bash
-./test_connectivity.sh
+### Step 1: Deploy and Install
+```powershell
+# One-command deployment from Windows
+$env:FREEPBX_USER_PASSWORD = "your-123net-password"
+$env:FREEPBX_ROOT_PASSWORD = "***REMOVED***"
+.\deploy_freepbx_tools.ps1
 ```
 
-### Step 2: Access the Integrated Menu
+### Step 2: Access the Interactive Menu
 ```bash
+# SSH into the server and run the main menu
 ssh 123net@69.39.69.102
 freepbx-callflows
+
 # Select option 11 for "📞 Call Simulation & Validation"
 ```
 
 ### Step 3: Test Call Flow Validation
 ```bash
-# Complete workflow:
+# Complete workflow from the menu:
 # 1. Generate ASCII call flows (option 10)
 # 2. Test with real calls (option 11)
 # 3. Validate accuracy and get scores
 
-# Or use command line:
+# Or use command line directly:
 freepbx-callflow-validator 2485815200
 ```
 
 ## 💻 Usage Examples
 
-### Basic Call Simulation
+### Interactive Menu (Recommended)
 ```bash
-# Test a specific DID
-./freepbx-tools/bin/simulate_calls.sh test-did 2485815200
+# Access the main menu system
+freepbx-callflows
 
-# Test an extension
-./freepbx-tools/bin/simulate_calls.sh test-extension 4220
-
-# Test voicemail
-./freepbx-tools/bin/simulate_calls.sh test-voicemail 4220
-
-# Monitor active calls
-./freepbx-tools/bin/simulate_calls.sh monitor
+# Navigate to call simulation (option 11):
+📞 Call Simulation Options:
+ 1) Test specific DID with call simulation
+ 2) Validate call flow accuracy for DID  
+ 3) Test extension call
+ 4) Test voicemail call
+ 5) Test playback application
+ 6) Run comprehensive call validation
+ 7) Monitor active call simulations
 ```
 
-### Validation Workflow
+### Command Line Usage
+```bash
+# Direct call simulation via Python
+python3 /usr/local/123net/freepbx-tools/bin/call_simulator.py --did 2485815200
+python3 /usr/local/123net/freepbx-tools/bin/call_simulator.py --extension 4220
+
+# Call flow validation
+python3 /usr/local/123net/freepbx-tools/bin/callflow_validator.py 2485815200
+
+# Real-time call monitoring
+/usr/local/123net/call-simulation/simulate_calls.sh monitor
+```
+
+### Complete Validation Workflow
 ```bash
 # Step 1: Generate call flow prediction
-python3 /usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py --did 2485815200
+freepbx-ascii-callflow --did 2485815200
 
-# Step 2: Simulate actual call
-python3 /usr/local/123net/freepbx-tools/bin/call_simulator.py --did 2485815200
+# Step 2: Simulate actual call and compare
+freepbx-callflow-validator 2485815200
 
-# Step 3: Validate accuracy
-python3 /usr/local/123net/freepbx-tools/bin/callflow_validator.py 2485815200
+# Step 3: View results with accuracy scoring
+# Results show predicted vs actual routing with percentage accuracy
 ```
 
 ### Call File Example
 The system creates proper Asterisk call files:
 ```
-Channel: local/*45@from-internal
+Channel: local/7140@from-internal
 CallerID: 7140
 WaitTime: 10
+Context: from-internal
+Extension: s
+Priority: 1
 MaxRetries: 0
 Account: 4220
 Application: Playback
@@ -201,11 +249,12 @@ Archive: no
 
 ### Comprehensive Testing
 ```bash
-# Run full validation suite
-./freepbx-tools/bin/comprehensive_test.sh
+# Test multiple DIDs with accuracy scoring (via menu system)
+freepbx-callflows
+# Select option 11 → option 6 for comprehensive validation
 
-# Test multiple DIDs with accuracy scoring
-python3 /usr/local/123net/freepbx-tools/bin/validate_callflows.py 2485815200 3134489750 9062320010
+# Or via command line:
+python3 /usr/local/123net/freepbx-tools/bin/callflow_validator.py 2485815200 3134489750 9062320010
 ```
 
 ## 🏗️ Architecture
@@ -234,14 +283,19 @@ All tools follow a consistent 3-stage pipeline:
 ### File Structure
 ```
 freepbx-tools/
-├── install.sh              # Main installation script
-├── version_policy.json     # Version compliance rules
+├── install.sh                    # Main installation script
+├── bootstrap.sh                  # Make scripts executable
+├── version_policy.json           # Version compliance rules
 └── bin/
     ├── freepbx_dump.py           # Core data extractor
     ├── freepbx_callflow_menu.py  # Interactive menu system
     ├── call_simulator.py         # Call simulation engine
     ├── callflow_validator.py     # Validation system
+    ├── simulate_calls.sh         # Call monitoring script
     └── ...
+
+deploy_freepbx_tools.ps1          # Windows deployment script
+SECURITY.md                       # Security best practices
 ```
 
 ### Database Access Pattern
@@ -279,12 +333,28 @@ Root-level scripts deploy tools across server fleets:
 
 ## 🎯 Complete Workflow Example
 
-1. **SSH to FreePBX server**: `ssh 123net@69.39.69.102`
-2. **Launch menu**: `freepbx-callflows`
-3. **View call flows**: Option 10 (ASCII call flow predictions)
-4. **Test with real calls**: Option 11 (Call simulation submenu)
-5. **Validate accuracy**: Compare predictions vs actual behavior
-6. **Get scoring**: Receive 0-100% accuracy rating
+### From Development Machine to Testing
+1. **Deploy**: `.\deploy_freepbx_tools.ps1` (from Windows)
+2. **Connect**: `ssh 123net@69.39.69.102`
+3. **Launch menu**: `freepbx-callflows`
+4. **Analyze**: Option 10 (ASCII call flow predictions)
+5. **Test**: Option 11 (Call simulation and validation)
+6. **Monitor**: Option 7 (Real-time call monitoring)
+7. **Results**: View accuracy scores and detailed analysis
+
+### Real-World Testing Process
+```bash
+# Generate prediction for DID
+freepbx-ascii-callflow --did 2485815200
+
+# Simulate actual calls and compare
+freepbx-callflow-validator 2485815200
+
+# Results show:
+# ✅ Predicted: IVR → Queue → Agent
+# ✅ Actual:    IVR → Queue → Agent  
+# 📊 Accuracy: 100%
+```
 
 This integrated approach provides both visualization and validation of FreePBX call flows, ensuring your diagnostic tools accurately reflect real-world call behavior.
 

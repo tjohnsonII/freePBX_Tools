@@ -6,13 +6,27 @@ set -euo pipefail
 # Configuration
 SERVER="69.39.69.102"
 USERNAME="123net"
-ROOT_PASSWORD="123NetWorking!"
+USER_PASSWORD="${FREEPBX_USER_PASSWORD:-}"
+ROOT_PASSWORD="${FREEPBX_ROOT_PASSWORD:-}"
 LOCAL_PATH="c:\Users\tjohnson\OneDrive - 123.Net, LLC\Documents\Hosted Ticket Folder\freePBX_Tools\freepbx-tools"
 REMOTE_PATH="/home/123net/freepbx-tools"
 
 echo "🚀 FreePBX Tools Deployment Script"
 echo "================================="
 echo ""
+
+# Security check - ensure passwords are provided
+if [[ -z "$USER_PASSWORD" ]]; then
+    echo "🔐 Enter password for 123net@$SERVER:"
+    read -s USER_PASSWORD
+    echo ""
+fi
+
+if [[ -z "$ROOT_PASSWORD" ]]; then
+    echo "🔐 Enter root password for $SERVER:"
+    read -s ROOT_PASSWORD
+    echo ""
+fi
 
 # Step 1: Upload the entire freepbx-tools folder
 echo "📁 Step 1: Uploading freepbx-tools folder..."
