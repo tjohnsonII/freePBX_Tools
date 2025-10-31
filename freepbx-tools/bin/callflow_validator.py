@@ -9,39 +9,117 @@ import subprocess
 import time
 import json
 import re
+import socket
+import argparse
+import logging
 from datetime import datetime
 
+# Configure logging
+def setup_logging(debug=False):
+    """Setup logging configuration"""
+    log_level = logging.DEBUG if debug else logging.INFO
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
+    # Create logger
+    logger = logging.getLogger('callflow_validator')
+    logger.setLevel(log_level)
+    
+    # Clear any existing handlers
+    logger.handlers.clear()
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_formatter = logging.Formatter(log_format)
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler for debugging
+    try:
+        file_handler = logging.FileHandler('/tmp/callflow_validator.log')
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = logging.Formatter(log_format)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except Exception:
+        pass  # File logging is optional
+    
+    return logger
+
+# Global logger (will be initialized in main)
+logger = None
+
 class CallFlowValidator:
-    def __init__(self, server_ip="69.39.69.102", ssh_user="123net"):
+    def __init__(self, server_ip="69.39.69.102", ssh_user="123net", debug=False):
         self.server_ip = server_ip
         self.ssh_user = ssh_user
+        self.debug = debug
         self.callflow_tool = "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py"
+        
+        # Get logger
+        global logger
+        self.logger = logger or logging.getLogger('callflow_validator')
+        
+        self.logger.info(f"Initializing CallFlowValidator")
+        self.logger.info(f"  Server IP: {self.server_ip}")
+        self.logger.info(f"  SSH User: {self.ssh_user}")
+        self.logger.info(f"  Debug Mode: {self.debug}")
         
     def get_predicted_flow(self, did):
         """Get predicted call flow from our ASCII tool"""
+        self.logger.info(f"Getting predicted call flow for DID: {did}")
+        
         try:
             # Check if we're running on the same server - if so, run locally
-            import socket
             local_hostname = socket.gethostname()
             local_ip = socket.gethostbyname(local_hostname)
             
-            if self.server_ip in ['localhost', '127.0.0.1', local_ip] or local_hostname.startswith('pbx'):
+            self.logger.debug(f"Localhost detection:")
+            self.logger.debug(f"  Local hostname: {local_hostname}")
+            self.logger.debug(f"  Local IP: {local_ip}")
+            self.logger.debug(f"  Target server IP: {self.server_ip}")
+            
+            # Check if we should run locally
+            is_local = (
+                self.server_ip in ['localhost', '127.0.0.1', local_ip] or 
+                local_hostname.startswith('pbx') or
+                self.server_ip in local_ip  # Additional check
+            )
+            
+            self.logger.info(f"Running locally: {is_local}")
+            
+            if is_local:
                 # Run locally instead of SSH
                 cmd = ["python3", self.callflow_tool, "--did", did]
+                self.logger.debug(f"Local command: {' '.join(cmd)}")
             else:
                 # Run via SSH for remote servers
                 cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
                        f"python3 {self.callflow_tool} --did {did}"]
+                self.logger.debug(f"SSH command: {' '.join(cmd)}")
             
+            self.logger.info(f"Executing: {' '.join(cmd)}")
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
             
+            self.logger.debug(f"Command return code: {result.returncode}")
+            if result.stdout:
+                self.logger.debug(f"Command stdout: {result.stdout[:200]}...")
+            if result.stderr:
+                self.logger.debug(f"Command stderr: {result.stderr}")
+            
             if result.returncode == 0:
-                return self._parse_callflow_output(result.stdout)
+                parsed_result = self._parse_callflow_output(result.stdout)
+                self.logger.info(f"Successfully parsed call flow data")
+                return parsed_result
             else:
-                return {'error': f"Tool failed: {result.stderr}"}
+                error_msg = f"Tool failed: {result.stderr}"
+                self.logger.error(error_msg)
+                return {'error': error_msg}
                 
         except Exception as e:
-            return {'error': f"Exception: {str(e)}"}
+            error_msg = f"Exception in get_predicted_flow: {str(e)}"
+            self.logger.error(error_msg)
+            return {'error': error_msg}
     
     def _parse_callflow_output(self, output):
         """Parse call flow tool output into structured data"""
@@ -86,30 +164,42 @@ class CallFlowValidator:
     
     def simulate_call_and_monitor(self, did, caller_id="7140"):
         """Simulate call and monitor actual Asterisk behavior"""
+        self.logger.info(f"Starting call simulation for DID {did} with caller ID {caller_id}")
         print(f"🚀 Simulating call to {did} and monitoring behavior...")
         
         # Clear Asterisk logs before test
+        self.logger.debug("Clearing Asterisk logs")
         self._clear_asterisk_logs()
         
         # Create and execute call file
+        self.logger.debug("Executing test call")
         call_result = self._execute_test_call(did, caller_id)
         
         if not call_result['success']:
-            return {'error': f"Call simulation failed: {call_result['error']}"}
+            error_msg = f"Call simulation failed: {call_result['error']}"
+            self.logger.error(error_msg)
+            return {'error': error_msg}
+        
+        self.logger.info(f"Call file created successfully: {call_result.get('call_id')}")
         
         # Wait for call processing
+        self.logger.debug("Waiting 5 seconds for call processing")
         time.sleep(5)
         
         # Analyze Asterisk logs
+        self.logger.debug("Analyzing Asterisk logs")
         log_analysis = self._analyze_asterisk_logs(call_result['call_id'])
         
-        return {
+        result = {
             'call_successful': call_result['success'],
             'call_processed': call_result.get('processed', False),
             'log_analysis': log_analysis,
             'call_id': call_result['call_id'],
             'timestamp': datetime.now().isoformat()
         }
+        
+        self.logger.info(f"Call simulation completed: {result['call_successful']}")
+        return result
     
     def _clear_asterisk_logs(self):
         """Clear or mark current position in Asterisk logs"""
@@ -133,7 +223,12 @@ class CallFlowValidator:
         temp_file = f"/tmp/call_{call_id}"
         spool_file = f"/var/spool/asterisk/outgoing/call_{call_id}.call"
         
-        # Create call file content
+        self.logger.info(f"Executing test call for DID {did}")
+        self.logger.debug(f"Call ID: {call_id}")
+        self.logger.debug(f"Temp file: {temp_file}")
+        self.logger.debug(f"Spool file: {spool_file}")
+        
+        # Create call file content (using FIXED channel syntax)
         call_content = f"""Channel: local/{caller_id}@from-internal
 CallerID: {caller_id}
 Context: from-internal
@@ -145,39 +240,102 @@ Archive: no
 # Validation test for DID {did}
 """
         
+        self.logger.debug(f"Call file content:\n{call_content}")
+        
         try:
-            # Create call file on server
-            cmd = f'cat > {temp_file} << "EOF"\n{call_content}EOF'
-            result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", cmd
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
+            # Check if we should run locally
+            local_hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(local_hostname)
             
-            if result.returncode != 0:
-                return {'success': False, 'error': f"Failed to create call file: {result.stderr}"}
+            is_local = (
+                self.server_ip in ['localhost', '127.0.0.1', local_ip] or 
+                local_hostname.startswith('pbx') or
+                self.server_ip == local_ip
+            )
             
-            # Set ownership
-            subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", 
-                f"chown asterisk:asterisk {temp_file}"
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+            self.logger.info(f"Call file execution - running locally: {is_local}")
             
-            # Move to spool directory
-            move_result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", 
-                f"mv {temp_file} {spool_file}"
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+            if is_local:
+                # Run locally
+                self.logger.debug("Creating call file locally")
+                
+                # Write call file locally
+                with open(temp_file, 'w') as f:
+                    f.write(call_content)
+                
+                # Set ownership
+                subprocess.run(['chown', 'asterisk:asterisk', temp_file], 
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                
+                # Move to spool directory
+                move_result = subprocess.run(['mv', temp_file, spool_file], 
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                
+                if move_result.returncode != 0:
+                    error_msg = f"Failed to spool call: {move_result.stderr.decode()}"
+                    self.logger.error(error_msg)
+                    return {'success': False, 'error': error_msg}
+                
+            else:
+                # Use SSH for remote execution
+                self.logger.debug("Creating call file via SSH")
+                
+                # Create call file on server
+                cmd = f'cat > {temp_file} << "EOF"\n{call_content}EOF'
+                self.logger.debug(f"SSH command: ssh {self.ssh_user}@{self.server_ip} {cmd}")
+                
+                result = subprocess.run([
+                    "ssh", f"{self.ssh_user}@{self.server_ip}", cmd
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
+                
+                self.logger.debug(f"SSH create result: {result.returncode}")
+                if result.stderr:
+                    self.logger.debug(f"SSH create stderr: {result.stderr}")
+                
+                if result.returncode != 0:
+                    error_msg = f"Failed to create call file: {result.stderr}"
+                    self.logger.error(error_msg)
+                    return {'success': False, 'error': error_msg}
+                
+                # Set ownership
+                self.logger.debug("Setting file ownership via SSH")
+                subprocess.run([
+                    "ssh", f"{self.ssh_user}@{self.server_ip}", 
+                    f"chown asterisk:asterisk {temp_file}"
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+                
+                # Move to spool directory
+                self.logger.debug("Moving to spool directory via SSH")
+                move_result = subprocess.run([
+                    "ssh", f"{self.ssh_user}@{self.server_ip}", 
+                    f"mv {temp_file} {spool_file}"
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+                
+                if move_result.returncode != 0:
+                    error_msg = f"Failed to spool call: {move_result.stderr}"
+                    self.logger.error(error_msg)
+                    return {'success': False, 'error': error_msg}
             
-            if move_result.returncode != 0:
-                return {'success': False, 'error': f"Failed to spool call: {move_result.stderr}"}
+            self.logger.info("Call file created and spooled successfully")
             
             # Check if processed
+            self.logger.debug("Waiting 2 seconds then checking if call was processed")
             time.sleep(2)
-            check_result = subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", 
-                f"test -f {spool_file} && echo 'EXISTS' || echo 'PROCESSED'"
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
             
-            processed = "PROCESSED" in check_result.stdout
+            if is_local:
+                # Check locally
+                import os
+                processed = not os.path.exists(spool_file)
+            else:
+                # Check via SSH
+                check_result = subprocess.run([
+                    "ssh", f"{self.ssh_user}@{self.server_ip}", 
+                    f"test -f {spool_file} && echo 'EXISTS' || echo 'PROCESSED'"
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+                
+                processed = "PROCESSED" in check_result.stdout
+            
+            self.logger.info(f"Call processed: {processed}")
             
             return {
                 'success': True,
@@ -186,7 +344,9 @@ Archive: no
             }
             
         except Exception as e:
-            return {'success': False, 'error': f"Exception: {str(e)}"}
+            error_msg = f"Exception in _execute_test_call: {str(e)}"
+            self.logger.error(error_msg)
+            return {'success': False, 'error': error_msg}
     
     def _analyze_asterisk_logs(self, call_id):
         """Analyze Asterisk logs for call behavior"""
@@ -398,22 +558,48 @@ Archive: no
         }
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 callflow_validator.py <DID> [server_ip] [ssh_user]")
-        print("Example: python3 callflow_validator.py 2485815200")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='FreePBX Call Flow Validator')
+    parser.add_argument('did', help='DID number to validate')
+    parser.add_argument('--server', default='69.39.69.102', help='Server IP (default: 69.39.69.102)')
+    parser.add_argument('--user', default='123net', help='SSH user (default: 123net)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     
-    did = sys.argv[1]
-    server_ip = sys.argv[2] if len(sys.argv) > 2 else "69.39.69.102"
-    ssh_user = sys.argv[3] if len(sys.argv) > 3 else "123net"
+    # Handle both new and old argument formats
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith('-') and '--' not in ' '.join(sys.argv):
+        # Old format: script.py DID [server] [user] (no -- flags present)
+        did = sys.argv[1]
+        server_ip = sys.argv[2] if len(sys.argv) > 2 else "69.39.69.102"
+        ssh_user = sys.argv[3] if len(sys.argv) > 3 else "123net"
+        debug = False
+    else:
+        # New format with argparse
+        if len(sys.argv) < 2:
+            print("Usage: python3 callflow_validator.py <DID> [--server IP] [--user USER] [--debug]")
+            print("Example: python3 callflow_validator.py 2485815200 --debug")
+            sys.exit(1)
+        
+        args = parser.parse_args()
+        did = args.did
+        server_ip = args.server
+        ssh_user = args.user
+        debug = args.debug
     
-    validator = CallFlowValidator(server_ip, ssh_user)
+    # Initialize logging
+    global logger
+    logger = setup_logging(debug)
+    
+    logger.info("Starting FreePBX Call Flow Validator")
+    logger.info(f"Arguments: DID={did}, Server={server_ip}, User={ssh_user}, Debug={debug}")
+    
+    validator = CallFlowValidator(server_ip, ssh_user, debug)
     
     print("🎯 FREEPBX CALL FLOW VALIDATOR")
     print("=" * 40)
     print(f"DID: {did}")
     print(f"Server: {server_ip}")
     print(f"User: {ssh_user}")
+    if debug:
+        print(f"Debug: ENABLED (logs to /tmp/callflow_validator.log)")
     
     try:
         result = validator.validate_call_flow(did)
@@ -426,6 +612,7 @@ def main():
             with open(results_file, 'w') as f:
                 json.dump(result, f, indent=2)
             
+            logger.info(f"Results saved to: {results_file}")
             print(f"\n💾 Results saved to: {results_file}")
             
             # Final assessment
@@ -433,24 +620,33 @@ def main():
             if score >= 90:
                 print(f"\n🏆 EXCELLENT VALIDATION (Score: {score:.1f}%)")
                 print("   Call flow prediction is highly accurate!")
+                logger.info(f"Excellent validation score: {score:.1f}%")
             elif score >= 75:
                 print(f"\n✅ GOOD VALIDATION (Score: {score:.1f}%)")
                 print("   Call flow prediction is mostly accurate")
+                logger.info(f"Good validation score: {score:.1f}%")
             elif score >= 50:
                 print(f"\n⚠️  FAIR VALIDATION (Score: {score:.1f}%)")
                 print("   Some discrepancies found - review needed")
+                logger.warning(f"Fair validation score: {score:.1f}%")
             else:
                 print(f"\n❌ POOR VALIDATION (Score: {score:.1f}%)")
                 print("   Significant discrepancies - tool needs adjustment")
+                logger.error(f"Poor validation score: {score:.1f}%")
         else:
-            print(f"\n❌ Validation failed: {result['error']}")
+            error_msg = f"Validation failed: {result['error']}"
+            logger.error(error_msg)
+            print(f"\n❌ {error_msg}")
             sys.exit(1)
             
     except KeyboardInterrupt:
+        logger.info("Validation interrupted by user")
         print("\n⚠️  Validation interrupted by user")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        print(f"\n❌ {error_msg}")
         sys.exit(1)
 
 if __name__ == "__main__":
