@@ -45,6 +45,11 @@ deploy_config.ps1
 deploy_config.sh
 setup_ssh_auth.sh
 
+# Test credentials and sensitive test files
+test_info.txt
+*test_info*
+test_password_file.txt
+
 # Backup files that might contain sensitive data
 *.backup
 *_backup.*
