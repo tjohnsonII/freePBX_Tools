@@ -49,7 +49,7 @@ setup_ssh_auth.sh
 test_info.txt
 *test_info*
 test_password_file.txt
-
+MANUAL_TEST_CREDENTIALS.txt
 # Backup files that might contain sensitive data
 *.backup
 *_backup.*
