@@ -17,10 +17,28 @@ except ImportError:
     print("Please install it with: pip install paramiko")
     sys.exit(1)
 
+# Try to import credentials from config.py, fall back to environment variables
+try:
+    from config import FREEPBX_USER, FREEPBX_PASSWORD, FREEPBX_ROOT_PASSWORD
+    DEFAULT_USER = FREEPBX_USER
+    DEFAULT_PASSWORD = FREEPBX_PASSWORD
+    ROOT_PASSWORD = FREEPBX_ROOT_PASSWORD
+except ImportError:
+    # Fall back to environment variables
+    DEFAULT_USER = os.getenv("FREEPBX_USER", "123net")
+    DEFAULT_PASSWORD = os.getenv("FREEPBX_PASSWORD", "")
+    ROOT_PASSWORD = os.getenv("FREEPBX_ROOT_PASSWORD", "")
+    
+    if not DEFAULT_PASSWORD or not ROOT_PASSWORD:
+        print("❌ Error: Credentials not found!")
+        print("Either:")
+        print("  1. Create config.py from config.example.py, OR")
+        print("  2. Set environment variables: FREEPBX_PASSWORD and FREEPBX_ROOT_PASSWORD")
+        sys.exit(1)
+
 # Configuration
-DEFAULT_USER = "123net"
-DEFAULT_PASSWORD = "dH10oQW6jQ2rc&402B%e"
-ROOT_PASSWORD = "***REMOVED***"
+# IMPORTANT: Store credentials in environment variables or a secure config file
+# Never commit passwords to git!
 REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
 LOCAL_SOURCE_DIR = "freepbx-tools"
 
