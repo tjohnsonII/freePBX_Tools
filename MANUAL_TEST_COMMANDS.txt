@@ -1,0 +1,51 @@
+# Manual Test Instructions for CallFlow Validator Logging Feature
+# Copy and paste these commands one at a time into PowerShell
+
+# Test Server Info:
+# IP: 69.39.69.102
+# User: 123net
+# Password: dH10oQW6jQ2rc&402B%e
+
+# ============================================================================
+# STEP 1: Upload the callflow validator to test server
+# ============================================================================
+
+scp freepbx-tools\bin\callflow_validator.py 123net@69.39.69.102:/tmp/callflow_validator.py
+
+# When prompted, enter password: dH10oQW6jQ2rc&402B%e
+
+
+# ============================================================================
+# STEP 2: Run the validator with debug logging enabled
+# ============================================================================
+
+ssh 123net@69.39.69.102 "cd /tmp && python3 callflow_validator.py 2485815200 --debug"
+
+# When prompted, enter password: dH10oQW6jQ2rc&402B%e
+
+
+# ============================================================================
+# STEP 3: Check the debug log file contents
+# ============================================================================
+
+ssh 123net@69.39.69.102 "ls -la /tmp/callflow_validator.log && echo '--- Log Contents (last 20 lines) ---' && tail -20 /tmp/callflow_validator.log"
+
+# When prompted, enter password: dH10oQW6jQ2rc&402B%e
+
+
+# ============================================================================
+# What to Look For in the Output:
+# ============================================================================
+# ✓ Console output with timestamps and log levels (INFO, DEBUG)
+# ✓ Debug messages showing:
+#   - Server IP and SSH user
+#   - Localhost detection logic
+#   - Whether it's running via SSH or locally
+#   - Call flow prediction steps
+# ✓ Log file at /tmp/callflow_validator.log with detailed DEBUG information
+# ✓ Any error messages or exceptions
+
+# ============================================================================
+# Expected Result:
+# ============================================================================
+# You should see both console output AND a log file created with debug info
