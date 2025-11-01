@@ -44,10 +44,13 @@ server_ips.txt
 deploy_config.ps1
 deploy_config.sh
 setup_ssh_auth.sh
+config.py
+credentials.py
 
 # Test credentials and sensitive test files
 test_info.txt
 *test_info*
+test_password_file.txt
 test_password_file.txt
 MANUAL_TEST_CREDENTIALS.txt
 # Backup files that might contain sensitive data
