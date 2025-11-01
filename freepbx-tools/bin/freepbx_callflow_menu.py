@@ -86,13 +86,13 @@ def run_call_simulation_menu(sock, did_rows):
     
     while True:
         print("📞 Call Simulation Options:")
-        print(" 1) Test specific DID with call simulation")
-        print(" 2) Validate call flow accuracy for DID")
-        print(" 3) Test extension call")
-        print(" 4) Test voicemail call")
-        print(" 5) Test playback application")
-        print(" 6) Run comprehensive call validation")
-        print(" 7) Monitor active call simulations")
+        print(" 1) Test specific DID with call simulation (makes actual test call)")
+        print(" 2) Validate call flow configuration for DID (checks database only)")
+        print(" 3) Test extension call (internal extension-to-extension)")
+        print(" 4) Test voicemail call (voicemail access and functionality)")
+        print(" 5) Validate ring group configuration (checks members & settings)")
+        print(" 6) Run comprehensive call validation (all checks across system)")
+        print(" 7) Monitor active call simulations (real-time status)")
         print(" 8) Return to main menu")
         print()
         
