@@ -15,8 +15,8 @@ def test_dashboard(host):
     try:
         ssh.connect(host, username=FREEPBX_USER, password=FREEPBX_PASSWORD, timeout=10)
         
-        # Run the menu with option 0 to show dashboard
-        stdin, stdout, stderr = ssh.exec_command('echo "0" | freepbx-callflows', timeout=30)
+        # Run the menu - just press Enter to see dashboard without choosing an option
+        stdin, stdout, stderr = ssh.exec_command('echo "" | freepbx-callflows 2>&1 | head -100', timeout=30)
         
         output = stdout.read().decode('utf-8')
         errors = stderr.read().decode('utf-8')
