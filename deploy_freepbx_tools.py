@@ -222,11 +222,16 @@ echo '{ROOT_PASSWORD}' | su -c './install.sh' root
         if install_errors:
             print(f"[{server_ip}] Installation errors:\n{install_errors}")
         
-        if exit_code == 0:
+        # Check for success indicators in output rather than relying on exit code
+        # Exit code can be 1 due to password prompts but installation still succeeds
+        if "Installed 123NET FreePBX Tools" in install_output or "symlinks created" in install_output.lower():
+            print_success(f"[{server_ip}] Installation completed successfully")
+            result['success'] = True
+        elif exit_code == 0:
             print_success(f"[{server_ip}] Installation completed successfully")
             result['success'] = True
         else:
-            print_warning(f"[{server_ip}] Installation completed with exit code {exit_code}")
+            print_warning(f"[{server_ip}] Installation may have issues (exit code {exit_code})")
             result['success'] = False
         
         result['files_deployed'] = files_uploaded
