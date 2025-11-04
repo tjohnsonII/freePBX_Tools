@@ -703,25 +703,40 @@ def get_time_conditions_status(sock):
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                               universal_newlines=True, timeout=5)
         
-        if result.returncode != 0:
+        if result.returncode != 0 or not result.stdout.strip():
             # Table might not exist or no permissions
-            return ["No time conditions configured"]
+            return ["No data available"]
         
         tc_list = []
+        total_count = 0
+        forced_count = 0
+        
         for line in result.stdout.strip().split('\n'):
             if line:
                 parts = line.split('\t')
                 if len(parts) >= 3:
                     tc_id, name, state = parts[0], parts[1], parts[2]
+                    total_count += 1
                     # state: 0=auto, 1=force true, 2=force false
                     if state == '1':
                         tc_list.append("{} (FORCED ON)".format(name))
+                        forced_count += 1
                     elif state == '2':
                         tc_list.append("{} (FORCED OFF)".format(name))
+                        forced_count += 1
         
-        return tc_list if tc_list else ["All Auto"]
+        # Show summary
+        if total_count > 0:
+            if forced_count > 0:
+                result = ["{} Total | {} Override | {} Auto".format(total_count, forced_count, total_count - forced_count)]
+                result.extend(tc_list[:5])  # Show first 5 forced
+                return result
+            else:
+                return ["{} Total | All running on schedule".format(total_count)]
+        else:
+            return ["No time conditions found"]
     except Exception as e:
-        return ["Query error: {}".format(str(e))]
+        return ["Query error: {}".format(str(e)[:50])]
 
 def get_recent_package_updates():
     """Get recent Asterisk/FreePBX package updates from system package manager"""
@@ -791,6 +806,67 @@ def get_recent_package_updates():
     
     return updates if updates else ["No package history found"]
 
+def get_endpoint_status(sock):
+    """Get SIP endpoint registration status"""
+    try:
+        # Get list of extensions from database
+        sql = "SELECT extension, name FROM users ORDER BY CAST(extension AS UNSIGNED)"
+        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=5)
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return {"registered": 0, "unregistered": 0, "total": 0, "details": []}
+        
+        extensions = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split('\t')
+                if len(parts) >= 1:
+                    ext = parts[0]
+                    name = parts[1] if len(parts) > 1 else ""
+                    extensions.append((ext, name))
+        
+        # Check registration status via Asterisk
+        registered = []
+        unregistered = []
+        
+        cmd = ["asterisk", "-rx", "pjsip show endpoints"]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=5)
+        
+        if result.returncode == 0 and result.stdout:
+            # Parse pjsip output - format: Endpoint/CID/Auth/Device State
+            pjsip_status = {}
+            for line in result.stdout.split('\n'):
+                parts = line.split()
+                if parts and parts[0].isdigit() and len(parts) >= 4:
+                    ext = parts[0]
+                    # Device state in format like "Unavail" or "Avail"
+                    state = parts[-1] if len(parts) > 0 else "Unknown"
+                    pjsip_status[ext] = state
+            
+            # Match extensions with registration status
+            for ext, name in extensions:  # Show ALL endpoints
+                if ext in pjsip_status:
+                    state = pjsip_status[ext]
+                    if 'avail' in state.lower() or 'online' in state.lower():
+                        registered.append((ext, name, state))
+                    else:
+                        unregistered.append((ext, name, state))
+                else:
+                    unregistered.append((ext, name, "Not Found"))
+        
+        return {
+            "registered": len(registered),
+            "unregistered": len(unregistered),
+            "total": len(extensions),
+            "details": registered + unregistered
+        }
+    
+    except Exception:
+        return {"registered": 0, "unregistered": 0, "total": 0, "details": []}
+
 def display_system_dashboard(sock, data):
     """Display key system information at top of menu"""
     
@@ -812,9 +888,22 @@ def display_system_dashboard(sock, data):
     
     # File locations widget
     print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 📁 KEY FILE LOCATIONS " + "─" * 44 + "┐" + Colors.RESET)
-    print(Colors.CYAN + "  ├─ Snapshot:" + Colors.RESET + " {}".format(DUMP_PATH))
-    print(Colors.CYAN + "  ├─ Output:  " + Colors.RESET + " {}".format(OUT_DIR))
-    print(Colors.CYAN + "  └─ MySQL:   " + Colors.RESET + " {}".format(sock))
+    
+    # Check if snapshot exists
+    import os
+    snapshot_exists = os.path.exists(DUMP_PATH)
+    snapshot_icon = Colors.GREEN + "✓" if snapshot_exists else Colors.RED + "✗"
+    
+    # Get snapshot size if it exists
+    snapshot_info = ""
+    if snapshot_exists:
+        size_mb = os.path.getsize(DUMP_PATH) / (1024 * 1024)
+        snapshot_info = Colors.WHITE + " ({:.1f} MB)".format(size_mb)
+    
+    print(Colors.CYAN + "  ├─ " + snapshot_icon + Colors.CYAN + " Snapshot: " + Colors.RESET + 
+          Colors.WHITE + "{}".format(DUMP_PATH) + snapshot_info + Colors.RESET)
+    print(Colors.CYAN + "  ├─ Output Dir:  " + Colors.RESET + Colors.WHITE + "{}".format(OUT_DIR) + Colors.RESET)
+    print(Colors.CYAN + "  ├─ MySQL Socket:" + Colors.RESET + Colors.WHITE + " {}".format(sock) + Colors.RESET)
     
     # Snapshot age
     if os.path.exists(DUMP_PATH):
@@ -854,9 +943,65 @@ def display_system_dashboard(sock, data):
     print("\n" + Colors.CYAN + Colors.BOLD + "┌─ ⚙️  SYSTEM SERVICES " + "─" * 46 + "┐" + Colors.RESET)
     services = ["asterisk", "httpd", "mariadb", "fail2ban"]
     service_status = get_service_status(services)
+    
+    # Count statuses
+    running_count = sum(1 for _, status, _ in service_status if status == "running")
+    stopped_count = sum(1 for _, status, _ in service_status if status == "stopped")
+    
+    # Summary line
+    print(Colors.CYAN + "  ├─ " + Colors.GREEN + "{}".format(running_count) + Colors.CYAN + " Running | " + 
+          Colors.RED + "{}".format(stopped_count) + Colors.CYAN + " Stopped" + Colors.RESET)
+    
     for i, (service, status, color) in enumerate(service_status):
-        prefix = "  ├─" if i < len(service_status) - 1 else "  └─"
-        print(prefix + " " + Colors.CYAN + "{:<15}".format(service + ":") + color + Colors.BOLD + status.upper() + Colors.RESET)
+        is_last = i == len(service_status) - 1
+        prefix = "  └─" if is_last else "  ├─"
+        status_icon = "●" if status == "running" else "○"
+        print(prefix + " " + color + status_icon + " " + Colors.CYAN + "{:<12}".format(service) + 
+              color + Colors.BOLD + status.upper() + Colors.RESET)
+    
+    # Endpoint registration widget
+    print("\n" + Colors.MAGENTA + Colors.BOLD + "┌─ 📱 ENDPOINT REGISTRATIONS " + "─" * 40 + "┐" + Colors.RESET)
+    endpoint_status = get_endpoint_status(sock)
+    if endpoint_status["total"] > 0:
+        reg_pct = int((endpoint_status["registered"] / endpoint_status["total"]) * 100) if endpoint_status["total"] > 0 else 0
+        
+        # Summary line
+        print(Colors.CYAN + "  ├─ Total: " + Colors.WHITE + Colors.BOLD + "{}".format(endpoint_status["total"]) + 
+              Colors.RESET + Colors.CYAN + " | " + Colors.GREEN + "Registered: " + Colors.GREEN + Colors.BOLD + 
+              "{} ({}%)".format(endpoint_status["registered"], reg_pct) + Colors.RESET + Colors.CYAN + " | " + 
+              Colors.RED + "Unregistered: " + Colors.RED + Colors.BOLD + "{}".format(endpoint_status["unregistered"]) + Colors.RESET)
+        
+        # Show all endpoints horizontally
+        if endpoint_status["details"]:
+            print(Colors.CYAN + "  ├─" + Colors.RESET)
+            
+            # Group endpoints in rows
+            endpoints_per_row = 10  # Show 10 endpoints per line
+            all_endpoints = endpoint_status["details"]
+            
+            for row_start in range(0, len(all_endpoints), endpoints_per_row):
+                row_endpoints = all_endpoints[row_start:row_start + endpoints_per_row]
+                is_last_row = row_start + endpoints_per_row >= len(all_endpoints)
+                prefix = "  └─ " if is_last_row else "  ├─ "
+                
+                # Build horizontal display
+                endpoint_displays = []
+                for ext, name, state in row_endpoints:
+                    # Color code by status
+                    if 'avail' in state.lower() or 'online' in state.lower():
+                        status_color = Colors.GREEN
+                        status_icon = "✓"
+                    else:
+                        status_color = Colors.RED
+                        status_icon = "✗"
+                    
+                    # Format: icon+ext
+                    endpoint_displays.append(status_color + status_icon + ext + Colors.RESET)
+                
+                # Print row
+                print(prefix + " ".join(endpoint_displays))
+    else:
+        print(Colors.CYAN + "  └─ No endpoints found" + Colors.RESET)
     
     # System inventory widget
     if data:

@@ -198,11 +198,15 @@ def deploy_to_server(server_ip, username, password, files, dry_run=False):
         
         print(f"[{server_ip}] Running installation as root...")
         
-        # Execute commands using sudo with root password
-        install_commands = f"""
-cd {temp_dir}
-echo '{ROOT_PASSWORD}' | su -c 'bash bootstrap.sh' root
-echo '{ROOT_PASSWORD}' | su -c './install.sh' root
+        # Use su root to switch to root, then run commands in that session
+        # This mimics the manual process: su root, enter password, run commands
+        install_commands = f"""cd {temp_dir}
+su root << 'ROOTEOF'
+{ROOT_PASSWORD}
+bash bootstrap.sh
+./install.sh
+exit
+ROOTEOF
 """
         
         stdin, stdout, stderr = ssh.exec_command(install_commands)
@@ -254,8 +258,8 @@ echo '{ROOT_PASSWORD}' | su -c './install.sh' root
 def deploy_parallel(servers, username, password, files, max_workers=5, dry_run=False):
     """Deploy to multiple servers in parallel"""
     print_header(f"Deploying to {len(servers)} servers")
-    print(f"Files to deploy: {len(files)}")
-    print(f"Max parallel workers: {max_workers}")
+    print(f"{Colors.CYAN}Files to deploy:{Colors.RESET} {Colors.BOLD}{len(files)}{Colors.RESET}")
+    print(f"{Colors.CYAN}Max parallel workers:{Colors.RESET} {Colors.BOLD}{max_workers}{Colors.RESET}")
     if dry_run:
         print_warning("DRY RUN MODE - No actual changes will be made")
     print()
@@ -293,20 +297,22 @@ def print_summary(results):
     successful = [r for r in results if r['success']]
     failed = [r for r in results if not r['success']]
     
-    print(f"\nTotal servers: {len(results)}")
-    print_success(f"Successful: {len(successful)}")
+    print(f"\n{Colors.BOLD}Total servers: {len(results)}{Colors.RESET}")
+    if successful:
+        print_success(f"Successful: {len(successful)}")
     if failed:
         print_error(f"Failed: {len(failed)}")
     
     if successful:
-        print(f"\n{Colors.GREEN}✅ Successful Deployments:{Colors.RESET}")
+        print(f"\n{Colors.GREEN}{Colors.BOLD}✅ Successful Deployments:{Colors.RESET}")
         for r in successful:
-            print(f"  • {r['server']}: {r['message']} ({r['files_deployed']} files)")
+            files_info = f"({r['files_deployed']} files)" if r['files_deployed'] > 0 else ""
+            print(f"  {Colors.GREEN}•{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {r['message']} {Colors.YELLOW}{files_info}{Colors.RESET}")
     
     if failed:
-        print(f"\n{Colors.RED}❌ Failed Deployments:{Colors.RESET}")
+        print(f"\n{Colors.RED}{Colors.BOLD}❌ Failed Deployments:{Colors.RESET}")
         for r in failed:
-            print(f"  • {r['server']}: {r['message']}")
+            print(f"  {Colors.RED}•{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {Colors.RED}{r['message']}{Colors.RESET}")
 
 def main():
     parser = argparse.ArgumentParser(
