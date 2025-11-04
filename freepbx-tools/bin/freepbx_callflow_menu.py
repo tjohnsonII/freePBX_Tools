@@ -660,13 +660,15 @@ def get_service_status(services):
         try:
             # Try systemctl first (EL7+)
             cmd = ["systemctl", "is-active", service]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                  universal_newlines=True, timeout=2)
             if result.returncode == 0 and result.stdout.strip() == "active":
                 status_list.append((service, "running", Colors.GREEN))
             else:
                 # Try service command (older systems)
                 cmd = ["service", service, "status"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                      universal_newlines=True, timeout=2)
                 if result.returncode == 0:
                     status_list.append((service, "running", Colors.GREEN))
                 else:
@@ -679,7 +681,8 @@ def get_active_calls(sock):
     """Get count of active calls from Asterisk"""
     try:
         cmd = ["asterisk", "-rx", "core show channels count"]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                              universal_newlines=True, timeout=5)
         output = result.stdout
         # Parse output like "2 active channels" or "0 active calls"
         for line in output.split('\n'):
@@ -697,7 +700,8 @@ def get_time_conditions_status(sock):
         # Query the timeconditions table for current state
         sql = "SELECT id, displayname, inuse_state FROM timeconditions ORDER BY displayname"
         cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                              universal_newlines=True, timeout=5)
         
         if result.returncode != 0:
             # Table might not exist or no permissions
@@ -719,52 +723,73 @@ def get_time_conditions_status(sock):
     except Exception as e:
         return ["Query error: {}".format(str(e))]
 
-def get_recent_module_updates(sock):
-    """Get recent FreePBX module updates from database"""
+def get_recent_package_updates():
+    """Get recent Asterisk/FreePBX package updates from system package manager"""
+    import datetime
+    updates = []
+    
     try:
-        # Query the module_xml table for recently updated modules
-        sql = """SELECT modulename, version, updated 
-                 FROM module_xml 
-                 WHERE updated IS NOT NULL 
-                 ORDER BY updated DESC 
-                 LIMIT 5"""
-        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        # Try yum/dnf history first (RHEL/CentOS)
+        cmd = ["yum", "history", "list", "asterisk*"]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                              universal_newlines=True, timeout=5)
         
-        if result.returncode != 0 or not result.stdout.strip():
-            return ["No module update history found"]
-        
-        updates = []
-        for line in result.stdout.strip().split('\n'):
-            if line:
-                parts = line.split('\t')
-                if len(parts) >= 3:
-                    module, version, updated = parts[0], parts[1], parts[2]
-                    # Parse timestamp (format: YYYY-MM-DD HH:MM:SS)
-                    try:
-                        import datetime
-                        update_time = datetime.datetime.strptime(updated, '%Y-%m-%d %H:%M:%S')
-                        now = datetime.datetime.now()
-                        delta = now - update_time
+        if result.returncode == 0 and result.stdout:
+            lines = result.stdout.strip().split('\n')
+            # Parse yum history output
+            for line in lines:
+                if 'asterisk' in line.lower() and ('install' in line.lower() or 'update' in line.lower()):
+                    parts = line.split('|')
+                    if len(parts) >= 3:
+                        # Extract date and action
+                        date_str = parts[1].strip() if len(parts) > 1 else ""
+                        action = parts[2].strip() if len(parts) > 2 else ""
                         
-                        if delta.days == 0:
-                            time_ago = "today"
-                        elif delta.days == 1:
-                            time_ago = "yesterday"
-                        elif delta.days < 7:
-                            time_ago = "{}d ago".format(delta.days)
-                        elif delta.days < 30:
-                            time_ago = "{}w ago".format(delta.days // 7)
-                        else:
-                            time_ago = "{}mo ago".format(delta.days // 30)
-                        
-                        updates.append("{} v{} ({})".format(module, version, time_ago))
-                    except Exception:
-                        updates.append("{} v{}".format(module, version))
+                        # Parse date and calculate time ago
+                        try:
+                            # Date format: 2025-10-17 12:17
+                            update_time = datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M')
+                            now = datetime.datetime.now()
+                            delta = now - update_time
+                            
+                            if delta.days == 0:
+                                time_ago = "today"
+                            elif delta.days == 1:
+                                time_ago = "yesterday"
+                            elif delta.days < 7:
+                                time_ago = "{}d ago".format(delta.days)
+                            elif delta.days < 30:
+                                time_ago = "{}w ago".format(delta.days // 7)
+                            else:
+                                time_ago = "{}mo ago".format(delta.days // 30)
+                            
+                            updates.append("Asterisk {} ({})".format(action.lower(), time_ago))
+                            if len(updates) >= 5:
+                                break
+                        except Exception:
+                            pass
         
-        return updates if updates else ["No recent updates found"]
-    except Exception as e:
-        return ["Query error: {}".format(str(e)[:50])]
+        # If no yum history, try rpm query
+        if not updates:
+            cmd = ["rpm", "-qa", "--last", "asterisk*"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  universal_newlines=True, timeout=5)
+            
+            if result.returncode == 0 and result.stdout:
+                lines = result.stdout.strip().split('\n')[:5]  # Get first 5
+                for line in lines:
+                    if line:
+                        # Format: package-name date
+                        parts = line.split()
+                        if parts:
+                            pkg = parts[0]
+                            # Extract version from package name
+                            updates.append(pkg)
+    
+    except Exception:
+        pass
+    
+    return updates if updates else ["No package history found"]
 
 def display_system_dashboard(sock, data):
     """Display key system information at top of menu"""
@@ -842,9 +867,9 @@ def display_system_dashboard(sock, data):
         print(Colors.CYAN + "  ├─ Time Conditions:" + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("timeconditions", []))) + Colors.RESET)
         print(Colors.CYAN + "  └─ IVRs:           " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("ivr", []))) + Colors.RESET)
     
-    # Recent module updates widget
-    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 🔄 RECENT MODULE UPDATES " + "─" * 41 + "┐" + Colors.RESET)
-    recent_updates = get_recent_module_updates(sock)
+    # Recent package updates widget
+    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 🔄 RECENT ASTERISK UPDATES " + "─" * 39 + "┐" + Colors.RESET)
+    recent_updates = get_recent_package_updates()
     for i, update in enumerate(recent_updates[:5]):  # Show first 5
         prefix = "  ├─" if i < min(len(recent_updates), 5) - 1 else "  └─"
         # Color code by recency
