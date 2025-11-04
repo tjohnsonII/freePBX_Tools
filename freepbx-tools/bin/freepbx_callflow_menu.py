@@ -886,8 +886,8 @@ def display_system_dashboard(sock, data):
     print("╚════════════════════════════════════════════════════════════════════╝")
     print(Colors.RESET)
     
-    # File locations widget
-    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 📁 KEY FILE LOCATIONS " + "─" * 44 + "┐" + Colors.RESET)
+    # File locations widget with log files
+    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 📁 KEY FILES & LOGS " + "─" * 47 + "┐" + Colors.RESET)
     
     # Check if snapshot exists
     import os
@@ -899,24 +899,46 @@ def display_system_dashboard(sock, data):
     if snapshot_exists:
         size_mb = os.path.getsize(DUMP_PATH) / (1024 * 1024)
         snapshot_info = Colors.WHITE + " ({:.1f} MB)".format(size_mb)
+        
+        # Snapshot age
+        age_sec = time.time() - os.path.getmtime(DUMP_PATH)
+        age_min = int(age_sec / 60)
+        if age_min < 60:
+            age_str = " - {}m ago".format(age_min)
+            age_color = Colors.GREEN if age_min < 30 else Colors.YELLOW
+        else:
+            hours = age_min // 60
+            age_str = " - {}h ago".format(hours)
+            age_color = Colors.YELLOW if hours < 24 else Colors.RED
+        snapshot_info += age_color + age_str
     
     print(Colors.CYAN + "  ├─ " + snapshot_icon + Colors.CYAN + " Snapshot: " + Colors.RESET + 
           Colors.WHITE + "{}".format(DUMP_PATH) + snapshot_info + Colors.RESET)
     print(Colors.CYAN + "  ├─ Output Dir:  " + Colors.RESET + Colors.WHITE + "{}".format(OUT_DIR) + Colors.RESET)
     print(Colors.CYAN + "  ├─ MySQL Socket:" + Colors.RESET + Colors.WHITE + " {}".format(sock) + Colors.RESET)
     
-    # Snapshot age
-    if os.path.exists(DUMP_PATH):
-        age_sec = time.time() - os.path.getmtime(DUMP_PATH)
-        age_min = int(age_sec / 60)
-        if age_min < 60:
-            age_str = "{}m ago".format(age_min)
-            age_color = Colors.GREEN if age_min < 30 else Colors.YELLOW
+    # Log files with size
+    log_files = [
+        ("/var/log/asterisk/full", "Asterisk Full"),
+        ("/var/log/asterisk/messages", "Asterisk Msg"),
+        ("/var/log/httpd/error_log", "Apache Error"),
+        ("/var/log/messages", "System Log")
+    ]
+    
+    print(Colors.CYAN + "  ├─" + Colors.RESET)
+    for i, (log_path, log_name) in enumerate(log_files):
+        is_last = i == len(log_files) - 1
+        prefix = "  └─" if is_last else "  ├─"
+        
+        if os.path.exists(log_path):
+            size_mb = os.path.getsize(log_path) / (1024 * 1024)
+            size_color = Colors.GREEN if size_mb < 100 else Colors.YELLOW if size_mb < 500 else Colors.RED
+            print(prefix + " " + Colors.GREEN + "✓ " + Colors.CYAN + log_name + Colors.RESET)
+            # Show path and size on next line with indentation
+            print("     " + Colors.WHITE + log_path + Colors.RESET + " " + size_color + "({:.1f} MB)".format(size_mb) + Colors.RESET)
         else:
-            hours = age_min // 60
-            age_str = "{}h {}m ago".format(hours, age_min % 60)
-            age_color = Colors.YELLOW if hours < 24 else Colors.RED
-        print(Colors.CYAN + "     Snapshot age: " + age_color + Colors.BOLD + age_str + Colors.RESET)
+            print(prefix + " " + Colors.RED + "✗ " + Colors.CYAN + log_name + Colors.RESET)
+            print("     " + Colors.WHITE + log_path + Colors.RESET)
     
     # Active calls widget
     print("\n" + Colors.GREEN + Colors.BOLD + "┌─ 📞 ACTIVE CALLS " + "─" * 51 + "┐" + Colors.RESET)
@@ -941,7 +963,7 @@ def display_system_dashboard(sock, data):
     
     # System services widget
     print("\n" + Colors.CYAN + Colors.BOLD + "┌─ ⚙️  SYSTEM SERVICES " + "─" * 46 + "┐" + Colors.RESET)
-    services = ["asterisk", "httpd", "mariadb", "fail2ban"]
+    services = ["asterisk", "httpd", "mariadb", "fail2ban", "freepbx", "php-fpm", "crond", "network", "ntpd", "firewalld"]
     service_status = get_service_status(services)
     
     # Count statuses
