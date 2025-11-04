@@ -10,6 +10,20 @@ Python 3.6 safe. No external modules.
 
 import json, os, sys, subprocess, time
 
+# ANSI Color codes
+class Colors:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BG_BLUE = '\033[44m'
+    BG_CYAN = '\033[46m'
+
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"
 GRAPH_SCRIPT  = "/usr/local/bin/freepbx_callflow_graph.py"
 OUT_DIR       = "/home/123net/callflows"
@@ -639,6 +653,211 @@ def render_dids(did_rows, indexes, sock, skip_labels=None):
             bad += 1
     print("\nDone. Success: {}, Failed: {}".format(ok, bad))
 
+def get_service_status(services):
+    """Get status of system services"""
+    status_list = []
+    for service in services:
+        try:
+            # Try systemctl first (EL7+)
+            cmd = ["systemctl", "is-active", service]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+            if result.returncode == 0 and result.stdout.strip() == "active":
+                status_list.append((service, "running", Colors.GREEN))
+            else:
+                # Try service command (older systems)
+                cmd = ["service", service, "status"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    status_list.append((service, "running", Colors.GREEN))
+                else:
+                    status_list.append((service, "stopped", Colors.RED))
+        except Exception:
+            status_list.append((service, "unknown", Colors.YELLOW))
+    return status_list
+
+def get_active_calls(sock):
+    """Get count of active calls from Asterisk"""
+    try:
+        cmd = ["asterisk", "-rx", "core show channels count"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        output = result.stdout
+        # Parse output like "2 active channels" or "0 active calls"
+        for line in output.split('\n'):
+            if 'active call' in line.lower() or 'active channel' in line.lower():
+                parts = line.split()
+                if parts and parts[0].isdigit():
+                    return int(parts[0])
+    except Exception:
+        pass
+    return None
+
+def get_time_conditions_status(sock):
+    """Get time conditions override status"""
+    try:
+        # Query the timeconditions table for current state
+        sql = "SELECT id, displayname, inuse_state FROM timeconditions ORDER BY displayname"
+        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        
+        if result.returncode != 0:
+            # Table might not exist or no permissions
+            return ["No time conditions configured"]
+        
+        tc_list = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    tc_id, name, state = parts[0], parts[1], parts[2]
+                    # state: 0=auto, 1=force true, 2=force false
+                    if state == '1':
+                        tc_list.append("{} (FORCED ON)".format(name))
+                    elif state == '2':
+                        tc_list.append("{} (FORCED OFF)".format(name))
+        
+        return tc_list if tc_list else ["All Auto"]
+    except Exception as e:
+        return ["Query error: {}".format(str(e))]
+
+def get_recent_module_updates(sock):
+    """Get recent FreePBX module updates from database"""
+    try:
+        # Query the module_xml table for recently updated modules
+        sql = """SELECT modulename, version, updated 
+                 FROM module_xml 
+                 WHERE updated IS NOT NULL 
+                 ORDER BY updated DESC 
+                 LIMIT 5"""
+        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return ["No module update history found"]
+        
+        updates = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    module, version, updated = parts[0], parts[1], parts[2]
+                    # Parse timestamp (format: YYYY-MM-DD HH:MM:SS)
+                    try:
+                        import datetime
+                        update_time = datetime.datetime.strptime(updated, '%Y-%m-%d %H:%M:%S')
+                        now = datetime.datetime.now()
+                        delta = now - update_time
+                        
+                        if delta.days == 0:
+                            time_ago = "today"
+                        elif delta.days == 1:
+                            time_ago = "yesterday"
+                        elif delta.days < 7:
+                            time_ago = "{}d ago".format(delta.days)
+                        elif delta.days < 30:
+                            time_ago = "{}w ago".format(delta.days // 7)
+                        else:
+                            time_ago = "{}mo ago".format(delta.days // 30)
+                        
+                        updates.append("{} v{} ({})".format(module, version, time_ago))
+                    except Exception:
+                        updates.append("{} v{}".format(module, version))
+        
+        return updates if updates else ["No recent updates found"]
+    except Exception as e:
+        return ["Query error: {}".format(str(e)[:50])]
+
+def display_system_dashboard(sock, data):
+    """Display key system information at top of menu"""
+    
+    # ASCII Art Logo
+    print("\n" + Colors.CYAN + Colors.BOLD)
+    print("    ______              ____  ______  __  __")
+    print("   / ____/_______  ____/ __ \\/ __ ) \\/ / / /")
+    print("  / /_  / ___/ _ \\/ __  / / / / __  |\\  /_/ / ")
+    print(" / __/ / /  /  __/ /_/ / /_/ / /_/ / / /__/ /  ")
+    print("/_/   /_/   \\___/\\____/_____/_____/ /_/   /_/   ")
+    print(Colors.RESET)
+    
+    # Dashboard Header
+    print(Colors.BG_BLUE + Colors.WHITE + Colors.BOLD)
+    print("╔════════════════════════════════════════════════════════════════════╗")
+    print("║                    📊  SYSTEM DASHBOARD                            ║")
+    print("╚════════════════════════════════════════════════════════════════════╝")
+    print(Colors.RESET)
+    
+    # File locations widget
+    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 📁 KEY FILE LOCATIONS " + "─" * 44 + "┐" + Colors.RESET)
+    print(Colors.CYAN + "  ├─ Snapshot:" + Colors.RESET + " {}".format(DUMP_PATH))
+    print(Colors.CYAN + "  ├─ Output:  " + Colors.RESET + " {}".format(OUT_DIR))
+    print(Colors.CYAN + "  └─ MySQL:   " + Colors.RESET + " {}".format(sock))
+    
+    # Snapshot age
+    if os.path.exists(DUMP_PATH):
+        age_sec = time.time() - os.path.getmtime(DUMP_PATH)
+        age_min = int(age_sec / 60)
+        if age_min < 60:
+            age_str = "{}m ago".format(age_min)
+            age_color = Colors.GREEN if age_min < 30 else Colors.YELLOW
+        else:
+            hours = age_min // 60
+            age_str = "{}h {}m ago".format(hours, age_min % 60)
+            age_color = Colors.YELLOW if hours < 24 else Colors.RED
+        print(Colors.CYAN + "     Snapshot age: " + age_color + Colors.BOLD + age_str + Colors.RESET)
+    
+    # Active calls widget
+    print("\n" + Colors.GREEN + Colors.BOLD + "┌─ 📞 ACTIVE CALLS " + "─" * 51 + "┐" + Colors.RESET)
+    active_calls = get_active_calls(sock)
+    if active_calls is not None:
+        call_color = Colors.RED if active_calls > 10 else Colors.GREEN if active_calls > 0 else Colors.CYAN
+        print(Colors.CYAN + "  └─ " + call_color + Colors.BOLD + "{} active channel(s)".format(active_calls) + Colors.RESET)
+    else:
+        print(Colors.RED + "  └─ Unable to query" + Colors.RESET)
+    
+    # Time Conditions widget
+    print("\n" + Colors.MAGENTA + Colors.BOLD + "┌─ ⏰ TIME CONDITIONS " + "─" * 47 + "┐" + Colors.RESET)
+    tc_status = get_time_conditions_status(sock)
+    for i, tc in enumerate(tc_status[:5]):  # Show first 5
+        prefix = "  ├─" if i < min(len(tc_status), 5) - 1 else "  └─"
+        if "FORCED" in tc:
+            print(prefix + " " + Colors.YELLOW + Colors.BOLD + tc + Colors.RESET)
+        else:
+            print(prefix + " " + Colors.GREEN + tc + Colors.RESET)
+    if len(tc_status) > 5:
+        print(Colors.CYAN + "     ... and {} more".format(len(tc_status) - 5) + Colors.RESET)
+    
+    # System services widget
+    print("\n" + Colors.CYAN + Colors.BOLD + "┌─ ⚙️  SYSTEM SERVICES " + "─" * 46 + "┐" + Colors.RESET)
+    services = ["asterisk", "httpd", "mariadb", "fail2ban"]
+    service_status = get_service_status(services)
+    for i, (service, status, color) in enumerate(service_status):
+        prefix = "  ├─" if i < len(service_status) - 1 else "  └─"
+        print(prefix + " " + Colors.CYAN + "{:<15}".format(service + ":") + color + Colors.BOLD + status.upper() + Colors.RESET)
+    
+    # System inventory widget
+    if data:
+        print("\n" + Colors.BLUE + Colors.BOLD + "┌─ 📈 SYSTEM INVENTORY " + "─" * 46 + "┐" + Colors.RESET)
+        print(Colors.CYAN + "  ├─ DIDs:           " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("dids", []))) + Colors.RESET)
+        print(Colors.CYAN + "  ├─ Extensions:     " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("users", []))) + Colors.RESET)
+        print(Colors.CYAN + "  ├─ Ring Groups:    " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("ringgroups", []))) + Colors.RESET)
+        print(Colors.CYAN + "  ├─ Time Conditions:" + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("timeconditions", []))) + Colors.RESET)
+        print(Colors.CYAN + "  └─ IVRs:           " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("ivr", []))) + Colors.RESET)
+    
+    # Recent module updates widget
+    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 🔄 RECENT MODULE UPDATES " + "─" * 41 + "┐" + Colors.RESET)
+    recent_updates = get_recent_module_updates(sock)
+    for i, update in enumerate(recent_updates[:5]):  # Show first 5
+        prefix = "  ├─" if i < min(len(recent_updates), 5) - 1 else "  └─"
+        # Color code by recency
+        if "today" in update or "yesterday" in update:
+            update_color = Colors.GREEN
+        elif "d ago" in update or "w ago" in update:
+            update_color = Colors.YELLOW
+        else:
+            update_color = Colors.CYAN
+        print(prefix + " " + update_color + update + Colors.RESET)
+    
+    print("\n" + Colors.CYAN + "═" * 70 + Colors.RESET + "\n")
+
 # ---------------- menu ----------------
 
 def main():
@@ -656,7 +875,10 @@ def main():
         data = load_dump()
 
     while True:
-        print("========== FreePBX Call-Flow Menu ==========")
+        # Display system dashboard at top
+        display_system_dashboard(sock, data)
+        
+        print("\n========== FreePBX Call-Flow Menu ==========")
         print(" 1) Refresh DB snapshot")
         print(" 2) Show inventory (counts) + list DIDs")
         print(" 3) Generate call-flow for selected DID(s)")
