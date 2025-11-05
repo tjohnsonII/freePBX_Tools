@@ -1,9 +1,35 @@
 [root@pbx-oib diagnostic]# cat asterisk-full-diagnostic.sh 
 #!/bin/bash
 
+# ANSI Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
 # Output location
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 OUTPUT="full_diagnostic_$TIMESTAMP.txt"
+
+# Print header
+echo -e "${CYAN}${BOLD}"
+cat << "EOF"
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║          🔧  Asterisk & FreePBX Full Diagnostic Tool          ║
+║                                                               ║
+║          Complete System Health & Configuration Report        ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+EOF
+echo -e "${NC}"
+
+echo -e "${YELLOW}📋 Generating comprehensive diagnostic report...${NC}"
+echo -e "${CYAN}Output file: ${BOLD}$OUTPUT${NC}\n"
 
 # Header
 {
@@ -67,5 +93,31 @@ mysql -u root -e "USE asteriskcdrdb; SELECT calldate, src, dst, disposition, dur
 echo
 } > "$OUTPUT"
 
-echo "✅ Diagnostic complete! Output saved to: $OUTPUT"
+echo -e "${GREEN}${BOLD}✓ Diagnostic complete!${NC}"
+echo -e "${CYAN}Output saved to: ${BOLD}$OUTPUT${NC}"
+
+# Show file size
+SIZE=$(du -h "$OUTPUT" | cut -f1)
+echo -e "${CYAN}File size: ${BOLD}$SIZE${NC}"
+
+# Show quick summary
+echo -e "\n${YELLOW}${BOLD}Quick Summary:${NC}"
+DISK_WARN=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$DISK_WARN" -gt 80 ]; then
+    echo -e "${RED}⚠ Disk usage is high: ${DISK_WARN}%${NC}"
+else
+    echo -e "${GREEN}✓ Disk usage OK: ${DISK_WARN}%${NC}"
+fi
+
+MEM_FREE=$(free -m | awk 'NR==2{printf "%.0f", $7/$2*100}')
+if [ "$MEM_FREE" -lt 10 ]; then
+    echo -e "${RED}⚠ Low free memory: ${MEM_FREE}%${NC}"
+else
+    echo -e "${GREEN}✓ Memory OK: ${MEM_FREE}% free${NC}"
+fi
+
+CHANNELS=$(asterisk -rx "core show channels" | grep "active channel" | awk '{print $1}')
+echo -e "${CYAN}📞 Active channels: ${BOLD}$CHANNELS${NC}"
+
+echo ""
 
