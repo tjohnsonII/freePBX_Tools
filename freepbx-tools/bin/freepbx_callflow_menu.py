@@ -45,12 +45,13 @@ def run_tc_status(sock):
     if not os.path.isfile(TC_STATUS_SCRIPT):
         print("Time Condition status tool not found at", TC_STATUS_SCRIPT)
         return
-    print("\n=== Time Conditions: current override + last *code use ===\n")
     rc, out, err = run(["python3", TC_STATUS_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
         print((err or out).strip())
+    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+    input()
 
 
 def run_module_analyzer(sock):
@@ -58,12 +59,13 @@ def run_module_analyzer(sock):
     if not os.path.isfile(MODULE_ANALYZER_SCRIPT):
         print("Module analyzer tool not found at", MODULE_ANALYZER_SCRIPT)
         return
-    print("\n=== FreePBX Module Analysis ===\n")
     rc, out, err = run(["python3", MODULE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
         print((err or out).strip())
+    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+    input()
 
 
 def run_paging_fax_analyzer(sock):
@@ -71,12 +73,13 @@ def run_paging_fax_analyzer(sock):
     if not os.path.isfile(PAGING_FAX_ANALYZER_SCRIPT):
         print("Paging/Fax analyzer tool not found at", PAGING_FAX_ANALYZER_SCRIPT)
         return
-    print("\n=== Paging, Overhead & Fax Analysis ===\n")
     rc, out, err = run(["python3", PAGING_FAX_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
         print((err or out).strip())
+    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+    input()
 
 
 def run_comprehensive_analyzer(sock):
@@ -84,12 +87,13 @@ def run_comprehensive_analyzer(sock):
     if not os.path.isfile(COMPREHENSIVE_ANALYZER_SCRIPT):
         print("Comprehensive analyzer tool not found at", COMPREHENSIVE_ANALYZER_SCRIPT)
         return
-    print("\n=== Comprehensive Component Analysis ===\n")
     rc, out, err = run(["python3", COMPREHENSIVE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
     if rc == 0:
         print(out, end="")
     else:
         print((err or out).strip())
+    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+    input()
 
 
 def run_call_simulation_menu(sock, did_rows):
@@ -571,24 +575,29 @@ def summarize(data):
         if sub:
             return len(data[key].get(sub, []))
         return len(data[key])
-    print("\n=== Inventory ===")
-    print(" Host:            {}".format(data.get("meta", {}).get("hostname", "")))
-    print(" FreePBX version: {}".format(data.get("meta", {}).get("freepbx_version", "")))
-    print(" MySQL version:   {}".format(data.get("meta", {}).get("mysql_version", "")))
-    print(" Generated:       {}".format(data.get("meta", {}).get("generated_at_utc", "")))
-    print("")
-    print(" Inbound routes (DIDs):     {:>4}".format(count("inbound")))
-    print(" IVRs (menus):              {:>4}".format(count("ivrs", "menus")))
-    print(" IVR options:               {:>4}".format(count("ivrs", "options")))
-    print(" Queues:                    {:>4}".format(count("queues")))
-    print(" Ring groups:               {:>4}".format(count("ringgroups")))
-    print(" Time conditions:           {:>4}".format(count("timeconditions")))
-    print(" Time groups:               {:>4}".format(count("timegroups")))
-    print(" Announcements:             {:>4}".format(count("announcements")))
-    print(" Extensions:                {:>4}".format(count("extensions")))
-    print(" Trunks:                    {:>4}".format(len(data.get("trunks", {}).get("trunks", []))))
-    print(" Outbound routes:           {:>4}".format(len(data.get("outbound", {}).get("routes", []))))
-    print(" Outbound patterns:         {:>4}".format(len(data.get("outbound", {}).get("patterns", []))))
+    
+    # Dramatic inventory display
+    print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.RESET)
+    print(Colors.CYAN + Colors.BOLD + "║" + " 📋 System Inventory".center(78) + "║" + Colors.RESET)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Host:            " + Colors.RESET + Colors.GREEN + data.get("meta", {}).get("hostname", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "FreePBX version: " + Colors.RESET + Colors.YELLOW + data.get("meta", {}).get("freepbx_version", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "MySQL version:   " + Colors.RESET + Colors.YELLOW + data.get("meta", {}).get("mysql_version", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Generated:       " + Colors.RESET + data.get("meta", {}).get("generated_at_utc", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Inbound routes (DIDs):     " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("inbound")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "IVRs (menus):              " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ivrs", "menus")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "IVR options:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ivrs", "options")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Queues:                    " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("queues")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Ring groups:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ringgroups")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Time conditions:           " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("timeconditions")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Time groups:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("timegroups")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Announcements:             " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("announcements")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Extensions:                " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("extensions")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Trunks:                    " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("trunks", {}).get("trunks", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Outbound routes:           " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("outbound", {}).get("routes", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Outbound patterns:         " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("outbound", {}).get("patterns", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.RESET)
     print("")
 
 def list_dids(data, show_limit=50):
@@ -868,187 +877,242 @@ def get_endpoint_status(sock):
         return {"registered": 0, "unregistered": 0, "total": 0, "details": []}
 
 def display_system_dashboard(sock, data):
-    """Display key system information at top of menu"""
-    
-    # ASCII Art Logo
-    print("\n" + Colors.CYAN + Colors.BOLD)
-    print("    ______              ____  ______  __  __")
-    print("   / ____/_______  ____/ __ \\/ __ ) \\/ / / /")
-    print("  / /_  / ___/ _ \\/ __  / / / / __  |\\  /_/ / ")
-    print(" / __/ / /  /  __/ /_/ / /_/ / /_/ / / /__/ /  ")
-    print("/_/   /_/   \\___/\\____/_____/_____/ /_/   /_/   ")
-    print(Colors.RESET)
-    
-    # Dashboard Header
-    print(Colors.BG_BLUE + Colors.WHITE + Colors.BOLD)
-    print("╔════════════════════════════════════════════════════════════════════╗")
-    print("║                    📊  SYSTEM DASHBOARD                            ║")
-    print("╚════════════════════════════════════════════════════════════════════╝")
-    print(Colors.RESET)
-    
-    # File locations widget with log files
-    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 📁 KEY FILES & LOGS " + "─" * 47 + "┐" + Colors.RESET)
-    
-    # Check if snapshot exists
+    """Display key system information in a professional tile-based dashboard layout"""
     import os
-    snapshot_exists = os.path.exists(DUMP_PATH)
-    snapshot_icon = Colors.GREEN + "✓" if snapshot_exists else Colors.RED + "✗"
     
-    # Get snapshot size if it exists
-    snapshot_info = ""
-    if snapshot_exists:
-        size_mb = os.path.getsize(DUMP_PATH) / (1024 * 1024)
-        snapshot_info = Colors.WHITE + " ({:.1f} MB)".format(size_mb)
-        
-        # Snapshot age
-        age_sec = time.time() - os.path.getmtime(DUMP_PATH)
-        age_min = int(age_sec / 60)
-        if age_min < 60:
-            age_str = " - {}m ago".format(age_min)
-            age_color = Colors.GREEN if age_min < 30 else Colors.YELLOW
-        else:
-            hours = age_min // 60
-            age_str = " - {}h ago".format(hours)
-            age_color = Colors.YELLOW if hours < 24 else Colors.RED
-        snapshot_info += age_color + age_str
+    # Constants for perfect box alignment - MUCH WIDER for better readability
+    TILE_WIDTH = 48  # Inner content width (excluding borders) - increased from 36
+    BOX_TOTAL = 154  # Total width for 3 boxes: 3*48 + 2*2(borders) + 2*3(separators) = 154
     
-    print(Colors.CYAN + "  ├─ " + snapshot_icon + Colors.CYAN + " Snapshot: " + Colors.RESET + 
-          Colors.WHITE + "{}".format(DUMP_PATH) + snapshot_info + Colors.RESET)
-    print(Colors.CYAN + "  ├─ Output Dir:  " + Colors.RESET + Colors.WHITE + "{}".format(OUT_DIR) + Colors.RESET)
-    print(Colors.CYAN + "  ├─ MySQL Socket:" + Colors.RESET + Colors.WHITE + " {}".format(sock) + Colors.RESET)
+    # Clear screen and display ASCII Art Logo
+    print("\033[2J\033[H")  # Clear screen
+    print(Colors.CYAN + Colors.BOLD)
+    print("    ______              ____  ______  __  __      _____           __    ")
+    print("   / ____/_______  ____/ __ \\/ __ ) \\/ / /      /_  __/___  ____/ /____")
+    print("  / /_  / ___/ _ \\/ __  / / / / __  |\\  /_/      / / / __ \\/ __ / / ___/")
+    print(" / __/ / /  /  __/ /_/ / /_/ / /_/ / / /__/     / / / /_/ / /_/ / (__  ) ")
+    print("/_/   /_/   \\___/\\____/_____/_____/ /_/   /    /_/  \\____/\\____/_/____/  ")
+    print(Colors.RESET)
     
-    # Log files with size
-    log_files = [
-        ("/var/log/asterisk/full", "Asterisk Full"),
-        ("/var/log/asterisk/messages", "Asterisk Msg"),
-        ("/var/log/httpd/error_log", "Apache Error"),
-        ("/var/log/messages", "System Log")
-    ]
+    # Get meta info
+    meta = data.get("meta", {}) if data else {}
+    hostname = meta.get("hostname", "Unknown")
+    freepbx_ver = meta.get("freepbx_version", "N/A")
+    asterisk_ver = meta.get("asterisk_version", "N/A")
     
-    print(Colors.CYAN + "  ├─" + Colors.RESET)
-    for i, (log_path, log_name) in enumerate(log_files):
-        is_last = i == len(log_files) - 1
-        prefix = "  └─" if is_last else "  ├─"
-        
-        if os.path.exists(log_path):
-            size_mb = os.path.getsize(log_path) / (1024 * 1024)
-            size_color = Colors.GREEN if size_mb < 100 else Colors.YELLOW if size_mb < 500 else Colors.RED
-            print(prefix + " " + Colors.GREEN + "✓ " + Colors.CYAN + log_name + Colors.RESET)
-            # Show path and size on next line with indentation
-            print("     " + Colors.WHITE + log_path + Colors.RESET + " " + size_color + "({:.1f} MB)".format(size_mb) + Colors.RESET)
-        else:
-            print(prefix + " " + Colors.RED + "✗ " + Colors.CYAN + log_name + Colors.RESET)
-            print("     " + Colors.WHITE + log_path + Colors.RESET)
+    # Dashboard Header with system info - single line, clean
+    header_line = (Colors.BG_CYAN + Colors.WHITE + Colors.BOLD + 
+                   "  📊  SYSTEM DASHBOARD  " + Colors.RESET + 
+                   Colors.CYAN + "  │  Host: " + Colors.BOLD + hostname.ljust(25)[:25] + Colors.RESET + 
+                   Colors.CYAN + "  │  FreePBX: " + Colors.YELLOW + Colors.BOLD + freepbx_ver.ljust(15)[:15] + Colors.RESET + 
+                   Colors.CYAN + "  │  Asterisk: " + Colors.YELLOW + Colors.BOLD + asterisk_ver[:30].ljust(30) + Colors.RESET)
+    print("\n" + header_line)
+    print(Colors.CYAN + "─" * BOX_TOTAL + Colors.RESET)
     
-    # Active calls widget
-    print("\n" + Colors.GREEN + Colors.BOLD + "┌─ 📞 ACTIVE CALLS " + "─" * 51 + "┐" + Colors.RESET)
+    # Get all data first
     active_calls = get_active_calls(sock)
-    if active_calls is not None:
-        call_color = Colors.RED if active_calls > 10 else Colors.GREEN if active_calls > 0 else Colors.CYAN
-        print(Colors.CYAN + "  └─ " + call_color + Colors.BOLD + "{} active channel(s)".format(active_calls) + Colors.RESET)
-    else:
-        print(Colors.RED + "  └─ Unable to query" + Colors.RESET)
-    
-    # Time Conditions widget
-    print("\n" + Colors.MAGENTA + Colors.BOLD + "┌─ ⏰ TIME CONDITIONS " + "─" * 47 + "┐" + Colors.RESET)
     tc_status = get_time_conditions_status(sock)
-    for i, tc in enumerate(tc_status[:5]):  # Show first 5
-        prefix = "  ├─" if i < min(len(tc_status), 5) - 1 else "  └─"
-        if "FORCED" in tc:
-            print(prefix + " " + Colors.YELLOW + Colors.BOLD + tc + Colors.RESET)
-        else:
-            print(prefix + " " + Colors.GREEN + tc + Colors.RESET)
-    if len(tc_status) > 5:
-        print(Colors.CYAN + "     ... and {} more".format(len(tc_status) - 5) + Colors.RESET)
-    
-    # System services widget
-    print("\n" + Colors.CYAN + Colors.BOLD + "┌─ ⚙️  SYSTEM SERVICES " + "─" * 46 + "┐" + Colors.RESET)
-    services = ["asterisk", "httpd", "mariadb", "fail2ban", "freepbx", "php-fpm", "crond", "network", "ntpd", "firewalld"]
+    endpoint_status = get_endpoint_status(sock)
+    services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
     service_status = get_service_status(services)
     
-    # Count statuses
+    # Calculate metrics
+    forced_count = sum(1 for tc in tc_status if "FORCED" in tc)
+    tc_total = len(tc_status) - 1 if len(tc_status) > 1 else 0
+    ep_total = endpoint_status["total"]
+    ep_registered = endpoint_status["registered"]
+    ep_unreg = endpoint_status["unregistered"]
+    ep_pct = int((ep_registered / ep_total) * 100) if ep_total > 0 else 0
     running_count = sum(1 for _, status, _ in service_status if status == "running")
     stopped_count = sum(1 for _, status, _ in service_status if status == "stopped")
     
-    # Summary line
-    print(Colors.CYAN + "  ├─ " + Colors.GREEN + "{}".format(running_count) + Colors.CYAN + " Running | " + 
-          Colors.RED + "{}".format(stopped_count) + Colors.CYAN + " Stopped" + Colors.RESET)
+    # Inventory counts
+    dids_count = len(data.get("inbound", [])) if data else 0
+    ext_count = len(data.get("extensions", [])) if data else 0
+    rg_count = len(data.get("ringgroups", [])) if data else 0
+    ivr_count = len(data.get("ivrs", {}).get("menus", [])) if data else 0
+    queue_count = len(data.get("queues", [])) if data else 0
+    trunks_count = len(data.get("trunks", {}).get("trunks", [])) if data else 0
     
-    for i, (service, status, color) in enumerate(service_status):
-        is_last = i == len(service_status) - 1
-        prefix = "  └─" if is_last else "  ├─"
-        status_icon = "●" if status == "running" else "○"
-        print(prefix + " " + color + status_icon + " " + Colors.CYAN + "{:<12}".format(service) + 
-              color + Colors.BOLD + status.upper() + Colors.RESET)
+    # ====================
+    # ROW 1: 3 Tiles - Active Calls | Time Conditions | Endpoints
+    # ====================
+    print("\n" + Colors.CYAN + "╔" + "═" * TILE_WIDTH + "╦" + "═" * TILE_WIDTH + "╦" + "═" * TILE_WIDTH + "╗" + Colors.RESET)
     
-    # Endpoint registration widget
-    print("\n" + Colors.MAGENTA + Colors.BOLD + "┌─ 📱 ENDPOINT REGISTRATIONS " + "─" * 40 + "┐" + Colors.RESET)
-    endpoint_status = get_endpoint_status(sock)
-    if endpoint_status["total"] > 0:
-        reg_pct = int((endpoint_status["registered"] / endpoint_status["total"]) * 100) if endpoint_status["total"] > 0 else 0
-        
-        # Summary line
-        print(Colors.CYAN + "  ├─ Total: " + Colors.WHITE + Colors.BOLD + "{}".format(endpoint_status["total"]) + 
-              Colors.RESET + Colors.CYAN + " | " + Colors.GREEN + "Registered: " + Colors.GREEN + Colors.BOLD + 
-              "{} ({}%)".format(endpoint_status["registered"], reg_pct) + Colors.RESET + Colors.CYAN + " | " + 
-              Colors.RED + "Unregistered: " + Colors.RED + Colors.BOLD + "{}".format(endpoint_status["unregistered"]) + Colors.RESET)
-        
-        # Show all endpoints horizontally
-        if endpoint_status["details"]:
-            print(Colors.CYAN + "  ├─" + Colors.RESET)
-            
-            # Group endpoints in rows
-            endpoints_per_row = 10  # Show 10 endpoints per line
-            all_endpoints = endpoint_status["details"]
-            
-            for row_start in range(0, len(all_endpoints), endpoints_per_row):
-                row_endpoints = all_endpoints[row_start:row_start + endpoints_per_row]
-                is_last_row = row_start + endpoints_per_row >= len(all_endpoints)
-                prefix = "  └─ " if is_last_row else "  ├─ "
-                
-                # Build horizontal display
-                endpoint_displays = []
-                for ext, name, state in row_endpoints:
-                    # Color code by status
-                    if 'avail' in state.lower() or 'online' in state.lower():
-                        status_color = Colors.GREEN
-                        status_icon = "✓"
-                    else:
-                        status_color = Colors.RED
-                        status_icon = "✗"
-                    
-                    # Format: icon+ext
-                    endpoint_displays.append(status_color + status_icon + ext + Colors.RESET)
-                
-                # Print row
-                print(prefix + " ".join(endpoint_displays))
-    else:
-        print(Colors.CYAN + "  └─ No endpoints found" + Colors.RESET)
+    # Tile headers
+    h1 = "📞  ACTIVE CALLS"
+    h2 = "⏰  TIME CONDITIONS"
+    h3 = "📱  ENDPOINT REGISTRATIONS"
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.GREEN + h1.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN + 
+          " ║ " + Colors.BOLD + Colors.MAGENTA + h2.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN +
+          " ║ " + Colors.BOLD + Colors.BLUE + h3.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * TILE_WIDTH + "╬" + "═" * TILE_WIDTH + "╬" + "═" * TILE_WIDTH + "╣" + Colors.RESET)
     
-    # System inventory widget
-    if data:
-        print("\n" + Colors.BLUE + Colors.BOLD + "┌─ 📈 SYSTEM INVENTORY " + "─" * 46 + "┐" + Colors.RESET)
-        print(Colors.CYAN + "  ├─ DIDs:           " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("dids", []))) + Colors.RESET)
-        print(Colors.CYAN + "  ├─ Extensions:     " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("users", []))) + Colors.RESET)
-        print(Colors.CYAN + "  ├─ Ring Groups:    " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("ringgroups", []))) + Colors.RESET)
-        print(Colors.CYAN + "  ├─ Time Conditions:" + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("timeconditions", []))) + Colors.RESET)
-        print(Colors.CYAN + "  └─ IVRs:           " + Colors.WHITE + Colors.BOLD + "{}".format(len(data.get("ivr", []))) + Colors.RESET)
+    # Color logic
+    call_color = Colors.RED if active_calls and active_calls > 10 else Colors.GREEN if active_calls and active_calls > 0 else Colors.CYAN
+    call_val = str(active_calls if active_calls is not None else "N/A")
+    tc_color = Colors.YELLOW if forced_count > 0 else Colors.GREEN
+    ep_color = Colors.GREEN if ep_pct > 80 else Colors.YELLOW if ep_pct > 50 else Colors.RED
     
-    # Recent package updates widget
-    print("\n" + Colors.YELLOW + Colors.BOLD + "┌─ 🔄 RECENT ASTERISK UPDATES " + "─" * 39 + "┐" + Colors.RESET)
-    recent_updates = get_recent_package_updates()
-    for i, update in enumerate(recent_updates[:5]):  # Show first 5
-        prefix = "  ├─" if i < min(len(recent_updates), 5) - 1 else "  └─"
-        # Color code by recency
-        if "today" in update or "yesterday" in update:
-            update_color = Colors.GREEN
-        elif "d ago" in update or "w ago" in update:
-            update_color = Colors.YELLOW
+    # Build rows with MUCH better spacing and readability
+    # Row 1 - Big numbers centered
+    c1_r1 = call_color + Colors.BOLD + call_val.center(TILE_WIDTH-2) + Colors.RESET
+    c2_r1 = tc_color + Colors.BOLD + str(tc_total).center(TILE_WIDTH-2) + Colors.RESET
+    c3_r1 = Colors.WHITE + Colors.BOLD + str(ep_total).center(TILE_WIDTH-2) + Colors.RESET
+    
+    print(Colors.CYAN + "║ " + c1_r1 + Colors.CYAN + 
+          " ║ " + c2_r1 + Colors.CYAN +
+          " ║ " + c3_r1 + Colors.CYAN + " ║" + Colors.RESET)
+    
+    # Row 2 - Status labels centered
+    status_text = call_color + ("ACTIVE" if active_calls and active_calls > 0 else "IDLE") + Colors.RESET
+    c1_r2 = status_text.center(TILE_WIDTH-2 + len(call_color) + len(Colors.RESET))
+    c2_r2 = (Colors.WHITE + "Total Time Conditions" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
+    c3_r2 = (Colors.WHITE + "Total Endpoints" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
+    
+    print(Colors.CYAN + "║ " + c1_r2 + Colors.CYAN +
+          " ║ " + c2_r2 + Colors.CYAN +
+          " ║ " + c3_r2 + Colors.CYAN + " ║" + Colors.RESET)
+    
+    # Separator line
+    print(Colors.CYAN + "║ " + "─" * (TILE_WIDTH-2) +
+          " ║ " + "─" * (TILE_WIDTH-2) +
+          " ║ " + "─" * (TILE_WIDTH-2) + " ║" + Colors.RESET)
+    
+    # Row 3 - Detailed metrics
+    c1_r3 = ("Channels: " + call_color + Colors.BOLD + call_val + Colors.RESET).ljust(TILE_WIDTH-2 + len(call_color) + len(Colors.BOLD) + len(Colors.RESET))
+    c2_r3 = ("Overridden: " + tc_color + Colors.BOLD + str(forced_count) + Colors.RESET + 
+             "  │  On Schedule: " + Colors.GREEN + Colors.BOLD + str(tc_total - forced_count) + Colors.RESET)
+    c2_r3 = c2_r3[:TILE_WIDTH-2 + 50]  # Truncate with color codes accounted
+    c3_r3 = ("Registered: " + ep_color + Colors.BOLD + str(ep_registered) + " (" + str(ep_pct) + "%)" + Colors.RESET)
+    
+    print(Colors.CYAN + "║ " + c1_r3[:TILE_WIDTH-2 + 30] + " " * max(0, TILE_WIDTH-2 - len(c1_r3) + 30) + Colors.RESET + Colors.CYAN +
+          " ║ " + c2_r3 + " " * max(0, TILE_WIDTH-2 - 42) + Colors.RESET + Colors.CYAN +
+          " ║ " + c3_r3 + " " * max(0, TILE_WIDTH-2 - 35) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    
+    # Row 4
+    c1_r4 = " " * (TILE_WIDTH-2)
+    c2_r4 = " " * (TILE_WIDTH-2)
+    c3_r4 = ("Unregistered: " + Colors.RED + Colors.BOLD + str(ep_unreg) + Colors.RESET)
+    
+    print(Colors.CYAN + "║ " + c1_r4 +
+          " ║ " + c2_r4 +
+          " ║ " + c3_r4 + " " * max(0, TILE_WIDTH-2 - 25) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    
+    print(Colors.CYAN + "╚" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╝" + Colors.RESET)
+    
+    # ====================
+    # ROW 2: 3 Tiles - Services | Inventory | Key Paths
+    # ====================
+    print(Colors.CYAN + "╔" + "═" * TILE_WIDTH + "╦" + "═" * TILE_WIDTH + "╦" + "═" * TILE_WIDTH + "╗" + Colors.RESET)
+    
+    # Tile headers
+    h1 = "⚙️  SYSTEM SERVICES"
+    h2 = "📊  SYSTEM INVENTORY"
+    h3 = "📁  KEY PATHS"
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.YELLOW + h1.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN +
+          " ║ " + Colors.BOLD + Colors.CYAN + h2.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN +
+          " ║ " + Colors.BOLD + Colors.GREEN + h3.center(TILE_WIDTH-2) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * TILE_WIDTH + "╬" + "═" * TILE_WIDTH + "╬" + "═" * TILE_WIDTH + "╣" + Colors.RESET)
+    
+    # File path checks
+    snapshot_exists = os.path.exists(DUMP_PATH)
+    snapshot_size = os.path.getsize(DUMP_PATH) / (1024 * 1024) if snapshot_exists else 0
+    
+    paths_to_check = [
+        ("/etc/asterisk/", "Config", 16),
+        ("/var/log/asterisk/full", "Full Log", 22),
+        ("/var/spool/asterisk/monitor/", "Recordings", 27),
+        ("/var/lib/mysql/asterisk/", "DB Directory", 23),
+        (sock, "MySQL Socket", len(sock))
+    ]
+    
+    # Data rows (6 rows - matching service count)
+    inventory_items = [
+        ("DIDs", dids_count),
+        ("Extensions", ext_count),
+        ("Ring Groups", rg_count),
+        ("IVRs", ivr_count),
+        ("Queues", queue_count),
+        ("Trunks", trunks_count)
+    ]
+    
+    for i in range(6):
+        # Service column - cleaner format
+        if i < len(service_status):
+            svc_name, svc_stat, svc_color = service_status[i]
+            status_icon = "●" if svc_stat == "running" else "○"
+            stat_text = svc_stat[:7].upper()
+            svc_line = svc_color + status_icon + " " + Colors.WHITE + svc_name.ljust(18) + svc_color + Colors.BOLD + stat_text.rjust(12) + Colors.RESET
         else:
-            update_color = Colors.CYAN
-        print(prefix + " " + update_color + update + Colors.RESET)
+            svc_line = " " * (TILE_WIDTH-2)
+        
+        # Inventory column - cleaner with better alignment
+        if i < len(inventory_items):
+            inv_label, inv_count = inventory_items[i]
+            inv_line = Colors.WHITE + inv_label.ljust(25) + Colors.CYAN + Colors.BOLD + str(inv_count).rjust(15) + Colors.RESET
+        else:
+            inv_line = " " * (TILE_WIDTH-2)
+        
+        # Paths column - more informative
+        if i == 0:
+            snap_icon = Colors.GREEN + "✓" if snapshot_exists else Colors.RED + "✗"
+            path_line = snap_icon + Colors.WHITE + " Snapshot " + Colors.CYAN + "({:.1f} MB)".format(snapshot_size).ljust(30) + Colors.RESET
+        elif i - 1 < len(paths_to_check):
+            path, label, path_len = paths_to_check[i - 1]
+            exists = os.path.exists(path)
+            icon = Colors.GREEN + "✓" if exists else Colors.RED + "✗"
+            path_display = path[-35:] if len(path) > 35 else path
+            path_line = icon + Colors.WHITE + " " + label.ljust(14) + Colors.CYAN + path_display.ljust(28) + Colors.RESET
+        else:
+            path_line = " " * (TILE_WIDTH-2)
+        
+        print(Colors.CYAN + "║ " + svc_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN +
+              " ║ " + inv_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN +
+              " ║ " + path_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
     
-    print("\n" + Colors.CYAN + "═" * 70 + Colors.RESET + "\n")
+    print(Colors.CYAN + "╚" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╝" + Colors.RESET)
+    
+    # ====================
+    # Status Summary Bar
+    # ====================
+    status_parts = []
+    
+    # System Health
+    if running_count >= 5 and active_calls is not None and ep_pct > 70:
+        health = Colors.GREEN + Colors.BOLD + "GOOD" + Colors.RESET
+    elif running_count >= 4 and ep_pct > 50:
+        health = Colors.YELLOW + Colors.BOLD + "WARNING" + Colors.RESET
+    else:
+        health = Colors.RED + Colors.BOLD + "CRITICAL" + Colors.RESET
+    status_parts.append("✓ System Health: " + health)
+    
+    # Services
+    svc_status = (Colors.GREEN + str(running_count) + " Running" + Colors.RESET + " | " +
+                  Colors.RED + str(stopped_count) + " Stopped" + Colors.RESET)
+    status_parts.append("⚙️  Services: " + svc_status)
+    
+    # Forced TCs
+    if forced_count == 0:
+        tc_display = Colors.GREEN + "None" + Colors.RESET
+    elif forced_count < 3:
+        tc_display = Colors.YELLOW + str(forced_count) + Colors.RESET
+    else:
+        tc_display = Colors.RED + Colors.BOLD + str(forced_count) + Colors.RESET
+    status_parts.append("⏰ Forced TCs: " + tc_display)
+    
+    # Endpoint Health
+    if ep_pct > 80:
+        ep_display = Colors.GREEN + str(ep_pct) + "%" + Colors.RESET
+    elif ep_pct > 50:
+        ep_display = Colors.YELLOW + str(ep_pct) + "%" + Colors.RESET
+    else:
+        ep_display = Colors.RED + Colors.BOLD + str(ep_pct) + "%" + Colors.RESET
+    status_parts.append("📱 Endpoint Health: " + ep_display)
+    
+    print("\n  " + "  │  ".join(status_parts))
+    print("")
+
 
 # ---------------- menu ----------------
 
