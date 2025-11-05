@@ -5,6 +5,29 @@
 
 import argparse, subprocess, sys, re
 
+# ANSI Color codes for professional output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.BLUE + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║           🌊  FreePBX Call Flow Diagram Generator             ║
+║                                                               ║
+║              Visual SVG Graphs with Graphviz                  ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 DB = "asterisk"
 
 # ---------- DB helper ---------------------------------------------------------
@@ -301,6 +324,8 @@ def resolve_recursive(graph, key, dest, users_map, socket, user, password, depth
 # ---------- CLI ---------------------------------------------------------------
 
 def main():
+    print_header()
+    
     ap = argparse.ArgumentParser(description="Render FreePBX callflow for a DID to SVG (expands Time Conditions, IVR, Queues, Ring Groups, Announcements)")
     ap.add_argument("--did", required=True, help="DID to render (incoming.extension)")
     ap.add_argument("--out", required=True, help="Output SVG path")
@@ -309,14 +334,19 @@ def main():
     ap.add_argument("--socket", default=None, help="MySQL socket path (e.g., /var/lib/mysql/mysql.sock)")
     args = ap.parse_args()
 
+    print(Colors.CYAN + "📞 Analyzing DID: " + Colors.BOLD + args.did + Colors.ENDC)
+    
     # Find inbound route for this DID
     rows = q("SELECT extension, COALESCE(description,''), destination "
              "FROM incoming WHERE extension='%s';" % args.did,
              args.socket, args.db_user, args.db_pass)
     if not rows:
-        sys.stderr.write("No inbound route for DID %s\n" % args.did)
+        print(Colors.RED + "❌ No inbound route found for DID: " + args.did + Colors.ENDC, file=sys.stderr)
         sys.exit(2)
     did, label, dest = rows[0]
+    
+    print(Colors.GREEN + "✓ Found route: " + Colors.ENDC + (label or "(no label)"))
+    print(Colors.YELLOW + "🔍 Tracing call flow..." + Colors.ENDC)
 
     users_map = fetch_users_map(args.socket, args.db_user, args.db_pass)
 
@@ -325,12 +355,22 @@ def main():
     child = resolve_recursive(g, ("dest", dest), dest, users_map, args.socket, args.db_user, args.db_pass)
     g.add_edge(root, child)
 
+    print(Colors.CYAN + "🎨 Generating SVG diagram..." + Colors.ENDC)
     dot = g.render()
     # Render to SVG using dot (graphviz)
     p = subprocess.run(["dot", "-Tsvg", "-o", args.out], input=dot.encode("utf-8"))
     if p.returncode != 0:
-        sys.stderr.write("graphviz dot failed\n")
+        print(Colors.RED + "❌ Graphviz dot command failed" + Colors.ENDC, file=sys.stderr)
         sys.exit(3)
+    
+    # Get file size
+    import os
+    size_kb = os.path.getsize(args.out) / 1024
+    print(Colors.GREEN + Colors.BOLD + "\n✓ Success! " + Colors.ENDC + 
+          "Diagram saved to: " + Colors.CYAN + args.out + Colors.ENDC)
+    print(Colors.BOLD + "  File size: " + Colors.ENDC + "{:.1f} KB".format(size_kb))
+    print(Colors.BOLD + "  Nodes:     " + Colors.ENDC + str(len(g.node_ids)))
+    print("")
 
 if __name__ == "__main__":
     main()

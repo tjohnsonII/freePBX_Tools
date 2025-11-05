@@ -10,6 +10,30 @@ Provides detailed analysis of these specific communication features.
 import argparse, json, os, subprocess, sys, time, re
 from collections import defaultdict
 
+# ANSI Color codes
+class Colors:
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    MAGENTA = '\033[95m'
+    BLUE = '\033[94m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    ENDC = '\033[0m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.MAGENTA + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║        📢  FreePBX Paging, Overhead & Fax Analyzer            ║
+║                                                               ║
+║          Specialized Communication Systems Analysis           ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 ASTERISK_DB = "asterisk"
 DEFAULT_SOCK = "/var/lib/mysql/mysql.sock"
 
@@ -319,19 +343,25 @@ def main():
     
     args = parser.parse_args()
     
+    print_header()
+    
     kw = {
         "socket": args.socket,
         "user": args.db_user,
         "password": args.db_password
     }
     
-    print("📞 FreePBX Paging, Overhead & Fax Analysis")
-    print("=" * 50)
+    print(Colors.YELLOW + "� Analyzing paging, overhead & fax systems..." + Colors.ENDC)
     
     # Gather all analysis data
+    try:
+        hostname = os.uname().nodename  # type: ignore
+    except AttributeError:
+        hostname = os.environ.get('HOSTNAME', 'unknown')
+    
     analysis = {
         "meta": {
-            "hostname": os.uname().nodename,
+            "hostname": hostname,
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         },
         "paging_pro": analyze_paging_pro(**kw),
@@ -362,146 +392,177 @@ def main():
             print(f"✅ Analysis saved to {args.output}")
 
 def print_analysis_report(analysis):
-    """Print detailed text analysis report."""
+    """Print detailed text analysis report with dramatic styling."""
     meta = analysis["meta"]
-    print(f"📋 Paging, Overhead & Fax Analysis Report")
-    print(f"Host: {meta['hostname']}")
-    print(f"Generated: {meta['generated_at']}")
-    print()
     
-    # Paging Pro Analysis
+    # Dramatic main header
+    print("\n" + Colors.MAGENTA + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "║" + " 📋 Paging, Overhead & Fax Analysis Report".center(78) + "║" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    print(Colors.MAGENTA + "║ " + Colors.BOLD + "Host:      " + Colors.ENDC + Colors.GREEN + meta['hostname'].ljust(64) + Colors.MAGENTA + " ║" + Colors.ENDC)
+    print(Colors.MAGENTA + "║ " + Colors.BOLD + "Generated: " + Colors.ENDC + meta['generated_at'].ljust(64) + Colors.MAGENTA + " ║" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+    
+    # Paging Pro Analysis with dramatic box
     paging = analysis["paging_pro"]
-    print("📢 PAGING PRO CONFIGURATION")
-    print("-" * 40)
+    print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "║" + " 📢 PAGING PRO CONFIGURATION".center(78) + "║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    
     if paging["enabled"]:
-        print(f"✅ Paging Pro Module: ENABLED")
-        print(f"   Total Groups: {paging.get('total_groups', 0)}")
-        print(f"   Active Groups: {paging.get('enabled_groups', 0)}")
-        print(f"   Duplex Groups: {paging.get('duplex_groups', 0)}")
-        print(f"   Member Assignments: {paging.get('total_member_assignments', 0)}")
+        status_line = Colors.GREEN + "✅ Module Status: " + Colors.BOLD + "ENABLED".ljust(58)
+        print(Colors.GREEN + "║  " + Colors.ENDC + status_line + Colors.GREEN + " ║" + Colors.ENDC)
+        print(Colors.GREEN + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+        print(Colors.GREEN + "║  " + Colors.BOLD + "Total Groups:        " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(paging.get('total_groups', 0)).ljust(54) + Colors.GREEN + " ║" + Colors.ENDC)
+        print(Colors.GREEN + "║  " + Colors.GREEN + "● " + Colors.BOLD + "Active Groups:      " + Colors.ENDC + 
+              Colors.GREEN + Colors.BOLD + str(paging.get('enabled_groups', 0)).ljust(54) + Colors.GREEN + " ║" + Colors.ENDC)
+        print(Colors.GREEN + "║  " + Colors.CYAN + "● " + Colors.BOLD + "Duplex Groups:      " + Colors.ENDC + 
+              Colors.CYAN + Colors.BOLD + str(paging.get('duplex_groups', 0)).ljust(54) + Colors.GREEN + " ║" + Colors.ENDC)
+        print(Colors.GREEN + "║  " + Colors.YELLOW + "● " + Colors.BOLD + "Member Assignments: " + Colors.ENDC + 
+              Colors.YELLOW + Colors.BOLD + str(paging.get('total_member_assignments', 0)).ljust(54) + Colors.GREEN + " ║" + Colors.ENDC)
         
         if paging.get("groups"):
-            print("\n   📋 Paging Groups:")
-            for group in paging["groups"][:10]:  # Show first 10
-                status = "🟢" if group["enabled"] == "1" else "🔴"
-                duplex = " (Duplex)" if group["duplex"] == "1" else ""
-                print(f"     {status} {group['extension']}: {group['description']}{duplex}")
+            print(Colors.GREEN + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+            print(Colors.GREEN + "║  " + Colors.BOLD + "📋 Paging Groups:" + Colors.ENDC + " " * 59 + Colors.GREEN + "║" + Colors.ENDC)
+            for group in paging["groups"][:8]:  # Show first 8
+                status_icon = Colors.GREEN + "✓" + Colors.ENDC if group["enabled"] == "1" else Colors.RED + "✗" + Colors.ENDC
+                duplex_badge = Colors.CYAN + " [Duplex]" + Colors.ENDC if group["duplex"] == "1" else ""
+                ext_desc = (Colors.WHITE + Colors.BOLD + group['extension'].ljust(6) + Colors.ENDC + 
+                           group['description'][:40] + duplex_badge)[:65]
+                print(Colors.GREEN + "║    " + Colors.ENDC + status_icon + " " + ext_desc.ljust(72) + Colors.GREEN + " ║" + Colors.ENDC)
                 
-                # Show members for this group
+                # Show members
                 members = paging.get("members_by_group", {}).get(group["extension"], [])
                 if members:
-                    print(f"        Members: {', '.join(members[:5])}" + 
-                          ("..." if len(members) > 5 else ""))
-        
-        if paging.get("pro_settings"):
-            print("\n   ⚙️  Advanced Settings:")
-            for key, value in list(paging["pro_settings"].items())[:5]:
-                print(f"     {key}: {value}")
+                    member_str = ', '.join(members[:6])
+                    if len(members) > 6:
+                        member_str += f" +{len(members)-6} more"
+                    print(Colors.GREEN + "║" + Colors.ENDC + "        " + Colors.CYAN + "Members: " + Colors.ENDC + 
+                          member_str[:60].ljust(60) + Colors.GREEN + " ║" + Colors.ENDC)
     else:
-        print("❌ Paging Pro Module: NOT CONFIGURED")
-    print()
+        print(Colors.GREEN + "║  " + Colors.ENDC + Colors.RED + Colors.BOLD + "❌ Module Status: NOT CONFIGURED".ljust(75) + Colors.GREEN + " ║" + Colors.ENDC)
+    
+    print(Colors.GREEN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
     # Overhead Paging Analysis
     overhead = analysis["overhead_paging"]
-    print("📻 OVERHEAD PAGING/SPEAKERS")
-    print("-" * 40)
+    print("\n" + Colors.BLUE + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.BLUE + Colors.BOLD + "║" + " 📻 OVERHEAD PAGING/SPEAKERS".center(78) + "║" + Colors.ENDC)
+    print(Colors.BLUE + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
     
     sip_speakers = overhead.get("sip_speakers", [])
     pjsip_speakers = overhead.get("pjsip_speakers", [])
     multicast = overhead.get("multicast_devices", [])
     
-    if sip_speakers or pjsip_speakers or multicast:
+    total_devices = len(sip_speakers) + len(pjsip_speakers) + len(multicast)
+    
+    if total_devices > 0:
+        print(Colors.BLUE + "║  " + Colors.BOLD + "Total Devices:    " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(total_devices).ljust(57) + Colors.BLUE + " ║" + Colors.ENDC)
+        print(Colors.BLUE + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+        
         if sip_speakers:
-            print(f"🔊 SIP Overhead Speakers: {len(sip_speakers)}")
+            print(Colors.BLUE + "║  " + Colors.GREEN + "● " + Colors.BOLD + "SIP Overhead Speakers: " + Colors.ENDC + 
+                  Colors.GREEN + Colors.BOLD + str(len(sip_speakers)).ljust(52) + Colors.BLUE + " ║" + Colors.ENDC)
             for speaker in sip_speakers[:5]:
-                print(f"   • {speaker['name']}: {speaker['description']} ({speaker['host']})")
+                speaker_line = (Colors.CYAN + Colors.BOLD + speaker['name'][:15].ljust(15) + Colors.ENDC + 
+                              " " + speaker['description'][:30].ljust(30) + 
+                              Colors.YELLOW + " (" + speaker['host'][:15] + ")" + Colors.ENDC)[:68]
+                print(Colors.BLUE + "║      " + Colors.ENDC + speaker_line.ljust(70) + Colors.BLUE + " ║" + Colors.ENDC)
         
         if pjsip_speakers:
-            print(f"🔊 PJSIP Overhead Speakers: {len(pjsip_speakers)}")
+            if sip_speakers:
+                print(Colors.BLUE + "║" + " " * 78 + "║" + Colors.ENDC)
+            print(Colors.BLUE + "║  " + Colors.GREEN + "● " + Colors.BOLD + "PJSIP Overhead Speakers: " + Colors.ENDC + 
+                  Colors.GREEN + Colors.BOLD + str(len(pjsip_speakers)).ljust(50) + Colors.BLUE + " ║" + Colors.ENDC)
             for speaker in pjsip_speakers[:5]:
-                print(f"   • {speaker['id']}: {speaker['callerid']}")
+                speaker_line = (Colors.CYAN + Colors.BOLD + speaker['id'][:15].ljust(15) + Colors.ENDC + 
+                              " " + speaker['callerid'][:50])[:68]
+                print(Colors.BLUE + "║      " + Colors.ENDC + speaker_line.ljust(70) + Colors.BLUE + " ║" + Colors.ENDC)
         
         if multicast:
-            print(f"📡 Multicast Devices: {len(multicast)}")
+            if sip_speakers or pjsip_speakers:
+                print(Colors.BLUE + "║" + " " * 78 + "║" + Colors.ENDC)
+            print(Colors.BLUE + "║  " + Colors.GREEN + "● " + Colors.BOLD + "Multicast Devices: " + Colors.ENDC + 
+                  Colors.GREEN + Colors.BOLD + str(len(multicast)).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
             for device in multicast[:5]:
-                print(f"   • {device['name']}: {device['host']} (multicast)")
-        
-        # Show any additional overhead tables found
-        overhead_data_keys = [k for k in overhead.keys() if k.endswith("_data")]
-        if overhead_data_keys:
-            print(f"\n   📊 Additional overhead config tables: {len(overhead_data_keys)}")
+                device_line = (Colors.CYAN + Colors.BOLD + device['name'][:20].ljust(20) + Colors.ENDC + 
+                             " " + Colors.YELLOW + device['host'][:30] + Colors.ENDC + 
+                             Colors.MAGENTA + " [multicast]" + Colors.ENDC)[:68]
+                print(Colors.BLUE + "║      " + Colors.ENDC + device_line.ljust(70) + Colors.BLUE + " ║" + Colors.ENDC)
     else:
-        print("❌ No overhead paging devices detected")
-    print()
+        print(Colors.BLUE + "║  " + Colors.ENDC + Colors.RED + Colors.BOLD + "❌ No overhead paging devices detected".ljust(75) + Colors.BLUE + " ║" + Colors.ENDC)
+    
+    print(Colors.BLUE + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
     # Fax Configuration Analysis
     fax = analysis["fax_config"]
-    print("📠 FAX CONFIGURATION")
-    print("-" * 40)
+    print("\n" + Colors.YELLOW + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.YELLOW + Colors.BOLD + "║" + " 📠 FAX CONFIGURATION".center(78) + "║" + Colors.ENDC)
+    print(Colors.YELLOW + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    
     if fax["enabled"]:
-        print(f"✅ Fax Module: ENABLED")
-        print(f"   Engine: {fax['engine'].upper()}")
-        print(f"   Fax Users: {fax.get('total_users', 0)}")
-        print(f"   Users with Email: {fax.get('users_with_email', 0)}")
-        print(f"   Incoming Routes: {fax.get('total_incoming_routes', 0)}")
+        status_line = Colors.GREEN + "✅ Module Status: " + Colors.BOLD + "ENABLED".ljust(58)
+        print(Colors.YELLOW + "║  " + Colors.ENDC + status_line + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Fax Engine:       " + Colors.ENDC + 
+              Colors.CYAN + Colors.BOLD + fax['engine'].upper().ljust(57) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Total Fax Users:  " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(fax.get('total_users', 0)).ljust(57) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.GREEN + "✓ " + Colors.BOLD + "With Email:      " + Colors.ENDC + 
+              Colors.GREEN + Colors.BOLD + str(fax.get('users_with_email', 0)).ljust(57) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Incoming Routes:  " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(fax.get('total_incoming_routes', 0)).ljust(57) + Colors.YELLOW + " ║" + Colors.ENDC)
         
-        # Fax detection settings
-        detection = fax.get("fax_detection", {})
-        if detection:
-            print(f"\n   🔍 Fax Detection:")
-            if "method" in detection:
-                print(f"     Method: {detection['method']}")
-            if "timeout" in detection:
-                print(f"     Timeout: {detection['timeout']}s")
-        
-        # Show sample users
-        if fax.get("users"):
-            print(f"\n   👥 Fax Users (showing first 5):")
-            for user in fax["users"][:5]:
-                email_status = "📧" if user["legacy_email"] else "📭"
-                print(f"     {email_status} {user['user']} (format: {user['attachformat']})")
-        
-        # Show incoming routes
-        if fax.get("incoming_routes"):
-            print(f"\n   📥 Incoming Fax Routes:")
-            for route in fax["incoming_routes"][:5]:
-                print(f"     • DID {route['extension']} → {route['destination']}")
-        
-        # Key settings
-        key_settings = ["faxengine", "localstationid", "faxheader", "faxdetect"]
-        relevant_settings = {k: v for k, v in fax.get("settings", {}).items() if k in key_settings}
-        if relevant_settings:
-            print(f"\n   ⚙️  Key Settings:")
-            for key, value in relevant_settings.items():
-                print(f"     {key}: {value}")
+        # Asterisk fax modules
+        ast_fax = analysis["asterisk_fax_modules"]
+        if ast_fax:
+            print(Colors.YELLOW + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+            print(Colors.YELLOW + "║  " + Colors.BOLD + "🔧 Asterisk Fax Modules:" + Colors.ENDC + " " * 52 + Colors.YELLOW + "║" + Colors.ENDC)
+            for module, status in ast_fax.items():
+                status_icon = Colors.GREEN + "✓" + Colors.ENDC if status == "loaded" else Colors.RED + "✗" + Colors.ENDC
+                module_line = (status_icon + " " + Colors.CYAN + module[:65] + Colors.ENDC).ljust(72)
+                print(Colors.YELLOW + "║      " + Colors.ENDC + module_line + Colors.YELLOW + " ║" + Colors.ENDC)
     else:
-        print("❌ Fax Module: NOT CONFIGURED")
+        print(Colors.YELLOW + "║  " + Colors.ENDC + Colors.RED + Colors.BOLD + "❌ Module Status: NOT CONFIGURED".ljust(75) + Colors.YELLOW + " ║" + Colors.ENDC)
     
-    # Asterisk fax modules
-    ast_fax = analysis["asterisk_fax_modules"]
-    if ast_fax:
-        print(f"\n   🔧 Asterisk Fax Modules:")
-        for module, status in ast_fax.items():
-            status_icon = "✅" if status == "loaded" else "❌"
-            print(f"     {status_icon} {module}")
-    print()
+    print(Colors.YELLOW + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
-    # Dialplan Features
+    # Dialplan Features with dramatic table
     features = analysis["dialplan_features"]
-    print("☎️  DIALPLAN FEATURE CODES")
-    print("-" * 40)
+    print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "║" + " ☎️  DIALPLAN FEATURE CODES".center(78) + "║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
     
     all_codes = features["paging_codes"] + features["fax_codes"] + features["intercom_codes"]
     if all_codes:
+        # Header
+        header = (Colors.CYAN + "║ " + Colors.ENDC + Colors.BOLD + 
+                 "St".ljust(4) + "Code".ljust(8) + "Feature Name".ljust(32) + "Module".ljust(30) + Colors.ENDC +
+                 Colors.CYAN + " ║" + Colors.ENDC)
+        print(header)
+        print(Colors.CYAN + "╠" + "─" * 78 + "╣" + Colors.ENDC)
+        
         for code in all_codes:
-            enabled_icon = "🟢" if code["enabled"] == "1" else "🔴"
-            print(f"  {enabled_icon} {code['current_code']}: {code['featurename']} ({code['modulename']})")
+            status_icon = Colors.GREEN + "●" + Colors.ENDC if code["enabled"] == "1" else Colors.RED + "●" + Colors.ENDC
+            code_line = (Colors.CYAN + "║ " + Colors.ENDC + 
+                        status_icon + " " +
+                        Colors.YELLOW + Colors.BOLD + code['current_code'][:6].ljust(8) + Colors.ENDC + 
+                        Colors.WHITE + code['featurename'][:30].ljust(32) + Colors.ENDC +
+                        Colors.BLUE + code['modulename'][:28].ljust(28) + Colors.ENDC +
+                        Colors.CYAN + " ║" + Colors.ENDC)
+            print(code_line)
     else:
-        print("❌ No paging/fax/intercom feature codes found")
+        print(Colors.CYAN + "║ " + Colors.ENDC + Colors.RED + "❌ No paging/fax/intercom feature codes found".ljust(75) + 
+              Colors.CYAN + " ║" + Colors.ENDC)
     
-    print()
-    print("=" * 50)
-    print("✅ Specialized Analysis Complete")
+    print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+    
+    # Completion banner
+    print("\n" + Colors.MAGENTA + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "║" + " ✅ Specialized Analysis Complete".center(78) + "║" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC + "\n")
 
 if __name__ == "__main__":
     main()

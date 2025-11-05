@@ -12,6 +12,29 @@ Parking, Queues, Ring Groups, Set CallerID, Time Conditions, Time Groups.
 import argparse, json, os, subprocess, sys, time, re
 from collections import defaultdict
 
+# ANSI Color codes for professional output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.HEADER + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║        🔬  FreePBX Comprehensive Configuration Analyzer       ║
+║                                                               ║
+║           Deep Analysis of All System Components              ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 ASTERISK_DB = "asterisk"
 DEFAULT_SOCK = "/var/lib/mysql/mysql.sock"
 
@@ -557,6 +580,8 @@ def analyze_time_groups(**kw):
     return config
 
 def main():
+    print_header()
+    
     parser = argparse.ArgumentParser(description="Comprehensive FreePBX component analysis")
     parser.add_argument("--socket", default=DEFAULT_SOCK, help="MySQL socket path")
     parser.add_argument("--db-user", default="root", help="MySQL user")
@@ -575,9 +600,6 @@ def main():
         "user": args.db_user,
         "password": args.db_password
     }
-    
-    print("🔍 FreePBX Comprehensive Component Analysis")
-    print("=" * 60)
     
     # Component analysis mapping
     components = {
@@ -600,9 +622,14 @@ def main():
     }
     
     # Analyze components
+    try:
+        hostname = os.uname().nodename  # type: ignore
+    except AttributeError:
+        hostname = os.environ.get('HOSTNAME', 'unknown')
+    
     analysis = {
         "meta": {
-            "hostname": os.uname().nodename,
+            "hostname": hostname,
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         }
     }
@@ -611,23 +638,28 @@ def main():
         # Analyze single component
         if args.component in components:
             title, analyzer = components[args.component]
-            print(f"Analyzing {title}...")
+            print(Colors.CYAN + f"🔍 Analyzing {title}..." + Colors.ENDC)
             analysis[args.component] = analyzer(**kw)
         else:
-            print(f"Unknown component: {args.component}")
+            print(Colors.RED + f"❌ Unknown component: {args.component}" + Colors.ENDC)
+            import sys
             sys.exit(1)
     else:
         # Analyze all components
-        for comp_key, (title, analyzer) in components.items():
-            print(f"Analyzing {title}...")
+        total = len(components)
+        for i, (comp_key, (title, analyzer)) in enumerate(components.items(), 1):
+            print(Colors.CYAN + f"[{i}/{total}] " + Colors.BOLD + f"{title}..." + Colors.ENDC)
             analysis[comp_key] = analyzer(**kw)
+    
+    print("")  # Blank line
     
     if args.format == "json":
         output = json.dumps(analysis, indent=2)
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(output)
-            print(f"✅ Analysis saved to {args.output}")
+            print(Colors.GREEN + Colors.BOLD + "✓ Analysis saved to: " + Colors.ENDC + 
+                  Colors.CYAN + args.output + Colors.ENDC)
         else:
             print(output)
     else:
@@ -679,8 +711,9 @@ def print_comprehensive_report(analysis, single_component=None):
             continue
             
         title = titles.get(comp_key, comp_key.upper())
-        print(title)
-        print("-" * len(title))
+        if title:
+            print(title)
+            print("-" * len(title))
         
         if not data.get("enabled", False):
             print("❌ Module not configured or not available")

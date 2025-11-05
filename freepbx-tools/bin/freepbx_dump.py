@@ -8,6 +8,30 @@ Normalize FreePBX call-flow data across schema differences and dump to JSON.
 
 import argparse, json, os, socket as pysocket, subprocess, sys, time
 
+# ANSI Color codes for professional output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.CYAN + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║              📊  FreePBX Database Snapshot Tool               ║
+║                                                               ║
+║              Extract & Normalize Call Flow Data               ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 ASTERISK_DB = "asterisk"
 
 # ---------------------------
@@ -312,6 +336,8 @@ def outbound_routes(**kw):
 # ---------------------------
 
 def main():
+    print_header()
+    
     ap = argparse.ArgumentParser(description="Dump normalized FreePBX data to JSON")
     ap.add_argument("--socket", help="MySQL socket path (e.g. /var/lib/mysql/mysql.sock)")
     ap.add_argument("--db-user", default="root")
@@ -321,7 +347,10 @@ def main():
 
     kw = dict(socket=args.socket, user=args.db_user, password=args.db_pass, db=ASTERISK_DB)
 
+    print(Colors.YELLOW + "📡 Connecting to MySQL database..." + Colors.ENDC)
+    
     try:
+        print(Colors.CYAN + "⚙️  Extracting configuration data..." + Colors.ENDC)
         payload = {
             "meta":            meta(**kw),
             "inbound":         inbound(**kw),              # DIDs / Inbound Routes
@@ -336,14 +365,34 @@ def main():
             "trunks":          trunks(**kw),               # trunks + trunk_dialpatterns
             "outbound":        outbound_routes(**kw),      # routes + patterns + route→trunks
         }
+        
+        # Display collection summary
+        print(Colors.GREEN + "\n✓ Data Collection Summary:" + Colors.ENDC)
+        print(Colors.BOLD + "  • DIDs/Inbound Routes:  " + Colors.ENDC + str(len(payload["inbound"])))
+        print(Colors.BOLD + "  • Ring Groups:          " + Colors.ENDC + str(len(payload["ringgroups"])))
+        print(Colors.BOLD + "  • Queues:               " + Colors.ENDC + str(len(payload["queues"])))
+        print(Colors.BOLD + "  • IVRs:                 " + Colors.ENDC + str(len(payload["ivrs"])))
+        print(Colors.BOLD + "  • Time Conditions:      " + Colors.ENDC + str(len(payload["timeconditions"])))
+        print(Colors.BOLD + "  • Time Groups:          " + Colors.ENDC + str(len(payload["timegroups"])))
+        print(Colors.BOLD + "  • Extensions:           " + Colors.ENDC + str(len(payload["extensions"])))
+        print(Colors.BOLD + "  • Trunks:               " + Colors.ENDC + str(len(payload["trunks"])))
+        
     except Exception as e:
-        print("ERROR:", e, file=sys.stderr)
+        print(Colors.RED + "❌ ERROR: " + str(e) + Colors.ENDC, file=sys.stderr)
         sys.exit(1)
 
+    print(Colors.YELLOW + "\n💾 Writing snapshot to disk..." + Colors.ENDC)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
-    print("Wrote", args.out)
+    
+    # Get file size
+    size_mb = os.path.getsize(args.out) / (1024 * 1024)
+    print(Colors.GREEN + Colors.BOLD + "\n✓ Success! " + Colors.ENDC + 
+          "Snapshot saved to: " + Colors.CYAN + args.out + Colors.ENDC)
+    print(Colors.BOLD + "  File size: " + Colors.ENDC + "{:.2f} MB".format(size_mb))
+    print(Colors.BOLD + "  Timestamp: " + Colors.ENDC + payload["meta"]["generated_at_utc"])
+    print("")
 
 if __name__ == "__main__":
     main()

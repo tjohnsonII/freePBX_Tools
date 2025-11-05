@@ -10,6 +10,30 @@ Evaluates all installed modules and their configurations.
 import argparse, json, os, subprocess, sys, time, re
 from collections import defaultdict
 
+# ANSI Color codes
+class Colors:
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    MAGENTA = '\033[95m'
+    BLUE = '\033[94m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    ENDC = '\033[0m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.CYAN + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║          🔧  FreePBX Module Configuration Analyzer            ║
+║                                                               ║
+║            Comprehensive Module Status & Settings             ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 ASTERISK_DB = "asterisk"
 DEFAULT_SOCK = "/var/lib/mysql/mysql.sock"
 
@@ -279,19 +303,25 @@ def main():
     
     args = parser.parse_args()
     
+    print_header()
+    
     kw = {
         "socket": args.socket,
         "user": args.db_user,
         "password": args.db_password
     }
     
-    print("🔍 FreePBX Module Analysis Starting...")
-    print("=" * 60)
+    print(Colors.YELLOW + "🔍 Analyzing FreePBX modules..." + Colors.ENDC)
     
     # Gather all data
+    try:
+        hostname = os.uname().nodename  # type: ignore
+    except AttributeError:
+        hostname = os.environ.get('HOSTNAME', 'unknown')
+    
     analysis = {
         "meta": {
-            "hostname": os.uname().nodename,
+            "hostname": hostname,
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             "system_info": get_system_info()
         },
@@ -329,112 +359,164 @@ def main():
 def print_text_analysis(analysis):
     """Print analysis in human-readable text format."""
     meta = analysis["meta"]
-    print(f"📋 FreePBX Module Analysis Report")
-    print(f"Host: {meta['hostname']}")
-    print(f"Generated: {meta['generated_at']}")
-    print(f"FreePBX Version: {meta['system_info'].get('freepbx_version', 'unknown')}")
-    print(f"Asterisk Version: {meta['system_info'].get('asterisk_version', 'unknown')}")
-    print()
     
-    # FreePBX Modules Summary
+    # Dramatic header with system info
+    print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "║" + " 📋 FreePBX Module Analysis Report".center(78) + "║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Host:       " + Colors.ENDC + Colors.GREEN + meta['hostname'].ljust(63) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Generated:  " + Colors.ENDC + meta['generated_at'].ljust(63) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "FreePBX:    " + Colors.ENDC + Colors.YELLOW + Colors.BOLD + meta['system_info'].get('freepbx_version', 'unknown').ljust(63) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.BOLD + "Asterisk:   " + Colors.ENDC + Colors.YELLOW + Colors.BOLD + meta['system_info'].get('asterisk_version', 'unknown').ljust(63) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+    
+    # FreePBX Modules Summary with dramatic box
     modules = analysis["freepbx_modules"]
-    print("📦 FreePBX Modules Summary")
-    print("-" * 40)
     enabled_count = len([m for m in modules if m["enabled"] == "1"])
     installed_count = len([m for m in modules if m["installed"] == "1"])
-    print(f"Total modules: {len(modules)}")
-    print(f"Enabled: {enabled_count}")
-    print(f"Installed: {installed_count}")
-    print()
     
-    # Core Components Analysis
+    print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "║" + " 📦 FreePBX Modules Summary".center(78) + "║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    print(Colors.GREEN + "║  " + Colors.BOLD + "Total modules:  " + Colors.ENDC + Colors.WHITE + Colors.BOLD + str(len(modules)).ljust(60) + Colors.GREEN + " ║" + Colors.ENDC)
+    print(Colors.GREEN + "║  " + Colors.GREEN + "● " + Colors.BOLD + "Enabled:        " + Colors.ENDC + Colors.GREEN + Colors.BOLD + str(enabled_count).ljust(60) + Colors.GREEN + " ║" + Colors.ENDC)
+    print(Colors.GREEN + "║  " + Colors.YELLOW + "● " + Colors.BOLD + "Installed:      " + Colors.ENDC + Colors.YELLOW + Colors.BOLD + str(installed_count).ljust(60) + Colors.GREEN + " ║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+    
+    # Core Components Analysis with dramatic styling
     core = analysis["core_analysis"]
-    print("🏗️  Core Components")
-    print("-" * 40)
+    print("\n" + Colors.BLUE + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.BLUE + Colors.BOLD + "║" + " 🏗️  Core Components".center(78) + "║" + Colors.ENDC)
+    print(Colors.BLUE + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
     
     if "extensions" in core:
         ext = core["extensions"]
-        print(f"Extensions: {ext['count']} (Voicemail: {ext['with_voicemail']})")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "☎️  Extensions:      " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(ext['count']).ljust(20) + Colors.ENDC + 
+              Colors.CYAN + "Voicemail: " + Colors.ENDC + Colors.GREEN + Colors.BOLD + str(ext['with_voicemail']).ljust(25) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "trunks" in core:
         trunks = core["trunks"]
-        print(f"Trunks: {trunks['count']} (Enabled: {trunks['enabled']})")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "📡 Trunks:          " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(trunks['count']).ljust(20) + Colors.ENDC + 
+              Colors.CYAN + "Enabled: " + Colors.ENDC + Colors.GREEN + Colors.BOLD + str(trunks['enabled']).ljust(27) + Colors.BLUE + " ║" + Colors.ENDC)
         for tech, count in trunks.get("by_tech", {}).items():
-            print(f"  - {tech}: {count}")
+            print(Colors.BLUE + "║" + Colors.ENDC + "      " + Colors.CYAN + "├─ " + Colors.ENDC + 
+                  tech + ": " + Colors.YELLOW + Colors.BOLD + str(count).ljust(63) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "inbound_routes" in core:
-        print(f"Inbound Routes: {core['inbound_routes']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "📞 Inbound Routes:  " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['inbound_routes']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "outbound_routes" in core:
-        print(f"Outbound Routes: {core['outbound_routes']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "📤 Outbound Routes: " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['outbound_routes']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "queues" in core:
-        print(f"Queues: {core['queues']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "📋 Queues:          " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['queues']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "ringgroups" in core:
-        print(f"Ring Groups: {core['ringgroups']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "🔔 Ring Groups:     " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['ringgroups']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "ivrs" in core:
-        print(f"IVRs: {core['ivrs']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "🎯 IVRs:            " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['ivrs']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
     if "timeconditions" in core:
-        print(f"Time Conditions: {core['timeconditions']['count']}")
+        print(Colors.BLUE + "║  " + Colors.BOLD + "⏰ Time Conditions: " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(core['timeconditions']['count']).ljust(56) + Colors.BLUE + " ║" + Colors.ENDC)
     
-    print()
+    print(Colors.BLUE + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
     # Module-specific configurations
     vm_config = analysis["voicemail_config"]
     if vm_config:
-        print("📧 Voicemail Configuration")
-        print("-" * 40)
-        print(f"Mailboxes: {vm_config.get('users_count', 0)}")
-        print(f"With Email: {vm_config.get('with_email', 0)}")
-        print()
+        print("\n" + Colors.MAGENTA + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+        print(Colors.MAGENTA + Colors.BOLD + "║" + " 📧 Voicemail Configuration".center(78) + "║" + Colors.ENDC)
+        print(Colors.MAGENTA + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+        print(Colors.MAGENTA + "║  " + Colors.BOLD + "Mailboxes:   " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(vm_config.get('users_count', 0)).ljust(62) + Colors.MAGENTA + " ║" + Colors.ENDC)
+        print(Colors.MAGENTA + "║  " + Colors.GREEN + "✓ " + Colors.BOLD + "With Email: " + Colors.ENDC + 
+              Colors.GREEN + Colors.BOLD + str(vm_config.get('with_email', 0)).ljust(62) + Colors.MAGENTA + " ║" + Colors.ENDC)
+        print(Colors.MAGENTA + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
     park_config = analysis["parking_config"]
     if park_config:
-        print("🅿️  Call Parking Configuration")
-        print("-" * 40)
-        print(f"Park Extension: {park_config.get('parkext', 'N/A')}")
-        print(f"Park Range: {park_config.get('parkpos', 'N/A')}")
-        print(f"Number of Slots: {park_config.get('numslots', 'N/A')}")
-        print()
+        print("\n" + Colors.YELLOW + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+        print(Colors.YELLOW + Colors.BOLD + "║" + " 🅿️  Call Parking Configuration".center(78) + "║" + Colors.ENDC)
+        print(Colors.YELLOW + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Park Extension: " + Colors.ENDC + 
+              Colors.MAGENTA + Colors.BOLD + str(park_config.get('parkext', 'N/A')).ljust(60) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Park Range:     " + Colors.ENDC + 
+              Colors.CYAN + str(park_config.get('parkpos', 'N/A')).ljust(60) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + "║  " + Colors.BOLD + "Number of Slots:" + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(park_config.get('numslots', 'N/A')).ljust(60) + Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.YELLOW + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
     fax_config = analysis["fax_config"]
     if fax_config:
-        print("📠 Fax Configuration")
-        print("-" * 40)
-        print(f"Fax Users: {fax_config.get('users_count', 0)}")
+        print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+        print(Colors.GREEN + Colors.BOLD + "║" + " 📠 Fax Configuration".center(78) + "║" + Colors.ENDC)
+        print(Colors.GREEN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+        print(Colors.GREEN + "║  " + Colors.BOLD + "Fax Users: " + Colors.ENDC + 
+              Colors.WHITE + Colors.BOLD + str(fax_config.get('users_count', 0)).ljust(65) + Colors.GREEN + " ║" + Colors.ENDC)
         if "settings" in fax_config:
             for key, value in list(fax_config["settings"].items())[:5]:
-                print(f"  {key}: {value}")
-        print()
+                print(Colors.GREEN + "║    " + Colors.YELLOW + key.ljust(20) + Colors.ENDC + 
+                      ": " + str(value)[:50].ljust(50) + Colors.GREEN + " ║" + Colors.ENDC)
+        print(Colors.CYAN + "│" + Colors.ENDC + "  " + Colors.BOLD + "Park Extension: " + Colors.ENDC + 
+              Colors.MAGENTA + Colors.BOLD + park_config.get('parkext', 'N/A') + Colors.ENDC)
+        print(Colors.CYAN + "│" + Colors.ENDC + "  " + Colors.BOLD + "Park Range:     " + Colors.ENDC + 
+              Colors.YELLOW + park_config.get('parkpos', 'N/A') + Colors.ENDC)
+        print(Colors.CYAN + "│" + Colors.ENDC + "  " + Colors.BOLD + "Number of Slots:" + Colors.ENDC + 
+              Colors.WHITE + str(park_config.get('numslots', 'N/A')) + Colors.ENDC)
+        print(Colors.CYAN + "└" + "─" * 69 + Colors.ENDC)
+    
+    fax_config = analysis["fax_config"]
+    if fax_config:
+        print("\n" + Colors.CYAN + "┌─ 📠 Fax Configuration " + "─" * 46 + Colors.ENDC)
+        print(Colors.CYAN + "│" + Colors.ENDC + "  " + Colors.BOLD + "Fax Users: " + Colors.ENDC + 
+              Colors.WHITE + str(fax_config.get('users_count', 0)) + Colors.ENDC)
+        if "settings" in fax_config:
+            for key, value in list(fax_config["settings"].items())[:5]:
+                print(Colors.CYAN + "│" + Colors.ENDC + "    " + Colors.YELLOW + key + Colors.ENDC + 
+                      ": " + str(value))
+        print(Colors.CYAN + "└" + "─" * 69 + Colors.ENDC)
     
     conf_config = analysis["conferencing_config"]
     if conf_config:
-        print("🎤 Conference Configuration")
-        print("-" * 40)
-        print(f"Conference Rooms: {conf_config.get('rooms_count', 0)}")
-        print()
+        print("\n" + Colors.CYAN + "┌─ 🎤 Conference Configuration " + "─" * 39 + Colors.ENDC)
+        print(Colors.CYAN + "│" + Colors.ENDC + "  " + Colors.BOLD + "Conference Rooms: " + Colors.ENDC + 
+              Colors.WHITE + str(conf_config.get('rooms_count', 0)) + Colors.ENDC)
+        print(Colors.CYAN + "└" + "─" * 69 + Colors.ENDC)
     
-    # Enabled FreePBX Modules Detail
-    print("📋 Enabled FreePBX Modules")
-    print("-" * 40)
+    # Enabled FreePBX Modules Detail with dramatic display
+    print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 68 + "╗" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "║" + Colors.ENDC + 
+          Colors.CYAN + Colors.BOLD + " 📋 Enabled FreePBX Modules".center(68) + Colors.ENDC + 
+          Colors.GREEN + Colors.BOLD + "║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╠" + "═" * 68 + "╣" + Colors.ENDC)
+    
     enabled_modules = [m for m in modules if m["enabled"] == "1"]
-    for module in sorted(enabled_modules, key=lambda x: x["modulename"]):
-        status_indicators = []
-        if module["installed"] == "1":
-            status_indicators.append("✅")
-        if module["status"] == "Enabled":
-            status_indicators.append("🟢")
-        elif module["status"] == "Disabled":
-            status_indicators.append("🔴")
+    for i, module in enumerate(sorted(enabled_modules, key=lambda x: x["modulename"])):
+        status_color = Colors.GREEN if module["status"] == "Enabled" else Colors.RED
+        status_icon = "●"
+        installed_icon = Colors.GREEN + "✓" + Colors.ENDC if module["installed"] == "1" else Colors.RED + "✗" + Colors.ENDC
         
-        print(f"{''.join(status_indicators)} {module['modulename']} (v{module['version']})")
+        module_line = (Colors.GREEN + "║ " + Colors.ENDC + 
+                      status_color + status_icon + Colors.ENDC + " " +
+                      installed_icon + " " +
+                      Colors.BOLD + Colors.WHITE + module['modulename'].ljust(30) + Colors.ENDC + 
+                      Colors.YELLOW + " v" + module['version'].ljust(15) + Colors.ENDC +
+                      Colors.GREEN + " ║" + Colors.ENDC)
+        print(module_line)
+        print(Colors.GREEN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
-    print()
-    print("=" * 60)
-    print("✅ Analysis Complete")
+    print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "║" + " ✅ Analysis Complete".center(78) + "║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC + "\n")
 
 if __name__ == "__main__":
     main()

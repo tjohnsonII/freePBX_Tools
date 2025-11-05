@@ -10,6 +10,30 @@ Report Time Condition override state + last feature-code (*<id>) use from CDRs.
 import argparse, subprocess, os, sys, re
 from datetime import datetime
 
+# ANSI Color codes
+class Colors:
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    MAGENTA = '\033[95m'
+    BLUE = '\033[94m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    ENDC = '\033[0m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.YELLOW + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║          ⏰  FreePBX Time Conditions Status Monitor           ║
+║                                                               ║
+║           Override Status & Feature Code Usage History        ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 ASTERISK_DB     = "asterisk"
 CDR_DB          = "asteriskcdrdb"   # FreePBX default
 MYSQL_BIN       = "mysql"
@@ -207,6 +231,8 @@ def pad(s, n):
     return (s + " " * n)[:n]
 
 def main():
+    print_header()
+    
     ap = argparse.ArgumentParser(
         description="Show Time Condition override state and last feature-code (*<id>) use from CDRs")
     ap.add_argument("--socket", help="MySQL socket (e.g. /var/lib/mysql/mysql.sock)")
@@ -215,6 +241,8 @@ def main():
     ap.add_argument("--csv", action="store_true", help="Output CSV instead of pretty table")
     args = ap.parse_args()
 
+    print(Colors.CYAN + "🔍 Querying time conditions database..." + Colors.ENDC)
+    
     mysql_kw_core = dict(user=args.db_user, password=args.db_pass, socket=args.socket)
     mysql_kw_cdr  = dict(user=args.db_user, password=args.db_pass, socket=args.socket)
 
@@ -267,24 +295,79 @@ def main():
                            ["id","name","mode","feature","override","last_fc","caller","dispo","secs"]))
         return
 
-    # pretty table
-    headers = ["ID","Name","Mode","Feature","Override","Last Code","Caller","Dispo","Sec"]
-    widths  = [6, 34, 10, 8, 18, 20, 14, 8, 4]
-    print("".join(pad(h, w) for h, w in zip(headers, widths)))
-    print("-" * sum(widths))
+    # Summary counts
+    total_tcs = len(rows)
+    overridden = sum(1 for r in rows if r["override"] != "No Override")
+    
+    # Pretty table with dramatic colors and borders
+    print("\n" + Colors.YELLOW + Colors.BOLD + "╔" + "═" * 118 + "╗" + Colors.ENDC)
+    print(Colors.YELLOW + Colors.BOLD + "║" + Colors.CYAN + Colors.BOLD + 
+          " ⏰ TIME CONDITIONS: Override Status & Feature Code Usage ".center(118) + 
+          Colors.YELLOW + "║" + Colors.ENDC)
+    print(Colors.YELLOW + Colors.BOLD + "║" + Colors.ENDC + 
+          Colors.WHITE + f"  Total: {total_tcs}  │  ".ljust(60) + 
+          (Colors.RED + f"Overridden: {overridden}" if overridden > 0 else Colors.GREEN + "All on Schedule") + 
+          "".ljust(58) + Colors.YELLOW + "║" + Colors.ENDC)
+    print(Colors.YELLOW + Colors.BOLD + "╠" + "═" * 118 + "╣" + Colors.ENDC)
+    
+    headers = ["ID", "Name", "Mode", "Feature", "Override", "Last Code", "Caller", "Dispo", "Sec"]
+    widths  = [5, 28, 12, 9, 18, 20, 14, 8, 4]
+    
+    # Header row with bold cyan
+    header_line = Colors.YELLOW + "║ " + Colors.ENDC
+    for i, (h, w) in enumerate(zip(headers, widths)):
+        header_line += Colors.BOLD + Colors.CYAN + pad(h, w) + Colors.ENDC
+        if i < len(headers) - 1:
+            header_line += Colors.YELLOW + " │ " + Colors.ENDC
+    header_line += Colors.YELLOW + " ║" + Colors.ENDC
+    print(header_line)
+    print(Colors.YELLOW + "╠" + "─" * 118 + "╣" + Colors.ENDC)
+    
     for r in rows:
-        line = [
-            pad(r["id"], widths[0]),
-            pad(r["name"], widths[1]),
-            pad(r["mode"], widths[2]),
-            pad(r["feature"], widths[3]),
-            pad(r["override"], widths[4]),
-            pad(r["last_fc"], widths[5]),
-            pad(r["caller"], widths[6]),
-            pad(r["dispo"], widths[7]),
-            pad(r["secs"], widths[8]),
+        # Color-code override status
+        if r["override"] == "No Override":
+            override_color = Colors.GREEN
+            override_icon = "✓"
+        elif "MATCHED" in r["override"] or "UNMATCHED" in r["override"]:
+            override_color = Colors.RED
+            override_icon = "⚠"
+        else:
+            override_color = Colors.YELLOW
+            override_icon = "●"
+        
+        # Truncate long strings safely
+        name_trunc = r["name"][:widths[1]-1] if len(r["name"]) > widths[1]-1 else r["name"]
+        mode_trunc = r["mode"][:widths[2]-1] if len(r["mode"]) > widths[2]-1 else r["mode"]
+        override_text = (override_icon + " " + r["override"])[:widths[4]-1]
+        last_fc_trunc = r["last_fc"][:widths[5]-1] if len(r["last_fc"]) > widths[5]-1 else r["last_fc"]
+        caller_trunc = r["caller"][:widths[6]-1] if len(r["caller"]) > widths[6]-1 else r["caller"]
+        dispo_trunc = r["dispo"][:widths[7]-1] if len(r["dispo"]) > widths[7]-1 else r["dispo"]
+        secs_trunc = r["secs"][:widths[8]-1] if len(r["secs"]) > widths[8]-1 else r["secs"]
+        
+        line_parts = [
+            Colors.WHITE + Colors.BOLD + pad(r["id"], widths[0]) + Colors.ENDC,
+            pad(name_trunc, widths[1]),
+            Colors.CYAN + pad(mode_trunc, widths[2]) + Colors.ENDC,
+            Colors.MAGENTA + pad(r["feature"], widths[3]) + Colors.ENDC,
+            override_color + Colors.BOLD + pad(override_text, widths[4]) + Colors.ENDC,
+            Colors.YELLOW + pad(last_fc_trunc, widths[5]) + Colors.ENDC,
+            pad(caller_trunc, widths[6]),
+            Colors.GREEN + pad(dispo_trunc, widths[7]) + Colors.ENDC,
+            Colors.WHITE + pad(secs_trunc, widths[8]) + Colors.ENDC
         ]
-        print("".join(line))
+        
+        print(Colors.YELLOW + "║ " + Colors.ENDC + 
+              (Colors.YELLOW + " │ " + Colors.ENDC).join(line_parts) + 
+              Colors.YELLOW + " ║" + Colors.ENDC)
+    
+    print(Colors.YELLOW + Colors.BOLD + "╚" + "═" * 118 + "╝" + Colors.ENDC)
+    
+    # Legend
+    print("\n" + Colors.BOLD + "Legend: " + Colors.ENDC + 
+          Colors.GREEN + "✓ On Schedule" + Colors.ENDC + " │ " +
+          Colors.RED + "⚠ Override Active" + Colors.ENDC + " │ " +
+          Colors.YELLOW + "● Other State" + Colors.ENDC)
+    print("")
 
 if __name__ == "__main__":
     main()

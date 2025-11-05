@@ -9,6 +9,29 @@ import subprocess
 import sys
 from typing import Optional, Dict, Any, List, Tuple
 
+# ANSI Color codes for professional output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+def print_header():
+    """Print professional header banner"""
+    print(Colors.GREEN + Colors.BOLD + """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║           ✅  FreePBX Version Policy Compliance Check         ║
+║                                                               ║
+║              Verify System Version Requirements               ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+    """ + Colors.ENDC)
+
 DEFAULT_POLICY = "/usr/local/123net/freepbx-tools/version_policy.json"
 
 def sh(cmd: List[str]) -> str:
@@ -93,8 +116,10 @@ def major_allowed(major: Optional[int], comp_policy: Dict[str, Any]) -> bool:
             return True
     # Also support simple "min_major"/"max_major" if present
     try:
-        mn = int(comp_policy.get("min_major")) if comp_policy.get("min_major") is not None else None
-        mx = int(comp_policy.get("max_major")) if comp_policy.get("max_major") is not None else None
+        min_val = comp_policy.get("min_major")
+        mn = int(min_val) if min_val is not None else None
+        max_val = comp_policy.get("max_major")
+        mx = int(max_val) if max_val is not None else None
         if mn is not None and mx is not None and mn <= major <= mx:
             return True
         if mn is not None and mx is None and major >= mn:
@@ -140,14 +165,41 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
     ast_ok  = major_allowed(ast_maj,  ast_policy)
 
     if not quiet:
-        banner_line()
-        print(" FreePBX / Asterisk Version Policy Check")
-        print(" Policy file: {}".format(policy_path))
-        print("-" * 66)
-        print("{:<10} {:<16} {}".format("Component", "Version", "Policy Status"))
-        print("{:<10} {:<16} {}".format("FreePBX", fpbx_ver or "", "IN-POLICY" if fpbx_ok else "OUT-OF-POLICY"))
-        print("{:<10} {:<16} {}".format("Asterisk", ast_ver or "", "IN-POLICY" if ast_ok else "OUT-OF-POLICY"))
-        banner_line()
+        print_header()
+        print(Colors.CYAN + "Policy file: " + Colors.BOLD + policy_path + Colors.ENDC)
+        print(Colors.CYAN + "─" * 70 + Colors.ENDC)
+        print("")
+        print(Colors.BOLD + "{:<12} {:<18} {}".format("Component", "Version", "Status") + Colors.ENDC)
+        print(Colors.CYAN + "─" * 70 + Colors.ENDC)
+        
+        # FreePBX status
+        fpbx_status_icon = "✓" if fpbx_ok else "✗"
+        fpbx_status_color = Colors.GREEN if fpbx_ok else Colors.RED
+        fpbx_status_text = "IN-POLICY" if fpbx_ok else "OUT-OF-POLICY"
+        print("{:<12} {:<18} {}{}{}".format(
+            Colors.BOLD + "FreePBX" + Colors.ENDC,
+            Colors.CYAN + (fpbx_ver or "NOT DETECTED") + Colors.ENDC,
+            fpbx_status_color + fpbx_status_icon + " " + fpbx_status_text + Colors.ENDC
+        ))
+        
+        # Asterisk status
+        ast_status_icon = "✓" if ast_ok else "✗"
+        ast_status_color = Colors.GREEN if ast_ok else Colors.RED
+        ast_status_text = "IN-POLICY" if ast_ok else "OUT-OF-POLICY"
+        print("{:<12} {:<18} {}{}{}".format(
+            Colors.BOLD + "Asterisk" + Colors.ENDC,
+            Colors.CYAN + (ast_ver or "NOT DETECTED") + Colors.ENDC,
+            ast_status_color + ast_status_icon + " " + ast_status_text + Colors.ENDC
+        ))
+        
+        print(Colors.CYAN + "─" * 70 + Colors.ENDC)
+        
+        # Overall status
+        if fpbx_ver and ast_ver and fpbx_ok and ast_ok:
+            print(Colors.GREEN + Colors.BOLD + "\n✓ All versions are compliant with policy" + Colors.ENDC)
+        else:
+            print(Colors.YELLOW + Colors.BOLD + "\n⚠ Version policy violations detected" + Colors.ENDC)
+        print("")
 
     # Exit code: 0 if both known and in policy; 1 otherwise (non-fatal for installer)
     if (fpbx_ver and ast_ver and fpbx_ok and ast_ok):
