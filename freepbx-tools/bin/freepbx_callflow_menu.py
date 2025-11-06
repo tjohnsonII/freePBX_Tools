@@ -704,17 +704,24 @@ def get_active_calls(sock):
     return None
 
 def get_time_conditions_status(sock):
-    """Get time conditions override status"""
+    """Get time conditions override status - returns (total_count, forced_count, status_list)"""
     try:
         # Query the timeconditions table for current state
+        # NOTE: Must be run as root to access MySQL
         sql = "SELECT id, displayname, inuse_state FROM timeconditions ORDER BY displayname"
-        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
+        # Match freepbx_dump.py command format: mysql -BN --user root --socket sock db -e "sql"
+        cmd = ["mysql", "-BN", "--user", "root", "--socket", sock, "asterisk", "-e", sql]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                               universal_newlines=True, timeout=5)
         
-        if result.returncode != 0 or not result.stdout.strip():
-            # Table might not exist or no permissions
-            return ["No data available"]
+        if result.returncode != 0:
+            # Return error for debugging
+            err_msg = result.stderr.strip()[:50] if result.stderr else "Query failed"
+            return (0, 0, ["DB Error: " + err_msg])
+        
+        if not result.stdout.strip():
+            # No time conditions found
+            return (0, 0, ["No time conditions"])
         
         tc_list = []
         total_count = 0
@@ -734,18 +741,20 @@ def get_time_conditions_status(sock):
                         tc_list.append("{} (FORCED OFF)".format(name))
                         forced_count += 1
         
-        # Show summary
+        # Build status list for display
+        status_display = []
         if total_count > 0:
             if forced_count > 0:
-                result = ["{} Total | {} Override | {} Auto".format(total_count, forced_count, total_count - forced_count)]
-                result.extend(tc_list[:5])  # Show first 5 forced
-                return result
+                status_display.append("{} Total | {} Override | {} Auto".format(total_count, forced_count, total_count - forced_count))
+                status_display.extend(tc_list[:5])  # Show first 5 forced
             else:
-                return ["{} Total | All running on schedule".format(total_count)]
+                status_display.append("{} Total | All running on schedule".format(total_count))
         else:
-            return ["No time conditions found"]
+            status_display.append("No time conditions found")
+        
+        return (total_count, forced_count, status_display)
     except Exception as e:
-        return ["Query error: {}".format(str(e)[:50])]
+        return (0, 0, ["Query error: {}".format(str(e)[:50])])
 
 def get_recent_package_updates():
     """Get recent Asterisk/FreePBX package updates from system package manager"""
@@ -819,8 +828,10 @@ def get_endpoint_status(sock):
     """Get SIP endpoint registration status"""
     try:
         # Get list of extensions from database
+        # NOTE: Must be run as root to access MySQL
         sql = "SELECT extension, name FROM users ORDER BY CAST(extension AS UNSIGNED)"
-        cmd = ["mysql", "-NBe", sql, "asterisk", "-u", DB_USER, "-S", sock]
+        # Match freepbx_dump.py command format: mysql -BN --user root --socket sock db -e "sql"
+        cmd = ["mysql", "-BN", "--user", "root", "--socket", sock, "asterisk", "-e", sql]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
         
@@ -911,14 +922,12 @@ def display_system_dashboard(sock, data):
     
     # Get all data first
     active_calls = get_active_calls(sock)
-    tc_status = get_time_conditions_status(sock)
+    tc_total, forced_count, tc_status_list = get_time_conditions_status(sock)
     endpoint_status = get_endpoint_status(sock)
     services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
     service_status = get_service_status(services)
     
     # Calculate metrics
-    forced_count = sum(1 for tc in tc_status if "FORCED" in tc)
-    tc_total = len(tc_status) - 1 if len(tc_status) > 1 else 0
     ep_total = endpoint_status["total"]
     ep_registered = endpoint_status["registered"]
     ep_unreg = endpoint_status["unregistered"]
@@ -950,54 +959,50 @@ def display_system_dashboard(sock, data):
     
     # Color logic
     call_color = Colors.RED if active_calls and active_calls > 10 else Colors.GREEN if active_calls and active_calls > 0 else Colors.CYAN
-    call_val = str(active_calls if active_calls is not None else "N/A")
     tc_color = Colors.YELLOW if forced_count > 0 else Colors.GREEN
     ep_color = Colors.GREEN if ep_pct > 80 else Colors.YELLOW if ep_pct > 50 else Colors.RED
     
-    # Build rows with MUCH better spacing and readability
+    # Build simple, clean tiles - just numbers and labels
     # Row 1 - Big numbers centered
-    c1_r1 = call_color + Colors.BOLD + call_val.center(TILE_WIDTH-2) + Colors.RESET
-    c2_r1 = tc_color + Colors.BOLD + str(tc_total).center(TILE_WIDTH-2) + Colors.RESET
-    c3_r1 = Colors.WHITE + Colors.BOLD + str(ep_total).center(TILE_WIDTH-2) + Colors.RESET
+    call_num = str(active_calls if active_calls is not None else "N/A")
+    tc_num = str(tc_total)
+    ep_num = str(ep_total)
     
-    print(Colors.CYAN + "║ " + c1_r1 + Colors.CYAN + 
-          " ║ " + c2_r1 + Colors.CYAN +
-          " ║ " + c3_r1 + Colors.CYAN + " ║" + Colors.RESET)
+    r1_c1 = (call_color + Colors.BOLD + call_num + Colors.RESET).center(TILE_WIDTH-2 + len(call_color) + len(Colors.BOLD) + len(Colors.RESET))
+    r1_c2 = (tc_color + Colors.BOLD + tc_num + Colors.RESET).center(TILE_WIDTH-2 + len(tc_color) + len(Colors.BOLD) + len(Colors.RESET))
+    r1_c3 = (Colors.WHITE + Colors.BOLD + ep_num + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.BOLD) + len(Colors.RESET))
     
-    # Row 2 - Status labels centered
-    status_text = call_color + ("ACTIVE" if active_calls and active_calls > 0 else "IDLE") + Colors.RESET
-    c1_r2 = status_text.center(TILE_WIDTH-2 + len(call_color) + len(Colors.RESET))
-    c2_r2 = (Colors.WHITE + "Total Time Conditions" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
-    c3_r2 = (Colors.WHITE + "Total Endpoints" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
+    print(Colors.CYAN + "║ " + r1_c1 + Colors.CYAN + " ║ " + r1_c2 + Colors.CYAN + " ║ " + r1_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
-    print(Colors.CYAN + "║ " + c1_r2 + Colors.CYAN +
-          " ║ " + c2_r2 + Colors.CYAN +
-          " ║ " + c3_r2 + Colors.CYAN + " ║" + Colors.RESET)
+    # Row 2 - Status text
+    call_status = "ACTIVE" if active_calls and active_calls > 0 else "IDLE"
+    r2_c1 = (call_color + call_status + Colors.RESET).center(TILE_WIDTH-2 + len(call_color) + len(Colors.RESET))
+    r2_c2 = (Colors.WHITE + "Time Conditions" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
+    r2_c3 = (Colors.WHITE + "Endpoints" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
     
-    # Separator line
-    print(Colors.CYAN + "║ " + "─" * (TILE_WIDTH-2) +
-          " ║ " + "─" * (TILE_WIDTH-2) +
-          " ║ " + "─" * (TILE_WIDTH-2) + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + r2_c1 + Colors.CYAN + " ║ " + r2_c2 + Colors.CYAN + " ║ " + r2_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
-    # Row 3 - Detailed metrics
-    c1_r3 = ("Channels: " + call_color + Colors.BOLD + call_val + Colors.RESET).ljust(TILE_WIDTH-2 + len(call_color) + len(Colors.BOLD) + len(Colors.RESET))
-    c2_r3 = ("Overridden: " + tc_color + Colors.BOLD + str(forced_count) + Colors.RESET + 
-             "  │  On Schedule: " + Colors.GREEN + Colors.BOLD + str(tc_total - forced_count) + Colors.RESET)
-    c2_r3 = c2_r3[:TILE_WIDTH-2 + 50]  # Truncate with color codes accounted
-    c3_r3 = ("Registered: " + ep_color + Colors.BOLD + str(ep_registered) + " (" + str(ep_pct) + "%)" + Colors.RESET)
+    # Separator
+    print(Colors.CYAN + "║ " + "─" * (TILE_WIDTH-2) + " ║ " + "─" * (TILE_WIDTH-2) + " ║ " + "─" * (TILE_WIDTH-2) + " ║" + Colors.RESET)
     
-    print(Colors.CYAN + "║ " + c1_r3[:TILE_WIDTH-2 + 30] + " " * max(0, TILE_WIDTH-2 - len(c1_r3) + 30) + Colors.RESET + Colors.CYAN +
-          " ║ " + c2_r3 + " " * max(0, TILE_WIDTH-2 - 42) + Colors.RESET + Colors.CYAN +
-          " ║ " + c3_r3 + " " * max(0, TILE_WIDTH-2 - 35) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    # Row 3 - Details
+    r3_c1 = "Channels: " + call_color + Colors.BOLD + call_num + Colors.RESET
+    r3_c2 = "Forced: " + (Colors.YELLOW if forced_count > 0 else Colors.GREEN) + Colors.BOLD + str(forced_count) + Colors.RESET + "  Auto: " + Colors.GREEN + Colors.BOLD + str(tc_total - forced_count) + Colors.RESET
+    r3_c3 = "Online: " + ep_color + Colors.BOLD + str(ep_registered) + Colors.RESET + " (" + str(ep_pct) + "%)"
+    
+    # Pad to tile width (accounting for ANSI codes)
+    print(Colors.CYAN + "║ " + r3_c1 + " " * (TILE_WIDTH-2 - 10 - len(call_num)) + 
+          " ║ " + r3_c2 + " " * (TILE_WIDTH-2 - 20 - len(str(forced_count)) - len(str(tc_total - forced_count))) + 
+          " ║ " + r3_c3 + " " * (TILE_WIDTH-2 - 15 - len(str(ep_registered)) - len(str(ep_pct))) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
     
     # Row 4
-    c1_r4 = " " * (TILE_WIDTH-2)
-    c2_r4 = " " * (TILE_WIDTH-2)
-    c3_r4 = ("Unregistered: " + Colors.RED + Colors.BOLD + str(ep_unreg) + Colors.RESET)
+    r4_c1 = ""
+    r4_c2 = ""
+    r4_c3 = "Offline: " + Colors.RED + Colors.BOLD + str(ep_unreg) + Colors.RESET
     
-    print(Colors.CYAN + "║ " + c1_r4 +
-          " ║ " + c2_r4 +
-          " ║ " + c3_r4 + " " * max(0, TILE_WIDTH-2 - 25) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + " " * (TILE_WIDTH-2) + 
+          " ║ " + " " * (TILE_WIDTH-2) + 
+          " ║ " + r4_c3 + " " * (TILE_WIDTH-2 - 9 - len(str(ep_unreg))) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
     
     print(Colors.CYAN + "╚" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╝" + Colors.RESET)
     
@@ -1117,6 +1122,18 @@ def display_system_dashboard(sock, data):
 # ---------------- menu ----------------
 
 def main():
+    # Check if running as root (required for MySQL access)
+    try:
+        euid = os.geteuid()  # type: ignore
+        if euid != 0:
+            print(Colors.YELLOW + "\n⚠️  This tool requires root access to query the FreePBX database." + Colors.RESET)
+            print(Colors.CYAN + "Please run: " + Colors.BOLD + "sudo freepbx-callflows" + Colors.RESET)
+            print(Colors.CYAN + "Or switch to root first: " + Colors.BOLD + "su root" + Colors.RESET + "\n")
+            sys.exit(1)
+    except AttributeError:
+        # Windows doesn't have geteuid, skip check
+        pass
+    
     if not os.path.isfile(DUMP_SCRIPT):
         print("ERROR: {} not found.".format(DUMP_SCRIPT)); sys.exit(1)
     if not os.path.isfile(GRAPH_SCRIPT):
@@ -1134,51 +1151,76 @@ def main():
         # Display system dashboard at top
         display_system_dashboard(sock, data)
         
-        print("\n========== FreePBX Call-Flow Menu ==========")
-        print(" 1) Refresh DB snapshot")
-        print(" 2) Show inventory (counts) + list DIDs")
-        print(" 3) Generate call-flow for selected DID(s)")
-        print(" 4) Generate call-flows for ALL DIDs")
-        print(" 5) Generate call-flows for ALL DIDs (skip labels: OPEN)")
-        print(" 6) Show Time-Condition status (+ last *code use)")
-        print(" 7) Run FreePBX module analysis")
-        print(" 8) Run paging, overhead & fax analysis")
-        print(" 9) Run comprehensive component analysis")
-        print("10) Generate ASCII art call-flows")
-        print("11) 📞 Call Simulation & Validation")
-        print("12) Run full Asterisk diagnostic")
-        print("13) Quit")
-        choice = input("\nChoose: ").strip()
+        # Menu with better alignment and formatting
+        print("\n" + Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + " FreePBX Call-Flow Menu ".center(78) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 1)" + Colors.RESET + "  Refresh DB snapshot                                              " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 2)" + Colors.RESET + "  Show inventory (counts) + list DIDs                              " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 3)" + Colors.RESET + "  Generate call-flow for selected DID(s)                           " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 4)" + Colors.RESET + "  Generate call-flows for ALL DIDs                                 " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 5)" + Colors.RESET + "  Generate call-flows for ALL DIDs (skip labels: OPEN)             " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 6)" + Colors.RESET + "  Show Time-Condition status (+ last *code use)                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 7)" + Colors.RESET + "  Run FreePBX module analysis                                      " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 8)" + Colors.RESET + "  Run paging, overhead & fax analysis                              " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + " 9)" + Colors.RESET + "  Run comprehensive component analysis                             " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + "10)" + Colors.RESET + "  Generate ASCII art call-flows                                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + "11)" + Colors.RESET + "  📞 Call Simulation & Validation                                  " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + "12)" + Colors.RESET + "  Run full Asterisk diagnostic                                     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + "13)" + Colors.RESET + "  Quit                                                             " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
+        choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
         if choice == "1":
             if refresh_dump(sock):
                 data = load_dump()
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "2":
             summarize(data)
             list_dids(data)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "3":
             did_rows = list_dids(data)
-            if not did_rows: continue
+            if not did_rows: 
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                input()
+                continue
             sel = input("\nEnter indexes (e.g. 1,3,5-8) or * for all: ")
             idxs = parse_selection(sel, len(did_rows))
             if not idxs:
                 print("No valid selection.")
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                input()
                 continue
             render_dids(did_rows, idxs, sock)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "4":
             did_rows = list_dids(data, show_limit=0) or list_dids(data)  # ensures we have rows
-            if not did_rows: continue
+            if not did_rows: 
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                input()
+                continue
             render_dids(did_rows, list(range(1, len(did_rows)+1)), sock)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "5":
             did_rows = list_dids(data, show_limit=0) or list_dids(data)
-            if not did_rows: continue
+            if not did_rows: 
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                input()
+                continue
             # lowercase match set; you can add more labels here if you want to exclude them
             render_dids(did_rows, list(range(1, len(did_rows)+1)), sock,
                         skip_labels=set(["open"]))
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "6":
             run_tc_status(sock)
@@ -1196,10 +1238,14 @@ def main():
             did_rows = list_dids(data)
             if did_rows:
                 run_ascii_callflow(sock, did_rows)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "11":
             did_rows = list_dids(data)
             run_call_simulation_menu(sock, did_rows)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "12":
             diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
@@ -1209,12 +1255,16 @@ def main():
                 print("\nRunning full diagnostic (this may take ~10-30s)...\n")
                 rc, out, err = run([diag])
                 # The script prints its own output; nothing else to do.
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
         elif choice == "13":
             print("Bye.")
             break
         else:
-            print("Invalid choice.")
+            print(Colors.RED + "Invalid choice." + Colors.RESET)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
 
 if __name__ == "__main__":
     main()
