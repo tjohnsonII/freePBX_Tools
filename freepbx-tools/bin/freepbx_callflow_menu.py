@@ -1882,6 +1882,59 @@ def main():
     except AttributeError:
         # Windows doesn't have geteuid, skip check
         pass
+
+
+def run_phone_analysis_menu():
+    """Interactive phone/endpoint analysis menu."""
+    PHONE_ANALYZER_SCRIPT = os.path.join(os.path.dirname(__file__), "freepbx_phone_analyzer.py")
+    
+    if not os.path.isfile(PHONE_ANALYZER_SCRIPT):
+        print(f"{Colors.RED}❌ Phone analyzer tool not found.{Colors.RESET}")
+        return
+    
+    while True:
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 Phone & Endpoint Analysis{' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Analyze SIP peer registrations{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Analyze PJSIP endpoints{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Analyze extension configuration{' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Check provisioning status{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Check firmware versions{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Check 123NET configuration standards{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Analyze call quality metrics{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Generate comprehensive phone report{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        
+        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-9): {Colors.RESET}").strip()
+        
+        if choice == '9':
+            break
+        elif choice == '1':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--sip-peers'])
+        elif choice == '2':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--pjsip'])
+        elif choice == '3':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--extensions'])
+        elif choice == '4':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--provisioning'])
+        elif choice == '5':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--firmware'])
+        elif choice == '6':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--standards'])
+        elif choice == '7':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--call-quality'])
+        elif choice == '8':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--comprehensive'])
+        else:
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-9.{Colors.RESET}")
+        
+        print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
+        input()
+
+
+# Main function is at the bottom of the file (don't duplicate)
     
     if not os.path.isfile(DUMP_SCRIPT):
         print("ERROR: {} not found.".format(DUMP_SCRIPT)); sys.exit(1)
@@ -1941,7 +1994,8 @@ def main():
         print(menu_line("15", "🌐 Network Diagnostics & Packet Capture"))
         print(menu_line("16", "🔍 Enhanced Log Analysis (dmesg/journal/regex)"))
         print(menu_line("17", "📞 CDR/CEL Call Log Analysis"))
-        print(menu_line("18", "Quit"))
+        print(menu_line("18", "📱 Phone/Endpoint Analysis"))
+        print(menu_line("19", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
@@ -2042,6 +2096,9 @@ def main():
             run_cdr_analysis_menu()
 
         elif choice == "18":
+            run_phone_analysis_menu()
+
+        elif choice == "19":
             print("Bye.")
             break
         else:

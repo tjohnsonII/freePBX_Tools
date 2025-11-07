@@ -55,8 +55,17 @@ test_password_file.txt
 MANUAL_TEST_CREDENTIALS.txt
 
 # Internal documentation (not for public repo)
+# Exclude entire directory and all subdirectories/files
 123net_internal_docs/
 **/123net_internal_docs/
+123net_internal_docs/**
+**/123net_internal_docs/**
+freepbx-tools/bin/123net_internal_docs/
+freepbx-tools/bin/123net_internal_docs/**
+
+# Test scrape outputs
+test_scrape_output/
+**/test_scrape_output/
 
 # Backup files that might contain sensitive data
 *.backup
