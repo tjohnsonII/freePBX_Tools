@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FreePBX Call Simulator
+freePBX Call Simulator
 Generate and execute Asterisk call files to test call flow routing
 Monitors call outcomes and validates against expected behavior
 """
@@ -14,6 +14,19 @@ import argparse
 from datetime import datetime, timedelta
 import json
 import socket
+import re
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
 
 class FreePBXCallSimulator:
     def __init__(self, server_ip=None, ssh_user="123net"):
@@ -25,6 +38,34 @@ class FreePBXCallSimulator:
         self.test_results = []
         self.debug = False  # Enable debug output when True
         self.is_local_execution = self._is_local_execution()
+        
+    def debug_print(self, message, level="INFO"):
+        """Print debug messages with colorized level indicators"""
+        if not self.debug:
+            return
+            
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        level_colors = {
+            "INFO": Colors.CYAN,
+            "SUCCESS": Colors.GREEN,
+            "WARNING": Colors.YELLOW,
+            "ERROR": Colors.RED,
+            "COMMAND": Colors.MAGENTA,
+            "RESPONSE": Colors.BLUE
+        }
+        
+        color = level_colors.get(level, Colors.WHITE)
+        level_icon = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅",
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "COMMAND": "🔧",
+            "RESPONSE": "📥"
+        }.get(level, "•")
+        
+        print(f"{Colors.WHITE}[{timestamp}]{Colors.RESET} {color}{Colors.BOLD}{level_icon} {level}:{Colors.RESET} {color}{message}{Colors.RESET}")
         
     def _is_local_execution(self):
         """Check if we're running on the same server as the target"""
@@ -51,19 +92,48 @@ class FreePBXCallSimulator:
     
     def _run_command(self, command, timeout=10):
         """Run command locally or via SSH based on execution context"""
-        if self.is_local_execution:
-            # Running locally, execute directly
-            return subprocess.run(
-                command, shell=True, 
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                universal_newlines=True, timeout=timeout
-            )
-        else:
-            # Running remotely, use SSH
-            return subprocess.run([
-                "ssh", f"{self.ssh_user}@{self.server_ip}", command
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-               universal_newlines=True, timeout=timeout)
+        execution_mode = "LOCAL" if self.is_local_execution else "SSH"
+        self.debug_print(f"{execution_mode} Command: {command}", "COMMAND")
+        
+        start_time = time.time()
+        
+        try:
+            if self.is_local_execution:
+                # Running locally, execute directly
+                result = subprocess.run(
+                    command, shell=True, 
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                    universal_newlines=True, timeout=timeout
+                )
+            else:
+                # Running remotely, use SSH
+                self.debug_print(f"SSH Connection: {self.ssh_user}@{self.server_ip}", "INFO")
+                result = subprocess.run([
+                    "ssh", f"{self.ssh_user}@{self.server_ip}", command
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                   universal_newlines=True, timeout=timeout)
+            
+            elapsed = time.time() - start_time
+            
+            if result.returncode == 0:
+                self.debug_print(f"Command succeeded in {elapsed:.2f}s", "SUCCESS")
+                if result.stdout.strip():
+                    self.debug_print(f"STDOUT: {result.stdout.strip()[:200]}", "RESPONSE")
+            else:
+                self.debug_print(f"Command failed with return code {result.returncode} after {elapsed:.2f}s", "ERROR")
+                if result.stderr.strip():
+                    self.debug_print(f"STDERR: {result.stderr.strip()[:200]}", "ERROR")
+            
+            return result
+            
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - start_time
+            self.debug_print(f"Command timed out after {elapsed:.2f}s", "ERROR")
+            raise
+        except Exception as e:
+            elapsed = time.time() - start_time
+            self.debug_print(f"Command exception after {elapsed:.2f}s: {str(e)}", "ERROR")
+            raise
         
     def create_call_file(self, channel, caller_id, destination, context="from-internal", 
                         priority=1, wait_time=30, max_retries=2, application=None, 
@@ -71,6 +141,9 @@ class FreePBXCallSimulator:
         """
         Create an Asterisk call file with specified parameters
         """
+        
+        self.debug_print(f"Creating call file for {channel} -> {destination}", "INFO")
+        self.debug_print(f"Caller ID: {caller_id}, Context: {context}", "INFO")
         
         call_file_content = []
         
@@ -82,9 +155,11 @@ class FreePBXCallSimulator:
         
         # Destination - either extension or application
         if application and data:
+            self.debug_print(f"Using Application: {application}, Data: {data}", "INFO")
             call_file_content.append(f"Application: {application}")
             call_file_content.append(f"Data: {data}")
         else:
+            self.debug_print(f"Using Extension: {destination}, Priority: {priority}", "INFO")
             call_file_content.append(f"Context: {context}")
             call_file_content.append(f"Extension: {destination}")
             call_file_content.append(f"Priority: {priority}")
@@ -99,11 +174,14 @@ class FreePBXCallSimulator:
         call_file_content.append(f"# Generated: {datetime.now().isoformat()}")
         call_file_content.append(f"# Test case: {channel} -> {destination}")
         
-        return "\n".join(call_file_content) + "\n"
+        content = "\n".join(call_file_content) + "\n"
+        self.debug_print(f"Call file created ({len(content)} bytes)", "SUCCESS")
+        
+        return content
     
     def execute_call_file(self, call_content, call_id=None):
         """
-        Execute a call file on the remote FreePBX server
+        Execute a call file on the remote freePBX server
         Returns call execution results
         """
         
@@ -113,14 +191,23 @@ class FreePBXCallSimulator:
         temp_file = f"/tmp/call_{call_id}"
         target_file = f"{self.spool_dir}/call_{call_id}.call"
         
-        print(f"🚀 Executing call simulation: {call_id}")
+        print(f"{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🚀 EXECUTING CALL SIMULATION {Colors.RESET}{Colors.CYAN}                               ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 68}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.WHITE}  Call ID: {Colors.GREEN}{Colors.BOLD}{call_id:<56}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
+        
+        self.debug_print(f"Temporary file: {temp_file}", "INFO")
+        self.debug_print(f"Target spool file: {target_file}", "INFO")
         
         try:
             # Create call file on remote server
+            self.debug_print("Creating call file on server...", "INFO")
             cmd = f'cat > {temp_file} << "EOF"\n{call_content}EOF'
             result = self._run_command(cmd, timeout=30)
             
             if result.returncode != 0:
+                self.debug_print(f"Failed to create call file", "ERROR")
                 return {
                     'success': False,
                     'error': f"Failed to create call file: {result.stderr}",
@@ -128,32 +215,40 @@ class FreePBXCallSimulator:
                 }
             
             # Set proper ownership and permissions for asterisk user
+            self.debug_print(f"Setting ownership to {self.asterisk_user}...", "INFO")
             chown_cmd = f"chown {self.asterisk_user}:{self.asterisk_user} {temp_file}"
             chown_result = self._run_command(chown_cmd, timeout=10)
             
             if chown_result.returncode != 0:
-                print(f"   ⚠️  Warning: Could not set ownership: {chown_result.stderr}")
+                print(f"   {Colors.YELLOW}⚠️  Warning: Could not set ownership: {chown_result.stderr}{Colors.RESET}")
+                self.debug_print("Ownership change failed (may not have permissions)", "WARNING")
             
             # Set proper permissions (readable by asterisk)
+            self.debug_print("Setting file permissions (644)...", "INFO")
             chmod_cmd = f"chmod 644 {temp_file}"
             chmod_result = self._run_command(chmod_cmd, timeout=10)
             
             if chmod_result.returncode != 0:
-                print(f"   ⚠️  Warning: Could not set permissions: {chmod_result.stderr}")
+                print(f"   {Colors.YELLOW}⚠️  Warning: Could not set permissions: {chmod_result.stderr}{Colors.RESET}")
+                self.debug_print("Permission change failed", "WARNING")
             
             # Verify file exists and has correct ownership before moving
+            self.debug_print("Verifying file before move...", "INFO")
             verify_cmd = f"ls -l {temp_file}"
             verify_result = self._run_command(verify_cmd, timeout=10)
             
             if verify_result.returncode == 0:
-                print(f"   📋 File created: {verify_result.stdout.strip()}")
+                print(f"   {Colors.GREEN}📋 File created: {verify_result.stdout.strip()}{Colors.RESET}")
+                self.debug_print(f"File verified: {verify_result.stdout.strip()}", "SUCCESS")
             
             # Move to spool directory (this triggers the call)
             # Using mv ensures file is moved (not copied) as required by Asterisk
+            self.debug_print("Moving call file to spool directory (this triggers call)...", "INFO")
             move_cmd = f"mv {temp_file} {target_file}"
             move_result = self._run_command(move_cmd, timeout=10)
             
             if move_result.returncode != 0:
+                self.debug_print("Failed to move file to spool directory", "ERROR")
                 return {
                     'success': False,
                     'error': f"Failed to move call file: {move_result.stderr}",
@@ -161,13 +256,16 @@ class FreePBXCallSimulator:
                 }
             
             # Verify the file was moved successfully to spool directory
+            self.debug_print("Verifying file in spool directory...", "INFO")
             verify_spool_cmd = f"ls -l {target_file}"
             verify_spool_result = self._run_command(verify_spool_cmd, timeout=10)
             
             if verify_spool_result.returncode == 0:
-                print(f"   📁 Call file moved to spool directory")
-                print(f"   📋 Spool file: {verify_spool_result.stdout.strip()}")
+                print(f"   {Colors.GREEN}📁 Call file moved to spool directory{Colors.RESET}")
+                print(f"   {Colors.CYAN}📋 Spool file: {verify_spool_result.stdout.strip()}{Colors.RESET}")
+                self.debug_print("Call file successfully placed in spool - Asterisk will process it", "SUCCESS")
             else:
+                self.debug_print("File not found in spool after move", "ERROR")
                 return {
                     'success': False,
                     'error': f"File not found in spool directory after move",
@@ -175,25 +273,45 @@ class FreePBXCallSimulator:
                 }
             
             # Verify temp file was removed (successful move)
+            self.debug_print("Verifying temp file was removed...", "INFO")
             temp_check_cmd = f"ls {temp_file} 2>/dev/null || echo 'TEMP_REMOVED'"
             temp_check_result = self._run_command(temp_check_cmd, timeout=10)
             
             if "TEMP_REMOVED" in temp_check_result.stdout:
-                print(f"   ✅ Temporary file properly removed")
+                print(f"   {Colors.GREEN}✅ Temporary file properly removed{Colors.RESET}")
+                self.debug_print("Temp file successfully removed", "SUCCESS")
             else:
-                print(f"   ⚠️  Warning: Temporary file still exists")
+                print(f"   {Colors.YELLOW}⚠️  Warning: Temporary file still exists{Colors.RESET}")
+                self.debug_print("Temp file still exists (unexpected)", "WARNING")
             
             # Wait a moment for Asterisk to process
+            self.debug_print("Waiting for Asterisk to process call file...", "INFO")
+            print(f"   {Colors.BLUE}⏳ Waiting for Asterisk to process (2s)...{Colors.RESET}")
             time.sleep(2)
             
             # Check if file was processed (should be gone from spool)
+            self.debug_print("Checking if Asterisk processed the file...", "INFO")
             check_cmd = f"ls {target_file} 2>/dev/null || echo 'FILE_PROCESSED'"
             check_result = self._run_command(check_cmd, timeout=10)
             
             processed = "FILE_PROCESSED" in check_result.stdout
             
+            if processed:
+                print(f"   {Colors.GREEN}✅ Call file processed by Asterisk{Colors.RESET}")
+                self.debug_print("File successfully processed by Asterisk", "SUCCESS")
+            else:
+                print(f"   {Colors.YELLOW}⚠️  Call file still in spool (may be processing){Colors.RESET}")
+                self.debug_print("File still in spool (processing may be delayed)", "WARNING")
+            
             # Get call logs for this time period
+            self.debug_print("Fetching recent call logs...", "INFO")
             call_logs = self._get_recent_call_logs(call_id)
+            
+            if call_logs:
+                print(f"   {Colors.CYAN}📜 Retrieved {len(call_logs)} log entries{Colors.RESET}")
+                self.debug_print(f"Found {len(call_logs)} log entries", "SUCCESS")
+            
+            print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}\n")
             
             return {
                 'success': True,
@@ -204,12 +322,16 @@ class FreePBXCallSimulator:
             }
             
         except subprocess.TimeoutExpired:
+            self.debug_print("SSH timeout during call execution", "ERROR")
+            print(f"{Colors.RED}❌ SSH timeout during call execution{Colors.RESET}")
             return {
                 'success': False,
                 'error': "SSH timeout during call execution",
                 'call_id': call_id
             }
         except Exception as e:
+            self.debug_print(f"Exception during call execution: {str(e)}", "ERROR")
+            print(f"{Colors.RED}❌ Exception: {str(e)}{Colors.RESET}")
             return {
                 'success': False,
                 'error': f"Exception during call execution: {str(e)}",

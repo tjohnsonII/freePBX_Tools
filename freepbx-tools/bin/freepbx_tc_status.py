@@ -21,13 +21,14 @@ class Colors:
     WHITE = '\033[97m'
     BOLD = '\033[1m'
     ENDC = '\033[0m'
+    RESET = '\033[0m'
 
 def print_header():
     """Print professional header banner"""
     print(Colors.YELLOW + Colors.BOLD + """
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║          ⏰  FreePBX Time Conditions Status Monitor           ║
+║          ⏰  freePBX Time Conditions Status Monitor           ║
 ║                                                               ║
 ║           Override Status & Feature Code Usage History        ║
 ║                                                               ║
@@ -300,67 +301,78 @@ def main():
     overridden = sum(1 for r in rows if r["override"] != "No Override")
     
     # Pretty table with dramatic colors and borders
-    print("\n" + Colors.YELLOW + Colors.BOLD + "╔" + "═" * 118 + "╗" + Colors.ENDC)
-    print(Colors.YELLOW + Colors.BOLD + "║" + Colors.CYAN + Colors.BOLD + 
-          " ⏰ TIME CONDITIONS: Override Status & Feature Code Usage ".center(118) + 
-          Colors.YELLOW + "║" + Colors.ENDC)
-    print(Colors.YELLOW + Colors.BOLD + "║" + Colors.ENDC + 
-          Colors.WHITE + f"  Total: {total_tcs}  │  ".ljust(60) + 
-          (Colors.RED + f"Overridden: {overridden}" if overridden > 0 else Colors.GREEN + "All on Schedule") + 
-          "".ljust(58) + Colors.YELLOW + "║" + Colors.ENDC)
-    print(Colors.YELLOW + Colors.BOLD + "╠" + "═" * 118 + "╣" + Colors.ENDC)
+    print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 135 + "╗" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "║" + Colors.YELLOW + 
+          " ⏰ TIME CONDITIONS: Override Status & Feature Code Usage ".center(135) + 
+          Colors.CYAN + "║" + Colors.ENDC)
+    
+    # Summary line with proper spacing
+    summary_text = f"Total: {total_tcs}  │  "
+    if overridden > 0:
+        summary_text += f"{Colors.RED}⚠ {overridden} Overridden{Colors.RESET}"
+    else:
+        summary_text += f"{Colors.GREEN}✓ All on Schedule{Colors.RESET}"
+    
+    # Strip color codes to calculate actual length
+    import re
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    visible_len = len(ansi_escape.sub('', summary_text))
+    padding = " " * (135 - visible_len - 2)
+    
+    print(Colors.CYAN + Colors.BOLD + "║ " + Colors.RESET + Colors.WHITE + summary_text + padding + Colors.CYAN + Colors.BOLD + "║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 135 + "╣" + Colors.ENDC)
     
     headers = ["ID", "Name", "Mode", "Feature", "Override", "Last Code", "Caller", "Dispo", "Sec"]
-    widths  = [5, 28, 12, 9, 18, 20, 14, 8, 4]
+    widths  = [6, 30, 13, 10, 15, 22, 16, 12, 6]
     
-    # Header row with bold cyan
-    header_line = Colors.YELLOW + "║ " + Colors.ENDC
-    for i, (h, w) in enumerate(zip(headers, widths)):
-        header_line += Colors.BOLD + Colors.CYAN + pad(h, w) + Colors.ENDC
-        if i < len(headers) - 1:
-            header_line += Colors.YELLOW + " │ " + Colors.ENDC
-    header_line += Colors.YELLOW + " ║" + Colors.ENDC
+    # Helper to pad text with ANSI awareness
+    def pad_ansi(text, width):
+        visible = ansi_escape.sub('', text)
+        padding_needed = width - len(visible)
+        return text + (" " * padding_needed if padding_needed > 0 else "")
+    
+    # Header row with bold white
+    header_parts = []
+    for h, w in zip(headers, widths):
+        header_parts.append(pad_ansi(Colors.BOLD + Colors.WHITE + h + Colors.ENDC, w))
+    
+    header_line = Colors.CYAN + "║ " + Colors.ENDC + (Colors.CYAN + " │ " + Colors.ENDC).join(header_parts) + Colors.CYAN + " ║" + Colors.ENDC
     print(header_line)
-    print(Colors.YELLOW + "╠" + "─" * 118 + "╣" + Colors.ENDC)
+    print(Colors.CYAN + "╠" + "─" * 135 + "╣" + Colors.ENDC)
     
     for r in rows:
         # Color-code override status
         if r["override"] == "No Override":
             override_color = Colors.GREEN
             override_icon = "✓"
+            override_display = f"{override_icon} No Override"
         elif "MATCHED" in r["override"] or "UNMATCHED" in r["override"]:
             override_color = Colors.RED
             override_icon = "⚠"
+            override_display = f"{override_icon} {r['override']}"
         else:
             override_color = Colors.YELLOW
             override_icon = "●"
+            override_display = f"{override_icon} {r['override']}"
         
-        # Truncate long strings safely
-        name_trunc = r["name"][:widths[1]-1] if len(r["name"]) > widths[1]-1 else r["name"]
-        mode_trunc = r["mode"][:widths[2]-1] if len(r["mode"]) > widths[2]-1 else r["mode"]
-        override_text = (override_icon + " " + r["override"])[:widths[4]-1]
-        last_fc_trunc = r["last_fc"][:widths[5]-1] if len(r["last_fc"]) > widths[5]-1 else r["last_fc"]
-        caller_trunc = r["caller"][:widths[6]-1] if len(r["caller"]) > widths[6]-1 else r["caller"]
-        dispo_trunc = r["dispo"][:widths[7]-1] if len(r["dispo"]) > widths[7]-1 else r["dispo"]
-        secs_trunc = r["secs"][:widths[8]-1] if len(r["secs"]) > widths[8]-1 else r["secs"]
-        
+        # Build row with proper column widths and ANSI-aware padding
         line_parts = [
-            Colors.WHITE + Colors.BOLD + pad(r["id"], widths[0]) + Colors.ENDC,
-            pad(name_trunc, widths[1]),
-            Colors.CYAN + pad(mode_trunc, widths[2]) + Colors.ENDC,
-            Colors.MAGENTA + pad(r["feature"], widths[3]) + Colors.ENDC,
-            override_color + Colors.BOLD + pad(override_text, widths[4]) + Colors.ENDC,
-            Colors.YELLOW + pad(last_fc_trunc, widths[5]) + Colors.ENDC,
-            pad(caller_trunc, widths[6]),
-            Colors.GREEN + pad(dispo_trunc, widths[7]) + Colors.ENDC,
-            Colors.WHITE + pad(secs_trunc, widths[8]) + Colors.ENDC
+            pad_ansi(Colors.CYAN + Colors.BOLD + r["id"] + Colors.ENDC, widths[0]),
+            pad_ansi(Colors.WHITE + r["name"][:widths[1]] + Colors.ENDC, widths[1]),
+            pad_ansi(Colors.CYAN + r["mode"][:widths[2]] + Colors.ENDC, widths[2]),
+            pad_ansi(Colors.MAGENTA + Colors.BOLD + r["feature"][:widths[3]] + Colors.ENDC, widths[3]),
+            pad_ansi(override_color + Colors.BOLD + override_display[:widths[4]] + Colors.ENDC, widths[4]),
+            pad_ansi(Colors.YELLOW + r["last_fc"][:widths[5]] + Colors.ENDC, widths[5]),
+            pad_ansi(Colors.WHITE + r["caller"][:widths[6]] + Colors.ENDC, widths[6]),
+            pad_ansi(Colors.GREEN + r["dispo"][:widths[7]] + Colors.ENDC, widths[7]),
+            pad_ansi(Colors.WHITE + r["secs"][:widths[8]] + Colors.ENDC, widths[8])
         ]
         
-        print(Colors.YELLOW + "║ " + Colors.ENDC + 
-              (Colors.YELLOW + " │ " + Colors.ENDC).join(line_parts) + 
-              Colors.YELLOW + " ║" + Colors.ENDC)
+        print(Colors.CYAN + "║ " + Colors.ENDC + 
+              (Colors.CYAN + " │ " + Colors.ENDC).join(line_parts) + 
+              Colors.CYAN + " ║" + Colors.ENDC)
     
-    print(Colors.YELLOW + Colors.BOLD + "╚" + "═" * 118 + "╝" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 135 + "╝" + Colors.ENDC)
     
     # Legend
     print("\n" + Colors.BOLD + "Legend: " + Colors.ENDC + 
