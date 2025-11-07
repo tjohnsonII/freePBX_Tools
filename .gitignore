@@ -53,6 +53,11 @@ test_info.txt
 test_password_file.txt
 test_password_file.txt
 MANUAL_TEST_CREDENTIALS.txt
+
+# Internal documentation (not for public repo)
+123net_internal_docs/
+**/123net_internal_docs/
+
 # Backup files that might contain sensitive data
 *.backup
 *_backup.*

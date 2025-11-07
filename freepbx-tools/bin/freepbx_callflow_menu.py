@@ -953,6 +953,10 @@ def run(cmd, env=None):
                        universal_newlines=True, env=env)
     return p.returncode, (p.stdout or ""), (p.stderr or "")
 
+def run_interactive(cmd, env=None):
+    """Run command with output streaming directly to terminal."""
+    subprocess.run(cmd, env=env)
+
 def detect_mysql_socket():
     rc, out, _ = run(["bash", "-lc", "mysql -NBe 'SHOW VARIABLES LIKE \"socket\";' 2>/dev/null | awk '{print $2}'"])
     path = (out.strip().splitlines() or [""])[0]
@@ -1685,29 +1689,29 @@ def run_enhanced_log_analysis_menu():
         
         if choice == "1":
             hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
         elif choice == "2":
             hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
         elif choice == "3":
-            run(["python3", LOG_ANALYZER_SCRIPT, "--dmesg"])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--dmesg"])
         elif choice == "4":
             hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
         elif choice == "5":
             pattern = input(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
             if pattern:
                 log_file = input(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
                 log_file = log_file or "/var/log/asterisk/full"
-                run(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
         elif choice == "6":
-            run(["python3", LOG_ANALYZER_SCRIPT, "--search-patterns"])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--search-patterns"])
         elif choice == "7":
-            run(["python3", LOG_ANALYZER_SCRIPT, "--codes-only"])
+            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--codes-only"])
         elif choice == "8":
             code = input(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
             if code:
-                run(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
         elif choice == "9":
             break
         else:
@@ -1748,29 +1752,29 @@ def run_cdr_analysis_menu():
             hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
         
         if choice == "1":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
         elif choice == "2":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
         elif choice == "3":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
         elif choice == "4":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
         elif choice == "5":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
         elif choice == "6":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
         elif choice == "7":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
         elif choice == "8":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
         elif choice == "9":
-            run(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
+            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
         elif choice == "10":
             filename = input(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
             if filename:
-                run(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
             else:
-                run(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
         elif choice == "11":
             break
         else:
@@ -1811,24 +1815,24 @@ def run_network_diagnostics_menu():
         choice = input(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
         
         if choice == "1":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
         elif choice == "2":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
         elif choice == "3":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
         elif choice == "4":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
         elif choice == "5":
             host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
         elif choice == "6":
             host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
             if host:
-                run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
         elif choice == "7":
             domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
             if domain:
-                run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
         elif choice == "8":
             duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
             port = input(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
@@ -1838,23 +1842,23 @@ def run_network_diagnostics_menu():
                 cmd.extend(["--port", port])
             if host:
                 cmd.extend(["--host", host])
-            run(cmd)
+            run_interactive(cmd)
         elif choice == "9":
             print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
         elif choice == "10":
             duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
         elif choice == "11":
             duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
         elif choice == "12":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
         elif choice == "13":
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
         elif choice == "14":
             print(f"{Colors.CYAN}Running comprehensive network diagnostic...{Colors.RESET}\n")
-            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--comprehensive"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--comprehensive"])
         elif choice == "15":
             break
         else:
