@@ -275,175 +275,12 @@ class VPBXTableScraper:
         
         return all_links
     
-    def _save_page_content(self, output_dir, page_name, page_url):
-        """Helper to save current page's HTML and text content"""
-        html = self.driver.page_source
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Create safe filename
-        safe_name = re.sub(r'[^\w\-_]', '_', page_name)
-        html_file = os.path.join(output_dir, f"{safe_name}.html")
-        text_file = os.path.join(output_dir, f"{safe_name}.txt")
-        
-        # Save HTML
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write(html)
-        
-        # Extract and save text
-        for script in soup(["script", "style"]):
-            script.decompose()
-        text = soup.get_text(separator='\n', strip=True)
-        
-        with open(text_file, 'w', encoding='utf-8') as f:
-            f.write(f"Source: {page_url}\n")
-            f.write(f"Page: {page_name}\n")
-            f.write("=" * 80 + "\n\n")
-            f.write(text)
-        
-        return html_file, text_file
-    
-    def scrape_detail_page_comprehensive(self, detail_url, entry_id, output_dir):
-        """Scrape a detail page and all its sub-pages (Site Notes, Site Specific Config, Edit, etc.)"""
-        saved_files = {}
-        
-        try:
-            # Navigate to main detail page
-            self.driver.get(detail_url)
-            time.sleep(2)
-            
-            # Save main detail page
-            html_file, text_file = self._save_page_content(output_dir, "detail_main", detail_url)
-            saved_files['detail_main'] = {'html': html_file, 'text': text_file}
-            print(f"{Colors.GREEN}    ✓ Main detail page{Colors.RESET}")
-            
-            # Define buttons to click on the detail page
-            buttons_to_click = [
-                ('Site Notes', 'notes_button', 'site_notes'),
-                ('Site Specific Config', 'site_editor_button', 'site_specific_config'),
-            ]
-            
-            # Click each button and save the resulting page
-            for button_text, button_id, page_name in buttons_to_click:
-                try:
-                    # Go back to detail page
-                    self.driver.get(detail_url)
-                    time.sleep(1)
-                    
-                    # Try to find button by ID first, then by text
-                    button = None
-                    try:
-                        button = self.driver.find_element(By.ID, button_id)
-                    except NoSuchElementException:
-                        try:
-                            button = self.driver.find_element(By.PARTIAL_LINK_TEXT, button_text)
-                        except NoSuchElementException:
-                            pass
-                    
-                    if button:
-                        self.driver.execute_script("arguments[0].click();", button)
-                        time.sleep(2)
-                        
-                        current_url = self.driver.current_url
-                        html_file, text_file = self._save_page_content(output_dir, page_name, current_url)
-                        saved_files[page_name] = {'html': html_file, 'text': text_file}
-                        print(f"{Colors.GREEN}    ✓ {button_text}{Colors.RESET}")
-                    else:
-                        print(f"{Colors.YELLOW}    ⚠ {button_text} button not found{Colors.RESET}")
-                        
-                except Exception as e:
-                    print(f"{Colors.YELLOW}    ⚠ Error clicking {button_text}: {e}{Colors.RESET}")
-            
-            # Now handle Edit page and its sub-pages
-            try:
-                # Go back to detail page
-                self.driver.get(detail_url)
-                time.sleep(1)
-                
-                # Look for Edit link/button
-                edit_button = None
-                try:
-                    # Try to find Edit link in the table
-                    edit_links = self.driver.find_elements(By.PARTIAL_LINK_TEXT, "Edit")
-                    if edit_links:
-                        edit_button = edit_links[0]
-                except:
-                    pass
-                
-                if edit_button:
-                    # Click Edit
-                    self.driver.execute_script("arguments[0].click();", edit_button)
-                    time.sleep(2)
-                    
-                    edit_url = self.driver.current_url
-                    
-                    # Save main Edit page
-                    html_file, text_file = self._save_page_content(output_dir, "edit_main", edit_url)
-                    saved_files['edit_main'] = {'html': html_file, 'text': text_file}
-                    print(f"{Colors.GREEN}    ✓ Edit page{Colors.RESET}")
-                    
-                    # Now look for sub-buttons on Edit page: View Config, Bulk Attribute Edit
-                    edit_sub_pages = [
-                        ('View Config', 'view_config'),
-                        ('Bulk Attribute Edit', 'bulk_attribute_edit'),
-                    ]
-                    
-                    for sub_button_text, page_name in edit_sub_pages:
-                        try:
-                            # Go back to edit page
-                            self.driver.get(edit_url)
-                            time.sleep(1)
-                            
-                            # Find the sub-button
-                            sub_button = None
-                            try:
-                                sub_button = self.driver.find_element(By.PARTIAL_LINK_TEXT, sub_button_text)
-                            except NoSuchElementException:
-                                # Try as button by text
-                                buttons = self.driver.find_elements(By.TAG_NAME, "button")
-                                for btn in buttons:
-                                    if sub_button_text.lower() in btn.text.lower():
-                                        sub_button = btn
-                                        break
-                            
-                            if sub_button:
-                                self.driver.execute_script("arguments[0].click();", sub_button)
-                                time.sleep(2)
-                                
-                                current_url = self.driver.current_url
-                                html_file, text_file = self._save_page_content(output_dir, page_name, current_url)
-                                saved_files[page_name] = {'html': html_file, 'text': text_file}
-                                print(f"{Colors.GREEN}    ✓ {sub_button_text}{Colors.RESET}")
-                            else:
-                                print(f"{Colors.YELLOW}    ⚠ {sub_button_text} not found{Colors.RESET}")
-                                
-                        except Exception as e:
-                            print(f"{Colors.YELLOW}    ⚠ Error with {sub_button_text}: {e}{Colors.RESET}")
-                else:
-                    print(f"{Colors.YELLOW}    ⚠ Edit button not found{Colors.RESET}")
-                    
-            except Exception as e:
-                print(f"{Colors.YELLOW}    ⚠ Error accessing Edit page: {e}{Colors.RESET}")
-            
-        except Exception as e:
-            print(f"{Colors.RED}    ✗ Error scraping detail page: {e}{Colors.RESET}")
-        
-        return saved_files
-    
-    def scrape_detail_pages(self, links, max_pages=None, comprehensive=False):
-        """Follow links to scrape detail pages
-        
-        Args:
-            links: List of link dictionaries to scrape
-            max_pages: Maximum number of pages to scrape (None for all)
-            comprehensive: If True, scrape all sub-pages (Site Notes, Edit, etc.)
-        """
+    def scrape_detail_pages(self, links, max_pages=None):
+        """Follow links to scrape detail pages"""
         print(f"\n{Colors.BOLD}Scraping detail pages...{Colors.RESET}")
         
         total_to_scrape = len(links) if max_pages is None else min(len(links), max_pages)
-        print(f"{Colors.CYAN}Will scrape {total_to_scrape} of {len(links)} total pages{Colors.RESET}")
-        if comprehensive:
-            print(f"{Colors.CYAN}Mode: Comprehensive (includes sub-pages){Colors.RESET}")
-        print()
+        print(f"{Colors.CYAN}Will scrape {total_to_scrape} of {len(links)} total pages{Colors.RESET}\n")
         
         scraped_count = 0
         links_to_process = links if max_pages is None else links[:max_pages]
@@ -457,75 +294,57 @@ class VPBXTableScraper:
             self.visited_urls.add(url)
             
             # Progress indicator
-            print(f"{Colors.BLUE}[{idx}/{total_to_scrape}] {link['text']}{Colors.RESET}")
+            print(f"{Colors.BLUE}[{idx}/{total_to_scrape}] {link['text']}: {url}{Colors.RESET}")
             
             try:
-                if comprehensive:
-                    # Create a directory for this entry
-                    # Extract entry ID from URL
-                    match = re.search(r'id=(\d+)', url)
-                    entry_id = match.group(1) if match else f"entry_{idx}"
-                    
-                    entry_dir = os.path.join(self.output_dir, f"entry_{entry_id}")
-                    os.makedirs(entry_dir, exist_ok=True)
-                    
-                    # Comprehensive scrape with all sub-pages
-                    saved_files = self.scrape_detail_page_comprehensive(url, entry_id, entry_dir)
-                    
-                    self.detail_pages.append({
-                        'link': link,
-                        'entry_id': entry_id,
-                        'directory': entry_dir,
-                        'files': saved_files
-                    })
-                else:
-                    # Simple scrape - just the main detail page
-                    self.driver.get(url)
-                    time.sleep(2)
-                    
-                    # Save page content
-                    html = self.driver.page_source
-                    soup = BeautifulSoup(html, 'html.parser')
-                    
-                    # Generate filename from link text or row identifier
-                    safe_name = re.sub(r'[^\w\-_]', '_', link['text'])[:50]
-                    if not safe_name:
-                        safe_name = f"page_{idx}"
-                    
-                    # Make filename unique if needed
-                    base_file = os.path.join(self.output_dir, safe_name)
-                    html_file = f"{base_file}.html"
-                    text_file = f"{base_file}.txt"
-                    
-                    counter = 1
-                    while os.path.exists(html_file):
-                        html_file = f"{base_file}_{counter}.html"
-                        text_file = f"{base_file}_{counter}.txt"
-                        counter += 1
-                    
-                    # Save HTML
-                    with open(html_file, 'w', encoding='utf-8') as f:
-                        f.write(html)
-                    
-                    # Extract and save text
-                    for script in soup(["script", "style"]):
-                        script.decompose()
-                    text = soup.get_text(separator='\n', strip=True)
-                    
-                    with open(text_file, 'w', encoding='utf-8') as f:
-                        f.write(f"Source: {url}\n")
-                        f.write(f"Link Text: {link['text']}\n")
-                        f.write(f"From Column: {link['column']}\n")
-                        f.write("=" * 80 + "\n\n")
-                        f.write(text)
-                    
-                    print(f"{Colors.GREEN}  ✓ Saved: {os.path.basename(html_file)}{Colors.RESET}")
-                    
-                    self.detail_pages.append({
-                        'link': link,
-                        'html_file': html_file,
-                        'text_file': text_file
-                    })
+                self.driver.get(url)
+                time.sleep(2)  # Wait for page to load
+                
+                # Save page content
+                html = self.driver.page_source
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # Generate filename from link text or row identifier
+                safe_name = re.sub(r'[^\w\-_]', '_', link['text'])[:50]
+                if not safe_name:
+                    safe_name = f"page_{idx}"
+                
+                # Make filename unique if needed
+                base_file = os.path.join(self.output_dir, safe_name)
+                html_file = f"{base_file}.html"
+                text_file = f"{base_file}.txt"
+                
+                counter = 1
+                while os.path.exists(html_file):
+                    html_file = f"{base_file}_{counter}.html"
+                    text_file = f"{base_file}_{counter}.txt"
+                    counter += 1
+                
+                    counter += 1
+                
+                # Save HTML
+                with open(html_file, 'w', encoding='utf-8') as f:
+                    f.write(html)
+                
+                # Extract and save text
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                text = soup.get_text(separator='\n', strip=True)
+                
+                with open(text_file, 'w', encoding='utf-8') as f:
+                    f.write(f"Source: {url}\n")
+                    f.write(f"Link Text: {link['text']}\n")
+                    f.write(f"From Column: {link['column']}\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(text)
+                
+                print(f"{Colors.GREEN}  ✓ Saved: {os.path.basename(html_file)}{Colors.RESET}")
+                
+                self.detail_pages.append({
+                    'link': link,
+                    'html_file': html_file,
+                    'text_file': text_file
+                })
                 
                 scraped_count += 1
                 
@@ -539,23 +358,14 @@ class VPBXTableScraper:
         print(f"\n{Colors.GREEN}✓ Scraped {scraped_count} detail pages{Colors.RESET}")
         return scraped_count
     
-    def run(self, scrape_details=True, max_detail_pages=None, comprehensive=False):
-        """Main workflow
-        
-        Args:
-            scrape_details: Whether to scrape detail pages
-            max_detail_pages: Maximum number of detail pages to scrape (None for all)
-            comprehensive: If True, scrape all sub-pages (Site Notes, Edit, etc.)
-        """
+    def run(self, scrape_details=True, max_detail_pages=None):
+        """Main workflow"""
         print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
         print(f"{Colors.YELLOW}{Colors.BOLD}📊 123NET VPBX Table Scraper{Colors.RESET}")
         print(f"{Colors.CYAN}{'═' * 80}{Colors.RESET}\n")
         
         print(f"{Colors.CYAN}🎯 Target:{Colors.RESET} {self.base_url}")
-        print(f"{Colors.CYAN}📁 Output:{Colors.RESET} {self.output_dir}")
-        if comprehensive:
-            print(f"{Colors.CYAN}📋 Mode:{Colors.RESET} Comprehensive (includes sub-pages)")
-        print()
+        print(f"{Colors.CYAN}📁 Output:{Colors.RESET} {self.output_dir}\n")
         
         # Navigate and wait for authentication
         print(f"{Colors.BLUE}Navigating to page...{Colors.RESET}")
@@ -608,7 +418,7 @@ class VPBXTableScraper:
             
             if detail_links:
                 print(f"\n{Colors.YELLOW}Found {len(detail_links)} detail page links{Colors.RESET}")
-                self.scrape_detail_pages(detail_links, max_detail_pages, comprehensive=comprehensive)
+                self.scrape_detail_pages(detail_links, max_detail_pages)
         
         # Summary
         print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
@@ -663,12 +473,6 @@ def main():
         help='Skip scraping detail pages'
     )
     
-    parser.add_argument(
-        '--comprehensive',
-        action='store_true',
-        help='Scrape all sub-pages (Site Notes, Site Specific Config, Edit, View Config, Bulk Attribute Edit)'
-    )
-    
     args = parser.parse_args()
     
     scraper = None
@@ -680,8 +484,7 @@ def main():
         
         success = scraper.run(
             scrape_details=not args.no_details,
-            max_detail_pages=args.max_details,
-            comprehensive=args.comprehensive
+            max_detail_pages=args.max_details
         )
         
         sys.exit(0 if success else 1)
