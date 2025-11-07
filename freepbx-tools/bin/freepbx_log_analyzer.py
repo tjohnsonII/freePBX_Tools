@@ -81,12 +81,123 @@ class LogAnalyzer:
         print("=" * 70)
         
         self.check_errors(hours)
+        self.evaluate_error_codes()  # NEW: Actively map error codes
         self.check_trunk_status()
         self.check_queue_performance()
         self.check_security_events()
         self.check_database_issues()
         
         return self.issues
+    
+    def evaluate_error_codes(self):
+        """Evaluate logs and apply SIP/Q.850 error code mapping"""
+        if not os.path.exists(self.full_log):
+            return
+        
+        print(f"\n{Colors.CYAN}{Colors.BOLD}📋 Error Code Evaluation (with mapping):{Colors.RESET}")
+        
+        # Search for SIP response codes and hangup causes
+        cmd = f"tail -2000 {self.full_log} | grep -E 'SIP/2\\.0|hangupcause|Cause:|Response:'"
+        result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                              universal_newlines=True, timeout=10)
+        
+        if not result.stdout.strip():
+            print(f"  {Colors.GREEN}No error codes found in recent logs{Colors.RESET}")
+            return
+        
+        lines = result.stdout.strip().split('\n')
+        
+        # Extract and count SIP codes
+        sip_codes = {}  # type: dict[str, dict]
+        hangup_causes = {}  # type: dict[str, dict]
+        
+        for line in lines:
+            # Look for SIP response codes
+            sip_match = re.search(r'SIP/2\.0\s+(\d{3})\s+(.+?)(?:\r|\n|$)', line)
+            if sip_match:
+                code = sip_match.group(1)
+                if code not in sip_codes:
+                    sip_codes[code] = {'count': 0, 'samples': []}
+                sip_codes[code]['count'] += 1
+                if len(sip_codes[code]['samples']) < 3:
+                    sip_codes[code]['samples'].append(line[:100])
+            
+            # Look for hangup causes
+            cause_match = re.search(r'(?:hangupcause[=:]\s*(\d+)|Cause:\s*(\d+))', line, re.IGNORECASE)
+            if cause_match:
+                cause = cause_match.group(1) or cause_match.group(2)
+                if cause not in hangup_causes:
+                    hangup_causes[cause] = {'count': 0, 'samples': []}
+                hangup_causes[cause]['count'] += 1
+                if len(hangup_causes[cause]['samples']) < 2:
+                    hangup_causes[cause]['samples'].append(line[:80])
+        
+        # Display SIP codes with mapping
+        if sip_codes:
+            print(f"\n{Colors.YELLOW}  SIP Response Codes Found:{Colors.RESET}")
+            print(f"  {'─'*70}")
+            
+            for code in sorted(sip_codes.keys(), key=lambda x: sip_codes[x]['count'], reverse=True)[:10]:
+                count = sip_codes[code]['count']
+                cause_info = lookup_cause_code(code)
+                
+                if cause_info:
+                    print(f"  {Colors.WHITE}SIP {code}{Colors.RESET} × {Colors.YELLOW}{count}{Colors.RESET} occurrences")
+                    print(f"    └─ {Colors.CYAN}Q.850 Cause: {cause_info['q850']} ({cause_info['description']}){Colors.RESET}")
+                    print(f"    └─ {Colors.GREEN}Meaning: {cause_info['meaning']}{Colors.RESET}")
+                    print(f"    └─ {Colors.MAGENTA}Asterisk: {cause_info['asterisk_cause']}{Colors.RESET}")
+                    
+                    # Add to issues if significant
+                    if count > 10 and code not in ['200', '100', '180', '183']:
+                        severity = "HIGH" if code in ['503', '500', '408'] else "MEDIUM"
+                        self.issues.append({
+                            "severity": severity,
+                            "category": "SIP Errors",
+                            "message": f"SIP {code} ({cause_info['description']}): {count} occurrences",
+                            "details": [cause_info['meaning']],
+                            "playbook": f"📖 Common cause: {cause_info['meaning']}"
+                        })
+                else:
+                    print(f"  {Colors.WHITE}SIP {code}{Colors.RESET} × {Colors.YELLOW}{count}{Colors.RESET} occurrences")
+                    print(f"    └─ {Colors.YELLOW}(No mapping available){Colors.RESET}")
+                
+                # Show sample
+                if sip_codes[code]['samples']:
+                    print(f"    └─ Sample: {Colors.WHITE}{sip_codes[code]['samples'][0][:60]}...{Colors.RESET}")
+                print()
+        
+        # Display hangup causes with Q.850 mapping
+        if hangup_causes:
+            print(f"\n{Colors.YELLOW}  Hangup Causes Found:{Colors.RESET}")
+            print(f"  {'─'*70}")
+            
+            # Q.850 to description mapping (reverse lookup)
+            q850_descriptions = {
+                '1': 'Unallocated number',
+                '16': 'Normal call clearing',
+                '17': 'User busy',
+                '18': 'No user responding',
+                '19': 'No answer',
+                '21': 'Call rejected',
+                '34': 'Circuit/channel unavailable',
+                '41': 'Temporary failure',
+                '97': 'Invalid message',
+            }
+            
+            for cause in sorted(hangup_causes.keys(), key=lambda x: hangup_causes[x]['count'], reverse=True)[:8]:
+                count = hangup_causes[cause]['count']
+                desc = q850_descriptions.get(cause, 'Unknown cause')
+                
+                print(f"  {Colors.WHITE}Q.850 Cause {cause}{Colors.RESET} × {Colors.YELLOW}{count}{Colors.RESET} occurrences")
+                print(f"    └─ {Colors.CYAN}{desc}{Colors.RESET}")
+                
+                if hangup_causes[cause]['samples']:
+                    print(f"    └─ Sample: {Colors.WHITE}{hangup_causes[cause]['samples'][0][:60]}...{Colors.RESET}")
+                print()
+        
+        if not sip_codes and not hangup_causes:
+            print(f"  {Colors.GREEN}✓ No error codes found in recent logs{Colors.RESET}")
+
     
     def check_errors(self, hours):
         """Count errors and warnings with cause code analysis"""
@@ -338,6 +449,248 @@ class LogAnalyzer:
                 print(f"  • [{issue['category']}] {issue['message']}")
         
         print("\n" + "=" * 70)
+    
+    def analyze_dmesg(self):
+        """Analyze kernel ring buffer for hardware/driver issues"""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  🔍 KERNEL LOG ANALYSIS (dmesg)")
+        print(f"{'='*70}{Colors.RESET}\n")
+        
+        try:
+            result = subprocess.run(
+                ["dmesg", "-T"],  # -T for human-readable timestamps
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                print(f"{Colors.RED}❌ Failed to read dmesg{Colors.RESET}")
+                return
+            
+            lines = result.stdout.strip().split('\n')
+            
+            # Key patterns to search for
+            patterns = {
+                'hardware_errors': r'(?i)(hardware error|I/O error|disk error|corrected|uncorrected)',
+                'network_issues': r'(?i)(link down|link up|eth\d+:|network|timeout|unreachable)',
+                'memory_issues': r'(?i)(out of memory|oom|memory allocation|page allocation)',
+                'driver_issues': r'(?i)(driver|module.*failed|unable to load|firmware)',
+                'dahdi_issues': r'(?i)(dahdi|wctdm|wcte|opvxa|tdm|timing)',
+                'usb_issues': r'(?i)(usb|device disconnect|reset.*device)',
+            }
+            
+            findings = defaultdict(list)
+            
+            for line in lines[-1000:]:  # Last 1000 kernel messages
+                for category, pattern in patterns.items():
+                    if re.search(pattern, line):
+                        findings[category].append(line)
+            
+            # Display findings
+            if findings:
+                for category, matches in findings.items():
+                    if matches:
+                        print(f"{Colors.YELLOW}  {category.replace('_', ' ').title()}:{Colors.RESET}")
+                        for match in matches[-5:]:  # Show last 5
+                            print(f"    {Colors.WHITE}{match[:90]}{Colors.RESET}")
+                        if len(matches) > 5:
+                            print(f"    {Colors.CYAN}... and {len(matches)-5} more{Colors.RESET}")
+                        print()
+                        
+                        self.issues.append({
+                            'type': category,
+                            'severity': 'high' if 'error' in category else 'medium',
+                            'count': len(matches)
+                        })
+            else:
+                print(f"{Colors.GREEN}✅ No significant kernel issues found{Colors.RESET}")
+                
+        except Exception as e:
+            print(f"{Colors.RED}❌ Error analyzing dmesg: {str(e)}{Colors.RESET}")
+    
+    def analyze_journalctl(self, hours=1):
+        """Analyze systemd journal for service issues"""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  📰 SYSTEMD JOURNAL ANALYSIS (journalctl)")
+        print(f"{'='*70}{Colors.RESET}\n")
+        
+        try:
+            # Get journal entries from last N hours
+            since = f"-{hours}h"
+            
+            # Key services to monitor
+            services = [
+                'asterisk',
+                'dahdi',
+                'freepbx',
+                'httpd',
+                'apache2',
+                'mysql',
+                'mariadb',
+                'network',
+            ]
+            
+            print(f"{Colors.CYAN}Analyzing last {hours} hour(s) of system journal...{Colors.RESET}\n")
+            
+            # Check for errors across all services
+            result = subprocess.run(
+                ["journalctl", "--since", since, "-p", "err", "--no-pager"],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                print(f"{Colors.YELLOW}  System Errors ({len(lines)} found):{Colors.RESET}")
+                
+                # Group by service
+                error_groups = defaultdict(list)
+                for line in lines:
+                    # Extract service name
+                    service_match = re.search(r'(\w+)\[\d+\]:', line)
+                    service = service_match.group(1) if service_match else 'unknown'
+                    error_groups[service].append(line)
+                
+                for service, errors in sorted(error_groups.items(), key=lambda x: len(x[1]), reverse=True)[:10]:
+                    print(f"    {Colors.WHITE}{service}:{Colors.RESET} {Colors.RED}{len(errors)}{Colors.RESET} errors")
+                    for error in errors[-3:]:  # Show last 3
+                        print(f"      └─ {Colors.WHITE}{error[:80]}{Colors.RESET}")
+                    print()
+                    
+                    self.issues.append({
+                        'type': f'journal_{service}_errors',
+                        'severity': 'high',
+                        'count': len(errors)
+                    })
+            else:
+                print(f"{Colors.GREEN}✅ No system errors in journal{Colors.RESET}")
+            
+            # Check specific services
+            print(f"\n{Colors.CYAN}Service Status:{Colors.RESET}")
+            for service in services:
+                try:
+                    status_result = subprocess.run(
+                        ["systemctl", "is-active", service],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    status = status_result.stdout.strip()
+                    
+                    if status == "active":
+                        print(f"  {Colors.GREEN}✅ {service:<15} {Colors.BOLD}active{Colors.RESET}")
+                    elif status == "inactive":
+                        print(f"  {Colors.YELLOW}⚠️  {service:<15} {Colors.BOLD}inactive{Colors.RESET}")
+                    elif status == "failed":
+                        print(f"  {Colors.RED}❌ {service:<15} {Colors.BOLD}failed{Colors.RESET}")
+                        self.issues.append({
+                            'type': f'service_{service}_failed',
+                            'severity': 'high',
+                            'count': 1
+                        })
+                    else:
+                        print(f"  {Colors.WHITE}○  {service:<15} {status}{Colors.RESET}")
+                except:
+                    pass  # Service doesn't exist
+                    
+        except Exception as e:
+            print(f"{Colors.RED}❌ Error analyzing journal: {str(e)}{Colors.RESET}")
+    
+    def grep_logs_with_regex(self, log_file, pattern, context_lines=2):
+        """Search log files with regex patterns and show context"""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  🔎 REGEX SEARCH: {log_file}")
+        print(f"  Pattern: {pattern}")
+        print(f"{'='*70}{Colors.RESET}\n")
+        
+        if not os.path.exists(log_file):
+            print(f"{Colors.RED}❌ Log file not found: {log_file}{Colors.RESET}")
+            return []
+        
+        try:
+            # Use grep with context for better performance on large files
+            cmd = ["grep", "-E", "-n", "-i"]
+            if context_lines > 0:
+                cmd.extend(["-A", str(context_lines), "-B", str(context_lines)])
+            cmd.extend([pattern, log_file])
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            matches = []
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                matches = lines
+                
+                print(f"{Colors.GREEN}✅ Found {len(lines)} matching lines{Colors.RESET}\n")
+                
+                # Show first 20 matches
+                for line in lines[:20]:
+                    # Color the matching part
+                    colored_line = re.sub(
+                        f'({pattern})',
+                        f'{Colors.YELLOW}\\1{Colors.RESET}',
+                        line,
+                        flags=re.IGNORECASE
+                    )
+                    print(f"  {Colors.WHITE}{colored_line}{Colors.RESET}")
+                
+                if len(lines) > 20:
+                    print(f"\n  {Colors.CYAN}... and {len(lines)-20} more matches{Colors.RESET}")
+            else:
+                print(f"{Colors.YELLOW}No matches found{Colors.RESET}")
+            
+            return matches
+            
+        except Exception as e:
+            print(f"{Colors.RED}❌ Error searching logs: {str(e)}{Colors.RESET}")
+            return []
+    
+    def search_asterisk_logs(self, pattern_name=None):
+        """Pre-defined regex searches for common Asterisk issues"""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  🔍 ASTERISK LOG PATTERN SEARCH")
+        print(f"{'='*70}{Colors.RESET}\n")
+        
+        # Common search patterns
+        patterns = {
+            'authentication_failures': r'(?i)(authentication failed|wrong password|failed to authenticate)',
+            'codec_issues': r'(?i)(codec|unable to negotiate|no common codec)',
+            'registration_failures': r'(?i)(registration.*failed|unable to register|registration denied)',
+            'trunk_errors': r'(?i)(trunk.*(?:down|failed|unavailable)|sip.*(?:unreachable|timeout))',
+            'database_errors': r'(?i)(database.*(?:error|failed)|mysql.*(?:error|connect)|lost connection)',
+            'memory_issues': r'(?i)(out of.*(?:memory|descriptors)|allocation failed|too many)',
+            'deadlocks': r'(?i)(deadlock|timeout.*lock|waiting for lock)',
+            'segfault': r'(?i)(segmentation fault|sigsegv|core dump|signal 11)',
+        }
+        
+        if pattern_name and pattern_name in patterns:
+            # Search for specific pattern
+            self.grep_logs_with_regex(self.full_log, patterns[pattern_name])
+        else:
+            # Search all patterns
+            print(f"{Colors.YELLOW}Searching for common issues...{Colors.RESET}\n")
+            
+            for name, pattern in patterns.items():
+                print(f"{Colors.CYAN}Checking: {name.replace('_', ' ').title()}{Colors.RESET}")
+                matches = self.grep_logs_with_regex(self.full_log, pattern, context_lines=0)
+                
+                if matches:
+                    print(f"  {Colors.RED}⚠️  Found {len(matches)} occurrences{Colors.RESET}")
+                    self.issues.append({
+                        'type': name,
+                        'severity': 'high' if any(x in name for x in ['segfault', 'deadlock', 'database']) else 'medium',
+                        'count': len(matches)
+                    })
+                else:
+                    print(f"  {Colors.GREEN}✅ None found{Colors.RESET}")
+                print()
 
 
 if __name__ == "__main__":
@@ -350,14 +703,81 @@ if __name__ == "__main__":
         # Windows doesn't have geteuid
         pass
     
-    # Parse hours argument
-    hours = 1
-    if len(sys.argv) > 1:
-        try:
-            hours = int(sys.argv[1])
-        except ValueError:
-            print(f"{Colors.YELLOW}Invalid hours argument, using default: 1{Colors.RESET}")
+    # Parse arguments
+    import argparse
+    parser = argparse.ArgumentParser(description="FreePBX Log Analyzer with Error Code Mapping")
+    parser.add_argument("--hours", type=int, default=1, help="Analyze logs from last N hours (default: 1)")
+    parser.add_argument("--codes-only", action="store_true", help="Only evaluate and map error codes")
+    parser.add_argument("--lookup", type=str, help="Look up a specific SIP code (e.g., --lookup 486)")
+    parser.add_argument("--dmesg", action="store_true", help="Analyze kernel logs (dmesg)")
+    parser.add_argument("--journal", action="store_true", help="Analyze systemd journal")
+    parser.add_argument("--grep", type=str, metavar="PATTERN", help="Search logs with regex pattern")
+    parser.add_argument("--log-file", type=str, default="/var/log/asterisk/full", help="Log file to search (with --grep)")
+    parser.add_argument("--search-patterns", action="store_true", help="Search for common Asterisk issues")
+    parser.add_argument("--comprehensive", action="store_true", help="Run all analyses (full + dmesg + journal + patterns)")
+    
+    args = parser.parse_args()
+    
+    # Handle lookup mode
+    if args.lookup:
+        code_info = lookup_cause_code(args.lookup)
+        if code_info:
+            print(f"\n{Colors.CYAN}{Colors.BOLD}SIP Code {args.lookup} Lookup:{Colors.RESET}")
+            print(f"  SIP Response: {Colors.YELLOW}{code_info['sip']}{Colors.RESET}")
+            print(f"  Q.850 Cause:  {Colors.GREEN}{code_info['q850']}{Colors.RESET}")
+            print(f"  Description:  {Colors.CYAN}{code_info['description']}{Colors.RESET}")
+            print(f"  Asterisk:     {Colors.MAGENTA}{code_info['asterisk_cause']}{Colors.RESET}")
+            print(f"  Meaning:      {Colors.WHITE}{code_info['meaning']}{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}No mapping found for SIP code {args.lookup}{Colors.RESET}")
+        sys.exit(0)
     
     analyzer = LogAnalyzer()
-    analyzer.analyze_last_n_hours(hours=hours)
+    
+    # Handle codes-only mode
+    if args.codes_only:
+        print(f"{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  📋 Error Code Evaluation Only")
+        print(f"{'='*70}{Colors.RESET}\n")
+        analyzer.evaluate_error_codes()
+        sys.exit(0)
+    
+    # Handle dmesg mode
+    if args.dmesg:
+        analyzer.analyze_dmesg()
+        analyzer.print_summary()
+        sys.exit(0)
+    
+    # Handle journal mode
+    if args.journal:
+        analyzer.analyze_journalctl(hours=args.hours)
+        analyzer.print_summary()
+        sys.exit(0)
+    
+    # Handle grep mode
+    if args.grep:
+        analyzer.grep_logs_with_regex(args.log_file, args.grep, context_lines=2)
+        sys.exit(0)
+    
+    # Handle pattern search mode
+    if args.search_patterns:
+        analyzer.search_asterisk_logs()
+        analyzer.print_summary()
+        sys.exit(0)
+    
+    # Handle comprehensive mode
+    if args.comprehensive:
+        print(f"{Colors.CYAN}{Colors.BOLD}{'='*70}")
+        print(f"  🔬 COMPREHENSIVE SYSTEM ANALYSIS")
+        print(f"{'='*70}{Colors.RESET}\n")
+        
+        analyzer.analyze_last_n_hours(hours=args.hours)
+        analyzer.analyze_dmesg()
+        analyzer.analyze_journalctl(hours=args.hours)
+        analyzer.search_asterisk_logs()
+        analyzer.print_summary()
+        sys.exit(0)
+    
+    # Full analysis (default)
+    analyzer.analyze_last_n_hours(hours=args.hours)
     analyzer.print_summary()

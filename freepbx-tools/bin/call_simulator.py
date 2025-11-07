@@ -367,13 +367,15 @@ class FreePBXCallSimulator:
         if caller_id is None:
             caller_id = did
             
-        print(f"\n📞 SIMULATING INCOMING CALL TO DID: {did}")
-        print("=" * 50)
-        print(f"   Caller ID shown: {caller_id}")
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 SIMULATING INCOMING CALL TO DID: {did:<31}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 68}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.WHITE}  Caller ID shown: {Colors.GREEN}{Colors.BOLD}{caller_id:<46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         if destination:
-            print(f"   Forcing ring to: {destination}")
+            print(f"{Colors.CYAN}║{Colors.WHITE}  Forcing ring to: {Colors.MAGENTA}{Colors.BOLD}{destination:<46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         else:
-            print(f"   Following configured DID routing")
+            print(f"{Colors.CYAN}║{Colors.WHITE}  Following configured DID routing{' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
         # Create call file
         # For DID simulation: use Local channel that enters through from-trunk context
@@ -397,27 +399,39 @@ class FreePBXCallSimulator:
             max_retries=0
         )
         
-        print(f"📄 Call File Content:")
-        print(call_content)
+        print(f"\n{Colors.BLUE}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.BLUE}║{Colors.WHITE}{Colors.BOLD} 📄 CALL FILE CONTENT{' ' * 45}{Colors.RESET}{Colors.BLUE} ║{Colors.RESET}")
+        print(f"{Colors.BLUE}╠{'═' * 68}╣{Colors.RESET}")
+        for line in call_content.strip().split('\n'):
+            print(f"{Colors.BLUE}║{Colors.CYAN} {line:<66}{Colors.RESET}{Colors.BLUE} ║{Colors.RESET}")
+        print(f"{Colors.BLUE}╚{'═' * 68}╝{Colors.RESET}")
         
         # Execute the call
         call_id = f"did_{did}_{int(time.time())}"
         result = self.execute_call_file(call_content, call_id)
         
         # Analyze results
-        print(f"📊 Call Results:")
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 CALL RESULTS{' ' * 51}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+        
         if result['success']:
-            print(f"   ✅ Call file executed successfully")
-            print(f"   📁 File processed: {'Yes' if result['processed'] else 'No'}")
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Call file executed successfully{' ' * 32}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            status_text = 'Yes' if result['processed'] else 'No'
+            status_color = Colors.GREEN if result['processed'] else Colors.YELLOW
+            print(f"{Colors.MAGENTA}║{Colors.WHITE}   📁 File processed: {status_color}{Colors.BOLD}{status_text:<45}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
             
             if result['logs']:
-                print(f"   📝 Recent log entries:")
+                print(f"{Colors.MAGENTA}║{Colors.CYAN}   📝 Recent log entries:{' ' * 41}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
                 for log in result['logs'][-5:]:  # Show last 5 entries
                     if log.strip():
-                        print(f"      {log}")
-            
+                        log_display = log[:60] + "..." if len(log) > 60 else log
+                        print(f"{Colors.MAGENTA}║{Colors.WHITE}      {log_display:<60}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
         else:
-            print(f"   ❌ Call execution failed: {result['error']}")
+            error_msg = result['error'][:55] if len(result['error']) > 55 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Call execution failed: {error_msg:<35}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
         
         # Store result for summary
         self.test_results.append({
@@ -436,8 +450,9 @@ class FreePBXCallSimulator:
         """
         Test calling a specific extension
         """
-        print(f"\n📱 TESTING EXTENSION CALL: {extension}")
-        print("=" * 50)
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 TESTING EXTENSION CALL: {extension:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
         channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
@@ -451,12 +466,18 @@ class FreePBXCallSimulator:
         call_id = f"ext_{extension}_{int(time.time())}"
         result = self.execute_call_file(call_content, call_id)
         
-        print(f"📊 Extension Test Results:")
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 EXTENSION TEST RESULTS{' ' * 39}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+        
         if result['success']:
-            print(f"   ✅ Extension call initiated")
-            print(f"   📞 Target: Extension {extension}")
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Extension call initiated{' ' * 37}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            print(f"{Colors.MAGENTA}║{Colors.CYAN}   📞 Target: Extension {extension:<43}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
         else:
-            print(f"   ❌ Extension call failed: {result['error']}")
+            error_msg = result['error'][:40] if len(result['error']) > 40 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Extension call failed: {error_msg:<35}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
         
         return result
     
@@ -464,8 +485,9 @@ class FreePBXCallSimulator:
         """
         Test calling directly to voicemail
         """
-        print(f"\n📧 TESTING VOICEMAIL CALL: {mailbox}")
-        print("=" * 50)
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📧 TESTING VOICEMAIL CALL: {mailbox:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
         channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
@@ -481,12 +503,18 @@ class FreePBXCallSimulator:
         call_id = f"vm_{mailbox}_{int(time.time())}"
         result = self.execute_call_file(call_content, call_id)
         
-        print(f"📊 Voicemail Test Results:")
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 VOICEMAIL TEST RESULTS{' ' * 39}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+        
         if result['success']:
-            print(f"   ✅ Voicemail call initiated")
-            print(f"   📧 Target: Mailbox {mailbox}")
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Voicemail call initiated{' ' * 37}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            print(f"{Colors.MAGENTA}║{Colors.CYAN}   📧 Target: Mailbox {mailbox:<44}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
         else:
-            print(f"   ❌ Voicemail call failed: {result['error']}")
+            error_msg = result['error'][:38] if len(result['error']) > 38 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Voicemail call failed: {error_msg:<36}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
         
         return result
     
@@ -494,8 +522,9 @@ class FreePBXCallSimulator:
         """
         Test playback application (like the zombies example)
         """
-        print(f"\n🎵 TESTING PLAYBACK APPLICATION: {sound_file}")
-        print("=" * 50)
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🎵 TESTING PLAYBACK APPLICATION: {sound_file:<32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
         channel = f"local/{caller_id}@from-internal"
         call_content = self.create_call_file(
@@ -511,12 +540,18 @@ class FreePBXCallSimulator:
         call_id = f"play_{sound_file}_{int(time.time())}"
         result = self.execute_call_file(call_content, call_id)
         
-        print(f"📊 Playback Test Results:")
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 PLAYBACK TEST RESULTS{' ' * 40}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+        
         if result['success']:
-            print(f"   ✅ Playback call initiated")
-            print(f"   🎵 Sound: {sound_file}")
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Playback call initiated{' ' * 38}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            print(f"{Colors.MAGENTA}║{Colors.CYAN}   🎵 Sound: {sound_file:<52}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
         else:
-            print(f"   ❌ Playback call failed: {result['error']}")
+            error_msg = result['error'][:40] if len(result['error']) > 40 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Playback call failed: {error_msg:<37}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
         
         return result
     
@@ -524,8 +559,9 @@ class FreePBXCallSimulator:
         """
         Run a comprehensive suite of call simulation tests
         """
-        print("🚀 COMPREHENSIVE CALL SIMULATION TEST SUITE")
-        print("=" * 60)
+        print(f"\n{Colors.YELLOW}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.BOLD}{Colors.WHITE} 🚀 COMPREHENSIVE CALL SIMULATION TEST SUITE{' ' * 34}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}╚{'═' * 78}╝{Colors.RESET}")
         
         if not test_dids:
             test_dids = [
@@ -537,16 +573,18 @@ class FreePBXCallSimulator:
             ]
         
         # Test 1: DID routing tests
-        print(f"\n📞 TEST 1: DID ROUTING SIMULATION")
-        print("-" * 40)
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 📞 TEST 1: DID ROUTING SIMULATION{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         
         for did in test_dids:
             self.simulate_did_call(did)
             time.sleep(3)  # Wait between tests
         
         # Test 2: Extension tests
-        print(f"\n📱 TEST 2: EXTENSION SIMULATION")
-        print("-" * 40)
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 📱 TEST 2: EXTENSION SIMULATION{' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         
         test_extensions = ["4220", "4221", "4222"]
         for ext in test_extensions:
@@ -554,8 +592,9 @@ class FreePBXCallSimulator:
             time.sleep(3)
         
         # Test 3: Voicemail tests
-        print(f"\n📧 TEST 3: VOICEMAIL SIMULATION")
-        print("-" * 40)
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 📧 TEST 3: VOICEMAIL SIMULATION{' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         
         test_mailboxes = ["4220", "4221"]
         for mailbox in test_mailboxes:
@@ -563,8 +602,9 @@ class FreePBXCallSimulator:
             time.sleep(3)
         
         # Test 4: Application tests
-        print(f"\n🎵 TEST 4: APPLICATION SIMULATION")
-        print("-" * 40)
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 🎵 TEST 4: APPLICATION SIMULATION{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         
         test_sounds = ["demo-congrats", "demo-thanks", "zombies"]
         for sound in test_sounds:
@@ -578,34 +618,44 @@ class FreePBXCallSimulator:
         """
         Generate a summary report of all test results
         """
-        print(f"\n📊 CALL SIMULATION TEST SUMMARY")
-        print("=" * 50)
+        print(f"\n{Colors.GREEN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.BOLD}{Colors.WHITE} 📊 CALL SIMULATION TEST SUMMARY{' ' * 45}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}╠{'═' * 78}╣{Colors.RESET}")
         
         total_tests = len(self.test_results)
         successful_tests = sum(1 for result in self.test_results if result['success'])
         processed_tests = sum(1 for result in self.test_results if result.get('processed', False))
         
-        print(f"📈 Test Statistics:")
-        print(f"   Total Tests: {total_tests}")
-        print(f"   Successful: {successful_tests}")
-        print(f"   Processed: {processed_tests}")
-        print(f"   Success Rate: {(successful_tests/total_tests*100):.1f}%")
-        print(f"   Processing Rate: {(processed_tests/total_tests*100):.1f}%")
+        success_rate = (successful_tests/total_tests*100) if total_tests > 0 else 0
+        processing_rate = (processed_tests/total_tests*100) if total_tests > 0 else 0
+        
+        print(f"{Colors.GREEN}║{Colors.CYAN} 📈 Test Statistics:{' ' * 56}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}    Total Tests: {Colors.BOLD}{Colors.YELLOW}{total_tests:<57}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}    Successful: {Colors.BOLD}{Colors.GREEN}{successful_tests:<58}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}    Processed: {Colors.BOLD}{Colors.CYAN}{processed_tests:<59}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}    Success Rate: {Colors.BOLD}{Colors.GREEN}{success_rate:.1f}%{' ' * 53}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}    Processing Rate: {Colors.BOLD}{Colors.CYAN}{processing_rate:.1f}%{' ' * 50}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
         
         # Show failed tests
         failed_tests = [result for result in self.test_results if not result['success']]
         if failed_tests:
-            print(f"\n❌ Failed Tests:")
+            print(f"{Colors.GREEN}╠{'═' * 78}╣{Colors.RESET}")
+            print(f"{Colors.GREEN}║{Colors.RED} ❌ Failed Tests:{' ' * 60}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
             for test in failed_tests:
-                print(f"   {test['did']} - {test['error']}")
+                error_short = test['error'][:50] if len(test['error']) > 50 else test['error']
+                print(f"{Colors.GREEN}║{Colors.YELLOW}    {test['did']} {Colors.WHITE}- {Colors.RED}{error_short:<50}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
         
         # Show successful tests
         successful_tests_list = [result for result in self.test_results if result['success']]
         if successful_tests_list:
-            print(f"\n✅ Successful Tests:")
+            print(f"{Colors.GREEN}╠{'═' * 78}╣{Colors.RESET}")
+            print(f"{Colors.GREEN}║{Colors.GREEN} ✅ Successful Tests:{' ' * 56}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
             for test in successful_tests_list:
                 status = "Processed" if test.get('processed', False) else "Queued"
-                print(f"   {test['did']} - {status}")
+                status_color = Colors.GREEN if test.get('processed', False) else Colors.YELLOW
+                print(f"{Colors.GREEN}║{Colors.CYAN}    {test['did']} {Colors.WHITE}- {status_color}{status:<55}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        
+        print(f"{Colors.GREEN}╚{'═' * 78}╝{Colors.RESET}")
         
         # Save results to file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -618,16 +668,16 @@ class FreePBXCallSimulator:
                         'total_tests': total_tests,
                         'successful_tests': successful_tests,
                         'processed_tests': processed_tests,
-                        'success_rate': successful_tests/total_tests*100,
-                        'processing_rate': processed_tests/total_tests*100
+                        'success_rate': success_rate,
+                        'processing_rate': processing_rate
                     },
                     'test_results': self.test_results,
                     'timestamp': datetime.now().isoformat()
                 }, f, indent=2)
             
-            print(f"\n💾 Results saved to: {results_file}")
+            print(f"\n{Colors.BLUE}💾 Results saved to: {Colors.BOLD}{results_file}{Colors.RESET}")
         except Exception as e:
-            print(f"\n⚠️  Could not save results: {str(e)}")
+            print(f"\n{Colors.YELLOW}⚠️  Could not save results: {str(e)}{Colors.RESET}")
 
 def main():
     parser = argparse.ArgumentParser(description="FreePBX Call Simulator")
@@ -652,12 +702,14 @@ def main():
     simulator = FreePBXCallSimulator(args.server, args.user)
     simulator.debug = debug_mode  # Set debug flag on simulator instance
     
-    print("📞 FREEPBX CALL SIMULATOR")
-    print("=" * 30)
-    print(f"Server: {args.server}")
-    print(f"User: {args.user}")
+    print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 FREEPBX CALL SIMULATOR{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.WHITE} Server: {Colors.GREEN}{Colors.BOLD}{args.server:<67}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.WHITE} User: {Colors.CYAN}{Colors.BOLD}{args.user:<69}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     if args.caller_id:
-        print(f"Caller ID: {args.caller_id}")
+        print(f"{Colors.CYAN}║{Colors.WHITE} Caller ID: {Colors.MAGENTA}{Colors.BOLD}{args.caller_id:<64}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
     
     # Execute based on arguments
     if args.comprehensive:
@@ -674,21 +726,24 @@ def main():
         caller = args.caller_id or "7140"
         simulator.test_playback_application(args.playback, caller)
     else:
-        print("\n🎯 Usage Examples:")
-        print("   # Test DID with routing to cell phone:")
-        print("   python3 call_simulator.py --did 2482283480 --destination 7346427842")
-        print("")
-        print("   # Test DID following its configured routing:")
-        print("   python3 call_simulator.py --did 2482283480")
-        print("")
-        print("   # Test extension:")
-        print("   python3 call_simulator.py --extension 4220")
-        print("")
-        print("   # Test voicemail:")
-        print("   python3 call_simulator.py --voicemail 4220")
-        print("")
-        print("   # Run comprehensive suite:")
-        print("   python3 call_simulator.py --comprehensive")
+        print(f"\n{Colors.YELLOW}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.BOLD}{Colors.WHITE} 🎯 USAGE EXAMPLES{' ' * 59}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.CYAN} # Test DID with routing to cell phone:{' ' * 38}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --did 2482283480 --destination 7346427842{' ' * 6}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.RESET}{' ' * 78}{Colors.YELLOW}║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.CYAN} # Test DID following its configured routing:{' ' * 33}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --did 2482283480{' ' * 33}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.RESET}{' ' * 78}{Colors.YELLOW}║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.CYAN} # Test extension:{' ' * 61}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --extension 4220{' ' * 32}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.RESET}{' ' * 78}{Colors.YELLOW}║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.CYAN} # Test voicemail:{' ' * 60}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --voicemail 4220{' ' * 32}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.RESET}{' ' * 78}{Colors.YELLOW}║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.CYAN} # Run comprehensive suite:{' ' * 52}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --comprehensive{' ' * 33}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
+        print(f"{Colors.YELLOW}╚{'═' * 78}╝{Colors.RESET}")
 
 if __name__ == "__main__":
     main()
