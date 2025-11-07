@@ -23,6 +23,7 @@ class FreePBXCallSimulator:
         self.tmp_dir = "/tmp"
         self.asterisk_user = "asterisk"
         self.test_results = []
+        self.debug = False  # Enable debug output when True
         self.is_local_execution = self._is_local_execution()
         
     def _is_local_execution(self):
@@ -484,17 +485,23 @@ def main():
     parser = argparse.ArgumentParser(description="FreePBX Call Simulator")
     parser.add_argument("--server", default="69.39.69.102", help="FreePBX server IP")
     parser.add_argument("--user", default="123net", help="SSH username")
-    parser.add_argument("--did", help="Test specific DID")
+    parser.add_argument("--did", default="2482283480", help="Test specific DID")
     parser.add_argument("--extension", help="Test specific extension")
     parser.add_argument("--voicemail", help="Test specific voicemail box")
     parser.add_argument("--playback", help="Test playback application with sound file")
-    parser.add_argument("--caller-id", default="7140", help="Caller ID to use")
+    parser.add_argument("--caller-id", default="7346427842", help="Caller ID to use")
     parser.add_argument("--comprehensive", action="store_true", help="Run comprehensive test suite")
+    parser.add_argument("--debug", action="store_true", help="Enable detailed debug output")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output (same as --debug)")
     
     args = parser.parse_args()
     
+    # Enable debug mode if requested
+    debug_mode = args.debug or args.verbose
+    
     # Initialize simulator
     simulator = FreePBXCallSimulator(args.server, args.user)
+    simulator.debug = debug_mode  # Set debug flag on simulator instance
     
     print("📞 FREEPBX CALL SIMULATOR")
     print("=" * 30)

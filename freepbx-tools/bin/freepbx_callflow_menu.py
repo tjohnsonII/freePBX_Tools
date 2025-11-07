@@ -198,7 +198,7 @@ def run_did_call_test(did_rows):
             return
         
         _, did, label, _, _ = did_rows[choice - 1]
-        caller_id = input(f"Enter caller ID to use (default 7140): ").strip() or "7140"
+        caller_id = input(f"Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
         
         print(f"\n🚀 Testing DID {did} ({label}) with caller ID {caller_id}")
         print("This will create a real call in the Asterisk system...")
@@ -209,7 +209,7 @@ def run_did_call_test(did_rows):
             return
         
         # Run the call simulation
-        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--caller-id", caller_id]
+        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--caller-id", caller_id, "--debug"]
         print(f"Executing: {' '.join(cmd)}")
         
         rc, out, err = run(cmd)
@@ -301,7 +301,7 @@ def run_extension_test():
         print("❌ Extension number required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing extension {extension} with caller ID {caller_id}")
     
@@ -310,7 +310,7 @@ def run_extension_test():
         print("❌ Test cancelled.")
         return
     
-    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--extension", extension, "--caller-id", caller_id]
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--extension", extension, "--caller-id", caller_id, "--debug"]
     rc, out, err = run(cmd)
     
     if rc == 0:
@@ -334,7 +334,7 @@ def run_voicemail_test():
         print("❌ Mailbox number required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing voicemail {mailbox} with caller ID {caller_id}")
     
@@ -343,7 +343,7 @@ def run_voicemail_test():
         print("❌ Test cancelled.")
         return
     
-    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--voicemail", mailbox, "--caller-id", caller_id]
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--voicemail", mailbox, "--caller-id", caller_id, "--debug"]
     rc, out, err = run(cmd)
     
     if rc == 0:
@@ -368,7 +368,7 @@ def run_playback_test():
         print("❌ Sound file required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7140): ").strip() or "7140"
+    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing playback of '{sound_file}' with caller ID {caller_id}")
     
@@ -377,7 +377,7 @@ def run_playback_test():
         print("❌ Test cancelled.")
         return
     
-    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--playback", sound_file, "--caller-id", caller_id]
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--playback", sound_file, "--caller-id", caller_id, "--debug"]
     rc, out, err = run(cmd)
     
     if rc == 0:
@@ -410,7 +410,7 @@ def run_comprehensive_validation():
         print("❌ Testing cancelled.")
         return
     
-    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--comprehensive"]
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--comprehensive", "--debug"]
     rc, out, err = run(cmd)
     
     if rc == 0:
@@ -697,24 +697,44 @@ def get_service_status(services):
     """Get status of system services"""
     status_list = []
     for service in services:
-        try:
-            # Try systemctl first (EL7+)
-            cmd = ["systemctl", "is-active", service]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                  universal_newlines=True, timeout=2)
-            if result.returncode == 0 and result.stdout.strip() == "active":
-                status_list.append((service, "running", Colors.GREEN))
-            else:
-                # Try service command (older systems)
-                cmd = ["service", service, "status"]
+        # Try common variations for certain services
+        variations = [service]
+        if service == "asterisk":
+            variations = ["asterisk", "asterisk16", "asterisk18", "asterisk20"]
+        elif service == "php-fpm":
+            variations = ["php-fpm", "php73-php-fpm", "php74-php-fpm", "php80-php-fpm", "rh-php73-php-fpm"]
+        
+        found = False
+        for variant in variations:
+            try:
+                # Try systemctl first (EL7+)
+                cmd = ["systemctl", "is-active", variant]
                 result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                                       universal_newlines=True, timeout=2)
-                if result.returncode == 0:
+                if result.returncode == 0 and result.stdout.strip() == "active":
                     status_list.append((service, "running", Colors.GREEN))
-                else:
-                    status_list.append((service, "stopped", Colors.RED))
-        except Exception:
-            status_list.append((service, "unknown", Colors.YELLOW))
+                    found = True
+                    break
+            except Exception:
+                pass
+        
+        if not found:
+            try:
+                # Try service command (older systems)
+                for variant in variations:
+                    cmd = ["service", variant, "status"]
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                          universal_newlines=True, timeout=2)
+                    if result.returncode == 0:
+                        status_list.append((service, "running", Colors.GREEN))
+                        found = True
+                        break
+            except Exception:
+                pass
+        
+        if not found:
+            status_list.append((service, "stopped", Colors.RED))
+    
     return status_list
 
 def get_active_calls(sock):
