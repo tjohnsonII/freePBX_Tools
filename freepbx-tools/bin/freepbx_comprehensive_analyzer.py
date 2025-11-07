@@ -834,9 +834,13 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "directory":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Directories: {len(data['directories'])}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Directories: {len(data['directories'])}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             if "total_entries" in data:
-                print(Colors.CYAN + "║ " + Colors.WHITE + f"   Total Entries: {data['total_entries']}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+                detail_line = Colors.WHITE + f"   Total Entries: {data['total_entries']}"
+                padded_detail = pad_ansi(detail_line, 78)
+                print(Colors.CYAN + "║ " + padded_detail + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for dir_entry in data["directories"][:8]:
@@ -850,7 +854,9 @@ def print_comprehensive_report(analysis, single_component=None):
         elif comp_key == "extensions":
             features = data.get("features", {})
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Extensions: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Total Extensions: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             
             if "voicemail_enabled" in features:
                 print(Colors.CYAN + "║ " + Colors.WHITE + f"   With Voicemail: {Colors.YELLOW}{Colors.BOLD}{features['voicemail_enabled']}{Colors.RESET}  │  ".ljust(91) + 
@@ -861,7 +867,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "followme":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Follow Me Configs: {data['total']}  │  Total Numbers: {data.get('total_followme_numbers', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Follow Me Configs: {data['total']}  │  Total Numbers: {data.get('total_followme_numbers', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for fm in data["followme_configs"][:8]:
@@ -875,7 +883,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "ivr":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ IVR Menus: {data['total_ivrs']}  │  Total Options: {data.get('total_options', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ IVR Menus: {data['total_ivrs']}  │  Total Options: {data.get('total_options', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for ivr in data["ivrs"][:8]:
@@ -889,7 +899,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "misc":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Misc Destinations: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Misc Destinations: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for dest in data["destinations"][:10]:
@@ -902,9 +914,13 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "parking":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Parking Lots: {data.get('total_lots', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Parking Lots: {data.get('total_lots', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             if "total_parking_slots" in data:
-                print(Colors.CYAN + "║ " + Colors.WHITE + f"   Total Slots: {data['total_parking_slots']}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+                detail_line = Colors.WHITE + f"   Total Slots: {data['total_parking_slots']}"
+                padded_detail = pad_ansi(detail_line, 78)
+                print(Colors.CYAN + "║ " + padded_detail + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for lot in data["lots"]:
@@ -917,7 +933,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "queues":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Queues: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Queues: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for queue in data["queues"][:10]:
@@ -932,7 +950,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "ringgroups":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Ring Groups: {data['total']}  │  Total Extensions: {data.get('total_ring_group_extensions', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Ring Groups: {data['total']}  │  Total Extensions: {data.get('total_ring_group_extensions', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             
             strategies = data.get('strategies_count', {})
             if strategies:
@@ -956,7 +976,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "callerid":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ CallerID Rules: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ CallerID Rules: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for rule in data["callerid_rules"][:10]:
@@ -970,11 +992,15 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "timeconditions":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Time Conditions: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Time Conditions: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for tc in data["time_conditions"][:10]:
-                print(Colors.CYAN + "║ " + Colors.RESET + f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{tc['name']}{Colors.RESET}: Group {Colors.YELLOW}{tc['time_group_id']}{Colors.RESET}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+                tc_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{tc['name']}{Colors.RESET}: Group {Colors.YELLOW}{tc['time_group_id']}{Colors.RESET}"
+                padded_tc = pad_ansi(tc_line, 78)
+                print(Colors.CYAN + "║ " + padded_tc + Colors.CYAN + " ║" + Colors.ENDC)
                 true_line = f"     {Colors.GREEN}True{Colors.RESET}  → {tc['true_destination'][:55]}"
                 visible_text = re.sub(r'\x1b\[[0-9;]*m', '', true_line)
                 padding = " " * max(0, 78 - len(visible_text))
@@ -989,7 +1015,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "timegroups":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Time Groups: {data['total']}  │  Total Rules: {data.get('total_rules', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Time Groups: {data['total']}  │  Total Rules: {data.get('total_rules', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for tg in data["time_groups"][:10]:
