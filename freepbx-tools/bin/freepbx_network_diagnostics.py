@@ -61,7 +61,7 @@ class NetworkDiagnostics:
         try:
             result = subprocess.run(
                 ["ip", "route", "show", "default"],
-                capture_output=True, text=True, timeout=5
+                capture_output=True, universal_newlines=True, timeout=5
             )
             if result.returncode == 0 and result.stdout:
                 # Extract interface from: default via 192.168.1.1 dev eth0
@@ -103,7 +103,7 @@ class NetworkDiagnostics:
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
-                    text=True,
+                    universal_newlines=True,
                     timeout=timeout
                 )
                 return result.returncode, result.stdout, result.stderr
@@ -118,15 +118,44 @@ class NetworkDiagnostics:
     def check_tool_available(self, tool_name):
         """Check if a tool is available on the system"""
         try:
+            # Try which command first
             result = subprocess.run(
                 ["which", tool_name],
                 capture_output=True,
-                text=True,
+                universal_newlines=True,
                 timeout=5
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                return True
         except:
-            return False
+            pass
+        
+        # Try command -v as fallback
+        try:
+            result = subprocess.run(
+                ["bash", "-c", f"command -v {tool_name}"],
+                capture_output=True,
+                universal_newlines=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return True
+        except:
+            pass
+        
+        # Try direct execution as last resort
+        try:
+            result = subprocess.run(
+                [tool_name, "--help"],
+                capture_output=True,
+                universal_newlines=True,
+                timeout=2
+            )
+            return True
+        except:
+            pass
+        
+        return False
     
     def show_interface_info(self):
         """Show comprehensive interface information"""
@@ -134,20 +163,40 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🌐 NETWORK INTERFACE INFORMATION{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        # Try ip addr first (modern)
-        if self.check_tool_available("ip"):
-            print(f"{Colors.GREEN}📡 Using 'ip addr' command:{Colors.RESET}\n")
-            self.run_command(["ip", "addr", "show"])
-            
-            print(f"\n{Colors.GREEN}🔗 Link status:{Colors.RESET}\n")
-            self.run_command(["ip", "link", "show"])
+        import os
         
-        # Fallback to ifconfig (legacy)
-        elif self.check_tool_available("ifconfig"):
-            print(f"{Colors.YELLOW}📡 Using 'ifconfig' command (legacy):{Colors.RESET}\n")
-            self.run_command(["ifconfig", "-a"])
+        # Try multiple commands in order of preference - check if binary exists
+        commands_to_try = [
+            (["/sbin/ip", "addr", "show"], "Using 'ip addr' command:", Colors.GREEN),
+            (["/usr/sbin/ip", "addr", "show"], "Using 'ip addr' command:", Colors.GREEN),
+            (["ip", "addr", "show"], "Using 'ip addr' command:", Colors.GREEN),
+            (["/sbin/ifconfig", "-a"], "Using 'ifconfig' command (legacy):", Colors.YELLOW),
+            (["/usr/sbin/ifconfig", "-a"], "Using 'ifconfig' command (legacy):", Colors.YELLOW),
+            (["ifconfig", "-a"], "Using 'ifconfig' command (legacy):", Colors.YELLOW),
+        ]
         
-        else:
+        success = False
+        for cmd, label, color in commands_to_try:
+            # Check if the binary exists
+            binary = cmd[0]
+            if os.path.exists(binary) or '/' not in binary:  # If no path, might be in PATH
+                try:
+                    print(f"{color}📡 {label}{Colors.RESET}\n")
+                    self.run_command(cmd)
+                    
+                    # If using ip, also show link status
+                    if "ip" in cmd[0]:
+                        print(f"\n{color}🔗 Link status:{Colors.RESET}\n")
+                        link_cmd = cmd[0:1] + ["link", "show"]
+                        self.run_command(link_cmd)
+                    
+                    success = True
+                    break
+                except Exception as e:
+                    # Binary exists but failed, try next
+                    continue
+        
+        if not success:
             print(f"{Colors.RED}❌ No interface tools available (ip/ifconfig){Colors.RESET}")
     
     def show_routing_info(self):
@@ -156,20 +205,45 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🗺️  ROUTING TABLE INFORMATION{' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        # Try ip route first (modern)
-        if self.check_tool_available("ip"):
-            print(f"{Colors.GREEN}📍 IPv4 Routes:{Colors.RESET}\n")
-            self.run_command(["ip", "route", "show"])
-            
-            print(f"\n{Colors.GREEN}📍 IPv6 Routes:{Colors.RESET}\n")
-            self.run_command(["ip", "-6", "route", "show"])
+        import os
         
-        # Fallback to route (legacy)
-        elif self.check_tool_available("route"):
-            print(f"{Colors.YELLOW}📍 Using 'route' command (legacy):{Colors.RESET}\n")
-            self.run_command(["route", "-n"])
+        # Try multiple commands in order of preference - check if binary exists
+        commands_to_try = [
+            (["/sbin/ip", "route", "show"], "IPv4 Routes:", Colors.GREEN, True),
+            (["/usr/sbin/ip", "route", "show"], "IPv4 Routes:", Colors.GREEN, True),
+            (["ip", "route", "show"], "IPv4 Routes:", Colors.GREEN, True),
+            (["/sbin/route", "-n"], "Using 'route' command (legacy):", Colors.YELLOW, False),
+            (["/usr/sbin/route", "-n"], "Using 'route' command (legacy):", Colors.YELLOW, False),
+            (["route", "-n"], "Using 'route' command (legacy):", Colors.YELLOW, False),
+            (["/bin/netstat", "-rn"], "Using 'netstat -rn':", Colors.YELLOW, False),
+            (["netstat", "-rn"], "Using 'netstat -rn':", Colors.YELLOW, False),
+        ]
         
-        else:
+        success = False
+        for cmd, label, color, is_ip in commands_to_try:
+            # Check if the binary exists
+            binary = cmd[0]
+            if os.path.exists(binary) or '/' not in binary:  # If no path, might be in PATH
+                try:
+                    print(f"{color}📍 {label}{Colors.RESET}\n")
+                    self.run_command(cmd)
+                    
+                    # If using ip, also show IPv6 routes
+                    if is_ip:
+                        print(f"\n{color}📍 IPv6 Routes:{Colors.RESET}\n")
+                        ipv6_cmd = cmd[0:1] + ["-6", "route", "show"]
+                        try:
+                            self.run_command(ipv6_cmd)
+                        except:
+                            pass
+                    
+                    success = True
+                    break
+                except Exception as e:
+                    # Binary exists but failed, try next
+                    continue
+        
+        if not success:
             print(f"{Colors.RED}❌ No routing tools available (ip/route){Colors.RESET}")
     
     def show_arp_table(self):
@@ -178,12 +252,29 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔗 ARP TABLE (Address Resolution Protocol){' ' * 34}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("arp"):
-            self.run_command(["arp", "-an"])
-        elif self.check_tool_available("ip"):
-            self.run_command(["ip", "neigh", "show"])
-        else:
-            print(f"{Colors.RED}❌ No ARP tools available{Colors.RESET}")
+        import os
+        
+        # Try arp first - check if binary exists
+        arp_paths = ["/sbin/arp", "/usr/sbin/arp", "arp"]
+        for path in arp_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    self.run_command([path, "-an"])
+                    return
+                except:
+                    continue
+        
+        # Fallback to ip neigh
+        ip_paths = ["/sbin/ip", "/usr/sbin/ip", "ip"]
+        for path in ip_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    self.run_command([path, "neigh", "show"])
+                    return
+                except:
+                    continue
+        
+        print(f"{Colors.RED}❌ No ARP tools available{Colors.RESET}")
     
     def show_netstat_info(self):
         """Show network statistics and connections"""
@@ -191,30 +282,54 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📊 NETWORK STATISTICS & CONNECTIONS{' ' * 40}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("netstat"):
-            print(f"{Colors.GREEN}🔌 Active connections:{Colors.RESET}\n")
-            self.run_command(["netstat", "-tulpn"])
-            
-            print(f"\n{Colors.GREEN}📈 Interface statistics:{Colors.RESET}\n")
-            self.run_command(["netstat", "-i"])
+        import os
         
-        elif self.check_tool_available("ss"):
-            print(f"{Colors.GREEN}🔌 Active connections (using ss):{Colors.RESET}\n")
-            self.run_command(["ss", "-tulpn"])
+        # Try netstat first - check if binary exists
+        netstat_paths = ["/bin/netstat", "/usr/bin/netstat", "netstat"]
+        for path in netstat_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    print(f"{Colors.GREEN}🔌 Active connections:{Colors.RESET}\n")
+                    self.run_command([path, "-tulpn"])
+                    
+                    print(f"\n{Colors.GREEN}📈 Interface statistics:{Colors.RESET}\n")
+                    self.run_command([path, "-i"])
+                    return
+                except:
+                    continue
         
-        else:
-            print(f"{Colors.RED}❌ No netstat/ss tools available{Colors.RESET}")
+        # Fallback to ss
+        ss_paths = ["/sbin/ss", "/usr/sbin/ss", "ss"]
+        for path in ss_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    print(f"{Colors.GREEN}🔌 Active connections (using ss):{Colors.RESET}\n")
+                    self.run_command([path, "-tulpn"])
+                    return
+                except:
+                    continue
+        
+        print(f"{Colors.RED}❌ No netstat/ss tools available{Colors.RESET}")
     
-    def run_ping_test(self, host, count=5):
-        """Run ping test to a host"""
+    def run_ping(self, host, count=4):
+        """Ping a host"""
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🏓 PING TEST TO {host:<58}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🏓 PING TEST TO {host:<57}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("ping"):
-            self.run_command(["ping", "-c", str(count), host])
-        else:
-            print(f"{Colors.RED}❌ ping not available{Colors.RESET}")
+        import os
+        
+        # Try multiple paths for ping
+        ping_paths = ["/bin/ping", "/usr/bin/ping", "ping"]
+        for path in ping_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    self.run_command([path, "-c", str(count), host])
+                    return
+                except:
+                    continue
+        
+        print(f"{Colors.RED}❌ ping not available{Colors.RESET}")
     
     def run_traceroute(self, host):
         """Run traceroute to a host"""
@@ -222,13 +337,31 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🗺️  TRACEROUTE TO {host:<55}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("traceroute"):
-            self.run_command(["traceroute", "-n", host], timeout=60)
-        elif self.check_tool_available("tracepath"):
-            print(f"{Colors.YELLOW}Using tracepath (traceroute not available){Colors.RESET}\n")
-            self.run_command(["tracepath", host], timeout=60)
-        else:
-            print(f"{Colors.RED}❌ No traceroute tools available{Colors.RESET}")
+        import os
+        
+        # Try multiple paths for traceroute
+        traceroute_paths = [
+            (["/bin/traceroute", "-n", host], "Using traceroute", Colors.GREEN),
+            (["/usr/bin/traceroute", "-n", host], "Using traceroute", Colors.GREEN),
+            (["traceroute", "-n", host], "Using traceroute", Colors.GREEN),
+            (["/usr/sbin/traceroute", "-n", host], "Using traceroute", Colors.GREEN),
+            (["/bin/tracepath", host], "Using tracepath (traceroute not available)", Colors.YELLOW),
+            (["/usr/bin/tracepath", host], "Using tracepath (traceroute not available)", Colors.YELLOW),
+            (["tracepath", host], "Using tracepath (traceroute not available)", Colors.YELLOW),
+        ]
+        
+        for cmd, label, color in traceroute_paths:
+            binary = cmd[0]
+            if os.path.exists(binary) or '/' not in binary:
+                try:
+                    if "tracepath" in label:
+                        print(f"{color}{label}{Colors.RESET}\n")
+                    self.run_command(cmd, timeout=60)
+                    return
+                except:
+                    continue
+        
+        print(f"{Colors.RED}❌ No traceroute tools available{Colors.RESET}")
     
     def run_dns_lookup(self, domain):
         """Run DNS lookup"""
@@ -236,23 +369,45 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 DNS LOOKUP FOR {domain:<54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("dig"):
-            print(f"{Colors.GREEN}📋 Using dig (detailed):{Colors.RESET}\n")
-            self.run_command(["dig", domain])
-            
-            print(f"\n{Colors.GREEN}📋 Short answer:{Colors.RESET}\n")
-            self.run_command(["dig", "+short", domain])
+        import os
         
-        elif self.check_tool_available("nslookup"):
-            print(f"{Colors.YELLOW}📋 Using nslookup:{Colors.RESET}\n")
-            self.run_command(["nslookup", domain])
+        # Try dig first (most detailed)
+        dig_paths = ["/usr/bin/dig", "/bin/dig", "dig"]
+        for path in dig_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    print(f"{Colors.GREEN}📋 Using dig (detailed):{Colors.RESET}\n")
+                    self.run_command([path, domain])
+                    
+                    print(f"\n{Colors.GREEN}📋 Short answer:{Colors.RESET}\n")
+                    self.run_command([path, "+short", domain])
+                    return
+                except:
+                    continue
         
-        elif self.check_tool_available("host"):
-            print(f"{Colors.YELLOW}📋 Using host:{Colors.RESET}\n")
-            self.run_command(["host", domain])
+        # Try nslookup
+        nslookup_paths = ["/usr/bin/nslookup", "/bin/nslookup", "nslookup"]
+        for path in nslookup_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    print(f"{Colors.YELLOW}📋 Using nslookup:{Colors.RESET}\n")
+                    self.run_command([path, domain])
+                    return
+                except:
+                    continue
         
-        else:
-            print(f"{Colors.RED}❌ No DNS tools available (dig/nslookup/host){Colors.RESET}")
+        # Try host
+        host_paths = ["/usr/bin/host", "/bin/host", "host"]
+        for path in host_paths:
+            if os.path.exists(path) or '/' not in path:
+                try:
+                    print(f"{Colors.YELLOW}📋 Using host:{Colors.RESET}\n")
+                    self.run_command([path, domain])
+                    return
+                except:
+                    continue
+        
+        print(f"{Colors.RED}❌ No DNS tools available (dig/nslookup/host){Colors.RESET}")
     
     def capture_with_tcpdump(self, duration=60, port=None, host=None, output_file=None):
         """Capture packets with tcpdump"""
@@ -260,7 +415,17 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📦 TCPDUMP PACKET CAPTURE{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if not self.check_tool_available("tcpdump"):
+        import os
+        
+        # Check for tcpdump
+        tcpdump_paths = ["/usr/sbin/tcpdump", "/sbin/tcpdump", "/usr/bin/tcpdump", "tcpdump"]
+        tcpdump_cmd = None
+        for path in tcpdump_paths:
+            if os.path.exists(path) or '/' not in path:
+                tcpdump_cmd = path
+                break
+        
+        if not tcpdump_cmd:
             print(f"{Colors.RED}❌ tcpdump not available{Colors.RESET}")
             return
         
@@ -269,7 +434,7 @@ class NetworkDiagnostics:
         if not output_file:
             output_file = f"{self.output_dir}/capture_{timestamp}.pcap"
         
-        cmd = ["tcpdump", "-i", self.interface, "-w", output_file]
+        cmd = [tcpdump_cmd, "-i", self.interface, "-w", output_file]
         
         # Add filters
         filter_parts = []
@@ -310,12 +475,22 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 SNGREP - SIP PACKET ANALYZER{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if not self.check_tool_available("sngrep"):
+        import os
+        
+        # Check for sngrep
+        sngrep_paths = ["/usr/bin/sngrep", "/usr/local/bin/sngrep", "sngrep"]
+        sngrep_cmd = None
+        for path in sngrep_paths:
+            if os.path.exists(path) or '/' not in path:
+                sngrep_cmd = path
+                break
+        
+        if not sngrep_cmd:
             print(f"{Colors.RED}❌ sngrep not available{Colors.RESET}")
             print(f"{Colors.YELLOW}💡 Install with: yum install sngrep  (or)  apt install sngrep{Colors.RESET}")
             return
         
-        cmd = ["sngrep"]
+        cmd = [sngrep_cmd]
         
         if filter_option:
             cmd.extend(["-d", filter_option])
@@ -331,12 +506,22 @@ class NetworkDiagnostics:
             print(f"\n{Colors.YELLOW}⏹️  sngrep closed{Colors.RESET}")
     
     def analyze_sip_traffic(self, duration=30):
-        """Capture and analyze SIP traffic"""
+        """Analyze SIP traffic on port 5060"""
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 SIP TRAFFIC ANALYSIS{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if not self.check_tool_available("tcpdump"):
+        import os
+        
+        # Check for tcpdump
+        tcpdump_paths = ["/usr/sbin/tcpdump", "/sbin/tcpdump", "/usr/bin/tcpdump", "tcpdump"]
+        tcpdump_cmd = None
+        for path in tcpdump_paths:
+            if os.path.exists(path) or '/' not in path:
+                tcpdump_cmd = path
+                break
+        
+        if not tcpdump_cmd:
             print(f"{Colors.RED}❌ tcpdump not available{Colors.RESET}")
             return
         
@@ -347,7 +532,7 @@ class NetworkDiagnostics:
         print(f"{Colors.GREEN}⏱️  Duration: {duration}s{Colors.RESET}\n")
         
         # Capture SIP traffic (port 5060)
-        cmd = ["tcpdump", "-i", self.interface, "-s", "0", "-w", output_file, "port 5060"]
+        cmd = [tcpdump_cmd, "-i", self.interface, "-s", "0", "-w", output_file, "port 5060"]
         
         try:
             self.run_command(cmd, timeout=duration, stream_output=False)
@@ -364,12 +549,22 @@ class NetworkDiagnostics:
             print(f"\n{Colors.YELLOW}⏹️  Capture stopped by user{Colors.RESET}")
     
     def monitor_rtp_traffic(self, duration=30):
-        """Monitor RTP (audio) traffic"""
+        """Monitor RTP traffic (audio streams)"""
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🎵 RTP TRAFFIC MONITOR{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if not self.check_tool_available("tcpdump"):
+        import os
+        
+        # Check for tcpdump
+        tcpdump_paths = ["/usr/sbin/tcpdump", "/sbin/tcpdump", "/usr/bin/tcpdump", "tcpdump"]
+        tcpdump_cmd = None
+        for path in tcpdump_paths:
+            if os.path.exists(path) or '/' not in path:
+                tcpdump_cmd = path
+                break
+        
+        if not tcpdump_cmd:
             print(f"{Colors.RED}❌ tcpdump not available{Colors.RESET}")
             return
         
@@ -377,7 +572,7 @@ class NetworkDiagnostics:
         print(f"{Colors.GREEN}⏱️  Duration: {duration}s{Colors.RESET}\n")
         
         # Monitor RTP port range
-        cmd = ["tcpdump", "-i", self.interface, "-n", "udp", "portrange", "10000-20000"]
+        cmd = [tcpdump_cmd, "-i", self.interface, "-n", "udp", "portrange", "10000-20000"]
         
         try:
             self.run_command(cmd, timeout=duration, stream_output=True)
@@ -390,13 +585,27 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} ☎️  ASTERISK SIP PEERS{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("asterisk"):
-            self.run_command(["asterisk", "-rx", "sip show peers"])
-            
-            print(f"\n{Colors.GREEN}📊 SIP Registry:{Colors.RESET}\n")
-            self.run_command(["asterisk", "-rx", "sip show registry"])
-        else:
-            print(f"{Colors.RED}❌ Asterisk CLI not available{Colors.RESET}")
+        import os
+        
+        # Check for asterisk CLI
+        asterisk_paths = ["/usr/sbin/asterisk", "/usr/bin/asterisk", "asterisk"]
+        asterisk_cmd = None
+        for path in asterisk_paths:
+            if os.path.exists(path) or '/' not in path:
+                asterisk_cmd = path
+                break
+        
+        if asterisk_cmd:
+            try:
+                self.run_command([asterisk_cmd, "-rx", "sip show peers"])
+                
+                print(f"\n{Colors.GREEN}📊 SIP Registry:{Colors.RESET}\n")
+                self.run_command([asterisk_cmd, "-rx", "sip show registry"])
+                return
+            except:
+                pass
+        
+        print(f"{Colors.RED}❌ Asterisk CLI not available{Colors.RESET}")
     
     def show_asterisk_channels(self):
         """Show active Asterisk channels"""
@@ -404,13 +613,27 @@ class NetworkDiagnostics:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 ACTIVE ASTERISK CHANNELS{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}\n")
         
-        if self.check_tool_available("asterisk"):
-            self.run_command(["asterisk", "-rx", "core show channels"])
-            
-            print(f"\n{Colors.GREEN}📊 Channel statistics:{Colors.RESET}\n")
-            self.run_command(["asterisk", "-rx", "core show channels count"])
-        else:
-            print(f"{Colors.RED}❌ Asterisk CLI not available{Colors.RESET}")
+        import os
+        
+        # Check for asterisk CLI
+        asterisk_paths = ["/usr/sbin/asterisk", "/usr/bin/asterisk", "asterisk"]
+        asterisk_cmd = None
+        for path in asterisk_paths:
+            if os.path.exists(path) or '/' not in path:
+                asterisk_cmd = path
+                break
+        
+        if asterisk_cmd:
+            try:
+                self.run_command([asterisk_cmd, "-rx", "core show channels"])
+                
+                print(f"\n{Colors.GREEN}📊 Channel statistics:{Colors.RESET}\n")
+                self.run_command([asterisk_cmd, "-rx", "core show channels count"])
+                return
+            except:
+                pass
+        
+        print(f"{Colors.RED}❌ Asterisk CLI not available{Colors.RESET}")
     
     def run_comprehensive_diagnostic(self):
         """Run comprehensive network diagnostic"""
@@ -429,7 +652,7 @@ class NetworkDiagnostics:
         self.show_routing_info()
         self.show_arp_table()
         self.show_netstat_info()
-        self.run_ping_test("8.8.8.8", count=3)
+        self.run_ping("8.8.8.8", count=3)
         self.run_dns_lookup("google.com")
         
         # Asterisk-specific
@@ -494,7 +717,7 @@ def main():
     elif args.netstat:
         diag.show_netstat_info()
     elif args.ping:
-        diag.run_ping_test(args.ping)
+        diag.run_ping(args.ping)
     elif args.traceroute:
         diag.run_traceroute(args.traceroute)
     elif args.dns:
