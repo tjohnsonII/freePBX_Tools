@@ -704,49 +704,33 @@ def get_active_calls(sock):
     return None
 
 def get_time_conditions_status(sock):
-    """Get time conditions override status - returns (total_count, forced_count, status_list)"""
+    """Get time conditions count using direct MySQL query - returns (total_count, forced_count, status_list)"""
     try:
-        # Query the timeconditions table for current state
-        # NOTE: Must be run as root to access MySQL
-        sql = "SELECT id, displayname, inuse_state FROM timeconditions ORDER BY displayname"
-        # Match freepbx_dump.py command format: mysql -BN --user root --socket sock db -e "sql"
-        cmd = ["mysql", "-BN", "--user", "root", "--socket", sock, "asterisk", "-e", sql]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+        # Simple query - just like typing "mysql" then running SQL
+        # No socket, no user flags - just plain mysql command like manual use
+        sql = "SELECT COUNT(*) FROM timeconditions"
+        cmd = ["mysql", "-NBe", sql, "asterisk"]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
         
-        if result.returncode != 0:
-            # Return error for debugging
+        if result.returncode != 0 or not result.stdout.strip():
             err_msg = result.stderr.strip()[:50] if result.stderr else "Query failed"
             return (0, 0, ["DB Error: " + err_msg])
         
-        if not result.stdout.strip():
-            # No time conditions found
-            return (0, 0, ["No time conditions"])
+        total_count = int(result.stdout.strip())
         
-        tc_list = []
-        total_count = 0
-        forced_count = 0
+        # Now get forced count
+        sql2 = "SELECT COUNT(*) FROM timeconditions WHERE inuse_state IN (1,2)"
+        cmd2 = ["mysql", "-NBe", sql2, "asterisk"]
+        result2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=5)
+        forced_count = int(result2.stdout.strip()) if result2.returncode == 0 and result2.stdout.strip() else 0
         
-        for line in result.stdout.strip().split('\n'):
-            if line:
-                parts = line.split('\t')
-                if len(parts) >= 3:
-                    tc_id, name, state = parts[0], parts[1], parts[2]
-                    total_count += 1
-                    # state: 0=auto, 1=force true, 2=force false
-                    if state == '1':
-                        tc_list.append("{} (FORCED ON)".format(name))
-                        forced_count += 1
-                    elif state == '2':
-                        tc_list.append("{} (FORCED OFF)".format(name))
-                        forced_count += 1
-        
-        # Build status list for display
+        # Build status display
         status_display = []
         if total_count > 0:
             if forced_count > 0:
                 status_display.append("{} Total | {} Override | {} Auto".format(total_count, forced_count, total_count - forced_count))
-                status_display.extend(tc_list[:5])  # Show first 5 forced
             else:
                 status_display.append("{} Total | All running on schedule".format(total_count))
         else:
@@ -754,7 +738,7 @@ def get_time_conditions_status(sock):
         
         return (total_count, forced_count, status_display)
     except Exception as e:
-        return (0, 0, ["Query error: {}".format(str(e)[:50])])
+        return (0, 0, ["Error: " + str(e)[:50]])
 
 def get_recent_package_updates():
     """Get recent Asterisk/FreePBX package updates from system package manager"""
@@ -827,11 +811,9 @@ def get_recent_package_updates():
 def get_endpoint_status(sock):
     """Get SIP endpoint registration status"""
     try:
-        # Get list of extensions from database
-        # NOTE: Must be run as root to access MySQL
+        # Get list of extensions from database - simple mysql command
         sql = "SELECT extension, name FROM users ORDER BY CAST(extension AS UNSIGNED)"
-        # Match freepbx_dump.py command format: mysql -BN --user root --socket sock db -e "sql"
-        cmd = ["mysql", "-BN", "--user", "root", "--socket", sock, "asterisk", "-e", sql]
+        cmd = ["mysql", "-NBe", sql, "asterisk"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
         
