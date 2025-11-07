@@ -45,7 +45,8 @@ def print_menu():
     print(f"  {Colors.CYAN}3){Colors.RESET} 🔄 Uninstall + Install (clean deployment)")
     print(f"  {Colors.CYAN}4){Colors.RESET} Test dashboard on test server (69.39.69.102)")
     print(f"  {Colors.CYAN}5){Colors.RESET} View deployment status")
-    print(f"  {Colors.CYAN}6){Colors.RESET} Exit")
+    print(f"  {Colors.CYAN}6){Colors.RESET} 🔌 SSH into a server")
+    print(f"  {Colors.CYAN}7){Colors.RESET} Exit")
     print()
 
 def get_credentials():
@@ -323,6 +324,91 @@ def view_status():
         print(f"{Colors.GREEN}🔑 Credentials: ✅ config.py exists{Colors.RESET}")
     else:
         print(f"{Colors.RED}🔑 Credentials: ❌ config.py missing{Colors.RESET}")
+
+def ssh_to_server():
+    """SSH into a server with password authentication"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  🔌 SSH Connection")
+    print(f"{'='*70}{Colors.RESET}")
+    
+    # Get server IP
+    print(f"\n{Colors.YELLOW}Enter target server:{Colors.RESET}")
+    server_ip = input("Server IP: ").strip()
+    
+    if not server_ip:
+        print(f"{Colors.RED}❌ Server IP required{Colors.RESET}")
+        return
+    
+    # Get credentials
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}🔑 SSH Credentials:{Colors.RESET}")
+    username = input("Username [123net]: ").strip() or "123net"
+    password = getpass.getpass("Password: ")
+    
+    if not password:
+        print(f"{Colors.RED}❌ Password required{Colors.RESET}")
+        return
+    
+    print(f"\n{Colors.GREEN}🔌 Connecting to {Colors.MAGENTA}{username}@{server_ip}{Colors.RESET}...")
+    print(f"{Colors.YELLOW}💡 Tip: Type 'exit' to disconnect{Colors.RESET}\n")
+    
+    # Use sshpass if available, otherwise provide instructions
+    try:
+        # Check if sshpass is available (works on Linux/WSL)
+        which_result = subprocess.run(["which", "sshpass"], 
+                                     capture_output=True, 
+                                     text=True,
+                                     shell=False)
+        
+        if which_result.returncode == 0:
+            # sshpass is available - use it
+            cmd = [
+                "sshpass", "-p", password,
+                "ssh", "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                f"{username}@{server_ip}"
+            ]
+            subprocess.run(cmd)
+        else:
+            raise FileNotFoundError("sshpass not found")
+            
+    except (FileNotFoundError, subprocess.SubprocessError):
+        # sshpass not available - try different approach
+        print(f"{Colors.YELLOW}⚠️  sshpass not available, trying alternative method...{Colors.RESET}\n")
+        
+        # On Windows, try using PowerShell with plink (PuTTY)
+        if sys.platform == "win32":
+            try:
+                # Try plink (PuTTY command-line)
+                cmd = [
+                    "plink",
+                    "-ssh",
+                    "-pw", password,
+                    f"{username}@{server_ip}"
+                ]
+                subprocess.run(cmd)
+            except FileNotFoundError:
+                # No plink either - provide manual instructions
+                print(f"{Colors.RED}❌ Neither sshpass nor plink found{Colors.RESET}")
+                print(f"\n{Colors.YELLOW}{Colors.BOLD}📋 Manual Connection Instructions:{Colors.RESET}")
+                print(f"\n{Colors.CYAN}Option 1 - Use PuTTY:{Colors.RESET}")
+                print(f"  1. Open PuTTY")
+                print(f"  2. Enter: {Colors.MAGENTA}{server_ip}{Colors.RESET}")
+                print(f"  3. Username: {Colors.MAGENTA}{username}{Colors.RESET}")
+                print(f"  4. Password: {Colors.MAGENTA}<provided>{Colors.RESET}")
+                
+                print(f"\n{Colors.CYAN}Option 2 - Use native SSH:{Colors.RESET}")
+                print(f"  {Colors.MAGENTA}ssh {username}@{server_ip}{Colors.RESET}")
+                print(f"  (Enter password when prompted)")
+                
+                print(f"\n{Colors.CYAN}Option 3 - Install sshpass (recommended):{Colors.RESET}")
+                print(f"  On WSL/Linux: {Colors.MAGENTA}sudo apt-get install sshpass{Colors.RESET}")
+                print(f"  On Windows: {Colors.MAGENTA}choco install putty{Colors.RESET}")
+        else:
+            # On Linux/Mac without sshpass - use regular ssh
+            print(f"{Colors.YELLOW}💡 Falling back to interactive SSH...{Colors.RESET}")
+            print(f"{Colors.YELLOW}Password: {password}{Colors.RESET}\n")
+            cmd = ["ssh", f"{username}@{server_ip}"]
+            subprocess.run(cmd)
     
 def main():
     """Main interactive loop"""
@@ -330,7 +416,7 @@ def main():
         print_banner()
         print_menu()
         
-        choice = input(f"{Colors.YELLOW}Choose option (1-6):{Colors.RESET} ").strip()
+        choice = input(f"{Colors.YELLOW}Choose option (1-7):{Colors.RESET} ").strip()
         
         if choice == "1":
             deploy_tools()
@@ -343,10 +429,12 @@ def main():
         elif choice == "5":
             view_status()
         elif choice == "6":
+            ssh_to_server()
+        elif choice == "7":
             print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
             sys.exit(0)
         else:
-            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-6.{Colors.RESET}\n")
+            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-7.{Colors.RESET}\n")
         
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
 

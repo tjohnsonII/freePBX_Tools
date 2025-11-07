@@ -66,9 +66,9 @@ MODULE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_module_ana
 PAGING_FAX_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_paging_fax_analyzer.py"
 COMPREHENSIVE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_comprehensive_analyzer.py"
 ASCII_CALLFLOW_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py"
-CALL_SIMULATOR_SCRIPT = "/usr/local/123net/call-simulation/call_simulator.py"
-CALLFLOW_VALIDATOR_SCRIPT = "/usr/local/123net/call-simulation/callflow_validator.py"
-SIMULATE_CALLS_SCRIPT = "/usr/local/123net/call-simulation/simulate_calls.sh"
+CALL_SIMULATOR_SCRIPT = "/usr/local/123net/freepbx-tools/bin/call_simulator.py"
+CALLFLOW_VALIDATOR_SCRIPT = "/usr/local/123net/freepbx-tools/bin/callflow_validator.py"
+SIMULATE_CALLS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/simulate_calls.sh"
 
 
 def run_tc_status(sock):
@@ -198,9 +198,14 @@ def run_did_call_test(did_rows):
             return
         
         _, did, label, _, _ = did_rows[choice - 1]
-        caller_id = input(f"Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
+        destination = input(f"Enter destination number (where to ring the call, e.g., your cell): ").strip()
+        if not destination:
+            print("❌ Destination number required.")
+            return
         
-        print(f"\n🚀 Testing DID {did} ({label}) with caller ID {caller_id}")
+        print(f"\n🚀 Testing DID {did} ({label})")
+        print(f"   Incoming call from: {did}")
+        print(f"   Ringing to: {destination}")
         print("This will create a real call in the Asterisk system...")
         
         confirm = input("Continue? (y/N): ").strip().lower()
@@ -209,7 +214,8 @@ def run_did_call_test(did_rows):
             return
         
         # Run the call simulation
-        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--caller-id", caller_id, "--debug"]
+        # Note: --caller-id is the source (DID), destination is where it rings
+        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--destination", destination, "--debug"]
         print(f"Executing: {' '.join(cmd)}")
         
         rc, out, err = run(cmd)
@@ -449,119 +455,309 @@ def run_ascii_callflow(sock, did_rows):
         print("ASCII callflow tool not found at", ASCII_CALLFLOW_SCRIPT)
         return
     
-    print("\n=== ASCII Art Call Flow Generator ===")
-    print("Choose an option:")
-    print()
-    print("1. Generate ASCII flow for specific DID(s)")
-    print("2. Show comprehensive data collection summary")
-    print("3. Show detailed configuration data")
-    print("4. Export all data to JSON file")
-    print("5. Generate flows for ALL DIDs")
-    print()
-    
-    choice = input("Enter choice (1-5): ").strip()
-    
-    if choice == "1":
-        # Original DID-specific flow generation
-        if not did_rows:
-            print("No DID data available. Please refresh the snapshot first.")
-            return
-        
-        print("\nSelect DID(s) for ASCII flow chart generation:")
+    while True:
+        print("\n=== ASCII Art Call Flow Generator ===")
+        print("Choose an option:")
+        print()
+        print("1. Generate ASCII flow for specific DID(s)")
+        print("2. Show comprehensive data collection summary")
+        print("3. Show detailed configuration data")
+        print("4. Export all data to JSON file")
+        print("5. Generate flows for ALL DIDs")
+        print("6. Return to main menu")
         print()
         
-        # Show available DIDs
-        for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
-            print(f"{i:>2}. {did:<15} {label}")
+        choice = input("Enter choice (1-6): ").strip()
         
-        if len(did_rows) > 20:
-            print(f"... and {len(did_rows) - 20} more DIDs")
+        if choice == "6":
+            # Return to main menu
+            print("Returning to main menu...")
+            break
         
-        print()
-        selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
-        
-        if not selection:
-            return
-        
-        # Parse selection
-        if selection.lower() in ("all", "*"):
-            selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
-            print("Note: Limited to first 10 DIDs for ASCII output")
-        else:
-            selected_indices = parse_selection(selection, len(did_rows))
-        
-        if not selected_indices:
-            print("No valid selection.")
-            return
-        
-        print(f"\n🎨 Generating ASCII call flows for {len(selected_indices)} DID(s)...")
-        print("=" * 60)
-        
-        for i, idx in enumerate(selected_indices):
-            if i >= 10:  # Limit ASCII output
-                print(f"\n... {len(selected_indices) - 10} more DIDs not shown (use individual analysis for more)")
-                break
-                
-            _, did, label, _, _ = did_rows[idx - 1]
-            print(f"\n[{i+1}/{min(len(selected_indices), 10)}] Generating flow for DID: {did}")
-            print("-" * 60)
+        elif choice == "1":
+            # Original DID-specific flow generation
+            if not did_rows:
+                print("No DID data available. Please refresh the snapshot first.")
+                continue
             
-            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did)]
-            rc, out, err = run(cmd)
+            print("\nSelect DID(s) for ASCII flow chart generation:")
+            print()
             
-            if rc == 0:
-                print(out)
+            # Show available DIDs
+            for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
+                print(f"{i:>2}. {did:<15} {label}")
+            
+            if len(did_rows) > 20:
+                print(f"... and {len(did_rows) - 20} more DIDs")
+            
+            print()
+            selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
+            
+            if not selection:
+                continue
+            
+            # Parse selection
+            if selection.lower() in ("all", "*"):
+                selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
+                print("Note: Limited to first 10 DIDs for ASCII output")
             else:
-                print(f"❌ Error generating flow for {did}: {err or out}")
+                selected_indices = parse_selection(selection, len(did_rows))
             
-            if i < min(len(selected_indices), 10) - 1:
-                print("\n" + "=" * 60)
-    
-    elif choice == "2":
-        # Show data collection summary
-        print("\nRunning comprehensive data collection with summary...")
-        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data"]
-        rc, out, err = run(cmd)
-        if rc == 0:
-            print(out, end="")
+            if not selected_indices:
+                print("No valid selection.")
+                continue
+            
+            print(f"\n🎨 Generating ASCII call flows for {len(selected_indices)} DID(s)...")
+            print("=" * 60)
+            
+            for i, idx in enumerate(selected_indices):
+                if i >= 10:  # Limit ASCII output
+                    print(f"\n... {len(selected_indices) - 10} more DIDs not shown (use individual analysis for more)")
+                    break
+                    
+                _, did, label, _, _ = did_rows[idx - 1]
+                print(f"\n[{i+1}/{min(len(selected_indices), 10)}] Generating flow for DID: {did}")
+                print("-" * 60)
+                
+                cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did)]
+                rc, out, err = run(cmd)
+                
+                if rc == 0:
+                    print(out)
+                else:
+                    print(f"❌ Error generating flow for {did}: {err or out}")
+                
+                if i < min(len(selected_indices), 10) - 1:
+                    print("\n" + "=" * 60)
+        
+        elif choice == "2":
+            # Show data collection summary
+            print("\nRunning comprehensive data collection with summary...")
+            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data"]
+            rc, out, err = run(cmd)
+            if rc == 0:
+                print(out, end="")
+            else:
+                print(f"Error: {err or out}")
+        
+        elif choice == "3":
+            # Show detailed configuration data
+            print("\nRunning comprehensive data collection with detailed output...")
+            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data", "--detailed"]
+            rc, out, err = run(cmd)
+            if rc == 0:
+                print(out, end="")
+            else:
+                print(f"Error: {err or out}")
+        
+        elif choice == "4":
+            # Export data to JSON
+            timestamp = int(time.time())
+            export_file = f"/tmp/freepbx_config_{timestamp}.json"
+            print(f"\nExporting comprehensive FreePBX data to: {export_file}")
+            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--export", export_file]
+            rc, out, err = run(cmd)
+            if rc == 0:
+                print(out, end="")
+                print(f"\n✅ Data exported to: {export_file}")
+            else:
+                print(f"Error: {err or out}")
+        
+        elif choice == "5":
+            # Generate flows for all DIDs
+            print("\nGenerating ASCII flows for ALL DIDs...")
+            cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--generate-flow"]
+            rc, out, err = run(cmd)
+            if rc == 0:
+                print(out, end="")
+            else:
+                print(f"Error: {err or out}")
+        
         else:
-            print(f"Error: {err or out}")
+            print("Invalid choice. Please enter 1-6.")
+        
+        # After completing any action (except return to main menu), loop back
+        if choice != "6":
+            input("\nPress Enter to continue...")
+
+
+
+def run_full_diagnostic():
+    """Run comprehensive Asterisk diagnostic with formatted table output"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*80}")
+    print(f"  🔧 Full Asterisk & FreePBX Diagnostic")
+    print(f"{'='*80}{Colors.RESET}\n")
     
-    elif choice == "3":
-        # Show detailed configuration data
-        print("\nRunning comprehensive data collection with detailed output...")
-        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--print-data", "--detailed"]
-        rc, out, err = run(cmd)
-        if rc == 0:
-            print(out, end="")
-        else:
-            print(f"Error: {err or out}")
+    print(f"{Colors.YELLOW}Collecting system information...{Colors.RESET}\n")
     
-    elif choice == "4":
-        # Export data to JSON
-        timestamp = int(time.time())
-        export_file = f"/tmp/freepbx_config_{timestamp}.json"
-        print(f"\nExporting comprehensive FreePBX data to: {export_file}")
-        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--export", export_file]
-        rc, out, err = run(cmd)
-        if rc == 0:
-            print(out, end="")
-            print(f"\n✅ Data exported to: {export_file}")
-        else:
-            print(f"Error: {err or out}")
+    # System Information Table
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' SYSTEM INFORMATION':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
     
-    elif choice == "5":
-        # Generate flows for all DIDs
-        print("\nGenerating ASCII flows for ALL DIDs...")
-        cmd = ["python3", ASCII_CALLFLOW_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--generate-flow"]
-        rc, out, err = run(cmd)
-        if rc == 0:
-            print(out, end="")
-        else:
-            print(f"Error: {err or out}")
+    # Hostname
+    rc, hostname, _ = run(["hostname"])
+    hostname = hostname.strip() or "Unknown"
+    print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Hostname:{Colors.RESET} {Colors.GREEN}{hostname:<64}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
     
+    # Uptime
+    rc, uptime_out, _ = run(["uptime", "-p"])
+    uptime_str = uptime_out.strip() or "Unknown"
+    print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Uptime:{Colors.RESET} {Colors.YELLOW}{uptime_str:<66}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    # Memory
+    rc, mem_out, _ = run(["free", "-h"])
+    mem_lines = mem_out.strip().split('\n')
+    if len(mem_lines) > 1:
+        mem_info = mem_lines[1].split()
+        if len(mem_info) >= 3:
+            total_mem = mem_info[1]
+            used_mem = mem_info[2]
+            mem_display = f"Used: {used_mem} / Total: {total_mem}"
+            print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Memory:{Colors.RESET} {Colors.CYAN}{mem_display:<67}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    # Disk usage
+    rc, disk_out, _ = run(["df", "-h", "/"])
+    disk_lines = disk_out.strip().split('\n')
+    if len(disk_lines) > 1:
+        disk_info = disk_lines[1].split()
+        if len(disk_info) >= 5:
+            disk_display = f"Used: {disk_info[2]} / Total: {disk_info[1]} ({disk_info[4]})"
+            print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Disk (/):{Colors.RESET} {Colors.CYAN}{disk_display:<65}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}\n")
+    
+    # Asterisk Information Table
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' ASTERISK STATUS':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
+    
+    # Asterisk version
+    rc, version_out, _ = run(["asterisk", "-rx", "core show version"])
+    if rc == 0:
+        version_lines = version_out.strip().split('\n')
+        if version_lines:
+            version = version_lines[0].replace("Asterisk ", "").strip()[:60]
+            print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Version:{Colors.RESET} {Colors.GREEN}{version:<66}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    # Active channels
+    rc, channels_out, _ = run(["asterisk", "-rx", "core show channels count"])
+    active_calls = "0"
+    active_channels = "0"
+    for line in channels_out.split('\n'):
+        if 'active call' in line.lower():
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                active_calls = parts[0]
+        elif 'active channel' in line.lower():
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                active_channels = parts[0]
+    
+    call_color = Colors.GREEN if active_calls == "0" else Colors.YELLOW
+    print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Active Calls:{Colors.RESET} {call_color}{active_calls:<63}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Active Channels:{Colors.RESET} {call_color}{active_channels:<59}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    # PJSIP Endpoints
+    rc, endpoints_out, _ = run(["asterisk", "-rx", "pjsip show endpoints"])
+    endpoint_count = 0
+    online_count = 0
+    for line in endpoints_out.split('\n'):
+        if line.strip() and not line.startswith('Endpoint') and not line.startswith('===') and not line.startswith('Objects'):
+            endpoint_count += 1
+            if 'Avail' in line or 'online' in line.lower():
+                online_count += 1
+    
+    print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}PJSIP Endpoints:{Colors.RESET} {Colors.CYAN}Total: {endpoint_count}  │  Online: {Colors.GREEN}{online_count}{Colors.RESET}{' '*40}{Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}\n")
+    
+    # Services Status Table
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' SERVICES STATUS':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
+    
+    services = [
+        ("asterisk", "Asterisk PBX"),
+        ("httpd", "Apache Web Server"),
+        ("mariadb", "MariaDB Database"),
+        ("php-fpm", "PHP-FPM"),
+        ("crond", "Cron Daemon")
+    ]
+    
+    for service_name, display_name in services:
+        rc, _, _ = run(["systemctl", "is-active", service_name])
+        status = "RUNNING" if rc == 0 else "STOPPED"
+        status_color = Colors.GREEN if rc == 0 else Colors.RED
+        status_icon = "●" if rc == 0 else "○"
+        
+        print(f"{Colors.CYAN}║{Colors.RESET} {status_color}{status_icon}{Colors.RESET} {Colors.WHITE}{display_name:<35}{Colors.RESET} {status_color}{status:<36}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}\n")
+    
+    # Database Status
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' DATABASE STATUS':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
+    
+    # Check database connectivity
+    rc, db_out, _ = run(["mysql", "-NBe", "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='asterisk';"])
+    if rc == 0:
+        table_count = db_out.strip()
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Asterisk DB Status:{Colors.RESET} {Colors.GREEN}Connected{Colors.RESET}{' '*52}{Colors.CYAN}║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Tables in asterisk DB:{Colors.RESET} {Colors.CYAN}{table_count:<54}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
     else:
-        print("Invalid choice.")
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Asterisk DB Status:{Colors.RESET} {Colors.RED}Connection Failed{Colors.RESET}{' '*45}{Colors.CYAN}║{Colors.RESET}")
+    
+    # Recent CDRs
+    rc, cdr_out, _ = run(["mysql", "-NBe", "SELECT COUNT(*) FROM asteriskcdrdb.cdr WHERE calldate > DATE_SUB(NOW(), INTERVAL 24 HOUR);"])
+    if rc == 0:
+        recent_calls = cdr_out.strip()
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}CDRs (Last 24h):{Colors.RESET} {Colors.YELLOW}{recent_calls:<58}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}\n")
+    
+    # Module Status
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' ASTERISK MODULES (Key Modules)':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
+    
+    key_modules = [
+        "chan_pjsip.so",
+        "res_pjsip.so",
+        "chan_dahdi.so",
+        "app_voicemail.so",
+        "app_queue.so",
+        "cdr_mysql.so"
+    ]
+    
+    rc, modules_out, _ = run(["asterisk", "-rx", "module show"])
+    loaded_modules = set()
+    for line in modules_out.split('\n'):
+        for mod in key_modules:
+            if mod in line:
+                loaded_modules.add(mod)
+    
+    for mod in key_modules:
+        if mod in loaded_modules:
+            print(f"{Colors.CYAN}║{Colors.RESET} {Colors.GREEN}✓{Colors.RESET} {Colors.WHITE}{mod:<70}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+        else:
+            print(f"{Colors.CYAN}║{Colors.RESET} {Colors.RED}✗{Colors.RESET} {Colors.WHITE}{mod:<70}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}\n")
+    
+    print(f"{Colors.GREEN}{Colors.BOLD}✓ Diagnostic complete!{Colors.RESET}\n")
+
+
+def run_full_diagnostic_legacy():
+    """Run the original shell script diagnostic (legacy method)"""
+    diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
+    if not os.path.isfile(diag):
+        print("Diagnostic script not found at", diag)
+    else:
+        print("\nRunning full diagnostic (this may take ~10-30s)...\n")
+        rc, out, err = run([diag])
+        # The script prints its own output
 
 
 # ---------------- helpers ----------------
@@ -1428,13 +1624,7 @@ def main():
             input()
 
         elif choice == "12":
-            diag = "/usr/local/bin/asterisk-full-diagnostic.sh"
-            if not os.path.isfile(diag):
-                print("Diagnostic script not found at", diag)
-            else:
-                print("\nRunning full diagnostic (this may take ~10-30s)...\n")
-                rc, out, err = run([diag])
-                # The script prints its own output; nothing else to do.
+            run_full_diagnostic()
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             input()
 
