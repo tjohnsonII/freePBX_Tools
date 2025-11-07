@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FreePBX Complete Version-Aware ASCII Call Flow Generator
+freePBX Complete Version-Aware ASCII Call Flow Generator
 Handles FreePBX 2.8 - 16.x, Asterisk 1.8 - 18.x, MySQL/MariaDB variations
 
 This comprehensive version addresses ALL schema variations across FreePBX versions:
@@ -19,6 +19,18 @@ import os
 import re
 import time
 from collections import defaultdict
+
+# ANSI Color codes
+class Colors:
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
 
 class FreePBXUniversalCollector:
     """Universal FreePBX collector handling all version variations."""
@@ -42,8 +54,9 @@ class FreePBXUniversalCollector:
         
     def analyze_system(self):
         """Complete system analysis with version detection and schema discovery."""
-        print("🔍 COMPREHENSIVE FREEPBX SYSTEM ANALYSIS")
-        print("=" * 70)
+        print(Colors.CYAN + Colors.BOLD + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "║" + Colors.YELLOW + " 🔍 COMPREHENSIVE freePBX SYSTEM ANALYSIS ".center(78) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
         # Phase 1: Version Detection
         self._detect_asterisk_version()
@@ -51,13 +64,17 @@ class FreePBXUniversalCollector:
         self._detect_database_version()
         self._discover_all_tables()
         
-        print("=" * 70)
-        print(f"📊 SYSTEM PROFILE:")
-        print(f"   FreePBX: {self.freepbx_version or 'Unknown'} (Major: {self.freepbx_major or 'Unknown'})")
-        print(f"   Asterisk: {self.asterisk_version or 'Unknown'} (Major: {self.asterisk_major or 'Unknown'})")
-        print(f"   Database: {self.db_version or 'Unknown'}")
-        print(f"   Tables Found: {len(self.all_tables)}")
-        print("=" * 70)
+        # System Profile Box
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + " 📊 SYSTEM PROFILE".ljust(87) + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.WHITE + "freePBX:   " + Colors.GREEN + Colors.BOLD + f"{self.freepbx_version or 'Unknown'}".ljust(25) + Colors.RESET + 
+              Colors.WHITE + "│ Major: " + Colors.YELLOW + Colors.BOLD + f"{self.freepbx_major or 'Unknown'}".ljust(30) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.WHITE + "Asterisk:  " + Colors.GREEN + Colors.BOLD + f"{self.asterisk_version or 'Unknown'}".ljust(25) + Colors.RESET + 
+              Colors.WHITE + "│ Major: " + Colors.YELLOW + Colors.BOLD + f"{self.asterisk_major or 'Unknown'}".ljust(30) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.WHITE + "Database:  " + Colors.GREEN + Colors.BOLD + f"{self.db_version or 'Unknown'}".ljust(65) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.WHITE + "Tables:    " + Colors.CYAN + Colors.BOLD + f"{len(self.all_tables)} discovered".ljust(65) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
         # Phase 2: Schema Discovery
         self._discover_schema_mappings()
@@ -181,8 +198,9 @@ class FreePBXUniversalCollector:
             
     def _discover_schema_mappings(self):
         """Discover and map schema for all call flow components."""
-        print("\n🗂️  ADAPTIVE SCHEMA MAPPING")
-        print("=" * 70)
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 🗂️  ADAPTIVE SCHEMA MAPPING ".center(78) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
         
         mappings = [
             ("inbound_routes", self._map_inbound_routes),
@@ -205,15 +223,33 @@ class FreePBXUniversalCollector:
                 if mapping:
                     self.schema_map[component] = mapping
                     successful_mappings += 1
-                    print(f"   ✓ {component.replace('_', ' ').title()}: {mapping['table']} → {len(mapping['fields'])} fields")
+                    comp_name = component.replace('_', ' ').title()
+                    table_name = mapping['table']
+                    field_count = len(mapping['fields'])
+                    
+                    line = f"  {Colors.GREEN}✓{Colors.RESET} {Colors.WHITE}{comp_name}:{Colors.RESET} {Colors.CYAN}{table_name}{Colors.RESET} {Colors.YELLOW}→ {field_count} fields{Colors.RESET}"
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                    padding = " " * max(0, 78 - len(visible_text))
+                    print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
                 else:
-                    print(f"   ❌ {component.replace('_', ' ').title()}: No compatible table found")
+                    comp_name = component.replace('_', ' ').title()
+                    line = f"  {Colors.RED}❌{Colors.RESET} {Colors.WHITE}{comp_name}:{Colors.RESET} No compatible table found"
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                    padding = " " * max(0, 78 - len(visible_text))
+                    print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
             except Exception as e:
-                print(f"   ❌ {component.replace('_', ' ').title()}: Mapping error - {e}")
+                comp_name = component.replace('_', ' ').title()
+                line = f"  {Colors.RED}❌{Colors.RESET} {Colors.WHITE}{comp_name}:{Colors.RESET} Mapping error"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
                 
-        print("=" * 70)
-        print(f"📊 SCHEMA MAPPING: {successful_mappings}/{len(mappings)} components mapped")
-        print("=" * 70)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
+        summary_line = f" 📊 SCHEMA MAPPING: {Colors.GREEN}{Colors.BOLD}{successful_mappings}{Colors.RESET}/{Colors.CYAN}{len(mappings)}{Colors.RESET} components mapped "
+        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', summary_line)
+        padding = " " * max(0, 78 - len(visible_text))
+        print(Colors.CYAN + "║" + summary_line + padding + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
     def _map_inbound_routes(self):
         """Map inbound routes table with all variations."""
@@ -593,8 +629,9 @@ class FreePBXUniversalCollector:
         
     def _collect_all_data(self):
         """Collect data using discovered schema mappings."""
-        print("\n📊 VERSION-AWARE DATA COLLECTION")
-        print("=" * 70)
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📊 VERSION-AWARE DATA COLLECTION ".center(78) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
         
         total_items = 0
         for component, schema in self.schema_map.items():
@@ -604,36 +641,94 @@ class FreePBXUniversalCollector:
                 count = len(data) if data else 0
                 total_items += count
                 
-                status = "✓" if count > 0 else "○"
-                print(f"   {status} {component.replace('_', ' ').title()}: {count} items")
+                status = f"{Colors.GREEN}✓{Colors.RESET}" if count > 0 else f"{Colors.YELLOW}○{Colors.RESET}"
+                comp_name = component.replace('_', ' ').title()
+                count_str = f"{Colors.CYAN}{Colors.BOLD}{count}{Colors.RESET} items"
                 
-                # Show sample data
-                if count > 0 and count <= 3:
+                line = f"  {status} {Colors.WHITE}{comp_name}:{Colors.RESET} {count_str}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
+                
+                # Show sample data with indentation
+                if count > 0 and count <= 2:
                     for item in data:
-                        self._print_sample_item(component, item)
-                elif count > 3:
+                        sample_line = self._format_sample_item(component, item)
+                        if sample_line:
+                            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', sample_line)
+                            padding = " " * max(0, 78 - len(visible_text))
+                            print(Colors.CYAN + "║ " + sample_line + padding + " ║" + Colors.RESET)
+                elif count > 2:
                     for item in data[:2]:
-                        self._print_sample_item(component, item)
-                    print(f"      ... and {count - 2} more")
+                        sample_line = self._format_sample_item(component, item)
+                        if sample_line:
+                            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', sample_line)
+                            padding = " " * max(0, 78 - len(visible_text))
+                            print(Colors.CYAN + "║ " + sample_line + padding + " ║" + Colors.RESET)
+                    more_line = f"      {Colors.YELLOW}... and {count - 2} more{Colors.RESET}"
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', more_line)
+                    padding = " " * max(0, 78 - len(visible_text))
+                    print(Colors.CYAN + "║ " + more_line + padding + " ║" + Colors.RESET)
                     
             except Exception as e:
-                print(f"   ❌ {component.replace('_', ' ').title()}: Collection error - {e}")
+                comp_name = component.replace('_', ' ').title()
+                line = f"  {Colors.RED}❌{Colors.RESET} {Colors.WHITE}{comp_name}:{Colors.RESET} Collection error"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
         
-        # Collect toggle controls - placeholder for future enhancement
+        # Collect toggle controls
         try:
             self.data['toggle_controls'] = []
             count = 0
             total_items += count
             
-            status = "○"
-            print(f"   {status} Toggle Controls: {count} items")
+            status = f"{Colors.YELLOW}○{Colors.RESET}"
+            line = f"  {status} {Colors.WHITE}Toggle Controls:{Colors.RESET} {Colors.CYAN}{Colors.BOLD}{count}{Colors.RESET} items"
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+            padding = " " * max(0, 78 - len(visible_text))
+            print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
                     
         except Exception as e:
-            print(f"   ❌ Toggle Controls: Collection error - {e}")
+            line = f"  {Colors.RED}❌{Colors.RESET} {Colors.WHITE}Toggle Controls:{Colors.RESET} Collection error"
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', line)
+            padding = " " * max(0, 78 - len(visible_text))
+            print(Colors.CYAN + "║ " + line + padding + " ║" + Colors.RESET)
                 
-        print("=" * 70)
-        print(f"🎯 TOTAL CONFIGURATION ITEMS: {total_items}")
-        print("=" * 70)
+        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
+        summary_line = f" 🎯 TOTAL CONFIGURATION ITEMS: {Colors.GREEN}{Colors.BOLD}{total_items}{Colors.RESET} "
+        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', summary_line)
+        padding = " " * max(0, 78 - len(visible_text))
+        print(Colors.CYAN + "║" + summary_line + padding + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
+    
+    def _format_sample_item(self, component, item):
+        """Format a sample item for display."""
+        if component == 'inbound_routes':
+            did = item.get('did', 'N/A')
+            desc = item.get('description', 'No description')[:40]
+            return f"      {Colors.CYAN}•{Colors.RESET} DID {Colors.GREEN}{did}{Colors.RESET}: {desc}"
+        elif component == 'time_conditions':
+            name = item.get('name', 'Unnamed')[:50]
+            return f"      {Colors.CYAN}•{Colors.RESET} TC: {Colors.WHITE}{name}{Colors.RESET}"
+        elif component == 'extensions':
+            ext = item.get('extension', 'N/A')
+            name = item.get('name', 'Unnamed')[:40]
+            return f"      {Colors.CYAN}•{Colors.RESET} Ext {Colors.YELLOW}{ext}{Colors.RESET}: {name}"
+        elif component == 'ring_groups':
+            grp = item.get('grpnum', 'N/A')
+            desc = item.get('description', 'No description')[:40]
+            return f"      {Colors.CYAN}•{Colors.RESET} RG {Colors.MAGENTA}{grp}{Colors.RESET}: {desc}"
+        elif component == 'ivr_menus':
+            ivr_id = item.get('id', 'N/A')
+            name = item.get('name', 'Unnamed')[:40]
+            return f"      {Colors.CYAN}•{Colors.RESET} IVR {Colors.BLUE}{ivr_id}{Colors.RESET}: {name}"
+        else:
+            # Generic format for other components
+            first_val = next(iter(item.values())) if item else 'N/A'
+            if isinstance(first_val, str):
+                return f"      {Colors.CYAN}•{Colors.RESET} {first_val[:60]}"
+        return None
         
     def _collect_component_data(self, component, schema):
         """Collect data for a specific component."""
@@ -722,11 +817,12 @@ class FreePBXUniversalCollector:
 
     def generate_ascii_callflow(self, did=None):
         """Generate ASCII call flow diagrams for DIDs."""
-        print("\n📞 ASCII CALL FLOW GENERATION")
-        print("=" * 70)
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 ASCII CALL FLOW GENERATION ".center(78) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
         if not self.data.get('inbound_routes'):
-            print("   ⚠ No inbound routes found - cannot generate call flows")
+            print(Colors.RED + "\n   ⚠ No inbound routes found - cannot generate call flows" + Colors.RESET)
             return
         
         if did:
@@ -736,34 +832,43 @@ class FreePBXUniversalCollector:
     
     def _generate_all_flows(self):
         """Generate ASCII call flows for all inbound routes."""
-        print(f"\n🎯 GENERATING ASCII CALL FLOWS FOR ALL DIDS")
-        print("=" * 60)
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.GREEN + " 🎯 GENERATING ASCII CALL FLOWS FOR ALL DIDS ".center(78) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
         inbound_routes = self.data.get('inbound_routes', [])
         if not inbound_routes:
-            print("❌ No inbound routes found")
+            print(Colors.RED + "❌ No inbound routes found" + Colors.RESET)
             return
         
-        print(f"✓ Found {len(inbound_routes)} inbound routes")
+        print(Colors.GREEN + f"\n✓ Found {len(inbound_routes)} inbound routes\n" + Colors.RESET)
         
         for route in inbound_routes:
             did = route.get('did') or 'Unknown'
             description = route.get('description') or f"Route for {did}"
             destination = route.get('destination') or 'Unknown'
             
-            print(f"\n📞 DID: {did} - {description}")
-            print("-" * 40)
-            # Show human-readable destination instead of raw string
-            destination_display = self._resolve_destination_display(destination) if destination != 'Unknown' else destination
-            print(f"✓ Destination: {destination_display}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.RESET)
+            print(Colors.CYAN + "║ " + Colors.WHITE + Colors.BOLD + f"📞 DID: {Colors.GREEN}{did}{Colors.RESET} {Colors.WHITE}- {description[:50]}".ljust(87) + Colors.CYAN + " ║" + Colors.RESET)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
             
-            # Generate simple flow visualization
+            # Show human-readable destination
+            destination_display = self._resolve_destination_display(destination) if destination != 'Unknown' else destination
+            dest_line = f"  {Colors.YELLOW}→{Colors.RESET} Destination: {Colors.CYAN}{destination_display[:58]}{Colors.RESET}"
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', dest_line)
+            padding = " " * max(0, 78 - len(visible_text))
+            print(Colors.CYAN + "║ " + dest_line + padding + " ║" + Colors.RESET)
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
+            
+            # Generate flow visualization
             self._render_simple_flow(did, route)
+            print()  # Add spacing between routes
     
     def _generate_single_did_flow(self, did):
         """Generate ASCII flow for a specific DID."""
-        print(f"\n🎯 GENERATING ASCII CALL FLOW FOR DID: {did}")
-        print("=" * 60)
+        print(Colors.CYAN + "\n╔" + "═" * 78 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.GREEN + f" 🎯 GENERATING ASCII CALL FLOW FOR DID: {did} ".center(88) + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
         
         # Find the DID in inbound routes
         route = None
@@ -773,45 +878,52 @@ class FreePBXUniversalCollector:
                 break
         
         if not route:
-            print(f"❌ No inbound route found for DID: {did}")
+            print(Colors.RED + f"\n❌ No inbound route found for DID: {did}" + Colors.RESET)
             return
-            
-        print(f"✓ Found route: {route.get('description', 'Unnamed Route')}")
-        # Show human-readable destination instead of raw string
-        destination = route.get('destination', 'Unknown')
-        destination_display = self._resolve_destination_display(destination) if destination != 'Unknown' else destination
-        print(f"✓ Destination: {destination_display}")
-        
-        # Generate flow visualization
-        self._render_simple_flow(did, route)
-    
     def _render_simple_flow(self, did, route):
         """Render a complete ASCII call flow tree."""
-        print(f"\n📞 CALL FLOW: {did}")
-        print("=" * 50)
+        print(Colors.CYAN + "\n╔" + "═" * 68 + "╗" + Colors.RESET)
+        header = f" 📞 CALL FLOW: {Colors.GREEN}{Colors.BOLD}{did}{Colors.RESET} "
+        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', header)
+        padding = " " * max(0, 68 - len(visible_text))
+        print(Colors.CYAN + "║" + header + padding + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 68 + "╣" + Colors.RESET)
         
         destination = route.get('destination', '')
         description = route.get('description', 'Unknown Route')
         
-        print(f"📱 Incoming Call: {did} ({description})")
-        print("│")
+        incoming_line = f" {Colors.YELLOW}📱{Colors.RESET} Incoming Call: {Colors.GREEN}{Colors.BOLD}{did}{Colors.RESET} {Colors.WHITE}({description[:30]}){Colors.RESET} "
+        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', incoming_line)
+        padding = " " * max(0, 68 - len(visible_text))
+        print(Colors.CYAN + "║" + incoming_line + padding + "║" + Colors.RESET)
+        
+        pipe_line = f" {Colors.CYAN}│{Colors.RESET} "
+        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', pipe_line)
+        padding = " " * max(0, 68 - len(visible_text))
+        print(Colors.CYAN + "║" + pipe_line + padding + "║" + Colors.RESET)
         
         if destination:
-            self._render_destination_tree(destination, "", True)
+            self._render_destination_tree(destination, " ", True)
         else:
-            print("└─ ❓ No destination configured")
+            no_dest_line = f" {Colors.CYAN}└─{Colors.RESET} {Colors.RED}❓ No destination configured{Colors.RESET} "
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', no_dest_line)
+            padding = " " * max(0, 68 - len(visible_text))
+            print(Colors.CYAN + "║" + no_dest_line + padding + "║" + Colors.RESET)
         
-        print()
+        print(Colors.CYAN + "╚" + "═" * 68 + "╝" + Colors.RESET)
 
     def _render_destination_tree(self, destination, prefix="", is_last=True, visited=None, depth=0):
-        """Recursively render the complete call tree for a destination."""
+        """Recursively render the complete call tree for a destination with colors."""
         if visited is None:
             visited = set()
         
         # Prevent infinite loops
         if destination in visited or depth > 10:
             connector = "└─" if is_last else "├─"
-            print(f"{prefix}{connector} 🔄 Loop detected or max depth reached: {destination}")
+            loop_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.RED}🔄 Loop detected or max depth reached{Colors.RESET}: {Colors.YELLOW}{destination[:30]}{Colors.RESET} "
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', loop_line)
+            padding = " " * max(0, 68 - len(visible_text))
+            print(Colors.CYAN + "║" + loop_line + padding + "║" + Colors.RESET)
             return
         
         visited.add(destination)
@@ -841,12 +953,30 @@ class FreePBXUniversalCollector:
                 
                 # Show time condition with enhanced display for toggle controls
                 if 'toggle' in tc_name.lower():
-                    print(f"{prefix}{connector} ⏰ Time Condition: {tc_name} (Toggle Control)")
-                    print(f"{child_prefix}├─ 🎛️  Toggle: Use feature codes to override")
-                    print(f"{child_prefix}│")
+                    tc_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.MAGENTA}⏰{Colors.RESET} Time Condition: {Colors.YELLOW}{tc_name}{Colors.RESET} {Colors.WHITE}(Toggle Control){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', tc_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + tc_line + padding + "║" + Colors.RESET)
+                    
+                    toggle_line = f" {child_prefix}{Colors.CYAN}├─{Colors.RESET} {Colors.BLUE}🎛️{Colors.RESET}  Toggle: Use feature codes to override "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', toggle_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + toggle_line + padding + "║" + Colors.RESET)
+                    
+                    pipe_line = f" {child_prefix}{Colors.CYAN}│{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', pipe_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + pipe_line + padding + "║" + Colors.RESET)
                 else:
-                    print(f"{prefix}{connector} ⏰ Time Condition: {tc_name}")
-                    print(f"{child_prefix}│")
+                    tc_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.MAGENTA}⏰{Colors.RESET} Time Condition: {Colors.YELLOW}{tc_name}{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', tc_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + tc_line + padding + "║" + Colors.RESET)
+                    
+                    pipe_line = f" {child_prefix}{Colors.CYAN}│{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', pipe_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + pipe_line + padding + "║" + Colors.RESET)
                 
                 # Get appropriate labels for this time condition
                 true_label, false_label = self._get_time_condition_labels(tc)
@@ -855,58 +985,105 @@ class FreePBXUniversalCollector:
                 false_dest = tc.get('false_dest', '')
                 
                 # Render true branch
-                print(f"{child_prefix}├─ {true_label}")
+                branch_line = f" {child_prefix}{Colors.CYAN}├─{Colors.RESET} {Colors.GREEN}{true_label}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', branch_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + branch_line + padding + "║" + Colors.RESET)
                 if true_dest:
                     self._render_destination_tree(true_dest, child_prefix + "│  ", False, visited.copy(), depth + 1)
                 else:
-                    print(f"{child_prefix}│  └─ ❓ No true destination")
+                    no_dest_line = f" {child_prefix}{Colors.CYAN}│  └─{Colors.RESET} {Colors.RED}❓ No true destination{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', no_dest_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + no_dest_line + padding + "║" + Colors.RESET)
                 
-                print(f"{child_prefix}│")
+                pipe_line = f" {child_prefix}{Colors.CYAN}│{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', pipe_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + pipe_line + padding + "║" + Colors.RESET)
                 
                 # Render false branch
-                print(f"{child_prefix}└─ {false_label}")
+                branch_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.RED}{false_label}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', branch_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + branch_line + padding + "║" + Colors.RESET)
                 if false_dest:
                     self._render_destination_tree(false_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
                 else:
-                    print(f"{child_prefix}   └─ ❓ No false destination")
+                    no_dest_line = f" {child_prefix}   {Colors.CYAN}└─{Colors.RESET} {Colors.RED}❓ No false destination{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', no_dest_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + no_dest_line + padding + "║" + Colors.RESET)
             else:
-                print(f"{prefix}{connector} ⏰ Time Condition: {dest_id} (details not found)")
+                tc_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.MAGENTA}⏰{Colors.RESET} Time Condition: {Colors.YELLOW}{dest_id}{Colors.RESET} {Colors.RED}(details not found){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', tc_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + tc_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'ext-group':
             rg = self._find_ring_group(dest_id)
             if rg:
-                print(f"{prefix}{connector} 🔔 Ring Group: {rg.get('description', dest_id)}")
+                rg_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}🔔{Colors.RESET} Ring Group: {Colors.GREEN}{rg.get('description', dest_id)}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rg_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + rg_line + padding + "║" + Colors.RESET)
                 
                 # Show ring group members
                 if rg.get('member_list'):
                     members = [m for m in rg['member_list'].split('-') if m]
-                    print(f"{child_prefix}├─ 👥 Members:")
+                    members_line = f" {child_prefix}{Colors.CYAN}├─{Colors.RESET} {Colors.YELLOW}👥{Colors.RESET} Members: "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', members_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + members_line + padding + "║" + Colors.RESET)
                     for i, member in enumerate(members):  # Show ALL members
                         mem_connector = "├─" if i < len(members) - 1 else "└─"
                         ext = self._find_extension(member)
                         ext_name = ext.get('name', 'Unknown') if ext else 'Unknown'
-                        print(f"{child_prefix}│  {mem_connector} 📞 {member} ({ext_name})")
+                        member_line = f" {child_prefix}{Colors.CYAN}│  {mem_connector}{Colors.RESET} {Colors.GREEN}📞{Colors.RESET} {Colors.BOLD}{member}{Colors.RESET} {Colors.WHITE}({ext_name}){Colors.RESET} "
+                        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', member_line)
+                        padding = " " * max(0, 68 - len(visible_text))
+                        print(Colors.CYAN + "║" + member_line + padding + "║" + Colors.RESET)
                 
                 # Show failover destination if exists - use correct field mapping
                 failover_dest = rg.get('failover_dest', '') or rg.get('postdest', '') or rg.get('dest', '')
                 if failover_dest and failover_dest != 'app-blackhole,hangup,1':
-                    print(f"{child_prefix}│")
-                    print(f"{child_prefix}└─ 🔀 No Answer Failover:")
+                    pipe_line = f" {child_prefix}{Colors.CYAN}│{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', pipe_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + pipe_line + padding + "║" + Colors.RESET)
+                    
+                    failover_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.YELLOW}🔀{Colors.RESET} No Answer Failover: "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', failover_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + failover_line + padding + "║" + Colors.RESET)
                     self._render_destination_tree(failover_dest, child_prefix + "   ", True, visited.copy(), depth + 1)
                 else:
-                    print(f"{child_prefix}└─ 🔚 No failover (call ends)")
+                    end_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.RED}🔚{Colors.RESET} No failover (call ends) "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', end_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + end_line + padding + "║" + Colors.RESET)
             else:
-                print(f"{prefix}{connector} 🔔 Ring Group: {dest_id} (details not found)")
+                rg_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}🔔{Colors.RESET} Ring Group: {Colors.YELLOW}{dest_id}{Colors.RESET} {Colors.RED}(details not found){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rg_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + rg_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'ivr':
             ivr = self._find_ivr_menu(dest_id)
             if ivr:
-                print(f"{prefix}{connector} 🎵 IVR Menu: {ivr.get('name', dest_id)}")
+                ivr_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.MAGENTA}🎵{Colors.RESET} IVR Menu: {Colors.YELLOW}{ivr.get('name', dest_id)}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ivr_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + ivr_line + padding + "║" + Colors.RESET)
                 
                 # Show IVR options
                 options = self._find_ivr_options(dest_id)
                 if options:
-                    print(f"{child_prefix}├─ 🔢 Options:")
+                    opts_line = f" {child_prefix}{Colors.CYAN}├─{Colors.RESET} {Colors.BLUE}🔢{Colors.RESET} Options: "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', opts_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + opts_line + padding + "║" + Colors.RESET)
+                    
                     for i, opt in enumerate(options):  # Show ALL options
                         is_last_option = (i == len(options) - 1)
                         opt_connector = "└─" if is_last_option else "├─"
@@ -914,29 +1091,37 @@ class FreePBXUniversalCollector:
                         opt_dest = opt.get('dest', 'Unknown')
                         
                         if opt_dest and opt_dest != 'Unknown':
-                            # Show the option and recursively follow its destination
-                            print(f"{child_prefix}│  {opt_connector} [{selection}] → ", end="")
-                            
                             # Check if we can recursively follow this destination
                             if depth < 10 and opt_dest not in visited:
                                 # Get a short description first
                                 dest_summary = self._resolve_destination_display(opt_dest)
-                                print(dest_summary)
+                                opt_line = f" {child_prefix}{Colors.CYAN}│  {opt_connector}{Colors.RESET} {Colors.GREEN}[{selection}]{Colors.RESET} {Colors.YELLOW}→{Colors.RESET} {Colors.WHITE}{dest_summary[:40]}{Colors.RESET} "
+                                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', opt_line)
+                                padding = " " * max(0, 68 - len(visible_text))
+                                print(Colors.CYAN + "║" + opt_line + padding + "║" + Colors.RESET)
                                 
                                 # Then recursively follow the destination tree
                                 new_visited = visited.copy()
                                 new_visited.add(opt_dest)
                                 option_prefix = f"{child_prefix}│  {'   ' if is_last_option else '│  '}"
-                                self._render_destination_tree(opt_dest, option_prefix, True, 
-                                                            new_visited, depth + 1)
+                                self._render_destination_tree(opt_dest, option_prefix, True, new_visited, depth + 1)
                             else:
                                 # Just show summary if we hit depth limit or loop
                                 dest_summary = self._resolve_destination_display(opt_dest)
-                                print(dest_summary)
+                                opt_line = f" {child_prefix}{Colors.CYAN}│  {opt_connector}{Colors.RESET} {Colors.GREEN}[{selection}]{Colors.RESET} {Colors.YELLOW}→{Colors.RESET} {Colors.WHITE}{dest_summary[:40]}{Colors.RESET} "
+                                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', opt_line)
+                                padding = " " * max(0, 68 - len(visible_text))
+                                print(Colors.CYAN + "║" + opt_line + padding + "║" + Colors.RESET)
                                 if opt_dest in visited:
-                                    print(f"{child_prefix}│  {'   ' if is_last_option else '│  '}└─ 🔄 (Already visited - loop prevention)")
+                                    loop_line = f" {child_prefix}│  {'   ' if is_last_option else '│  '}{Colors.CYAN}└─{Colors.RESET} {Colors.RED}🔄 (Already visited - loop prevention){Colors.RESET} "
+                                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', loop_line)
+                                    padding = " " * max(0, 68 - len(visible_text))
+                                    print(Colors.CYAN + "║" + loop_line + padding + "║" + Colors.RESET)
                         else:
-                            print(f"{child_prefix}│  {opt_connector} [{selection}] → Unknown destination")
+                            opt_line = f" {child_prefix}{Colors.CYAN}│  {opt_connector}{Colors.RESET} {Colors.GREEN}[{selection}]{Colors.RESET} {Colors.YELLOW}→{Colors.RESET} {Colors.RED}Unknown destination{Colors.RESET} "
+                            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', opt_line)
+                            padding = " " * max(0, 68 - len(visible_text))
+                            print(Colors.CYAN + "║" + opt_line + padding + "║" + Colors.RESET)
                 
                 # Show timeout and invalid handling
                 timeout_dest = ivr.get('timeout_dest')
@@ -945,34 +1130,59 @@ class FreePBXUniversalCollector:
                 if timeout_dest or invalid_dest:
                     if timeout_dest and invalid_dest and timeout_dest == invalid_dest:
                         # Same destination for both
-                        print(f"{child_prefix}└─ ⏱️ Timeout/Invalid → ", end="")
                         dest_summary = self._resolve_destination_display(timeout_dest)
-                        print(dest_summary)
+                        timeout_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.YELLOW}⏱️{Colors.RESET} Timeout/Invalid {Colors.YELLOW}→{Colors.RESET} {Colors.WHITE}{dest_summary[:40]}{Colors.RESET} "
+                        visible_text = re.sub(r'\x1b\[[0-9;]*m', '', timeout_line)
+                        padding = " " * max(0, 68 - len(visible_text))
+                        print(Colors.CYAN + "║" + timeout_line + padding + "║" + Colors.RESET)
                     else:
                         # Different destinations or only one configured
                         if timeout_dest:
-                            print(f"{child_prefix}├─ ⏱️ Timeout → ", end="")
                             dest_summary = self._resolve_destination_display(timeout_dest)
-                            print(dest_summary)
+                            timeout_line = f" {child_prefix}{Colors.CYAN}├─{Colors.RESET} {Colors.YELLOW}⏱️{Colors.RESET} Timeout {Colors.YELLOW}→{Colors.RESET} {Colors.WHITE}{dest_summary[:40]}{Colors.RESET} "
+                            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', timeout_line)
+                            padding = " " * max(0, 68 - len(visible_text))
+                            print(Colors.CYAN + "║" + timeout_line + padding + "║" + Colors.RESET)
                         
                         if invalid_dest:
-                            connector = "└─" if not timeout_dest else "└─"
-                            print(f"{child_prefix}{connector} ❌ Invalid Input → ", end="")
                             dest_summary = self._resolve_destination_display(invalid_dest)
-                            print(dest_summary)
+                            invalid_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.RED}❌{Colors.RESET} Invalid Input {Colors.YELLOW}→{Colors.RESET} {Colors.WHITE}{dest_summary[:40]}{Colors.RESET} "
+                            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', invalid_line)
+                            padding = " " * max(0, 68 - len(visible_text))
+                            print(Colors.CYAN + "║" + invalid_line + padding + "║" + Colors.RESET)
                 else:
-                    print(f"{child_prefix}└─ 🔚 (No timeout/invalid handling configured)")
+                    no_handling_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.RED}🔚{Colors.RESET} {Colors.WHITE}(No timeout/invalid handling configured){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', no_handling_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + no_handling_line + padding + "║" + Colors.RESET)
             else:
-                print(f"{prefix}{connector} 🎵 IVR Menu: {dest_id} (details not found)")
+                ivr_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.MAGENTA}🎵{Colors.RESET} IVR Menu: {Colors.YELLOW}{dest_id}{Colors.RESET} {Colors.RED}(details not found){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ivr_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + ivr_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'from-did-direct':
             ext = self._find_extension(dest_id)
             if ext:
-                print(f"{prefix}{connector} 📞 Extension {dest_id}: {ext.get('name', 'Unknown')}")
-                print(f"{child_prefix}└─ 📧 Voicemail: {ext.get('name', 'Unknown')} (ext {dest_id})")
+                ext_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.GREEN}📞{Colors.RESET} Extension {Colors.BOLD}{dest_id}{Colors.RESET}: {Colors.WHITE}{ext.get('name', 'Unknown')}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ext_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + ext_line + padding + "║" + Colors.RESET)
+                
+                vm_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Voicemail: {Colors.WHITE}{ext.get('name', 'Unknown')}{Colors.RESET} {Colors.YELLOW}(ext {dest_id}){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
             else:
-                print(f"{prefix}{connector} 📞 Extension {dest_id}")
-                print(f"{child_prefix}└─ 📧 Voicemail (ext {dest_id})")
+                ext_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.GREEN}📞{Colors.RESET} Extension {Colors.BOLD}{dest_id}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ext_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + ext_line + padding + "║" + Colors.RESET)
+                
+                vm_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Voicemail {Colors.YELLOW}(ext {dest_id}){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'ext-local':
             # Handle voicemail, announcements, etc.
@@ -980,29 +1190,52 @@ class FreePBXUniversalCollector:
                 ext_num = dest_id.replace('vmu', '')
                 ext = self._find_extension(ext_num)
                 if ext:
-                    print(f"{prefix}{connector} 📧 Extension {ext_num}: {ext.get('name', 'Unknown')} Voicemail (vmu{ext_num})")
+                    vm_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Extension {Colors.BOLD}{ext_num}{Colors.RESET}: {Colors.WHITE}{ext.get('name', 'Unknown')}{Colors.RESET} {Colors.YELLOW}Voicemail (vmu{ext_num}){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
                 else:
-                    print(f"{prefix}{connector} 📧 Extension {ext_num}: Voicemail (vmu{ext_num})")
+                    vm_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Extension {Colors.BOLD}{ext_num}{Colors.RESET}: {Colors.YELLOW}Voicemail (vmu{ext_num}){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
             elif 'vmb' in dest_id:
                 ext_num = dest_id.replace('vmb', '')
                 ext = self._find_extension(ext_num)
                 if ext:
-                    print(f"{prefix}{connector} 📧 Extension {ext_num}: {ext.get('name', 'Unknown')} Voicemail (vmb{ext_num})")
+                    vm_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Extension {Colors.BOLD}{ext_num}{Colors.RESET}: {Colors.WHITE}{ext.get('name', 'Unknown')}{Colors.RESET} {Colors.YELLOW}Voicemail (vmb{ext_num}){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
                 else:
-                    print(f"{prefix}{connector} � Extension {ext_num}: Voicemail (vmb{ext_num})")
+                    vm_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}📧{Colors.RESET} Extension {Colors.BOLD}{ext_num}{Colors.RESET}: {Colors.YELLOW}Voicemail (vmb{ext_num}){Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', vm_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + vm_line + padding + "║" + Colors.RESET)
             else:
                 ext = self._find_extension(dest_id)
                 if ext:
-                    print(f"{prefix}{connector} 📱 Extension {dest_id}: {ext.get('name', 'Unknown')}")
+                    ext_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.GREEN}📱{Colors.RESET} Extension {Colors.BOLD}{dest_id}{Colors.RESET}: {Colors.WHITE}{ext.get('name', 'Unknown')}{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ext_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + ext_line + padding + "║" + Colors.RESET)
                 else:
-                    print(f"{prefix}{connector} 📱 Extension {dest_id}")
-                # Could chain to voicemail on no answer
+                    ext_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.GREEN}📱{Colors.RESET} Extension {Colors.BOLD}{dest_id}{Colors.RESET} "
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ext_line)
+                    padding = " " * max(0, 68 - len(visible_text))
+                    print(Colors.CYAN + "║" + ext_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'app-blackhole':
-            print(f"{prefix}{connector} 🔚 Hangup")
+            hangup_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.RED}🔚{Colors.RESET} {Colors.WHITE}Hangup{Colors.RESET} "
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', hangup_line)
+            padding = " " * max(0, 68 - len(visible_text))
+            print(Colors.CYAN + "║" + hangup_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'app-announcement':
-            print(f"{prefix}{connector} 📢 Announcement: {dest_id}")
+            announce_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}📢{Colors.RESET} Announcement: {Colors.YELLOW}{dest_id}{Colors.RESET} "
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', announce_line)
+            padding = " " * max(0, 68 - len(visible_text))
+            print(Colors.CYAN + "║" + announce_line + padding + "║" + Colors.RESET)
         
         elif dest_type == 'app-setcid':
             setcid = self._find_setcid(dest_id)
@@ -1038,15 +1271,28 @@ class FreePBXUniversalCollector:
             if misc:
                 desc = misc.get('description', f'Misc Destination {dest_id}')
                 final_dest = misc.get('dest', 'Unknown')
-                print(f"{prefix}{connector} 🎯 {desc}")
-                print(f"{child_prefix}└─ ☎️  Final Destination: {final_dest}")
+                misc_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}🎯{Colors.RESET} {Colors.WHITE}{desc}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', misc_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + misc_line + padding + "║" + Colors.RESET)
+                
+                final_line = f" {child_prefix}{Colors.CYAN}└─{Colors.RESET} {Colors.GREEN}☎️{Colors.RESET}  Final Destination: {Colors.YELLOW}{final_dest}{Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', final_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + final_line + padding + "║" + Colors.RESET)
             else:
-                print(f"{prefix}{connector} 🎯 Misc Destination: {dest_id} (details not found)")
+                misc_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.BLUE}🎯{Colors.RESET} Misc Destination: {Colors.YELLOW}{dest_id}{Colors.RESET} {Colors.RED}(details not found){Colors.RESET} "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', misc_line)
+                padding = " " * max(0, 68 - len(visible_text))
+                print(Colors.CYAN + "║" + misc_line + padding + "║" + Colors.RESET)
         
         else:
             # Generic destination
             display = self._resolve_destination_display(destination)
-            print(f"{prefix}{connector} 🎯 {display}")
+            generic_line = f" {prefix}{Colors.CYAN}{connector}{Colors.RESET} {Colors.YELLOW}🎯{Colors.RESET} {Colors.WHITE}{display[:50]}{Colors.RESET} "
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', generic_line)
+            padding = " " * max(0, 68 - len(visible_text))
+            print(Colors.CYAN + "║" + generic_line + padding + "║" + Colors.RESET)
         
         visited.remove(destination)
     

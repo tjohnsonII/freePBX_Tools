@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FreePBX Tools Manager - Interactive deployment and uninstall tool
+freePBX Version Manager - Interactive deployment and uninstall tool
 """
 
 import sys
@@ -27,15 +27,15 @@ class Colors:
 def print_banner():
     """Display banner"""
     print(f"\n{Colors.CYAN}{Colors.BOLD}")
-    print("    ______              ____  ______  __  __")
-    print("   / ____/_______  ____/ __ \\/ __ ) \\/ / / /")
-    print("  / /_  / ___/ _ \\/ __  / / / / __  |\\  /_/ / ")
-    print(" / __/ / /  /  __/ /_/ / /_/ / /_/ / / /__/ /  ")
-    print("/_/   /_/   \\___/\\____/_____/_____/ /_/   /_/   ")
+    print(" ╔═══════════════════════════════════════════════════════════════════╗")
+    print(" ║                                                                   ║")
+    print(" ║   █▀▀ █▀█ █▀▀ █▀▀ █▀█ █▄▄ ▀▄▀   █░█ █▀▀ █▀█ █▀ █ █▀█ █▄░█       ║")
+    print(" ║   █▀░ █▀▄ ██▄ ██▄ █▀▀ █▄█ █░█   ▀▄▀ ██▄ █▀▄ ▄█ █ █▄█ █░▀█       ║")
+    print(" ║                                                                   ║")
+    print(" ║                       M A N A G E R                               ║")
+    print(" ║                                                                   ║")
+    print(" ╚═══════════════════════════════════════════════════════════════════╝")
     print(f"{Colors.RESET}")
-    print(f"{Colors.CYAN}{Colors.BOLD}{'='*70}")
-    print(f"              🛠️  FreePBX Tools Manager  🛠️")
-    print(f"{'='*70}{Colors.RESET}")
 
 def print_menu():
     """Display main menu"""
@@ -118,9 +118,9 @@ def get_servers():
 
 def deploy_tools():
     """Deploy tools to servers"""
-    print("\n" + "="*70)
-    print("  🚀 Deploy FreePBX Tools")
-    print("="*70)
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  🚀 Deploy freePBX Tools")
+    print(f"{'='*70}{Colors.RESET}")
     
     servers = get_servers()
     if not servers:
@@ -133,30 +133,30 @@ def deploy_tools():
     create_temp_config(username, password, root_password)
     
     # Confirm deployment
-    print(f"\n📦 Ready to deploy to: {servers}")
-    print(f"   Username: {username}")
-    confirm = input("Continue with deployment? (yes/no): ").strip().lower()
+    print(f"\n{Colors.YELLOW}📦 Ready to deploy to:{Colors.RESET} {Colors.CYAN}{servers}{Colors.RESET}")
+    print(f"   {Colors.YELLOW}Username:{Colors.RESET} {Colors.CYAN}{username}{Colors.RESET}")
+    confirm = input(f"{Colors.YELLOW}Continue with deployment? (yes/no):{Colors.RESET} ").strip().lower()
     
     if confirm != "yes":
-        print("❌ Cancelled")
+        print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
         return
     
     # Run deployment
-    print("\n🔄 Starting deployment...\n")
+    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Starting deployment...{Colors.RESET}\n")
     cmd = ["python", "deploy_freepbx_tools.py", "--servers", servers]
     subprocess.run(cmd)
 
 def uninstall_tools():
     """Uninstall tools from servers"""
-    print("\n" + "="*70)
-    print("  🗑️  Uninstall FreePBX Tools")
-    print("="*70)
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  🗑️  Uninstall freePBX Tools")
+    print(f"{'='*70}{Colors.RESET}")
     
-    print("\n⚠️  WARNING: This will remove:")
-    print("  • /usr/local/123net/freepbx-tools/")
-    print("  • /home/123net/freepbx-tools/")
-    print("  • /home/123net/callflows/")
-    print("  • All symlinks from /usr/local/bin/")
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠️  WARNING:{Colors.RESET} This will remove:")
+    print(f"  {Colors.YELLOW}•{Colors.RESET} /usr/local/123net/freepbx-tools/")
+    print(f"  {Colors.YELLOW}•{Colors.RESET} /home/123net/freepbx-tools/")
+    print(f"  {Colors.YELLOW}•{Colors.RESET} /home/123net/callflows/")
+    print(f"  {Colors.YELLOW}•{Colors.RESET} All symlinks from /usr/local/bin/")
     print()
     
     servers = get_servers()
@@ -170,30 +170,30 @@ def uninstall_tools():
     create_temp_config(username, password, root_password)
     
     # Double confirm uninstall
-    print(f"\n🗑️  Ready to UNINSTALL from: {servers}")
-    print(f"   Username: {username}")
-    confirm1 = input("Are you sure? (yes/no): ").strip().lower()
+    print(f"\n{Colors.RED}{Colors.BOLD}🗑️  Ready to UNINSTALL from:{Colors.RESET} {Colors.CYAN}{servers}{Colors.RESET}")
+    print(f"   {Colors.YELLOW}Username:{Colors.RESET} {Colors.CYAN}{username}{Colors.RESET}")
+    confirm1 = input(f"{Colors.RED}Are you sure? (yes/no):{Colors.RESET} ").strip().lower()
     
     if confirm1 != "yes":
-        print("❌ Cancelled")
+        print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
         return
     
-    confirm2 = input("Type 'UNINSTALL' to confirm: ").strip()
+    confirm2 = input(f"{Colors.RED}{Colors.BOLD}Type 'UNINSTALL' to confirm:{Colors.RESET} ").strip()
     
     if confirm2 != "UNINSTALL":
-        print("❌ Cancelled")
+        print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
         return
     
     # Run uninstall
-    print("\n🔄 Starting uninstall...\n")
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}🔄 Starting uninstall...{Colors.RESET}\n")
     cmd = ["python", "deploy_uninstall_tools.py", "--servers", servers]
     subprocess.run(cmd)
 
 def clean_deploy():
     """Uninstall then install - clean deployment"""
-    print("\n" + "="*70)
-    print("  🔄 Clean Deployment (Uninstall + Install)")
-    print("="*70)
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  🔄 Clean Deployment (Uninstall + Install)")
+    print(f"{'='*70}{Colors.RESET}")
     
     print(f"\n{Colors.YELLOW}This will:{Colors.RESET}")
     print("  1. Uninstall existing tools from selected servers")
@@ -202,35 +202,35 @@ def clean_deploy():
     print()
     
     # Get target servers
-    print(f"\n{Colors.YELLOW}Select target:{Colors.RESET}")
-    print("  1. Single server (IP address)")
-    print("  2. Multiple servers (from file)")
-    print("  3. Test server (69.39.69.102)")
-    print("  4. Production servers (ProductionServers.txt)")
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}Select target:{Colors.RESET}")
+    print(f"  {Colors.CYAN}1.{Colors.RESET} Single server (IP address)")
+    print(f"  {Colors.CYAN}2.{Colors.RESET} Multiple servers (from file)")
+    print(f"  {Colors.CYAN}3.{Colors.RESET} Test server (69.39.69.102)")
+    print(f"  {Colors.CYAN}4.{Colors.RESET} Production servers (ProductionServers.txt)")
     
-    target = input("\nChoice (1-4): ").strip()
+    target = input(f"\n{Colors.YELLOW}Choice (1-4):{Colors.RESET} ").strip()
     
     servers = None
     if target == "1":
-        servers = input("\nEnter server IP: ").strip()
+        servers = input(f"\n{Colors.YELLOW}Enter server IP:{Colors.RESET} ").strip()
     elif target == "2":
-        file_path = input("\nEnter file path: ").strip()
+        file_path = input(f"\n{Colors.YELLOW}Enter file path:{Colors.RESET} ").strip()
         servers = file_path
     elif target == "3":
         servers = "69.39.69.102"
     elif target == "4":
         servers = "ProductionServers.txt"
     else:
-        print("❌ Invalid choice")
+        print(f"{Colors.RED}❌ Invalid choice{Colors.RESET}")
         return
     
     # Confirm
     print(f"\n{Colors.RED}{Colors.BOLD}⚠️  Warning:{Colors.RESET} This will uninstall and reinstall tools on:")
-    print(f"  {servers}")
-    confirm = input("\nProceed? (yes/no): ").strip().lower()
+    print(f"  {Colors.CYAN}{servers}{Colors.RESET}")
+    confirm = input(f"\n{Colors.YELLOW}Proceed? (yes/no):{Colors.RESET} ").strip().lower()
     
     if confirm != "yes":
-        print("❌ Cancelled")
+        print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
         return
     
     # Get credentials
@@ -264,20 +264,20 @@ def clean_deploy():
 
 def test_dashboard():
     """Test dashboard on test server"""
-    print("\n" + "="*70)
-    print("  🧪 Test Dashboard")
-    print("="*70)
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  🧪 Test Dashboard")
+    print(f"{'='*70}{Colors.RESET}")
     
-    print("\n📊 Testing dashboard on test server (69.39.69.102)...")
-    print("\n💡 To view dashboard manually:")
-    print("  1. SSH: ssh 123net@69.39.69.102")
-    print("  2. Run: freepbx-callflows")
+    print(f"\n{Colors.YELLOW}📊 Testing dashboard on test server (69.39.69.102)...{Colors.RESET}")
+    print(f"\n{Colors.GREEN}💡 To view dashboard manually:{Colors.RESET}")
+    print(f"  {Colors.CYAN}1.{Colors.RESET} SSH: {Colors.MAGENTA}ssh 123net@69.39.69.102{Colors.RESET}")
+    print(f"  {Colors.CYAN}2.{Colors.RESET} Run: {Colors.MAGENTA}freepbx-callflows{Colors.RESET}")
     print()
     
-    confirm = input("Run test deployment? (yes/no): ").strip().lower()
+    confirm = input(f"{Colors.YELLOW}Run test deployment? (yes/no):{Colors.RESET} ").strip().lower()
     
     if confirm != "yes":
-        print("❌ Cancelled")
+        print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
         return
     
     # Get credentials
@@ -286,23 +286,23 @@ def test_dashboard():
     # Create temporary config
     create_temp_config(username, password, root_password)
     
-    print("\n🔄 Deploying to test server...\n")
+    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Deploying to test server...{Colors.RESET}\n")
     cmd = ["python", "deploy_freepbx_tools.py", "--servers", "69.39.69.102"]
     subprocess.run(cmd)
 
 def view_status():
     """View deployment status"""
-    print("\n" + "="*70)
-    print("  📈 Deployment Status")
-    print("="*70)
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  📈 Deployment Status")
+    print(f"{'='*70}{Colors.RESET}")
     
-    print("\n📋 Available Commands:")
-    print("  • Deploy:    python deploy_freepbx_tools.py --servers <IP or file>")
-    print("  • Uninstall: python deploy_uninstall_tools.py --servers <IP or file>")
-    print("  • Test:      python test_dashboard.py")
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}📋 Available Commands:{Colors.RESET}")
+    print(f"  {Colors.GREEN}•{Colors.RESET} Deploy:    {Colors.MAGENTA}python deploy_freepbx_tools.py --servers <IP or file>{Colors.RESET}")
+    print(f"  {Colors.GREEN}•{Colors.RESET} Uninstall: {Colors.MAGENTA}python deploy_uninstall_tools.py --servers <IP or file>{Colors.RESET}")
+    print(f"  {Colors.GREEN}•{Colors.RESET} Test:      {Colors.MAGENTA}python test_dashboard.py{Colors.RESET}")
     print()
     
-    print("📂 Files:")
+    print(f"{Colors.YELLOW}{Colors.BOLD}📂 Files:{Colors.RESET}")
     files = [
         "deploy_freepbx_tools.py",
         "deploy_uninstall_tools.py", 
@@ -311,26 +311,26 @@ def view_status():
     ]
     
     for f in files:
-        exists = "✅" if os.path.exists(f) else "❌"
-        print(f"  {exists} {f}")
+        if os.path.exists(f):
+            print(f"  {Colors.GREEN}✅{Colors.RESET} {Colors.CYAN}{f}{Colors.RESET}")
+        else:
+            print(f"  {Colors.RED}❌{Colors.RESET} {Colors.CYAN}{f}{Colors.RESET}")
     
     print()
     
     # Check credentials
     if os.path.exists("config.py"):
-        print("🔑 Credentials: ✅ config.py exists")
+        print(f"{Colors.GREEN}🔑 Credentials: ✅ config.py exists{Colors.RESET}")
     else:
-        print("🔑 Credentials: ❌ config.py missing")
+        print(f"{Colors.RED}🔑 Credentials: ❌ config.py missing{Colors.RESET}")
     
-    print()
-
 def main():
     """Main interactive loop"""
     while True:
         print_banner()
         print_menu()
         
-        choice = input("Choose option (1-6): ").strip()
+        choice = input(f"{Colors.YELLOW}Choose option (1-6):{Colors.RESET} ").strip()
         
         if choice == "1":
             deploy_tools()
@@ -343,16 +343,17 @@ def main():
         elif choice == "5":
             view_status()
         elif choice == "6":
-            print("\n👋 Goodbye!\n")
+            print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
             sys.exit(0)
         else:
-            print("\n❌ Invalid choice. Please enter 1-6.\n")
+            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-6.{Colors.RESET}\n")
         
-        input("\nPress Enter to continue...")
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n👋 Goodbye!\n")
+        print(f"\n\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
+        sys.exit(0)
         sys.exit(0)
