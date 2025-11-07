@@ -26,6 +26,15 @@ class Colors:
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
+# ANSI escape code regex for stripping color codes
+ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
+
+def pad_ansi(text, width):
+    """Pad text to width, accounting for ANSI color codes"""
+    visible = ANSI_ESCAPE_RE.sub('', text)
+    padding_needed = width - len(visible)
+    return text + (" " * padding_needed if padding_needed > 0 else "")
+
 def print_header():
     """Print professional header banner"""
     print(Colors.HEADER + Colors.BOLD + """
@@ -727,14 +736,18 @@ def print_comprehensive_report(analysis, single_component=None):
         
         if not data.get("enabled", False):
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.RED + "❌ Module not configured or not available".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            module_line = Colors.RED + "❌ Module not configured or not available"
+            padded_line = pad_ansi(module_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
             continue
             
         # Component-specific reporting with tables
         if comp_key == "announcements":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Announcements: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Total Announcements: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             if data["announcements"]:
@@ -750,7 +763,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "calendar":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Calendars: {data['total_calendars']}  │  Enabled: {data.get('enabled_calendars', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Total Calendars: {data['total_calendars']}  │  Enabled: {data.get('enabled_calendars', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for cal in data["calendars"][:8]:
@@ -764,7 +779,9 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "callflow":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total CFC Rules: {data['total_rules']}  │  Password Protected: {data.get('password_protected', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Total CFC Rules: {data['total_rules']}  │  Password Protected: {data.get('password_protected', 0)}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for rule in data["cfc_rules"][:8]:
