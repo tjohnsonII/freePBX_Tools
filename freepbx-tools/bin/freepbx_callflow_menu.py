@@ -582,6 +582,169 @@ def run_ascii_callflow(sock, did_rows):
 
 
 
+def show_error_map_quick_reference():
+    """Display interactive error map and quick reference tables"""
+    while True:
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*80}")
+        print(f"  📚 FreePBX Error Map & Quick Reference")
+        print(f"{'='*80}{Colors.RESET}\n")
+        
+        print(f"{Colors.YELLOW}Choose a reference:{Colors.RESET}")
+        print(f"  {Colors.CYAN}1){Colors.RESET} SIP/Q.850 Code Lookup")
+        print(f"  {Colors.CYAN}2){Colors.RESET} Common Issues Quick Reference")
+        print(f"  {Colors.CYAN}3){Colors.RESET} Diagnostic Symptoms Guide")
+        print(f"  {Colors.CYAN}4){Colors.RESET} Response Playbooks Summary")
+        print(f"  {Colors.CYAN}5){Colors.RESET} Return to main menu")
+        print()
+        
+        choice = input(f"{Colors.YELLOW}Enter choice (1-5): {Colors.RESET}").strip()
+        
+        if choice == "5":
+            break
+        elif choice == "1":
+            show_sip_code_reference()
+        elif choice == "2":
+            show_common_issues_matrix()
+        elif choice == "3":
+            show_diagnostic_symptoms()
+        elif choice == "4":
+            show_playbooks_summary()
+        else:
+            print(f"{Colors.RED}Invalid choice. Please enter 1-5.{Colors.RESET}")
+        
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
+
+
+def show_sip_code_reference():
+    """Display SIP/Q.850/Asterisk code mapping table"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}╔{'═'*98}╗")
+    print(f"║{' SIP / Q.850 / ASTERISK CAUSE CODE MAPPING':^98}║")
+    print(f"╠{'═'*98}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║ {Colors.WHITE}{'SIP':<6} │ {'Q.850':<6} │ {'Description':<25} │ {'What It Usually Means':<50}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═'*98}╣{Colors.RESET}")
+    
+    codes = [
+        ("404", "1", "Not Found", "Extension not found or wrong dialed number"),
+        ("408", "18", "Request Timeout", "No response – NAT, firewall, or transport issue"),
+        ("480", "19", "Unavailable", "Rings then drops - user never answered"),
+        ("486", "17", "Busy Here", "Phone in use or call limit reached"),
+        ("487", "16", "Terminated", "Normal clearing from caller side"),
+        ("503", "34", "Service Unavailable", "Trunk congestion / carrier unavailable"),
+        ("500", "41", "Server Error", "Upstream gateway or media path failure"),
+        ("401", "21", "Unauthorized", "Carrier rejecting call (auth issue)"),
+        ("403", "21", "Forbidden", "Call rejected by policy"),
+        ("603", "21", "Decline", "Call explicitly rejected"),
+    ]
+    
+    for sip, q850, desc, meaning in codes:
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.YELLOW}{sip:<6}{Colors.RESET} │ {Colors.GREEN}{q850:<6}{Colors.RESET} │ {Colors.WHITE}{desc:<25}{Colors.RESET} │ {Colors.CYAN}{meaning:<50}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*98}╝{Colors.RESET}")
+    
+    # Interactive lookup
+    print(f"\n{Colors.WHITE}💡 Enter a SIP code to see details (or press Enter to skip): {Colors.RESET}", end="")
+    code = input().strip()
+    if code:
+        from freepbx_log_analyzer import lookup_cause_code, format_cause_code
+        info = lookup_cause_code(code)
+        if info:
+            print(f"\n{Colors.GREEN}✓ SIP {info['sip']}:{Colors.RESET}")
+            print(f"  Q.850 Cause: {Colors.YELLOW}{info['q850']}{Colors.RESET}")
+            print(f"  Description: {Colors.CYAN}{info['description']}{Colors.RESET}")
+            print(f"  Asterisk: {Colors.MAGENTA}{info['asterisk_cause']}{Colors.RESET}")
+            print(f"  Meaning: {Colors.WHITE}{info['meaning']}{Colors.RESET}")
+        else:
+            print(f"{Colors.YELLOW}Code not found in mapping table{Colors.RESET}")
+
+
+def show_common_issues_matrix():
+    """Display common issues quick reference matrix"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}╔{'═'*118}╗")
+    print(f"║{' COMMON ISSUES QUICK REFERENCE MATRIX':^118}║")
+    print(f"╠{'═'*118}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║ {Colors.WHITE}{'Category':<25} │ {'Log Signature':<40} │ {'Impact':<45}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═'*118}╣{Colors.RESET}")
+    
+    issues = [
+        ("Database Failure", "Failed to connect to database", "FreePBX cannot read config; calls may fail"),
+        ("Trunk Offline", "Registration.*failed", "External calling over trunk will fail"),
+        ("Auth Storm/Attack", "failed to authenticate", "Brute-force attacks or blocked endpoints"),
+        ("Queue Abandon Spike", "Multiple ABANDON events", "Customer hang-ups, SLA breach"),
+        ("Codec Negotiation", "Unable to negotiate codec", "Calls fail with fast busy"),
+        ("RTP/Media Failure", "RTP Timeout", "One-way or no audio; call teardown"),
+        ("Voicemail Storage", "Failed to create voicemail", "New voicemail drops fail to record"),
+        ("Channel Ceiling", "channels count near limit", "New calls may be rejected"),
+    ]
+    
+    for category, signature, impact in issues:
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.YELLOW}{category:<25}{Colors.RESET} │ {Colors.WHITE}{signature:<40}{Colors.RESET} │ {Colors.RED}{impact:<45}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*118}╝{Colors.RESET}")
+
+
+def show_diagnostic_symptoms():
+    """Display diagnostic symptoms quick guide"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}╔{'═'*98}╗")
+    print(f"║{' DIAGNOSTIC SYMPTOMS GUIDE':^98}║")
+    print(f"╠{'═'*98}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║ {Colors.WHITE}{'Symptom':<35} │ {'Common Cause':<25} │ {'What It Means':<30}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═'*98}╣{Colors.RESET}")
+    
+    symptoms = [
+        ("Immediate 'busy' tone", "486 / Q.850 17", "Phone in use or limit reached"),
+        ("Rings then drops", "480 / Q.850 19", "User never answered"),
+        ("Fails instantly", "404 / Q.850 1", "Wrong number / not found"),
+        ("'Call failed' right away", "503 / Q.850 34", "Trunk congestion"),
+        ("Long silence before drop", "408 / Q.850 18", "NAT/firewall/transport issue"),
+        ("Works internally not outbound", "401/403 / Q.850 21", "Carrier rejecting call"),
+        ("Audio dies mid-call", "500 / Q.850 41", "Gateway/media path failure"),
+        ("Random inbound drops", "487 / Q.850 16", "Caller hung up normally"),
+    ]
+    
+    for symptom, cause, meaning in symptoms:
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.YELLOW}{symptom:<35}{Colors.RESET} │ {Colors.GREEN}{cause:<25}{Colors.RESET} │ {Colors.CYAN}{meaning:<30}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*98}╝{Colors.RESET}")
+
+
+def show_playbooks_summary():
+    """Display response playbooks summary"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
+    print(f"║{' RESPONSE PLAYBOOKS SUMMARY':^78}║")
+    print(f"╠{'═'*78}╣{Colors.RESET}")
+    
+    playbooks = [
+        ("1. Database Connectivity Failure", [
+            "Run: grep -i \"database.*fail|mysql.*error\" /var/log/asterisk/full | tail -20",
+            "Check automated log analyzer for structured details",
+            "Escalate with log snippet and concurrent GUI errors"
+        ]),
+        ("2. Trunk Offline / Registration Loss", [
+            "Run: grep -E \"Registration.*failed|qualify.*Unreachable\" /var/log/asterisk/full",
+            "Identify affected trunks and timestamps",
+            "Notify carrier/network team for recovery"
+        ]),
+        ("3. Authentication Storm / SIP Attack", [
+            "Run: grep -i \"failed.*auth|SECURITY\" /var/log/asterisk/full | tail -50",
+            "If >20 failures, collect IP list for blocklisting",
+            "Coordinate with security ops to block upstream"
+        ]),
+        ("4. Queue Abandon Spike", [
+            "Run: tail -100 /var/log/asterisk/queue_log | grep -c ABANDON",
+            "Use queue analyzer for current metrics",
+            "Alert supervisor with wait times and staffing needs"
+        ]),
+    ]
+    
+    for title, steps in playbooks:
+        print(f"{Colors.CYAN}║{Colors.RESET} {Colors.GREEN}{Colors.BOLD}{title}{Colors.RESET}")
+        for i, step in enumerate(steps, 1):
+            print(f"{Colors.CYAN}║{Colors.RESET}   {Colors.YELLOW}{i}.{Colors.RESET} {Colors.WHITE}{step[:70]}{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═'*78}╣{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}╚{'═'*78}╝{Colors.RESET}")
+
+
 def run_full_diagnostic():
     """Run comprehensive Asterisk diagnostic with formatted table output"""
     print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*80}")
@@ -1543,7 +1706,8 @@ def main():
         print(menu_line("11", "📞 Call Simulation & Validation"))
         print(menu_line("12", "Run full Asterisk diagnostic"))
         print(menu_line("13", "🔍 Automated log analysis (detect issues)"))
-        print(menu_line("14", "Quit"))
+        print(menu_line("14", "📚 Error Map & Quick Reference"))
+        print(menu_line("15", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
@@ -1632,6 +1796,9 @@ def main():
             run_log_analysis()
 
         elif choice == "14":
+            show_error_map_quick_reference()
+
+        elif choice == "15":
             print("Bye.")
             break
         else:
