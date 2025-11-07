@@ -8,7 +8,7 @@ Menu-driven wrapper to:
 Python 3.6 safe. No external modules.
 """
 
-import json, os, sys, subprocess, time
+import json, os, sys, subprocess, time, shutil
 
 # ANSI Color codes
 class Colors:
@@ -872,10 +872,18 @@ def get_endpoint_status(sock):
 def display_system_dashboard(sock, data):
     """Display key system information in a professional tile-based dashboard layout"""
     import os
+    import shutil
     
-    # Constants for perfect box alignment - MUCH WIDER for better readability
-    TILE_WIDTH = 48  # Inner content width (excluding borders) - increased from 36
-    BOX_TOTAL = 154  # Total width for 3 boxes: 3*48 + 2*2(borders) + 2*3(separators) = 154
+    # Detect terminal width dynamically
+    try:
+        term_width = shutil.get_terminal_size().columns
+    except:
+        term_width = 160  # Default fallback
+    
+    # Calculate optimal tile width based on terminal (3 tiles + borders + separators)
+    # Formula: term_width = 3*TILE_WIDTH + 6 (borders) + 6 (separators)
+    TILE_WIDTH = max(48, (term_width - 12) // 3)  # Minimum 48 chars per tile (increased from 36)
+    BOX_TOTAL = (TILE_WIDTH * 3) + 12  # Total width for perfect alignment
     
     # Clear screen and display ASCII Art Logo
     print("\033[2J\033[H")  # Clear screen
@@ -893,12 +901,12 @@ def display_system_dashboard(sock, data):
     freepbx_ver = meta.get("freepbx_version", "N/A")
     asterisk_ver = meta.get("asterisk_version", "N/A")
     
-    # Dashboard Header with system info - single line, clean
+    # Dashboard Header with system info - full width, properly aligned
+    header_text = f"📊 SYSTEM DASHBOARD  │  Host: {hostname[:25].ljust(25)}  │  FreePBX: {freepbx_ver[:15].ljust(15)}  │  Asterisk: {asterisk_ver[:30].ljust(30)}"
+    # Pad to full terminal width
+    header_padding = " " * max(0, BOX_TOTAL - len(header_text) - 2)
     header_line = (Colors.BG_CYAN + Colors.WHITE + Colors.BOLD + 
-                   "  📊  SYSTEM DASHBOARD  " + Colors.RESET + 
-                   Colors.CYAN + "  │  Host: " + Colors.BOLD + hostname.ljust(25)[:25] + Colors.RESET + 
-                   Colors.CYAN + "  │  FreePBX: " + Colors.YELLOW + Colors.BOLD + freepbx_ver.ljust(15)[:15] + Colors.RESET + 
-                   Colors.CYAN + "  │  Asterisk: " + Colors.YELLOW + Colors.BOLD + asterisk_ver[:30].ljust(30) + Colors.RESET)
+                   " " + header_text + header_padding + " " + Colors.RESET)
     print("\n" + header_line)
     print(Colors.CYAN + "─" * BOX_TOTAL + Colors.RESET)
     
@@ -1101,6 +1109,108 @@ def display_system_dashboard(sock, data):
     print("")
 
 
+def run_log_analysis():
+    """Run automated log analysis to detect issues"""
+    analyzer_script = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
+    
+    if not os.path.isfile(analyzer_script):
+        print(Colors.YELLOW + "\n⚠️  Log analyzer not found. Running inline analysis..." + Colors.RESET)
+        run_inline_log_analysis()
+        return
+    
+    print(f"\n{Colors.CYAN}🔍 Running automated log analysis...{Colors.RESET}")
+    print("=" * 60)
+    
+    rc, out, err = run(["python3", analyzer_script])
+    
+    if rc == 0:
+        print(out)
+    else:
+        print(f"{Colors.RED}Error running analysis:{Colors.RESET}")
+        print(err or out)
+    
+    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+    input()
+
+
+def run_inline_log_analysis():
+    """Inline log analysis when standalone script not available"""
+    from collections import defaultdict
+    import re
+    
+    full_log = "/var/log/asterisk/full"
+    
+    print(f"\n{Colors.CYAN}📊 Analyzing Asterisk logs (last 1000 lines)...{Colors.RESET}\n")
+    
+    # Check errors
+    cmd = f"tail -1000 {full_log} | grep -E 'ERROR|CRITICAL'"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    
+    if result.stdout.strip():
+        errors = result.stdout.strip().split('\n')
+        error_count = len([e for e in errors if e])
+        
+        if error_count > 0:
+            print(f"{Colors.RED}🔴 Found {error_count} error(s) in last 1000 log lines:{Colors.RESET}")
+            
+            # Group by error type
+            error_types = defaultdict(int)
+            for line in errors[:20]:  # Show first 20
+                if line:
+                    # Extract error message
+                    match = re.search(r'(ERROR|CRITICAL).*?:\s*(.+?)$', line)
+                    if match:
+                        error_msg = match.group(2)[:80]
+                        error_types[error_msg] += 1
+            
+            for msg, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:10]:
+                print(f"  {count:>4}x {msg}")
+        else:
+            print(f"{Colors.GREEN}✅ No errors found{Colors.RESET}")
+    else:
+        print(f"{Colors.GREEN}✅ No errors found in recent logs{Colors.RESET}")
+    
+    # Check trunk status
+    print(f"\n{Colors.CYAN}📡 Checking trunk status...{Colors.RESET}")
+    cmd = f"tail -500 {full_log} | grep -E 'trunk.*Unreachable|Registration.*failed'"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    
+    if result.stdout.strip():
+        trunk_issues = result.stdout.strip().split('\n')
+        print(f"{Colors.YELLOW}⚠️  Trunk issues detected ({len(trunk_issues)} events):{Colors.RESET}")
+        for issue in trunk_issues[-5:]:
+            print(f"  {issue[:120]}")
+    else:
+        print(f"{Colors.GREEN}✅ No trunk issues detected{Colors.RESET}")
+    
+    # Check authentication failures
+    print(f"\n{Colors.CYAN}🔒 Checking security events...{Colors.RESET}")
+    cmd = f"tail -500 {full_log} | grep -i 'failed.*auth\\|SECURITY'"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    
+    if result.stdout.strip():
+        security_events = result.stdout.strip().split('\n')
+        
+        # Extract IPs
+        ips = defaultdict(int)
+        for line in security_events:
+            ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', line)
+            if ip_match:
+                ips[ip_match.group(0)] += 1
+        
+        if ips:
+            print(f"{Colors.YELLOW}⚠️  Authentication failures detected:{Colors.RESET}")
+            for ip, count in sorted(ips.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"  {ip}: {count} attempts")
+        else:
+            print(f"{Colors.GREEN}✅ No security issues detected{Colors.RESET}")
+    else:
+        print(f"{Colors.GREEN}✅ No security issues detected{Colors.RESET}")
+    
+    print(f"\n{Colors.CYAN}━{Colors.RESET}" * 60)
+    print(f"{Colors.GREEN}✅ Log analysis complete{Colors.RESET}")
+
+
 # ---------------- menu ----------------
 
 def main():
@@ -1133,24 +1243,45 @@ def main():
         # Display system dashboard at top
         display_system_dashboard(sock, data)
         
-        # Menu with better alignment and formatting
-        print("\n" + Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.RESET)
-        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + " FreePBX Call-Flow Menu ".center(78) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 1)" + Colors.RESET + "  Refresh DB snapshot                                              " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 2)" + Colors.RESET + "  Show inventory (counts) + list DIDs                              " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 3)" + Colors.RESET + "  Generate call-flow for selected DID(s)                           " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 4)" + Colors.RESET + "  Generate call-flows for ALL DIDs                                 " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 5)" + Colors.RESET + "  Generate call-flows for ALL DIDs (skip labels: OPEN)             " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 6)" + Colors.RESET + "  Show Time-Condition status (+ last *code use)                    " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 7)" + Colors.RESET + "  Run FreePBX module analysis                                      " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 8)" + Colors.RESET + "  Run paging, overhead & fax analysis                              " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + " 9)" + Colors.RESET + "  Run comprehensive component analysis                             " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + "10)" + Colors.RESET + "  Generate ASCII art call-flows                                    " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + "11)" + Colors.RESET + "  📞 Call Simulation & Validation                                  " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + "12)" + Colors.RESET + "  Run full Asterisk diagnostic                                     " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + "13)" + Colors.RESET + "  Quit                                                             " + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.RESET)
+        # Get terminal width for menu
+        try:
+            menu_width = shutil.get_terminal_size().columns - 4  # Leave margin
+        except:
+            menu_width = 78  # Default fallback
+        
+        # Menu with full width alignment
+        print("\n" + Colors.CYAN + "╔" + "═" * menu_width + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + " FreePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
+        
+        # Helper function to format menu line with proper alignment
+        def menu_line(num, text):
+            # Build the visible content (without color codes)
+            visible_content = f" {num:>2}) {text}"
+            # Calculate padding needed (menu_width - 2 for borders - visible length)
+            padding_needed = menu_width - len(visible_content) - 2
+            padding = " " * max(0, padding_needed)
+            
+            # Build line with colors: border + bold number + reset + text + padding + border
+            num_part = f" {num:>2})"
+            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET + 
+                   " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
+        
+        print(menu_line("1", "Refresh DB snapshot"))
+        print(menu_line("2", "Show inventory (counts) + list DIDs"))
+        print(menu_line("3", "Generate call-flow for selected DID(s)"))
+        print(menu_line("4", "Generate call-flows for ALL DIDs"))
+        print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
+        print(menu_line("6", "Show Time-Condition status (+ last *code use)"))
+        print(menu_line("7", "Run FreePBX module analysis"))
+        print(menu_line("8", "Run paging, overhead & fax analysis"))
+        print(menu_line("9", "Run comprehensive component analysis"))
+        print(menu_line("10", "Generate ASCII art call-flows"))
+        print(menu_line("11", "📞 Call Simulation & Validation"))
+        print(menu_line("12", "Run full Asterisk diagnostic"))
+        print(menu_line("13", "🔍 Automated log analysis (detect issues)"))
+        print(menu_line("14", "Quit"))
+        print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
         if choice == "1":
@@ -1241,6 +1372,9 @@ def main():
             input()
 
         elif choice == "13":
+            run_log_analysis()
+
+        elif choice == "14":
             print("Bye.")
             break
         else:
