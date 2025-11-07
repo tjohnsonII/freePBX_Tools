@@ -1,0 +1,122 @@
+# FreePBX Internal Error Map
+
+## Purpose and Scope
+This document centralizes the highest-impact runtime failures observed across FreePBX and Asterisk logs so on-call engineers can triage issues quickly. It distills the critical indicators outlined in the FreePBX/Asterisk log analysis guide and maps them to the tooling shipped in this repository for rapid verification.【F:LOG_ANALYSIS.md†L253-L344】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L1-L210】
+
+## Quick Reference Matrix
+| Category | Typical Log Signature | Impact | Primary Logs | First Response |
+| --- | --- | --- | --- | --- |
+| Database connectivity failure | `Failed to connect to database`, `MySQL server has gone away` | FreePBX cannot read configuration; inbound/outbound calls may fail | `/var/log/asterisk/full`, `/var/log/httpd/error_log` | Run the database failure grep to confirm and capture the last 20 entries for escalation.【F:LOG_ANALYSIS.md†L257-L264】 |
+| Trunk offline / registration loss | `Registration.*failed`, `qualify: Endpoint.*is now Unreachable` | External calling over the affected trunk will fail | `/var/log/asterisk/full` | Execute the trunk health grep and snapshot the failing endpoints.【F:LOG_ANALYSIS.md†L268-L276】 |
+| Authentication storm / SIP attack | `NOTICE.*failed to authenticate`, `SECURITY.*failed authentication` | High risk of brute-force attacks or blocked endpoints | `/var/log/asterisk/full`, `/var/log/fail2ban.log` | Pull the latest security events and enumerate offending IPs.【F:LOG_ANALYSIS.md†L292-L299】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L163-L210】 |
+| Queue abandon spike | Multiple `ABANDON` events, abandon rate > 20% | Customer hang-ups before answer, SLA breach | `/var/log/asterisk/queue_log` | Use the queue analyzer to calculate abandon rate and capture current wait statistics.【F:LOG_ANALYSIS.md†L280-L288】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L109-L161】 |
+| Codec negotiation failure | `Unable to negotiate codec`, `no compatible formats` | Calls fail with fast busy or immediate hangup | `/var/log/asterisk/full` | Filter recent logs for codec negotiation errors and identify the involved endpoints.【F:LOG_ANALYSIS.md†L315-L322】 |
+| Media / RTP path failure | `RTP Timeout`, `Disconnecting call due to lack of audio RTP activity` | One-way or no audio; call teardown | `/var/log/asterisk/full`, `/var/log/asterisk/rtp_debug` | Enable RTP debug on the affected channel pair and capture packet loss details for escalation.【F:LOG_ANALYSIS.md†L323-L332】 |
+| Voicemail storage issue | `Failed to create voicemail`, `disk full`, `no space left` | New voicemail drops fail to record | `/var/log/asterisk/full` | Gather the last voicemail-related failures and verify disk capacity on the voicemail partition.【F:LOG_ANALYSIS.md†L338-L344】 |
+| Channel utilization ceiling | `core show channels count` near limit | New calls may be rejected once capacity is reached | Asterisk CLI | Run the core channel count and correlate with concurrent call analytics.【F:LOG_ANALYSIS.md†L305-L311】 |
+
+## Response Playbooks
+
+### 1. Database Connectivity Failure
+1. Run `grep -i "database.*fail\|mysql.*error" /var/log/asterisk/full | tail -20` to confirm active failures and collect the most recent stack traces.【F:LOG_ANALYSIS.md†L257-L264】
+2. Check whether the automated log analyzer already flagged the incident to gather structured details for incident tickets.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L51-L214】
+3. Escalate to the database owner with the captured log snippet and note any concurrent GUI errors from Apache.
+
+### 2. Trunk Offline / Registration Loss
+1. Execute `grep -E "Registration.*failed|qualify.*Unreachable|trunk.*unavailable" /var/log/asterisk/full | tail -50` to identify the affected trunks and timestamps.【F:LOG_ANALYSIS.md†L268-L276】
+2. Re-run the automated analyzer to capture a summarized incident report for the NOC dashboard.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L82-L104】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L218-L248】
+3. Notify the carrier or network team with the offending endpoints and begin active monitoring for registration recovery.
+
+### 3. Authentication Storm / SIP Attack
+1. Use `grep -i "failed.*auth\|SECURITY" /var/log/asterisk/full | tail -50` to validate the volume of failed logins and determine whether fail2ban is responding.【F:LOG_ANALYSIS.md†L292-L299】
+2. If the log analyzer shows more than 20 recent failures, collect the summarized IP list it produces for blocklisting.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L168-L190】
+3. Coordinate with security operations to block abusive IPs upstream and document the incident.
+
+### 4. Queue Abandon Spike
+1. Inspect the last 100 queue events using `tail -100 /var/log/asterisk/queue_log | grep -c ABANDON` to quantify the surge.【F:LOG_ANALYSIS.md†L280-L288】
+2. Run the queue performance analyzer to retrieve current abandon rate and wait time metrics for the incident log.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L109-L161】
+3. Alert the contact center supervisor with current wait times and recommended staffing adjustments.
+
+### 5. Codec Negotiation Failure
+1. Filter the full log with `grep -i "codec.*negotiat\|no compatible format" /var/log/asterisk/full | tail -20` to isolate the failing endpoints.【F:LOG_ANALYSIS.md†L315-L322】
+2. Document the codec pair in the incident record and coordinate with device owners for configuration alignment.
+
+### 5a. Media / RTP Path Failure
+1. Use `asterisk -rx "rtp set debug on"` scoped to the channel (for example, `channel SIP/1001-0000001a`) to confirm whether packets are arriving from both endpoints.【F:LOG_ANALYSIS.md†L323-L332】
+2. Collect packet captures with `tcpdump -i eth0 udp port 10000-20000 -w rtp_capture.pcap` when loss or silence occurs and attach the first 60 seconds to the incident record for voice engineering review.
+3. After validation, disable debug via `asterisk -rx "rtp set debug off"` to limit log noise.
+
+### 6. Voicemail Storage Issue
+1. Run `grep -i "voicemail.*fail\|disk.*full\|no space left" /var/log/asterisk/full | tail -20` to capture failing mailbox IDs.【F:LOG_ANALYSIS.md†L338-L344】
+2. Include disk utilization metrics from the voicemail partition in the escalation notes.
+
+### 7. Channel Utilization Ceiling
+1. Execute `asterisk -rx "core show channels count"` during the incident window to confirm saturation.【F:LOG_ANALYSIS.md†L305-L311】
+2. Cross-check the output with active call analytics to recommend scaling actions or call shedding.
+
+## Automation Hooks
+The `freepbx_log_analyzer.py` utility encapsulates these checks, summarizes severity (Critical/High/Medium), and surfaces supporting log excerpts that can be attached to incident tickets. Integrating it into scheduled jobs or the FreePBX dashboard ensures proactive detection of the issues in this map.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L29-L248】
+
+## SIP ↔ Q.850 ↔ Asterisk Cause Code Mapping
+
+| SIP Response | Q.850 Cause | Q.850 Description | Asterisk Hangupcause Description |
+| --- | --- | --- | --- |
+| 100 Trying | 1 | Unallocated (unassigned) number | CALL_UNALLOCATED |
+| 180 Ringing | 19 | No answer from user (user alerted) | NO_ANSWER |
+| 181 Call is Being Forwarded | 181 | Call is being forwarded | CALL_IS_BEING_FORWARDED |
+| 182 Queued | 182 | Call queued | QUEUED |
+| 183 Session Progress | — | Early media in progress | Informational only |
+| 200 OK | 16 | Normal call clearing | NORMAL_CLEARING |
+| 202 Accepted | 16 | Normal call clearing | NORMAL_CLEARING |
+| 300 Multiple Choices | 31 | Normal, unspecified | NORMAL_UNSPECIFIED |
+| 301 Moved Permanently | 22 | Number changed | NUMBER_CHANGED |
+| 302 Moved Temporarily | 22 | Number changed (temporary) | NUMBER_CHANGED |
+| 400 Bad Request | 97 | Invalid message | INVALID_MESSAGE |
+| 401 Unauthorized | 21 | Call rejected | CALL_REJECTED |
+| 403 Forbidden | 21 | Call rejected | CALL_REJECTED |
+| 404 Not Found | 1 | Unallocated number | UNALLOCATED_NUMBER |
+| 405 Method Not Allowed | 63 | Service not available | SERVICE_NOT_AVAILABLE |
+| 406 Not Acceptable | 79 | Service or option not available | SERVICE_NOT_IMPLEMENTED |
+| 408 Request Timeout | 18 | No user responding | NO_USER_RESPONSE |
+| 410 Gone | 22 | Number changed | NUMBER_CHANGED |
+| 415 Unsupported Media Type | 65 | Bearer capability not implemented | BEARER_CAPABILITY_NOT_IMPLEMENTED |
+| 480 Temporarily Unavailable | 19 | No answer from user | NO_ANSWER |
+| 481 Call/Transaction Does Not Exist | 41 | Temporary failure | TEMPORARY_FAILURE |
+| 482 Loop Detected | 25 | Exchange routing error | EXCHANGE_ROUTING_ERROR |
+| 483 Too Many Hops | 25 | Exchange routing error | EXCHANGE_ROUTING_ERROR |
+| 484 Address Incomplete | 28 | Invalid number format | INVALID_NUMBER_FORMAT |
+| 486 Busy Here | 17 | User busy | USER_BUSY |
+| 487 Request Terminated | 16 | Normal call clearing | NORMAL_CLEARING |
+| 488 Not Acceptable Here | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+| 500 Internal Server Error | 41 | Temporary failure | TEMPORARY_FAILURE |
+| 501 Not Implemented | 63 | Service not available | SERVICE_NOT_AVAILABLE |
+| 502 Bad Gateway | 38 | Network out of order | NETWORK_OUT_OF_ORDER |
+| 503 Service Unavailable | 34 | No circuit/channel available | CIRCUIT_CONGESTION |
+| 504 Gateway Timeout | 102 | Recovery on timer expiry | RECOVERY_ON_TIMER_EXPIRY |
+| 505 Version Not Supported | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+| 580 Precondition Failure | 127 | Interworking unspecified | INTERWORKING_UNSPECIFIED |
+| 600 Busy Everywhere | 17 | User busy | USER_BUSY |
+| 603 Decline | 21 | Call rejected | CALL_REJECTED |
+| 604 Does Not Exist Anywhere | 1 | Unallocated number | UNALLOCATED_NUMBER |
+| 606 Not Acceptable | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+
+### Using the Mapping in Incident Triage
+
+* **CLI correlation:**
+  * chan_sip: `asterisk -rx "sip show channel <channel_id>"` exposes `Hangup Cause` and `Q.850` fields for the live call leg.
+  * PJSIP: `asterisk -rx "pjsip show history <endpoint>"` reveals the SIP response sequence, while `asterisk -rx "core show hangupcauses"` surfaces recent cause code tallies.
+* **Log correlation:** In `/var/log/asterisk/full`, enable verbose SIP logging with `pjsip set logger on` (PJSIP) or `sip set debug on` (chan_sip) to capture the dual `Reason: SIP;cause=` and `Reason: Q.850;cause=` headers for cross-verification.
+* **CDR correlation:** Query `select calldate, src, dst, disposition, amaflags, hangupcause from asteriskcdrdb.cdr where uniqueid='<call_uniqueid>';` to align the SIP response with the stored cause value.
+
+## Quick Diagnostic Tips
+
+| Symptom | Common SIP/Q.850 Cause | What It Usually Means |
+| --- | --- | --- |
+| Immediate “busy” tone | 486 / 17 | User Busy – phone in use or call limit reached |
+| Rings then drops | 480 / 19 | User never answered or device not registered |
+| Fails instantly | 404 / 1 | Extension not found or wrong dialed number |
+| “Call failed” right away | 503 / 34 | Trunk congestion / carrier unavailable |
+| Long silence before drop | 408 / 18 | No response – NAT, firewall, or transport issue |
+| Works internally but not outbound | 21 / 401 / 403 / 603 | Carrier rejecting call (auth or route issue) |
+| Audio dies mid-call | 41 / 500 | Upstream gateway or media path failure |
+| Random inbound drops | 16 / 487 | Normal clearing from caller side—investigate user experience |

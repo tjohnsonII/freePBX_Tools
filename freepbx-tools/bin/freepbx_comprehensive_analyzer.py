@@ -15,12 +15,15 @@ from collections import defaultdict
 # ANSI Color codes for professional output
 class Colors:
     HEADER = '\033[95m'
+    MAGENTA = '\033[95m'
     BLUE = '\033[94m'
     CYAN = '\033[96m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RED = '\033[91m'
+    WHITE = '\033[97m'
     ENDC = '\033[0m'
+    RESET = '\033[0m'
     BOLD = '\033[1m'
 
 def print_header():
@@ -28,7 +31,7 @@ def print_header():
     print(Colors.HEADER + Colors.BOLD + """
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║        🔬  FreePBX Comprehensive Configuration Analyzer       ║
+║        🔬  freePBX Comprehensive Configuration Analyzer       ║
 ║                                                               ║
 ║           Deep Analysis of All System Components              ║
 ║                                                               ║
@@ -675,176 +678,315 @@ def main():
             print(f"✅ Analysis saved to {args.output}")
 
 def print_comprehensive_report(analysis, single_component=None):
-    """Print comprehensive analysis report."""
+    """Print comprehensive analysis report with beautiful tables and colors."""
     meta = analysis["meta"]
-    print(f"📋 FreePBX Comprehensive Analysis Report")
-    print(f"Host: {meta['hostname']}")
-    print(f"Generated: {meta['generated_at']}")
-    print()
     
-    # Component titles mapping
-    titles = {
-        "announcements": "📢 ANNOUNCEMENTS",
-        "calendar": "📅 CALENDAR", 
-        "callflow": "🔀 CALL FLOW CONTROL",
-        "recording": "🎙️  CALL RECORDING",
-        "conferences": "🎤 CONFERENCES",
-        "directory": "📖 DIRECTORY",
-        "extensions": "☎️  EXTENSIONS",
-        "followme": "📱 FOLLOW ME",
-        "ivr": "🎯 IVR (INTERACTIVE VOICE RESPONSE)",
-        "misc": "🔧 MISC DESTINATIONS",
-        "parking": "🅿️  CALL PARKING",
-        "queues": "📞 QUEUES",
-        "ringgroups": "🔔 RING GROUPS",
-        "callerid": "🆔 SET CALLER ID",
-        "timeconditions": "⏰ TIME CONDITIONS",
-        "timegroups": "⏱️  TIME GROUPS"
-    }
+    # Header box
+    print(Colors.CYAN + Colors.BOLD + "\n╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "║" + Colors.YELLOW + " 📊 freePBX COMPREHENSIVE ANALYSIS REPORT ".center(78) + Colors.CYAN + "║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.WHITE + Colors.BOLD + "Host:      " + Colors.GREEN + Colors.BOLD + meta['hostname'].ljust(65) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + "║ " + Colors.WHITE + Colors.BOLD + "Generated: " + Colors.YELLOW + meta['generated_at'].ljust(65) + Colors.CYAN + " ║" + Colors.ENDC)
+    print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+    
+    # Component titles and emojis mapping
+    components_info = [
+        ("announcements", "📢", "ANNOUNCEMENTS"),
+        ("calendar", "📅", "CALENDAR"),
+        ("callflow", "🔀", "CALL FLOW CONTROL"),
+        ("recording", "🎙️", "CALL RECORDING"),
+        ("conferences", "🎤", "CONFERENCES"),
+        ("directory", "📖", "DIRECTORY"),
+        ("extensions", "☎️", "EXTENSIONS"),
+        ("followme", "📱", "FOLLOW ME"),
+        ("ivr", "🎯", "IVR (INTERACTIVE VOICE RESPONSE)"),
+        ("misc", "🔧", "MISC DESTINATIONS"),
+        ("parking", "🅿️", "CALL PARKING"),
+        ("queues", "📞", "QUEUES"),
+        ("ringgroups", "🔔", "RING GROUPS"),
+        ("callerid", "🆔", "SET CALLER ID"),
+        ("timeconditions", "⏰", "TIME CONDITIONS"),
+        ("timegroups", "⏱️", "TIME GROUPS")
+    ]
+    
+    component_count = 0
     
     # Print analysis for each component
-    for comp_key, data in analysis.items():
-        if comp_key == "meta":
+    for comp_key, emoji, title in components_info:
+        if comp_key not in analysis:
             continue
             
         if single_component and comp_key != single_component:
             continue
             
-        title = titles.get(comp_key, comp_key.upper())
-        if title:
-            print(title)
-            print("-" * len(title))
+        data = analysis[comp_key]
+        component_count += 1
+        
+        # Component header
+        print(f"\n{Colors.CYAN}{Colors.BOLD}[{component_count}/16] {emoji}  {title}{Colors.ENDC}")
         
         if not data.get("enabled", False):
-            print("❌ Module not configured or not available")
-            print()
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.RED + "❌ Module not configured or not available".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
             continue
             
-        # Component-specific reporting
+        # Component-specific reporting with tables
         if comp_key == "announcements":
-            print(f"✅ Total Announcements: {data['total']}")
-            for ann in data["announcements"][:10]:
-                post = f" → {ann['post_destination']}" if ann['post_destination'] else ""
-                print(f"   • {ann['id']}: {ann['description']}{post}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Announcements: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            if data["announcements"]:
+                for ann in data["announcements"][:10]:
+                    post = f"{Colors.YELLOW} → {ann['post_destination']}{Colors.RESET}" if ann['post_destination'] else ""
+                    ann_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{ann['id']}:{Colors.RESET} {ann['description']}{post}"
+                    # Strip ANSI to calculate padding
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ann_line)
+                    padding = " " * max(0, 78 - len(visible_text))
+                    print(Colors.CYAN + "║ " + Colors.RESET + ann_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                    
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "calendar":
-            print(f"✅ Total Calendars: {data['total_calendars']}")
-            print(f"   Enabled: {data.get('enabled_calendars', 0)}")
-            for cal in data["calendars"][:5]:
-                status = "🟢" if cal["enabled"] == "1" else "🔴"
-                print(f"   {status} {cal['description']} ({cal['calendar_type']})")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Calendars: {data['total_calendars']}  │  Enabled: {data.get('enabled_calendars', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for cal in data["calendars"][:8]:
+                status = f"{Colors.GREEN}🟢{Colors.RESET}" if cal["enabled"] == "1" else f"{Colors.RED}🔴{Colors.RESET}"
+                cal_line = f"  {status} {Colors.WHITE}{cal['description']}{Colors.RESET} {Colors.CYAN}({cal['calendar_type']}){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', cal_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + cal_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                    
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "callflow":
-            print(f"✅ Total CFC Rules: {data['total_rules']}")
-            print(f"   Password Protected: {data.get('password_protected', 0)}")
-            for rule in data["cfc_rules"][:5]:
-                pwd = " 🔒" if rule['password'] else ""
-                print(f"   • {rule['description']}{pwd} → {rule['destination']}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total CFC Rules: {data['total_rules']}  │  Password Protected: {data.get('password_protected', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for rule in data["cfc_rules"][:8]:
+                pwd = f" {Colors.RED}🔒{Colors.RESET}" if rule['password'] else ""
+                rule_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{rule['description']}{Colors.RESET}{pwd} {Colors.YELLOW}→{Colors.RESET} {rule['destination'][:35]}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rule_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + rule_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                    
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "recording":
-            if "total_recordings" in data:
-                print(f"✅ System Recordings: {data['total_recordings']}")
-            if "extensions_with_recording" in data:
-                print(f"   Extensions with Recording: {data['extensions_with_recording']}")
-            for rec in data.get("recordings", [])[:5]:
-                print(f"   • {rec['displayname']} ({rec['filename']})")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            recordings_count = data.get('total_recordings', len(data.get("recordings", [])))
+            exts_with_rec = data.get('extensions_with_recording', 'N/A')
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ System Recordings: {recordings_count}  │  Extensions with Recording: {exts_with_rec}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for rec in data.get("recordings", [])[:8]:
+                rec_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{rec['displayname']}{Colors.RESET} {Colors.YELLOW}({rec['filename']}){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rec_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + rec_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "conferences":
-            print(f"✅ Conference Rooms: {data['total']}")
-            print(f"   With Admin PIN: {data.get('with_admin_pin', 0)}")
-            print(f"   With User PIN: {data.get('with_user_pin', 0)}")
-            for conf in data["conferences"][:5]:
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Conference Rooms: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.WHITE + f"   With Admin PIN: {data.get('with_admin_pin', 0)}  │  With User PIN: {data.get('with_user_pin', 0)}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for conf in data["conferences"][:8]:
                 pins = []
-                if conf['admin_pin']: pins.append("Admin")
-                if conf['user_pin']: pins.append("User")
+                if conf['admin_pin']: pins.append(f"{Colors.RED}Admin{Colors.RESET}")
+                if conf['user_pin']: pins.append(f"{Colors.GREEN}User{Colors.RESET}")
                 pin_info = f" ({', '.join(pins)} PIN)" if pins else ""
-                print(f"   • {conf['exten']}: {conf['description']}{pin_info}")
+                conf_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{conf['exten']}:{Colors.RESET} {conf['description']}{pin_info}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', conf_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + conf_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "directory":
-            print(f"✅ Directories: {len(data['directories'])}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Directories: {len(data['directories'])}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
             if "total_entries" in data:
-                print(f"   Total Entries: {data['total_entries']}")
-            for dir_entry in data["directories"][:5]:
-                print(f"   • {dir_entry['dirname']}: {dir_entry['description']}")
+                print(Colors.CYAN + "║ " + Colors.WHITE + f"   Total Entries: {data['total_entries']}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for dir_entry in data["directories"][:8]:
+                dir_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{dir_entry['dirname']}:{Colors.RESET} {dir_entry['description']}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', dir_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + dir_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "extensions":
-            print(f"✅ Total Extensions: {data['total']}")
             features = data.get("features", {})
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Total Extensions: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            
             if "voicemail_enabled" in features:
-                print(f"   With Voicemail: {features['voicemail_enabled']}")
-            if "recording_enabled" in features:
-                print(f"   With Recording: {features['recording_enabled']}")
-            if "custom_callerid" in features:
-                print(f"   With Custom CallerID: {features['custom_callerid']}")
+                print(Colors.CYAN + "║ " + Colors.WHITE + f"   With Voicemail: {Colors.YELLOW}{Colors.BOLD}{features['voicemail_enabled']}{Colors.RESET}  │  ".ljust(91) + 
+                      f"With Recording: {Colors.YELLOW}{Colors.BOLD}{features.get('recording_enabled', 0)}{Colors.RESET}  │  " + 
+                      f"Custom CallerID: {Colors.YELLOW}{Colors.BOLD}{features.get('custom_callerid', 0)}{Colors.RESET}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "followme":
-            print(f"✅ Follow Me Configs: {data['total']}")
-            print(f"   Total Numbers: {data.get('total_followme_numbers', 0)}")
-            for fm in data["followme_configs"][:5]:
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Follow Me Configs: {data['total']}  │  Total Numbers: {data.get('total_followme_numbers', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for fm in data["followme_configs"][:8]:
                 numbers = len([n for n in fm['number_list'].split('-') if n.strip()]) if fm['number_list'] else 0
-                print(f"   • Ext {fm['grpnum']}: {numbers} numbers, {fm['strategy']} strategy")
+                fm_line = f"  {Colors.CYAN}•{Colors.RESET} Ext {Colors.WHITE}{Colors.BOLD}{fm['grpnum']}{Colors.RESET}: {Colors.YELLOW}{numbers} numbers{Colors.RESET}, {Colors.GREEN}{fm['strategy']}{Colors.RESET} strategy"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', fm_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + fm_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "ivr":
-            print(f"✅ IVR Menus: {data['total_ivrs']}")
-            print(f"   Total Options: {data.get('total_options', 0)}")
-            for ivr in data["ivrs"][:5]:
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ IVR Menus: {data['total_ivrs']}  │  Total Options: {data.get('total_options', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for ivr in data["ivrs"][:8]:
                 option_count = len(data.get("options_by_ivr", {}).get(ivr["ivr_id"], []))
-                print(f"   • {ivr['ivr_id']}: {ivr['name']} ({option_count} options)")
+                ivr_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{ivr['ivr_id']}:{Colors.RESET} {ivr['name']} {Colors.YELLOW}({option_count} options){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', ivr_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + ivr_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "misc":
-            print(f"✅ Misc Destinations: {data['total']}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Misc Destinations: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for dest in data["destinations"][:10]:
-                print(f"   • {dest['description']} → {dest['dest']}")
+                dest_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{dest['description']}{Colors.RESET} {Colors.YELLOW}→{Colors.RESET} {dest['dest'][:35]}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', dest_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + dest_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "parking":
-            print(f"✅ Parking Lots: {data.get('total_lots', 0)}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Parking Lots: {data.get('total_lots', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
             if "total_parking_slots" in data:
-                print(f"   Total Slots: {data['total_parking_slots']}")
+                print(Colors.CYAN + "║ " + Colors.WHITE + f"   Total Slots: {data['total_parking_slots']}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for lot in data["lots"]:
-                print(f"   • Extension {lot['parkext']}: {lot['numslots']} slots ({lot['parkpos']})")
+                lot_line = f"  {Colors.CYAN}•{Colors.RESET} Extension {Colors.WHITE}{Colors.BOLD}{lot['parkext']}{Colors.RESET}: {Colors.YELLOW}{lot['numslots']} slots{Colors.RESET} {Colors.CYAN}({lot['parkpos']}){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', lot_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + lot_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "queues":
-            print(f"✅ Queues: {data['total']}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Queues: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for queue in data["queues"][:10]:
                 strategy = queue.get('strategy', 'unknown')
                 timeout = queue.get('timeout', 'default')
-                print(f"   • {queue['extension']}: {queue['description']} ({strategy}, {timeout}s)")
+                q_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{queue['extension']}:{Colors.RESET} {queue['description'][:30]} {Colors.YELLOW}({strategy}, {timeout}s){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', q_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + q_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "ringgroups":
-            print(f"✅ Ring Groups: {data['total']}")
-            print(f"   Total Extensions: {data.get('total_ring_group_extensions', 0)}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Ring Groups: {data['total']}  │  Total Extensions: {data.get('total_ring_group_extensions', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            
             strategies = data.get('strategies_count', {})
-            for strategy, count in strategies.items():
-                print(f"   {strategy}: {count} groups")
-            for rg in data["ring_groups"][:5]:
+            if strategies:
+                strat_line = "   "
+                for strategy, count in list(strategies.items())[:3]:
+                    strat_line += f"{Colors.YELLOW}{strategy}{Colors.RESET}: {Colors.WHITE}{count}{Colors.RESET}  │  "
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', strat_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + strat_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
+            for rg in data["ring_groups"][:8]:
                 ext_count = len([e for e in rg['grplist'].split('-') if e.strip()]) if rg['grplist'] else 0
-                print(f"   • {rg['grpnum']}: {rg['description']} ({ext_count} exts, {rg['strategy']})")
+                rg_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{rg['grpnum']}:{Colors.RESET} {rg['description'][:35]} {Colors.YELLOW}({ext_count} exts, {rg['strategy']}){Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rg_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + rg_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "callerid":
-            print(f"✅ CallerID Rules: {data['total']}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ CallerID Rules: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for rule in data["callerid_rules"][:10]:
                 cid_info = f"{rule['caller_name']} <{rule['caller_number']}>" if rule['caller_name'] or rule['caller_number'] else "Default"
-                print(f"   • {rule['description']}: {cid_info}")
+                cid_line = f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{rule['description']}{Colors.RESET}: {Colors.YELLOW}{cid_info}{Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', cid_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + cid_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "timeconditions":
-            print(f"✅ Time Conditions: {data['total']}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Time Conditions: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for tc in data["time_conditions"][:10]:
-                print(f"   • {tc['name']}: Group {tc['time_group_id']}")
-                print(f"     True → {tc['true_destination']}")
-                print(f"     False → {tc['false_destination']}")
+                print(Colors.CYAN + "║ " + Colors.RESET + f"  {Colors.CYAN}•{Colors.RESET} {Colors.WHITE}{Colors.BOLD}{tc['name']}{Colors.RESET}: Group {Colors.YELLOW}{tc['time_group_id']}{Colors.RESET}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+                true_line = f"     {Colors.GREEN}True{Colors.RESET}  → {tc['true_destination'][:55]}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', true_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + true_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+                false_line = f"     {Colors.RED}False{Colors.RESET} → {tc['false_destination'][:55]}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', false_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + false_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
                 
         elif comp_key == "timegroups":
-            print(f"✅ Time Groups: {data['total']}")
-            print(f"   Total Rules: {data.get('total_rules', 0)}")
+            print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Time Groups: {data['total']}  │  Total Rules: {data.get('total_rules', 0)}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+            
             for tg in data["time_groups"][:10]:
-                print(f"   • Group {tg['timegroupid']}: {tg['rule_count']} rules")
+                tg_line = f"  {Colors.CYAN}•{Colors.RESET} Group {Colors.WHITE}{Colors.BOLD}{tg['timegroupid']}{Colors.RESET}: {Colors.YELLOW}{tg['rule_count']} rules{Colors.RESET}"
+                visible_text = re.sub(r'\x1b\[[0-9;]*m', '', tg_line)
+                padding = " " * max(0, 78 - len(visible_text))
+                print(Colors.CYAN + "║ " + Colors.RESET + tg_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                
                 for rule in tg["rules"][:3]:
-                    print(f"     - {rule['time']}")
-        
-        print()
+                    rule_line = f"     - {Colors.GREEN}{rule['time']}{Colors.RESET}"
+                    visible_text = re.sub(r'\x1b\[[0-9;]*m', '', rule_line)
+                    padding = " " * max(0, 78 - len(visible_text))
+                    print(Colors.CYAN + "║ " + Colors.RESET + rule_line + padding + Colors.CYAN + " ║" + Colors.ENDC)
+                    
+            print(Colors.CYAN + "╚" + "═" * 78 + "╝" + Colors.ENDC)
     
-    print("=" * 60)
-    print("✅ Comprehensive Analysis Complete")
+    # Final summary
+    print("\n" + Colors.GREEN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "║" + " ✅ Comprehensive Analysis Complete ".center(78) + "║" + Colors.ENDC)
+    print(Colors.GREEN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC + "\n")
 
 if __name__ == "__main__":
     main()

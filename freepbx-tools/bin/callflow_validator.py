@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Call Flow Validation through Live Simulation
+freePBX Call Flow Validation through Live Simulation
 Compare predicted call flows with actual Asterisk behavior
 """
 
@@ -13,6 +13,18 @@ import socket
 import argparse
 import logging
 from datetime import datetime
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
 
 # Configure logging
 def setup_logging(debug=False):
@@ -413,35 +425,40 @@ Archive: no
     
     def validate_call_flow(self, did):
         """Complete validation of call flow prediction vs reality"""
-        print(f"\n🔍 VALIDATING CALL FLOW FOR DID: {did}")
-        print("=" * 60)
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 VALIDATING CALL FLOW FOR DID: {did} {Colors.RESET}{Colors.CYAN}                      ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
         # Step 1: Get predicted flow
-        print("📊 Step 1: Getting predicted call flow...")
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BLUE}{Colors.BOLD} 📊 Step 1: Getting predicted call flow {Colors.RESET}{Colors.CYAN}                    ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         predicted = self.get_predicted_flow(did)
         
         if 'error' in predicted:
-            print(f"   ❌ Failed to get prediction: {predicted['error']}")
+            print(f"   {Colors.RED}❌ Failed to get prediction: {predicted['error']}{Colors.RESET}")
             return {'success': False, 'error': predicted['error']}
         
-        print(f"   ✅ Predicted components: {', '.join(str(c) for c in predicted.get('components', []))}")
-        print(f"   📞 Predicted extensions: {', '.join(str(e) for e in predicted.get('extensions', []))}")
+        print(f"   {Colors.GREEN}✅ Predicted components: {Colors.CYAN}{', '.join(str(c) for c in predicted.get('components', []))}{Colors.RESET}")
+        print(f"   {Colors.GREEN}📞 Predicted extensions: {Colors.CYAN}{', '.join(str(e) for e in predicted.get('extensions', []))}{Colors.RESET}")
         
         # Step 2: Simulate actual call
-        print("\n🚀 Step 2: Simulating actual call...")
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🚀 Step 2: Simulating actual call {Colors.RESET}{Colors.CYAN}                           ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         actual = self.simulate_call_and_monitor(did)
         
         if 'error' in actual:
-            print(f"   ❌ Simulation failed: {actual['error']}")
+            print(f"   {Colors.RED}❌ Simulation failed: {actual['error']}{Colors.RESET}")
             return {'success': False, 'error': actual['error']}
         
-        print(f"   ✅ Call processed: {actual['call_processed']}")
+        print(f"   {Colors.GREEN}✅ Call processed: {Colors.BOLD}{actual['call_processed']}{Colors.RESET}")
         
         # Safely access log analysis data
         log_analysis = actual.get('log_analysis', {})
         if not isinstance(log_analysis, dict) or 'error' in log_analysis:
             error_msg = log_analysis.get('error', str(log_analysis)) if isinstance(log_analysis, dict) else str(log_analysis)
-            print(f"   ⚠️  Log analysis error: {error_msg}")
+            print(f"   {Colors.YELLOW}⚠️  Log analysis error: {error_msg}{Colors.RESET}")
         else:
             components = log_analysis.get('components_hit', [])
             destinations = log_analysis.get('destinations_reached', [])
@@ -450,31 +467,36 @@ Archive: no
             components = [str(c) for c in components] if components else []
             destinations = [str(d) for d in destinations] if destinations else []
             
-            print(f"   🔍 Components hit: {', '.join(components) if components else 'None'}")
-            print(f"   📍 Destinations reached: {', '.join(destinations) if destinations else 'None'}")
+            print(f"   {Colors.BLUE}🔍 Components hit: {Colors.CYAN}{', '.join(components) if components else 'None'}{Colors.RESET}")
+            print(f"   {Colors.MAGENTA}📍 Destinations reached: {Colors.CYAN}{', '.join(destinations) if destinations else 'None'}{Colors.RESET}")
         
         # Step 3: Compare and validate
-        print("\n⚖️  Step 3: Comparing prediction vs reality...")
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.MAGENTA}{Colors.BOLD} ⚖️  Step 3: Comparing prediction vs reality {Colors.RESET}{Colors.CYAN}               ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         validation_result = self._compare_flows(predicted, actual)
         
-        print(f"   📊 Validation Score: {validation_result['score']:.1f}%")
-        print(f"   ✅ Matches: {len(validation_result['matches'])}")
-        print(f"   ❌ Mismatches: {len(validation_result['mismatches'])}")
+        score = validation_result['score']
+        score_color = Colors.GREEN if score >= 80 else (Colors.YELLOW if score >= 60 else Colors.RED)
+        
+        print(f"   {Colors.BLUE}📊 Validation Score: {score_color}{Colors.BOLD}{score:.1f}%{Colors.RESET}")
+        print(f"   {Colors.GREEN}✅ Matches: {Colors.BOLD}{len(validation_result['matches'])}{Colors.RESET}")
+        print(f"   {Colors.RED}❌ Mismatches: {Colors.BOLD}{len(validation_result['mismatches'])}{Colors.RESET}")
         
         if validation_result['matches']:
-            print(f"\n✅ MATCHES:")
+            print(f"\n{Colors.GREEN}{Colors.BOLD}✅ MATCHES:{Colors.RESET}")
             for match in validation_result['matches']:
-                print(f"      {match}")
+                print(f"   {Colors.GREEN}  ✓{Colors.RESET} {Colors.WHITE}{match}{Colors.RESET}")
         
         if validation_result['mismatches']:
-            print(f"\n❌ MISMATCHES:")
+            print(f"\n{Colors.RED}{Colors.BOLD}❌ MISMATCHES:{Colors.RESET}")
             for mismatch in validation_result['mismatches']:
-                print(f"      {mismatch}")
+                print(f"   {Colors.RED}  ✗{Colors.RESET} {Colors.WHITE}{mismatch}{Colors.RESET}")
         
         # Safely check for errors in log analysis
         log_analysis = actual.get('log_analysis', {})
         if isinstance(log_analysis, dict) and 'error' not in log_analysis and log_analysis.get('errors'):
-            print(f"\n⚠️  ERRORS DETECTED:")
+            print(f"\n{Colors.YELLOW}{Colors.BOLD}⚠️  ERRORS DETECTED:{Colors.RESET}")
             errors = log_analysis.get('errors', [])
             for error in errors[:3]:  # Show first 3
                 print(f"      {error}")

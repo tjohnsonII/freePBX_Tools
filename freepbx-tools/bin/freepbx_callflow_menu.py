@@ -609,25 +609,25 @@ def summarize(data):
     
     # Dramatic inventory display
     print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.RESET)
-    print(Colors.CYAN + Colors.BOLD + "║" + " 📋 System Inventory".center(78) + "║" + Colors.RESET)
+    print(Colors.CYAN + Colors.BOLD + "║" + (" � " + Colors.YELLOW + "SYSTEM INVENTORY" + Colors.CYAN).center(88) + "║" + Colors.RESET)
     print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Host:            " + Colors.RESET + Colors.GREEN + data.get("meta", {}).get("hostname", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "FreePBX version: " + Colors.RESET + Colors.YELLOW + data.get("meta", {}).get("freepbx_version", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "MySQL version:   " + Colors.RESET + Colors.YELLOW + data.get("meta", {}).get("mysql_version", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Generated:       " + Colors.RESET + data.get("meta", {}).get("generated_at_utc", "").ljust(58) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Host:            " + Colors.RESET + Colors.GREEN + Colors.BOLD + data.get("meta", {}).get("hostname", "").ljust(58) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "freePBX version: " + Colors.RESET + Colors.YELLOW + Colors.BOLD + data.get("meta", {}).get("freepbx_version", "").ljust(58) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "MySQL version:   " + Colors.RESET + Colors.YELLOW + Colors.BOLD + data.get("meta", {}).get("mysql_version", "").ljust(58) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Generated:       " + Colors.RESET + Colors.MAGENTA + data.get("meta", {}).get("generated_at_utc", "").ljust(58) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
     print(Colors.CYAN + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Inbound routes (DIDs):     " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("inbound")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "IVRs (menus):              " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ivrs", "menus")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "IVR options:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ivrs", "options")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Queues:                    " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("queues")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Ring groups:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("ringgroups")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Time conditions:           " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("timeconditions")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Time groups:               " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("timegroups")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Announcements:             " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("announcements")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Extensions:                " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(count("extensions")).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Trunks:                    " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("trunks", {}).get("trunks", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Outbound routes:           " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("outbound", {}).get("routes", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + "Outbound patterns:         " + Colors.RESET + Colors.WHITE + Colors.BOLD + str(len(data.get("outbound", {}).get("patterns", []))).rjust(48) + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Inbound routes (DIDs):     " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("inbound")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "IVRs (menus):              " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("ivrs", "menus")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "IVR options:               " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("ivrs", "options")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Queues:                    " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("queues")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Ring groups:               " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("ringgroups")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Time conditions:           " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("timeconditions")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Time groups:               " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("timegroups")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Announcements:             " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("announcements")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Extensions:                " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(count("extensions")).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Trunks:                    " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(len(data.get("trunks", {}).get("trunks", []))).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Outbound routes:           " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(len(data.get("outbound", {}).get("routes", []))).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.WHITE + "Outbound patterns:         " + Colors.RESET + Colors.CYAN + Colors.BOLD + str(len(data.get("outbound", {}).get("patterns", []))).rjust(48) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
     print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.RESET)
     print("")
 
@@ -640,14 +640,23 @@ def list_dids(data, show_limit=50):
         dest  = r.get("destination") or ""
         rows.append((i, r.get("did",""), label, cid, dest))
     if not rows:
-        print("No inbound routes found.")
+        print(Colors.RED + "❌ No inbound routes found." + Colors.RESET)
         return []
-    print("Index | DID           | Label                         | CID   | Destination")
-    print("------+---------------+-------------------------------+-------+-------------------------------")
+    
+    print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 DID ROUTING TABLE ".center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Index │ DID           │ Label                         │ CID   │ Destination                    " + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+    
     for i, did, label, cid, dest in rows[:show_limit]:
-        print("{:>5} | {:<13} | {:<29} | {:<5} | {}".format(i, did, label[:29], cid[:5], dest[:40]))
+        print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
+            i, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
+    
+    print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+    
     if len(rows) > show_limit:
-        print("... {} more not shown. (Use selection to target them anyway.)".format(len(rows) - show_limit))
+        print(Colors.YELLOW + f"... {len(rows) - show_limit} more not shown. (Use selection to target them anyway.)" + Colors.RESET)
     return rows
 
 def parse_selection(sel, max_index):
@@ -1309,7 +1318,7 @@ def main():
         
         # Menu with full width alignment
         print("\n" + Colors.CYAN + "╔" + "═" * menu_width + "╗" + Colors.RESET)
-        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + " FreePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 freePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         
         # Helper function to format menu line with proper alignment
