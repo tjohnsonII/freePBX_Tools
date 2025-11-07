@@ -42,9 +42,10 @@ def print_menu():
     print(f"\n{Colors.YELLOW}{Colors.BOLD}📋 Main Menu:{Colors.RESET}")
     print(f"  {Colors.CYAN}1){Colors.RESET} Deploy tools to server(s)")
     print(f"  {Colors.CYAN}2){Colors.RESET} Uninstall tools from server(s)")
-    print(f"  {Colors.CYAN}3){Colors.RESET} Test dashboard on test server (69.39.69.102)")
-    print(f"  {Colors.CYAN}4){Colors.RESET} View deployment status")
-    print(f"  {Colors.CYAN}5){Colors.RESET} Exit")
+    print(f"  {Colors.CYAN}3){Colors.RESET} 🔄 Uninstall + Install (clean deployment)")
+    print(f"  {Colors.CYAN}4){Colors.RESET} Test dashboard on test server (69.39.69.102)")
+    print(f"  {Colors.CYAN}5){Colors.RESET} View deployment status")
+    print(f"  {Colors.CYAN}6){Colors.RESET} Exit")
     print()
 
 def get_credentials():
@@ -188,6 +189,79 @@ def uninstall_tools():
     cmd = ["python", "deploy_uninstall_tools.py", "--servers", servers]
     subprocess.run(cmd)
 
+def clean_deploy():
+    """Uninstall then install - clean deployment"""
+    print("\n" + "="*70)
+    print("  🔄 Clean Deployment (Uninstall + Install)")
+    print("="*70)
+    
+    print(f"\n{Colors.YELLOW}This will:{Colors.RESET}")
+    print("  1. Uninstall existing tools from selected servers")
+    print("  2. Deploy fresh installation")
+    print("  3. Preserve callflows directory and data")
+    print()
+    
+    # Get target servers
+    print(f"\n{Colors.YELLOW}Select target:{Colors.RESET}")
+    print("  1. Single server (IP address)")
+    print("  2. Multiple servers (from file)")
+    print("  3. Test server (69.39.69.102)")
+    print("  4. Production servers (ProductionServers.txt)")
+    
+    target = input("\nChoice (1-4): ").strip()
+    
+    servers = None
+    if target == "1":
+        servers = input("\nEnter server IP: ").strip()
+    elif target == "2":
+        file_path = input("\nEnter file path: ").strip()
+        servers = file_path
+    elif target == "3":
+        servers = "69.39.69.102"
+    elif target == "4":
+        servers = "ProductionServers.txt"
+    else:
+        print("❌ Invalid choice")
+        return
+    
+    # Confirm
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠️  Warning:{Colors.RESET} This will uninstall and reinstall tools on:")
+    print(f"  {servers}")
+    confirm = input("\nProceed? (yes/no): ").strip().lower()
+    
+    if confirm != "yes":
+        print("❌ Cancelled")
+        return
+    
+    # Get credentials
+    username, password, root_password = get_credentials()
+    
+    # Create temporary config
+    create_temp_config(username, password, root_password)
+    
+    # Step 1: Uninstall
+    print(f"\n{Colors.CYAN}{Colors.BOLD}Step 1/2: Uninstalling...{Colors.RESET}")
+    print("="*70)
+    cmd = ["python", "deploy_uninstall_tools.py", "--servers", servers]
+    result = subprocess.run(cmd)
+    
+    if result.returncode != 0:
+        print(f"\n{Colors.RED}❌ Uninstall failed. Aborting deployment.{Colors.RESET}")
+        return
+    
+    print(f"\n{Colors.GREEN}✅ Uninstall complete{Colors.RESET}")
+    
+    # Step 2: Install
+    print(f"\n{Colors.CYAN}{Colors.BOLD}Step 2/2: Installing...{Colors.RESET}")
+    print("="*70)
+    cmd = ["python", "deploy_freepbx_tools.py", "--servers", servers]
+    result = subprocess.run(cmd)
+    
+    if result.returncode == 0:
+        print(f"\n{Colors.GREEN}{Colors.BOLD}✅ Clean deployment completed successfully!{Colors.RESET}")
+    else:
+        print(f"\n{Colors.RED}❌ Installation failed.{Colors.RESET}")
+
 def test_dashboard():
     """Test dashboard on test server"""
     print("\n" + "="*70)
@@ -256,21 +330,23 @@ def main():
         print_banner()
         print_menu()
         
-        choice = input("Choose option (1-5): ").strip()
+        choice = input("Choose option (1-6): ").strip()
         
         if choice == "1":
             deploy_tools()
         elif choice == "2":
             uninstall_tools()
         elif choice == "3":
-            test_dashboard()
+            clean_deploy()
         elif choice == "4":
-            view_status()
+            test_dashboard()
         elif choice == "5":
+            view_status()
+        elif choice == "6":
             print("\n👋 Goodbye!\n")
             sys.exit(0)
         else:
-            print("\n❌ Invalid choice. Please enter 1-5.\n")
+            print("\n❌ Invalid choice. Please enter 1-6.\n")
         
         input("\nPress Enter to continue...")
 
