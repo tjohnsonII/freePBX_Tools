@@ -355,19 +355,44 @@ class FreePBXCallSimulator:
         except Exception as e:
             return [f"Error getting logs: {str(e)}"]
     
-    def simulate_did_call(self, did, caller_id="7140", wait_time=10):
+    def simulate_did_call(self, did, destination=None, caller_id=None, wait_time=10):
         """
         Simulate a call to a specific DID number
+        Args:
+            did: The DID number being called (this becomes the callerID shown)
+            destination: Where the call should ring (e.g., cell phone) - if None, follows DID routing
+            caller_id: Override caller ID if needed (defaults to DID)
+            wait_time: How long to wait before considering call failed
         """
-        print(f"\n📞 SIMULATING CALL TO DID: {did}")
+        if caller_id is None:
+            caller_id = did
+            
+        print(f"\n📞 SIMULATING INCOMING CALL TO DID: {did}")
         print("=" * 50)
+        print(f"   Caller ID shown: {caller_id}")
+        if destination:
+            print(f"   Forcing ring to: {destination}")
+        else:
+            print(f"   Following configured DID routing")
         
-        # Create call file for DID
-        channel = f"local/{caller_id}@from-internal"
+        # Create call file
+        # For DID simulation: use Local channel that enters through from-trunk context
+        # This mimics an incoming call from the PSTN
+        if destination:
+            # Direct call to destination, bypassing DID routing
+            channel = f"Local/{destination}@from-internal"
+            dest_app = "Answer"
+            dest_data = ""
+        else:
+            # Route through DID configuration
+            channel = f"Local/{did}@from-pstn"
+            dest_app = "Goto"
+            dest_data = f"from-did-direct,{did},1"
+            
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
-            destination=did,
+            destination=did if not destination else destination,
             wait_time=wait_time,
             max_retries=0
         )
@@ -397,6 +422,7 @@ class FreePBXCallSimulator:
         # Store result for summary
         self.test_results.append({
             'did': did,
+            'destination': destination,
             'caller_id': caller_id,
             'success': result['success'],
             'processed': result.get('processed', False),
@@ -607,11 +633,12 @@ def main():
     parser = argparse.ArgumentParser(description="FreePBX Call Simulator")
     parser.add_argument("--server", default="69.39.69.102", help="FreePBX server IP")
     parser.add_argument("--user", default="123net", help="SSH username")
-    parser.add_argument("--did", default="2482283480", help="Test specific DID")
+    parser.add_argument("--did", help="Test specific DID (incoming call)")
+    parser.add_argument("--destination", help="Destination number to ring (e.g., cell phone)")
     parser.add_argument("--extension", help="Test specific extension")
     parser.add_argument("--voicemail", help="Test specific voicemail box")
     parser.add_argument("--playback", help="Test playback application with sound file")
-    parser.add_argument("--caller-id", default="7346427842", help="Caller ID to use")
+    parser.add_argument("--caller-id", help="Override caller ID (defaults to DID for DID tests)")
     parser.add_argument("--comprehensive", action="store_true", help="Run comprehensive test suite")
     parser.add_argument("--debug", action="store_true", help="Enable detailed debug output")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output (same as --debug)")
@@ -629,25 +656,38 @@ def main():
     print("=" * 30)
     print(f"Server: {args.server}")
     print(f"User: {args.user}")
-    print(f"Caller ID: {args.caller_id}")
+    if args.caller_id:
+        print(f"Caller ID: {args.caller_id}")
     
     # Execute based on arguments
     if args.comprehensive:
         simulator.run_comprehensive_test_suite()
     elif args.did:
-        simulator.simulate_did_call(args.did, args.caller_id)
+        simulator.simulate_did_call(args.did, destination=args.destination, caller_id=args.caller_id)
     elif args.extension:
-        simulator.test_extension_call(args.extension, args.caller_id)
+        caller = args.caller_id or "7140"
+        simulator.test_extension_call(args.extension, caller)
     elif args.voicemail:
-        simulator.test_voicemail_call(args.voicemail, args.caller_id)
+        caller = args.caller_id or "7140"
+        simulator.test_voicemail_call(args.voicemail, caller)
     elif args.playback:
-        simulator.test_playback_application(args.playback, args.caller_id)
+        caller = args.caller_id or "7140"
+        simulator.test_playback_application(args.playback, caller)
     else:
         print("\n🎯 Usage Examples:")
-        print("   python3 call_simulator.py --did 2485815200")
+        print("   # Test DID with routing to cell phone:")
+        print("   python3 call_simulator.py --did 2482283480 --destination 7346427842")
+        print("")
+        print("   # Test DID following its configured routing:")
+        print("   python3 call_simulator.py --did 2482283480")
+        print("")
+        print("   # Test extension:")
         print("   python3 call_simulator.py --extension 4220")
+        print("")
+        print("   # Test voicemail:")
         print("   python3 call_simulator.py --voicemail 4220")
-        print("   python3 call_simulator.py --playback zombies")
+        print("")
+        print("   # Run comprehensive suite:")
         print("   python3 call_simulator.py --comprehensive")
 
 if __name__ == "__main__":
