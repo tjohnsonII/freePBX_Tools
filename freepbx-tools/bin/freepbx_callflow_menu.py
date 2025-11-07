@@ -69,6 +69,9 @@ ASCII_CALLFLOW_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_version_awa
 CALL_SIMULATOR_SCRIPT = "/usr/local/123net/freepbx-tools/bin/call_simulator.py"
 CALLFLOW_VALIDATOR_SCRIPT = "/usr/local/123net/freepbx-tools/bin/callflow_validator.py"
 SIMULATE_CALLS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/simulate_calls.sh"
+NETWORK_DIAGNOSTICS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_network_diagnostics.py"
+LOG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
+CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.py"
 
 
 def run_tc_status(sock):
@@ -129,23 +132,29 @@ def run_comprehensive_analyzer(sock):
 
 def run_call_simulation_menu(sock, did_rows):
     """Interactive call simulation and validation menu."""
-    print("\n=== Call Simulation & Validation Menu ===")
-    print("Test real call behavior against predicted call flows")
+    print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation Menu{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.WHITE} Test real call behavior against predicted call flows{' ' * 24}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
     print()
     
     while True:
-        print("📞 Call Simulation Options:")
-        print(" 1) Test specific DID with call simulation (makes actual test call)")
-        print(" 2) Validate call flow configuration for DID (checks database only)")
-        print(" 3) Test extension call (internal extension-to-extension)")
-        print(" 4) Test voicemail call (voicemail access and functionality)")
-        print(" 5) Validate ring group configuration (checks members & settings)")
-        print(" 6) Run comprehensive call validation (all checks across system)")
-        print(" 7) Monitor active call simulations (real-time status)")
-        print(" 8) Return to main menu")
+        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation Options{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 1){Colors.WHITE} Test specific DID with call simulation (makes actual test call){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 2){Colors.WHITE} Validate call flow configuration for DID (checks database only){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 3){Colors.WHITE} Test extension call (internal extension-to-extension){' ' * 17}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 4){Colors.WHITE} Test voicemail call (voicemail access and functionality){' ' * 14}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 5){Colors.WHITE} Validate ring group configuration (checks members & settings){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 6){Colors.WHITE} Run comprehensive call validation (all checks across system){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 7){Colors.WHITE} Monitor active call simulations (real-time status){' ' * 20}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 8){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
         
-        choice = input("Choose simulation option (1-8): ").strip()
+        choice = input(f"{Colors.YELLOW}Choose simulation option (1-8): {Colors.RESET}").strip()
         
         if choice == "1":
             run_did_call_test(did_rows)
@@ -164,72 +173,85 @@ def run_call_simulation_menu(sock, did_rows):
         elif choice == "8":
             break
         else:
-            print("Invalid choice. Please select 1-8.")
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-8.{Colors.RESET}")
 
 
 def run_did_call_test(did_rows):
     """Test a specific DID with call simulation."""
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
-        print("❌ Call simulator not found. Please run deployment first.")
+        print(f"{Colors.RED}❌ Call simulator not found. Please run deployment first.{Colors.RESET}")
         return
     
     if not did_rows:
-        print("❌ No DID data available. Please refresh the snapshot first.")
+        print(f"{Colors.RED}❌ No DID data available. Please refresh the snapshot first.{Colors.RESET}")
         return
     
-    print("\n📞 DID Call Simulation Test")
-    print("This will create a real call file to test the DID routing.")
+    print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 DID Call Simulation Test{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.WHITE} This will create a real call file to test the DID routing.{' ' * 18}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
     print()
     
     # Show available DIDs
+    print(f"{Colors.CYAN}{'─' * 78}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.WHITE}Available DIDs:{Colors.RESET}")
+    print(f"{Colors.CYAN}{'─' * 78}{Colors.RESET}")
+    
     for i, (_, did, label, _, _) in enumerate(did_rows[:20], 1):
-        print(f"{i:>2}. {did:<15} {label}")
+        print(f"{Colors.GREEN}{i:>2}.{Colors.RESET} {Colors.CYAN}{did:<15}{Colors.WHITE} {label}{Colors.RESET}")
     
     if len(did_rows) > 20:
-        print(f"... and {len(did_rows) - 20} more DIDs")
+        print(f"{Colors.YELLOW}... and {len(did_rows) - 20} more DIDs{Colors.RESET}")
     
+    print(f"{Colors.CYAN}{'─' * 78}{Colors.RESET}")
     print()
+    
     try:
-        choice = int(input("Enter DID number to test (or 0 to cancel): ").strip())
+        choice = int(input(f"{Colors.YELLOW}Enter DID number to test (or 0 to cancel): {Colors.RESET}").strip())
         if choice == 0:
             return
         if choice < 1 or choice > len(did_rows):
-            print("❌ Invalid selection.")
+            print(f"{Colors.RED}❌ Invalid selection.{Colors.RESET}")
             return
         
         _, did, label, _, _ = did_rows[choice - 1]
-        destination = input(f"Enter destination number (where to ring the call, e.g., your cell): ").strip()
+        destination = input(f"{Colors.YELLOW}Enter destination number (where to ring the call, e.g., your cell): {Colors.RESET}").strip()
         if not destination:
-            print("❌ Destination number required.")
+            print(f"{Colors.RED}❌ Destination number required.{Colors.RESET}")
             return
         
-        print(f"\n🚀 Testing DID {did} ({label})")
-        print(f"   Incoming call from: {did}")
-        print(f"   Ringing to: {destination}")
-        print("This will create a real call in the Asterisk system...")
+        print(f"\n{Colors.GREEN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.YELLOW}{Colors.BOLD} 🚀 Testing DID {did} ({label[:40]}){' ' * (31 - len(label[:40]))}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}   Incoming call from: {Colors.CYAN}{Colors.BOLD}{did:<49}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.WHITE}   Ringing to: {Colors.MAGENTA}{Colors.BOLD}{destination:<57}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}║{Colors.YELLOW}   This will create a real call in the Asterisk system...{' ' * 17}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        print(f"{Colors.GREEN}╚{'═' * 78}╝{Colors.RESET}")
+        print()
         
-        confirm = input("Continue? (y/N): ").strip().lower()
+        confirm = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
         if confirm != 'y':
-            print("❌ Test cancelled.")
+            print(f"{Colors.RED}❌ Test cancelled.{Colors.RESET}")
             return
         
         # Run the call simulation
         # Note: --caller-id is the source (DID), destination is where it rings
         cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--destination", destination, "--debug"]
-        print(f"Executing: {' '.join(cmd)}")
+        print(f"{Colors.CYAN}Executing: {' '.join(cmd)}{Colors.RESET}\n")
         
         rc, out, err = run(cmd)
         if rc == 0:
-            print("✅ Call simulation completed successfully!")
+            print(f"\n{Colors.GREEN}✅ Call simulation completed successfully!{Colors.RESET}")
             print(out)
         else:
-            print("❌ Call simulation failed:")
+            print(f"\n{Colors.RED}❌ Call simulation failed:{Colors.RESET}")
             print(err or out)
             
     except ValueError:
-        print("❌ Invalid input. Please enter a number.")
+        print(f"{Colors.RED}❌ Invalid input. Please enter a number.{Colors.RESET}")
     except KeyboardInterrupt:
-        print("\n❌ Test cancelled by user.")
+        print(f"\n{Colors.RED}❌ Test cancelled by user.{Colors.RESET}")
 
 
 def run_callflow_validation(did_rows):
@@ -1637,6 +1659,211 @@ def run_inline_log_analysis():
     print(f"{Colors.GREEN}✅ Log analysis complete{Colors.RESET}")
 
 
+def run_enhanced_log_analysis_menu():
+    """Interactive enhanced log analysis menu with dmesg, journalctl, and regex search."""
+    if not os.path.isfile(LOG_ANALYZER_SCRIPT):
+        print(f"{Colors.RED}❌ Log analyzer tool not found.{Colors.RESET}")
+        return
+    
+    while True:
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 Enhanced Log Analysis{' ' * 52}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Standard log analysis (Asterisk full log){' ' * 31}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Comprehensive analysis (Asterisk + system + patterns){' ' * 21}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Kernel log analysis (dmesg){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} System journal analysis (journalctl){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Search Asterisk logs with regex{' ' * 41}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Search common Asterisk issue patterns{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Evaluate error codes (SIP/Q.850 mapping){' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Look up specific SIP code{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED}  9){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        print()
+        
+        choice = input(f"{Colors.YELLOW}Choose analysis option (1-9): {Colors.RESET}").strip()
+        
+        if choice == "1":
+            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+            run(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
+        elif choice == "2":
+            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+            run(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+        elif choice == "3":
+            run(["python3", LOG_ANALYZER_SCRIPT, "--dmesg"])
+        elif choice == "4":
+            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+            run(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
+        elif choice == "5":
+            pattern = input(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
+            if pattern:
+                log_file = input(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
+                log_file = log_file or "/var/log/asterisk/full"
+                run(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
+        elif choice == "6":
+            run(["python3", LOG_ANALYZER_SCRIPT, "--search-patterns"])
+        elif choice == "7":
+            run(["python3", LOG_ANALYZER_SCRIPT, "--codes-only"])
+        elif choice == "8":
+            code = input(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
+            if code:
+                run(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
+        elif choice == "9":
+            break
+        else:
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-9.{Colors.RESET}")
+        
+        print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
+        input()
+
+
+def run_cdr_analysis_menu():
+    """Interactive CDR/CEL call log analysis menu."""
+    if not os.path.isfile(CDR_ANALYZER_SCRIPT):
+        print(f"{Colors.RED}❌ CDR analyzer tool not found.{Colors.RESET}")
+        return
+    
+    while True:
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 CDR/CEL Call Log Analysis{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Comprehensive call analysis{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Call statistics summary{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Top callers{' ' * 62}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Top destinations{' ' * 57}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Call distribution by hour{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Disposition breakdown{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Failed/busy calls analysis{' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Trunk usage analysis{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Call duration distribution{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Export calls to JSON{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 11){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        print()
+        
+        choice = input(f"{Colors.YELLOW}Choose analysis option (1-11): {Colors.RESET}").strip()
+        
+        hours = None
+        if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
+            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
+        
+        if choice == "1":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+        elif choice == "2":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
+        elif choice == "3":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
+        elif choice == "4":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
+        elif choice == "5":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
+        elif choice == "6":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
+        elif choice == "7":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
+        elif choice == "8":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
+        elif choice == "9":
+            run(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
+        elif choice == "10":
+            filename = input(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
+            if filename:
+                run(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
+            else:
+                run(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
+        elif choice == "11":
+            break
+        else:
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-11.{Colors.RESET}")
+        
+        print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
+        input()
+
+
+def run_network_diagnostics_menu():
+    """Interactive network diagnostics menu."""
+    if not os.path.isfile(NETWORK_DIAGNOSTICS_SCRIPT):
+        print(f"{Colors.RED}❌ Network diagnostics tool not found.{Colors.RESET}")
+        return
+    
+    while True:
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🌐 Network Diagnostics & Packet Capture{' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show network interfaces (ip addr / ifconfig){' ' * 28}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show routing table (ip route / route){' ' * 35}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Show ARP table (address resolution){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Show network statistics (netstat / ss){' ' * 33}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Ping test (connectivity check){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Traceroute (path analysis){' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} DNS lookup (dig / nslookup){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Capture packets with tcpdump{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Analyze SIP traffic (port 5060){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Monitor RTP traffic (audio streams){' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Show Asterisk SIP peers{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 13){Colors.WHITE} Show active Asterisk channels{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 14){Colors.WHITE} Run comprehensive network diagnostic{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 15){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        print()
+        
+        choice = input(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
+        
+        if choice == "1":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
+        elif choice == "2":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
+        elif choice == "3":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
+        elif choice == "4":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
+        elif choice == "5":
+            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+        elif choice == "6":
+            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
+            if host:
+                run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
+        elif choice == "7":
+            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
+            if domain:
+                run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
+        elif choice == "8":
+            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
+            port = input(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
+            host = input(f"{Colors.YELLOW}Filter by host (optional, press Enter to skip): {Colors.RESET}").strip()
+            cmd = ["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--tcpdump", "--duration", duration]
+            if port:
+                cmd.extend(["--port", port])
+            if host:
+                cmd.extend(["--host", host])
+            run(cmd)
+        elif choice == "9":
+            print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
+        elif choice == "10":
+            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
+        elif choice == "11":
+            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
+        elif choice == "12":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
+        elif choice == "13":
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
+        elif choice == "14":
+            print(f"{Colors.CYAN}Running comprehensive network diagnostic...{Colors.RESET}\n")
+            run(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--comprehensive"])
+        elif choice == "15":
+            break
+        else:
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-15.{Colors.RESET}")
+        
+        print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
+        input()
+
+
 # ---------------- menu ----------------
 
 def main():
@@ -1707,7 +1934,10 @@ def main():
         print(menu_line("12", "Run full Asterisk diagnostic"))
         print(menu_line("13", "🔍 Automated log analysis (detect issues)"))
         print(menu_line("14", "📚 Error Map & Quick Reference"))
-        print(menu_line("15", "Quit"))
+        print(menu_line("15", "🌐 Network Diagnostics & Packet Capture"))
+        print(menu_line("16", "🔍 Enhanced Log Analysis (dmesg/journal/regex)"))
+        print(menu_line("17", "📞 CDR/CEL Call Log Analysis"))
+        print(menu_line("18", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
@@ -1799,6 +2029,15 @@ def main():
             show_error_map_quick_reference()
 
         elif choice == "15":
+            run_network_diagnostics_menu()
+
+        elif choice == "16":
+            run_enhanced_log_analysis_menu()
+
+        elif choice == "17":
+            run_cdr_analysis_menu()
+
+        elif choice == "18":
             print("Bye.")
             break
         else:
