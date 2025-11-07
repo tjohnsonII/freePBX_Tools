@@ -797,7 +797,9 @@ def print_comprehensive_report(analysis, single_component=None):
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
             recordings_count = data.get('total_recordings', len(data.get("recordings", [])))
             exts_with_rec = data.get('extensions_with_recording', 'N/A')
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ System Recordings: {recordings_count}  │  Extensions with Recording: {exts_with_rec}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ System Recordings: {recordings_count}  │  Extensions with Recording: {exts_with_rec}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for rec in data.get("recordings", [])[:8]:
@@ -810,8 +812,12 @@ def print_comprehensive_report(analysis, single_component=None):
                 
         elif comp_key == "conferences":
             print(Colors.CYAN + "╔" + "═" * 78 + "╗" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.GREEN + Colors.BOLD + f"✅ Conference Rooms: {data['total']}".ljust(87) + Colors.CYAN + " ║" + Colors.ENDC)
-            print(Colors.CYAN + "║ " + Colors.WHITE + f"   With Admin PIN: {data.get('with_admin_pin', 0)}  │  With User PIN: {data.get('with_user_pin', 0)}".ljust(78) + Colors.CYAN + " ║" + Colors.ENDC)
+            summary_line = Colors.GREEN + Colors.BOLD + f"✅ Conference Rooms: {data['total']}"
+            padded_line = pad_ansi(summary_line, 78)
+            print(Colors.CYAN + "║ " + padded_line + Colors.CYAN + " ║" + Colors.ENDC)
+            detail_line = Colors.WHITE + f"   With Admin PIN: {data.get('with_admin_pin', 0)}  │  With User PIN: {data.get('with_user_pin', 0)}"
+            padded_detail = pad_ansi(detail_line, 78)
+            print(Colors.CYAN + "║ " + padded_detail + Colors.CYAN + " ║" + Colors.ENDC)
             print(Colors.CYAN + "╠" + "═" * 78 + "╣" + Colors.ENDC)
             
             for conf in data["conferences"][:8]:
