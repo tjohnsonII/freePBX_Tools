@@ -8,7 +8,7 @@ Menu-driven wrapper to:
 Python 3.6 safe. No external modules.
 """
 
-import json, os, sys, subprocess, time, shutil
+import json, os, sys, subprocess, time, shutil, re
 
 # ANSI Color codes
 class Colors:
@@ -23,6 +23,37 @@ class Colors:
     WHITE = '\033[97m'
     BG_BLUE = '\033[44m'
     BG_CYAN = '\033[46m'
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def visible_len(text):
+    """Return the printable length of a string that may contain ANSI codes."""
+    if not text:
+        return 0
+    return len(ANSI_ESCAPE_RE.sub('', text))
+
+
+def pad_ansi(text, width, align='left'):
+    """Pad ANSI-colored text to a target width without breaking alignment."""
+    if text is None:
+        text = ''
+
+    length = visible_len(text)
+    if length >= width:
+        return text
+
+    pad = width - length
+    if align == 'left':
+        return text + ' ' * pad
+    if align == 'right':
+        return ' ' * pad + text
+    if align == 'center':
+        left = pad // 2
+        right = pad - left
+        return ' ' * left + text + ' ' * right
+    raise ValueError(f"Unsupported alignment: {align}")
 
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"
 GRAPH_SCRIPT  = "/usr/local/bin/freepbx_callflow_graph.py"
@@ -958,41 +989,38 @@ def display_system_dashboard(sock, data):
     tc_num = str(tc_total)
     ep_num = str(ep_total)
     
-    r1_c1 = (call_color + Colors.BOLD + call_num + Colors.RESET).center(TILE_WIDTH-2 + len(call_color) + len(Colors.BOLD) + len(Colors.RESET))
-    r1_c2 = (tc_color + Colors.BOLD + tc_num + Colors.RESET).center(TILE_WIDTH-2 + len(tc_color) + len(Colors.BOLD) + len(Colors.RESET))
-    r1_c3 = (Colors.WHITE + Colors.BOLD + ep_num + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.BOLD) + len(Colors.RESET))
+    r1_c1 = pad_ansi(f"{call_color}{Colors.BOLD}{call_num}{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r1_c2 = pad_ansi(f"{tc_color}{Colors.BOLD}{tc_num}{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r1_c3 = pad_ansi(f"{Colors.WHITE}{Colors.BOLD}{ep_num}{Colors.RESET}", TILE_WIDTH-2, align='center')
     
     print(Colors.CYAN + "║ " + r1_c1 + Colors.CYAN + " ║ " + r1_c2 + Colors.CYAN + " ║ " + r1_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
     # Row 2 - Status text
     call_status = "ACTIVE" if active_calls and active_calls > 0 else "IDLE"
-    r2_c1 = (call_color + call_status + Colors.RESET).center(TILE_WIDTH-2 + len(call_color) + len(Colors.RESET))
-    r2_c2 = (Colors.WHITE + "Time Conditions" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
-    r2_c3 = (Colors.WHITE + "Endpoints" + Colors.RESET).center(TILE_WIDTH-2 + len(Colors.WHITE) + len(Colors.RESET))
+    r2_c1 = pad_ansi(f"{call_color}{call_status}{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r2_c2 = pad_ansi(f"{Colors.WHITE}Time Conditions{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r2_c3 = pad_ansi(f"{Colors.WHITE}Endpoints{Colors.RESET}", TILE_WIDTH-2, align='center')
     
     print(Colors.CYAN + "║ " + r2_c1 + Colors.CYAN + " ║ " + r2_c2 + Colors.CYAN + " ║ " + r2_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
     # Separator
-    print(Colors.CYAN + "║ " + "─" * (TILE_WIDTH-2) + " ║ " + "─" * (TILE_WIDTH-2) + " ║ " + "─" * (TILE_WIDTH-2) + " ║" + Colors.RESET)
+    sep = "─" * (TILE_WIDTH-2)
+    print(Colors.CYAN + "║ " + sep + " ║ " + sep + " ║ " + sep + " ║" + Colors.RESET)
     
-    # Row 3 - Details
-    r3_c1 = "Channels: " + call_color + Colors.BOLD + call_num + Colors.RESET
-    r3_c2 = "Forced: " + (Colors.YELLOW if forced_count > 0 else Colors.GREEN) + Colors.BOLD + str(forced_count) + Colors.RESET + "  Auto: " + Colors.GREEN + Colors.BOLD + str(tc_total - forced_count) + Colors.RESET
-    r3_c3 = "Online: " + ep_color + Colors.BOLD + str(ep_registered) + Colors.RESET + " (" + str(ep_pct) + "%)"
+    # Row 3 - Details (centered under the title)
+    forced_color = Colors.YELLOW if forced_count > 0 else Colors.GREEN
+    r3_c1 = pad_ansi(f"Channels: {call_color}{Colors.BOLD}{call_num}{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r3_c2 = pad_ansi(f"Forced: {forced_color}{Colors.BOLD}{forced_count}{Colors.RESET}  Auto: {Colors.GREEN}{Colors.BOLD}{tc_total - forced_count}{Colors.RESET}", TILE_WIDTH-2, align='center')
+    r3_c3 = pad_ansi(f"Online: {ep_color}{Colors.BOLD}{ep_registered}{Colors.RESET} ({ep_pct}%)", TILE_WIDTH-2, align='center')
     
-    # Pad to tile width (accounting for ANSI codes)
-    print(Colors.CYAN + "║ " + r3_c1 + " " * (TILE_WIDTH-2 - 10 - len(call_num)) + 
-          " ║ " + r3_c2 + " " * (TILE_WIDTH-2 - 20 - len(str(forced_count)) - len(str(tc_total - forced_count))) + 
-          " ║ " + r3_c3 + " " * (TILE_WIDTH-2 - 15 - len(str(ep_registered)) - len(str(ep_pct))) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + r3_c1 + Colors.CYAN + " ║ " + r3_c2 + Colors.CYAN + " ║ " + r3_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
     # Row 4
-    r4_c1 = ""
-    r4_c2 = ""
-    r4_c3 = "Offline: " + Colors.RED + Colors.BOLD + str(ep_unreg) + Colors.RESET
+    r4_c1 = pad_ansi("", TILE_WIDTH-2)
+    r4_c2 = pad_ansi("", TILE_WIDTH-2)
+    r4_c3 = pad_ansi(f"Offline: {Colors.RED}{Colors.BOLD}{ep_unreg}{Colors.RESET}", TILE_WIDTH-2, align='center')
     
-    print(Colors.CYAN + "║ " + " " * (TILE_WIDTH-2) + 
-          " ║ " + " " * (TILE_WIDTH-2) + 
-          " ║ " + r4_c3 + " " * (TILE_WIDTH-2 - 9 - len(str(ep_unreg))) + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+    print(Colors.CYAN + "║ " + r4_c1 + Colors.CYAN + " ║ " + r4_c2 + Colors.CYAN + " ║ " + r4_c3 + Colors.CYAN + " ║" + Colors.RESET)
     
     print(Colors.CYAN + "╚" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╝" + Colors.RESET)
     
@@ -1038,33 +1066,43 @@ def display_system_dashboard(sock, data):
             svc_name, svc_stat, svc_color = service_status[i]
             status_icon = "●" if svc_stat == "running" else "○"
             stat_text = svc_stat[:7].upper()
-            svc_line = svc_color + status_icon + " " + Colors.WHITE + svc_name.ljust(18) + svc_color + Colors.BOLD + stat_text.rjust(12) + Colors.RESET
+            svc_line = pad_ansi(f"{svc_color}{status_icon} {Colors.WHITE}{svc_name.ljust(18)}{svc_color}{Colors.BOLD}{stat_text.rjust(12)}{Colors.RESET}", TILE_WIDTH-2)
         else:
-            svc_line = " " * (TILE_WIDTH-2)
+            svc_line = pad_ansi("", TILE_WIDTH-2)
         
-        # Inventory column - cleaner with better alignment
+        # Inventory column - better spacing (label left, count right with reasonable gap)
         if i < len(inventory_items):
             inv_label, inv_count = inventory_items[i]
-            inv_line = Colors.WHITE + inv_label.ljust(25) + Colors.CYAN + Colors.BOLD + str(inv_count).rjust(15) + Colors.RESET
+            inv_line = pad_ansi(f"{Colors.WHITE}{inv_label.ljust(18)}{Colors.CYAN}{Colors.BOLD}{str(inv_count).rjust(10)}{Colors.RESET}", TILE_WIDTH-2)
         else:
-            inv_line = " " * (TILE_WIDTH-2)
+            inv_line = pad_ansi("", TILE_WIDTH-2)
         
-        # Paths column - more informative
+        # Paths column - abbreviated paths
         if i == 0:
             snap_icon = Colors.GREEN + "✓" if snapshot_exists else Colors.RED + "✗"
-            path_line = snap_icon + Colors.WHITE + " Snapshot " + Colors.CYAN + "({:.1f} MB)".format(snapshot_size).ljust(30) + Colors.RESET
+            path_line = pad_ansi(f"{snap_icon}{Colors.WHITE} Snapshot {Colors.CYAN}({snapshot_size:.1f} MB){Colors.RESET}", TILE_WIDTH-2)
         elif i - 1 < len(paths_to_check):
             path, label, path_len = paths_to_check[i - 1]
             exists = os.path.exists(path)
             icon = Colors.GREEN + "✓" if exists else Colors.RED + "✗"
-            path_display = path[-35:] if len(path) > 35 else path
-            path_line = icon + Colors.WHITE + " " + label.ljust(14) + Colors.CYAN + path_display.ljust(28) + Colors.RESET
+            # Shorten paths intelligently
+            if "asterisk/full" in path:
+                path_display = "...asterisk/full"
+            elif "mysql.sock" in path:
+                path_display = "mysql.sock"
+            elif "monitor" in path:
+                path_display = "...monitor/"
+            elif "/etc/asterisk" in path:
+                path_display = "/etc/asterisk/"
+            elif "mysql/asterisk" in path:
+                path_display = "...mysql/asterisk/"
+            else:
+                path_display = path[-28:] if len(path) > 28 else path
+            path_line = pad_ansi(f"{icon}{Colors.WHITE} {label.ljust(14)}{Colors.CYAN}{path_display}{Colors.RESET}", TILE_WIDTH-2)
         else:
-            path_line = " " * (TILE_WIDTH-2)
+            path_line = pad_ansi("", TILE_WIDTH-2)
         
-        print(Colors.CYAN + "║ " + svc_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN +
-              " ║ " + inv_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN +
-              " ║ " + path_line[:TILE_WIDTH-2 + 50].ljust(TILE_WIDTH-2 + 50)[:TILE_WIDTH-2 + 50] + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "║ " + svc_line + Colors.CYAN + " ║ " + inv_line + Colors.CYAN + " ║ " + path_line + Colors.CYAN + " ║" + Colors.RESET)
     
     print(Colors.CYAN + "╚" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╩" + "═" * TILE_WIDTH + "╝" + Colors.RESET)
     
