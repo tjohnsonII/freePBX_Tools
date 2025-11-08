@@ -48,6 +48,28 @@ config.py
 credentials.py
 
 # Test credentials and sensitive test files
+test_password_file.txt
+
+# VPBX Analysis - Sensitive Data Files
+vpbx_ultimate_analysis/
+*SENSITIVE*
+*CREDENTIALS*
+*credentials*
+*.db
+vpbx_data.db
+
+# Analysis output files that may contain IPs/company data
+yealink_companies_full.csv
+yealink_companies_full.json
+yealink_companies_with_names.csv
+yealink_sites_report.csv
+yealink_sites_report.json
+analysis_output.json
+*_analysis.json
+site_company_mapping.txt
+
+# Scraped data
+test_scrape_output/
 test_info.txt
 *test_info*
 test_password_file.txt
