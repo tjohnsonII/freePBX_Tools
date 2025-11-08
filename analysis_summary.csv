@@ -1,0 +1,11 @@
+Category,Item,Value,Status
+SIP Account,Line 1,113,Active
+SIP Account,Line 2,,Active
+Security,Weak cipher enabled: NULL,Cipher suite: RSA:!EXP:!LOW:!NULL:!MD5:@STRENGTH,MEDIUM
+Security,Weak cipher enabled: MD5,Cipher suite: RSA:!EXP:!LOW:!NULL:!MD5:@STRENGTH,MEDIUM
+Feature,Presence,,Enabled
+Feature,Paging,,Enabled
+Feature,Volume Persist (Handset),,Enabled
+Feature,Volume Persist (Headset),,Enabled
+Feature,Enhanced Feature Keys,,Enabled
+Feature,Line Key Reassignment,,Enabled
