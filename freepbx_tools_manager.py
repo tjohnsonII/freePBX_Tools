@@ -46,7 +46,8 @@ def print_menu():
     print(f"  {Colors.CYAN}4){Colors.RESET} Test dashboard on test server (69.39.69.102)")
     print(f"  {Colors.CYAN}5){Colors.RESET} View deployment status")
     print(f"  {Colors.CYAN}6){Colors.RESET} 🔌 SSH into a server")
-    print(f"  {Colors.CYAN}7){Colors.RESET} Exit")
+    print(f"  {Colors.CYAN}7){Colors.RESET} 📱 Phone Config Analyzer")
+    print(f"  {Colors.CYAN}8){Colors.RESET} Exit")
     print()
 
 def get_credentials():
@@ -409,6 +410,133 @@ def ssh_to_server():
             print(f"{Colors.YELLOW}Password: {password}{Colors.RESET}\n")
             cmd = ["ssh", f"{username}@{server_ip}"]
             subprocess.run(cmd)
+
+def phone_config_analyzer():
+    """Run Phone Configuration Analyzer"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print(f"  📱 Phone Configuration Analyzer")
+    print(f"{'='*70}{Colors.RESET}")
+    
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}What would you like to analyze?{Colors.RESET}")
+    print(f"  {Colors.CYAN}1){Colors.RESET} Single config file")
+    print(f"  {Colors.CYAN}2){Colors.RESET} Directory of config files")
+    print(f"  {Colors.CYAN}3){Colors.RESET} Run interactive demo")
+    print(f"  {Colors.CYAN}4){Colors.RESET} View documentation")
+    print(f"  {Colors.CYAN}5){Colors.RESET} Back to main menu")
+    print()
+    
+    choice = input(f"{Colors.YELLOW}Choose option (1-5):{Colors.RESET} ").strip()
+    
+    if choice == "1":
+        # Single file analysis
+        file_path = input(f"\n{Colors.YELLOW}Enter config file path:{Colors.RESET} ").strip()
+        
+        if not os.path.exists(file_path):
+            print(f"{Colors.RED}❌ File not found: {file_path}{Colors.RESET}")
+            return
+        
+        # Ask about export
+        export_json = input(f"{Colors.YELLOW}Export to JSON? (yes/no) [no]:{Colors.RESET} ").strip().lower()
+        export_csv = input(f"{Colors.YELLOW}Export to CSV? (yes/no) [no]:{Colors.RESET} ").strip().lower()
+        
+        # Build command
+        cmd = ["python", "phone_config_analyzer.py", file_path]
+        
+        if export_json in ['yes', 'y']:
+            json_file = input(f"{Colors.YELLOW}JSON filename [analysis.json]:{Colors.RESET} ").strip() or "analysis.json"
+            cmd.extend(["--json", json_file])
+        
+        if export_csv in ['yes', 'y']:
+            csv_file = input(f"{Colors.YELLOW}CSV filename [analysis.csv]:{Colors.RESET} ").strip() or "analysis.csv"
+            cmd.extend(["--csv", csv_file])
+        
+        print(f"\n{Colors.GREEN}{Colors.BOLD}🔍 Analyzing config file...{Colors.RESET}\n")
+        subprocess.run(cmd)
+        
+    elif choice == "2":
+        # Directory analysis
+        dir_path = input(f"\n{Colors.YELLOW}Enter directory path:{Colors.RESET} ").strip()
+        
+        if not os.path.exists(dir_path):
+            print(f"{Colors.RED}❌ Directory not found: {dir_path}{Colors.RESET}")
+            return
+        
+        if not os.path.isdir(dir_path):
+            print(f"{Colors.RED}❌ Not a directory: {dir_path}{Colors.RESET}")
+            return
+        
+        # Build command
+        cmd = ["python", "phone_config_analyzer.py", "--directory", dir_path]
+        
+        # Ask about batch export
+        export = input(f"{Colors.YELLOW}Export each config to JSON? (yes/no) [no]:{Colors.RESET} ").strip().lower()
+        if export in ['yes', 'y']:
+            output_dir = input(f"{Colors.YELLOW}Output directory [reports]:{Colors.RESET} ").strip() or "reports"
+            
+            # Create output directory
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                print(f"{Colors.GREEN}✅ Created directory: {output_dir}{Colors.RESET}")
+            
+            # Note: We'll need to enhance the analyzer for batch JSON export
+            # For now, just analyze the directory
+            print(f"\n{Colors.YELLOW}💡 Note: Batch JSON export can be done with a shell script{Colors.RESET}")
+            print(f"{Colors.CYAN}Example:{Colors.RESET}")
+            print(f"  for f in {dir_path}/*.cfg; do")
+            print(f"    python phone_config_analyzer.py \"$f\" --json {output_dir}/$(basename \"$f\" .cfg).json")
+            print(f"  done")
+            print()
+        
+        print(f"\n{Colors.GREEN}{Colors.BOLD}🔍 Analyzing directory...{Colors.RESET}\n")
+        subprocess.run(cmd)
+        
+    elif choice == "3":
+        # Run demo
+        demo_file = "phone_config_analyzer_demo.py"
+        
+        if not os.path.exists(demo_file):
+            print(f"{Colors.RED}❌ Demo file not found: {demo_file}{Colors.RESET}")
+            print(f"{Colors.YELLOW}💡 Make sure {demo_file} is in the current directory{Colors.RESET}")
+            return
+        
+        print(f"\n{Colors.GREEN}{Colors.BOLD}🎭 Running interactive demo...{Colors.RESET}\n")
+        subprocess.run(["python", demo_file])
+        
+    elif choice == "4":
+        # View documentation
+        print(f"\n{Colors.CYAN}{Colors.BOLD}📚 Documentation Files:{Colors.RESET}\n")
+        
+        docs = [
+            ("PHONE_CONFIG_ANALYZER_README.md", "Comprehensive documentation"),
+            ("PHONE_CONFIG_ANALYZER_QUICKREF.md", "Quick reference guide"),
+            ("PHONE_CONFIG_ANALYZER_SUMMARY.md", "Project overview")
+        ]
+        
+        for doc_file, description in docs:
+            if os.path.exists(doc_file):
+                print(f"  {Colors.GREEN}✅{Colors.RESET} {Colors.CYAN}{doc_file}{Colors.RESET}")
+                print(f"     {Colors.YELLOW}{description}{Colors.RESET}")
+            else:
+                print(f"  {Colors.RED}❌{Colors.RESET} {Colors.CYAN}{doc_file}{Colors.RESET}")
+            print()
+        
+        view_doc = input(f"{Colors.YELLOW}Open a document? Enter filename or 'no':{Colors.RESET} ").strip()
+        
+        if view_doc and view_doc.lower() != 'no' and os.path.exists(view_doc):
+            # Try to open with default viewer
+            if sys.platform == "win32":
+                os.startfile(view_doc)
+            elif sys.platform == "darwin":  # macOS
+                subprocess.run(["open", view_doc])
+            else:  # Linux
+                subprocess.run(["xdg-open", view_doc])
+            
+            print(f"{Colors.GREEN}✅ Opened {view_doc}{Colors.RESET}")
+        
+    elif choice == "5":
+        return
+    else:
+        print(f"{Colors.RED}❌ Invalid choice{Colors.RESET}")
     
 def main():
     """Main interactive loop"""
@@ -416,7 +544,7 @@ def main():
         print_banner()
         print_menu()
         
-        choice = input(f"{Colors.YELLOW}Choose option (1-7):{Colors.RESET} ").strip()
+        choice = input(f"{Colors.YELLOW}Choose option (1-8):{Colors.RESET} ").strip()
         
         if choice == "1":
             deploy_tools()
@@ -431,10 +559,12 @@ def main():
         elif choice == "6":
             ssh_to_server()
         elif choice == "7":
+            phone_config_analyzer()
+        elif choice == "8":
             print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
             sys.exit(0)
         else:
-            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-7.{Colors.RESET}\n")
+            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-8.{Colors.RESET}\n")
         
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
 

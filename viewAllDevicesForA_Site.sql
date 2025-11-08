@@ -1,0 +1,1 @@
+SELECT * FROM devices WHERE site_id = 419;
