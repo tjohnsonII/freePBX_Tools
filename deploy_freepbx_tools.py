@@ -107,11 +107,16 @@ def get_local_files():
     
     # Get all files in the source directory
     for root, dirs, files in os.walk(source_dir):
-        # Skip __pycache__ and .git directories
-        dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git', '.vscode']]
+        # Skip __pycache__, .git, .vscode, and 123net_internal_docs directories
+        dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git', '.vscode', '123net_internal_docs']]
         
         for file in files:
-            if file.endswith(('.py', '.sh', '.json', '.txt', '.md')):
+            # Skip markdown files (documentation) and test files
+            if file.startswith('test_') or file == 'version_outliers.csv':
+                continue
+            
+            # Only include essential files
+            if file.endswith(('.py', '.sh', '.json', '.txt')) and not file.endswith('.md'):
                 local_path = os.path.join(root, file)
                 # Create relative path for remote - use forward slashes for Unix
                 rel_path = os.path.relpath(local_path, source_dir).replace('\\', '/')

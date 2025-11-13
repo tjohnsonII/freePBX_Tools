@@ -1870,20 +1870,6 @@ def run_network_diagnostics_menu():
 
 # ---------------- menu ----------------
 
-def main():
-    # Check if running as root (required for MySQL access)
-    try:
-        euid = os.geteuid()  # type: ignore
-        if euid != 0:
-            print(Colors.YELLOW + "\n⚠️  This tool requires root access to query the FreePBX database." + Colors.RESET)
-            print(Colors.CYAN + "Please run: " + Colors.BOLD + "sudo freepbx-callflows" + Colors.RESET)
-            print(Colors.CYAN + "Or switch to root first: " + Colors.BOLD + "su root" + Colors.RESET + "\n")
-            sys.exit(1)
-    except AttributeError:
-        # Windows doesn't have geteuid, skip check
-        pass
-
-
 def run_phone_analysis_menu():
     """Interactive phone/endpoint analysis menu."""
     PHONE_ANALYZER_SCRIPT = os.path.join(os.path.dirname(__file__), "freepbx_phone_analyzer.py")
@@ -1934,8 +1920,19 @@ def run_phone_analysis_menu():
         input()
 
 
-# Main function is at the bottom of the file (don't duplicate)
-    
+def main():
+    # Check if running as root (required for MySQL access)
+    try:
+        euid = os.geteuid()  # type: ignore
+        if euid != 0:
+            print(Colors.YELLOW + "\n⚠️  This tool requires root access to query the FreePBX database." + Colors.RESET)
+            print(Colors.CYAN + "Please run: " + Colors.BOLD + "sudo freepbx-callflows" + Colors.RESET)
+            print(Colors.CYAN + "Or switch to root first: " + Colors.BOLD + "su root" + Colors.RESET + "\n")
+            sys.exit(1)
+    except AttributeError:
+        # Windows doesn't have geteuid, skip check
+        pass
+
     if not os.path.isfile(DUMP_SCRIPT):
         print("ERROR: {} not found.".format(DUMP_SCRIPT)); sys.exit(1)
     if not os.path.isfile(GRAPH_SCRIPT):
