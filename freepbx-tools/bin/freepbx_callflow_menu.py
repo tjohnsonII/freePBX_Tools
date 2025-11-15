@@ -947,11 +947,23 @@ def run_full_diagnostic_legacy():
 
 # ---------------- helpers ----------------
 
-def run(cmd, env=None):
+def run(cmd, env=None, timeout=None):
     """subprocess.run wrapper (3.6-safe: universal_newlines instead of text=)."""
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                       universal_newlines=True, env=env)
-    return p.returncode, (p.stdout or ""), (p.stderr or "")
+    try:
+        p = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            env=env,
+            timeout=timeout,
+        )
+        return p.returncode, (p.stdout or ""), (p.stderr or "")
+    except subprocess.TimeoutExpired as e:
+        # No e.process – only e.cmd, e.timeout, e.output, e.stderr
+        print("[DEBUG] Timeout running:", e.cmd, "after", e.timeout, "seconds")
+        return 1, "", "Timeout running {}".format(e.cmd)
+
 
 def run_interactive(cmd, env=None):
     """Run command with output streaming directly to terminal."""
@@ -1070,22 +1082,41 @@ def parse_selection(sel, max_index):
 
 def render_dids(did_rows, indexes, sock, skip_labels=None):
     ensure_outdir()
-    ok = 0; bad = 0
+    ok = 0
+    bad = 0
     for idx in indexes:
         _, did, label, _, _ = did_rows[idx-1]
+
         if skip_labels and label and label.strip().lower() in skip_labels:
-            print("• Skipping DID {} (label='{}')".format(did, label))
+            print(f"• Skipping DID {did} (label='{label}')")
             continue
-        out_file = os.path.join(OUT_DIR, "callflow_{}.svg".format(did))
-        cmd = ["python3", GRAPH_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--did", str(did), "--out", out_file]
-        rc, out, err = run(cmd)
+
+        out_file = os.path.join(OUT_DIR, f"callflow_{did}.svg")
+
+        # Debug so you can see exactly where it hangs
+        print(f"[INFO] Rendering DID {did} -> {out_file}")
+
+        cmd = [
+            "python3",
+            GRAPH_SCRIPT,
+            "--socket", sock,
+            "--db-user", DB_USER,
+            "--did", str(did),
+            "--out", out_file,
+        ]
+
+        # Put a per-DID timeout on the graph generator
+        rc, out, err = run(cmd, timeout=120)
+
         if rc == 0 and os.path.isfile(out_file):
-            print("✓ DID {} -> {}".format(did, out_file))
+            print(f"✓ DID {did} -> {out_file}")
             ok += 1
         else:
-            print("✖ DID {} FAILED: {}".format(did, (err or out).strip()))
+            print(f"✖ DID {did} FAILED: {(err or out).strip()}")
             bad += 1
-    print("\nDone. Success: {}, Failed: {}".format(ok, bad))
+
+    print(f"\nDone. Success: {ok}, Failed: {bad}")
+
 
 def get_service_status(services):
     """Get status of system services"""
