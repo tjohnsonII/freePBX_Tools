@@ -1,30 +1,77 @@
-#!/usr/bin/env bash
-# 123NET FreePBX Tools - Installer
-# - Installs to /usr/local/123net/freepbx-tools
-# - Symlinks into /usr/local/bin (both friendly and legacy names)
-# - Ensures deps (jq, graphviz/dot, mysql client, python3) with EL7 python36u safety
-# - Normalizes shebangs/line-endings for all shell scripts; makes executables
-# - Applies Python <3.7 compat tweak (text=True -> universal_newlines=True)
-# - Creates /home/123net/callflows, prints version policy banner
-# - Runs a post-install smoke test (python3, dot, mysql, callflows help)
 
+#!/usr/bin/env bash
+# ============================================================================
+# VARIABLE LEGEND (Map)
+# ---------------------
+# INSTALL_ROOT     - Parent directory for all 123NET tools (default: /usr/local/123net)
+# INSTALL_DIR      - Main install directory for FreePBX tools (default: /usr/local/123net/freepbx-tools)
+# BIN_DIR          - Directory for system-wide symlinks (default: /usr/local/bin)
+# CALLFLOWS_DIR    - Output directory for call flow SVG/JSON (default: /home/123net/callflows)
+# src_dir          - Source directory of the install script (used for relative paths)
+# pip_cmd          - Python package installer command (pip3, pip, or python3 -m pip)
+# policy_file      - Path to version_policy.json
+# FWC              - Path to fwconsole binary
+# FPBX_MAJ         - Detected FreePBX major version
+# AST_MAJ          - Detected Asterisk major version
+# ok, fail         - Counters for smoke test results
+# c                - Loop variable for dependency checks
+# rel              - Relative path for script normalization
+# d                - Directory path for patching Python scripts
+# f                - File path for patching Python scripts
+# n                - Loop variable for tool names in symlink creation
+# $@, $#           - All/number of command-line arguments
+# ============================================================================
+# 123NET FreePBX Tools - Installer
+# --------------------------------------------------------------------------
+# This script installs the FreePBX tools suite, sets up all dependencies,
+# normalizes scripts, and creates symlinks for easy CLI access.
+#
+# MAIN STEPS:
+# 1. Ensures root privileges for all install actions.
+# 2. Detects OS type (EL7/8/9, Debian) for package management.
+# 3. Installs required system packages: jq, graphviz (dot), mariadb/mysql client, python3.
+# 4. Handles EL7 python36u/IUS repo edge cases for python3.
+# 5. Installs Python packages for optional GUI tools (beautifulsoup4, requests).
+# 6. Copies all scripts to the install directory, normalizes line endings and shebangs.
+# 7. Makes all scripts executable.
+# 8. Creates symlinks in /usr/local/bin for both friendly and legacy tool names.
+# 9. Patches subprocess.run(..., text=True) to universal_newlines=True for Python <3.7.
+# 10. Creates output directory for callflows and sets permissions.
+# 11. Prints version policy banner and runs a post-install smoke test.
+#
+# SAFETY:
+# - set -Eeuo pipefail: Exit on error, unset variable, or failed pipeline.
+# - All destructive actions are guarded by checks.
+# - Idempotent: safe to re-run, will not duplicate symlinks or fail if already installed.
+# ============================================================================
+
+
+# Exit on error, error on unset variables, error on failed pipeline
 set -Eeuo pipefail
 
-INSTALL_ROOT="/usr/local/123net"
-INSTALL_DIR="$INSTALL_ROOT/freepbx-tools"
-BIN_DIR="/usr/local/bin"
-CALLFLOWS_DIR="/home/123net/callflows"
 
-log()  { printf '%s\n' "$*"; }
-warn() { printf 'WARN: %s\n' "$*" >&2; }
-have() { command -v "$1" >/dev/null 2>&1; }
+# Define main install and output directories
+INSTALL_ROOT="/usr/local/123net"         # Parent directory for all 123NET tools
+INSTALL_DIR="$INSTALL_ROOT/freepbx-tools" # Main install directory for FreePBX tools
+BIN_DIR="/usr/local/bin"                 # Directory for system-wide symlinks
+CALLFLOWS_DIR="/home/123net/callflows"   # Output directory for call flow SVG/JSON
 
-is_el()  { [[ -f /etc/redhat-release ]]; }
-is_el7() { is_el && grep -qE 'release 7\.' /etc/redhat-release; }
-is_el8() { is_el && grep -qE 'release 8\.' /etc/redhat-release; }
-is_el9() { is_el && grep -qE 'release 9\.' /etc/redhat-release; }
-is_deb() { [[ -f /etc/debian_version ]] || have apt-get; }
 
+# Utility logging functions
+log()  { printf '%s\n' "$*"; }   # Print a log message
+warn() { printf 'WARN: %s\n' "$*" >&2; } # Print a warning to stderr
+have() { command -v "$1" >/dev/null 2>&1; } # Check if a command exists
+
+
+# OS detection helpers
+is_el()  { [[ -f /etc/redhat-release ]]; } # True if RHEL/CentOS/Alma/Rocky
+is_el7() { is_el && grep -qE 'release 7\.' /etc/redhat-release; } # True if EL7
+is_el8() { is_el && grep -qE 'release 8\.' /etc/redhat-release; } # True if EL8
+is_el9() { is_el && grep -qE 'release 9\.' /etc/redhat-release; } # True if EL9
+is_deb() { [[ -f /etc/debian_version ]] || have apt-get; } # True if Debian/Ubuntu
+
+
+# Ensure script is run as root
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     echo "This installer needs root. Try: sudo $0" >&2
@@ -32,6 +79,8 @@ require_root() {
   fi
 }
 
+
+# Enable EPEL repo if on RHEL/CentOS/Alma/Rocky
 enable_epel_if_needed() {
   if is_el; then
     (yum -y install epel-release || dnf -y install epel-release) >/dev/null 2>&1 || true
@@ -39,11 +88,15 @@ enable_epel_if_needed() {
 }
 
 # Ensure a usable python3 without tripping EL7's IUS python36u conflicts
+
+# Ensure python3 is installed and available on PATH
+# Handles EL7 python36u/IUS repo edge cases
 ensure_python3() {
   echo ">>> Ensuring python3 is installed and on PATH..."
   if have python3; then python3 -V || true; return 0; fi
 
   if is_el7; then
+    # Try to use python36u if available
     if rpm -q python36u python36u-libs >/dev/null 2>&1; then
       yum install -y python36u python36u-libs python36u-pip || true
       mkdir -p /usr/local/bin
@@ -51,8 +104,10 @@ ensure_python3() {
       export PATH="/usr/local/bin:$PATH"
       have python3 && { python3 -V || true; return 0; }
     fi
+    # Try system python3
     yum install -y python3 || true
     if have python3; then python3 -V || true; return 0; fi
+    # Try IUS repo as last resort
     rpm -q ius-release >/dev/null 2>&1 || yum install -y https://repo.ius.io/ius-release-el7.rpm || true
     yum install -y python36u python36u-libs python36u-pip || true
     mkdir -p /usr/local/bin
@@ -74,6 +129,9 @@ ensure_python3() {
   fi
 }
 
+
+# Ensure all required system packages are installed
+# Installs jq, graphviz (dot), mariadb/mysql client, and symlinks asterisk/fwconsole if missing
 ensure_pkgset() {
   echo ">>> Installing jq, graphviz (dot), and MySQL client..."
   if is_el; then
@@ -82,14 +140,18 @@ ensure_pkgset() {
     apt-get update -y || true
     apt-get install -y jq graphviz default-mysql-client || apt-get install -y jq graphviz mariadb-client || true
   fi
+  # Symlink asterisk/fwconsole if not present on PATH
   have asterisk  || ln -sf /usr/sbin/asterisk /usr/local/bin/asterisk  2>/dev/null || true
   have fwconsole || ln -sf /var/lib/asterisk/bin/fwconsole /usr/local/bin/fwconsole 2>/dev/null || true
 }
 
+
+# Ensure required Python packages for GUI comparison tool are installed
+# Tries pip3, pip, or python3 -m pip, and installs from requirements.txt if present
 ensure_python_packages() {
   echo ">>> Installing Python packages for GUI comparison tool..."
   
-  # Try to install required Python packages for optional features
+  # Try to find a working pip command
   local pip_cmd=""
   if have pip3; then
     pip_cmd="pip3"
@@ -127,6 +189,9 @@ ensure_python_packages() {
   fi
 }
 
+
+# Check for all required dependencies after install
+# Warns if any are missing, but does not fail install
 check_after_installs() {
   local missing=0
   for c in python3 jq dot mysql; do
@@ -145,13 +210,17 @@ check_after_installs() {
   fi
 }
 
+do
+done
+
+# Copy all files to install directory, normalize scripts, and set permissions
 install_files() {
   echo ">>> Copying files to $INSTALL_DIR ..."
   local src_dir
-  src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # Get script directory
 
-  mkdir -p "$INSTALL_DIR"
-  cp -a "$src_dir/." "$INSTALL_DIR/"
+  mkdir -p "$INSTALL_DIR"  # Ensure install directory exists
+  cp -a "$src_dir/." "$INSTALL_DIR/"  # Copy all files
 
   # Normalize Python entrypoints and make executables
   for rel in \
@@ -159,20 +228,20 @@ install_files() {
   bin/freepbx_callflow_menu.py \
   bin/freepbx_callflow_graph.py \
   bin/freepbx_tc_status.py
-do
-  [[ -f "$INSTALL_DIR/$rel" ]] || continue
-  sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true
-  chmod +x "$INSTALL_DIR/$rel" || true
-done
+
+    [[ -f "$INSTALL_DIR/$rel" ]] || continue  # Skip if file missing
+    sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true  # Fix shebang
+    chmod +x "$INSTALL_DIR/$rel" || true  # Make executable
+  done
 
   # Normalize ALL shell scripts (CRLF/BOM → LF, ensure bash shebang, chmod +x)
   if command -v find >/dev/null 2>&1; then
     while IFS= read -r -d '' s; do
-      sed -i -e 's/\r$//' -e '1s/^\xEF\xBB\xBF//' "$s" || true
+      sed -i -e 's/\r$//' -e '1s/^\xEF\xBB\xBF//' "$s" || true  # Remove CRLF/BOM
       if ! head -n1 "$s" | grep -q '^#!'; then
-        sed -i '1i #!/usr/bin/env bash' "$s" || true
+        sed -i '1i #!/usr/bin/env bash' "$s" || true  # Add shebang if missing
       fi
-      chmod +x "$s" || true
+      chmod +x "$s" || true  # Make executable
     done < <(find "$INSTALL_DIR" -type f -name "*.sh" -print0)
   fi
 
@@ -183,34 +252,37 @@ done
   chmod +x "$INSTALL_DIR"/install.sh                     2>/dev/null || true
   chmod +x "$INSTALL_DIR"/uninstall.sh                   2>/dev/null || true
 
-  mkdir -p "$CALLFLOWS_DIR"
+  mkdir -p "$CALLFLOWS_DIR"  # Ensure output directory exists
   if id asterisk >/dev/null 2>&1; then
-    chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true
+    chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true  # Set ownership if asterisk user exists
   fi
 }
-
 # Make subprocess.run(..., text=True) work on Python < 3.7
+
+# Patch subprocess.run(..., text=True) to universal_newlines=True for Python <3.7
 patch_py36_text_kwarg() {
   have python3 || return 0
 
-  # returns 0 on Python < 3.7, 1 otherwise
+  # Only patch if Python <3.7
   if python3 -c 'import sys; raise SystemExit(0 if sys.version_info < (3,7) else 1)'; then
     local d="$INSTALL_DIR/bin"
     [[ -d "$d" ]] || return 0
     echo ">>> Adapting subprocess.run(..., text=True) for Python < 3.7"
     for f in "$d"/*.py; do
       [[ -f "$f" ]] || continue
-      [[ -f "${f}.bak" ]] || cp -a "$f" "${f}.bak"
-      sed -i 's/text=True/universal_newlines=True/g' "$f" || true
+      [[ -f "${f}.bak" ]] || cp -a "$f" "${f}.bak"  # Backup original
+      sed -i 's/text=True/universal_newlines=True/g' "$f" || true  # Patch keyword
     done
   fi
 }
 
+
+# Create all CLI symlinks for tools in $BIN_DIR and legacy locations
 install_symlinks() {
   echo ">>> Creating CLI symlinks in $BIN_DIR ..."
   mkdir -p "$BIN_DIR"
 
-  # Friendly names
+  # Friendly names for user CLI
   ln -sf "$INSTALL_DIR/bin/freepbx_callflow_menu.py"    "$BIN_DIR/freepbx-callflows"           2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx-render"              2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx-dump"                2>/dev/null || true
@@ -237,22 +309,25 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_version_aware_ascii_callflow.py" "$BIN_DIR/freepbx_ascii_callflow.py" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/callflow_validator.py" "$BIN_DIR/callflow_validator.py" 2>/dev/null || true
 
-  # Diagnostic symlink
+  # Diagnostic symlink for full system diagnostic script
   ln -sfn "$INSTALL_DIR/bin/asterisk-full-diagnostic.sh" "$BIN_DIR/asterisk-full-diagnostic.sh" 2>/dev/null || true
 
-  # Call simulation tools
+  # Call simulation tools (for load testing, etc)
   mkdir -p "$INSTALL_ROOT/call-simulation"
   ln -sf "$INSTALL_DIR/bin/call_simulator.py" "$INSTALL_ROOT/call-simulation/call_simulator.py" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/simulate_calls.sh" "$INSTALL_ROOT/call-simulation/simulate_calls.sh" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/callflow_validator.py" "$INSTALL_ROOT/call-simulation/callflow_validator.py" 2>/dev/null || true
 }
 
+
+# Print version policy banner and create version_policy.json if missing
 print_policy_banner() {
   local policy_file="$INSTALL_DIR/version_policy.json"
   if [[ ! -f "$policy_file" ]]; then
+    # Try to auto-detect FreePBX and Asterisk major versions
     local FWC AST_MAJ FPBX_MAJ
     FWC="$(command -v fwconsole || echo /var/lib/asterisk/bin/fwconsole)"
-    FPBX_MAJ="$("$FWC" --version 2>/dev/null | awk '{print $NF}' | cut -d. -f1)"
+    FPBX_MAJ="$($FWC --version 2>/dev/null | awk '{print $NF}' | cut -d. -f1)"
     AST_MAJ="$(asterisk -rx 'core show version' 2>/dev/null | sed -n 's/^Asterisk \([0-9.]\+\).*/\1/p' | cut -d. -f1)"
     [[ -z "$AST_MAJ" ]] && AST_MAJ="$(asterisk -V 2>/dev/null | sed -n 's/^Asterisk \([0-9.]\+\).*/\1/p' | cut -d. -f1)"
     cat > "$policy_file" <<EOF
@@ -264,6 +339,7 @@ EOF
     warn "Created default version_policy.json at $policy_file"
   fi
 
+  # Run version check scripts if present
   if [[ -x "$INSTALL_DIR/version_check.sh" ]]; then
     "$INSTALL_DIR/version_check.sh" || true
   fi
@@ -274,10 +350,13 @@ EOF
 
 # -------- Post-install smoke test ----------
 # -------- Post-install smoke test ----------
+
+# Run a post-install smoke test to verify all major tools and dependencies
 post_install_smoke() {
   echo ">>> Running post-install smoke test..."
   local ok=0 fail=0
 
+  # Check python3
   if have python3; then
     echo "  [OK] python3: $(python3 -V 2>&1)"
     ((ok++))
@@ -286,6 +365,7 @@ post_install_smoke() {
     ((fail++))
   fi
 
+  # Check graphviz dot
   if have dot; then
     echo "  [OK] graphviz 'dot': $(dot -V 2>&1)"
     ((ok++))
@@ -294,6 +374,7 @@ post_install_smoke() {
     ((fail++))
   fi
 
+  # Check mysql client
   if have mysql; then
     echo "  [OK] mysql client present"
     ((ok++))
@@ -330,24 +411,26 @@ post_install_smoke() {
 
 # -------------------------------------------
 
+
+# Main install flow: calls all major steps in order
 main() {
-  require_root
-  enable_epel_if_needed
-  ensure_python3
-  ensure_pkgset
-  ensure_python_packages
-  check_after_installs
-  install_files
-  patch_py36_text_kwarg
-  install_symlinks
+  require_root  # Ensure running as root
+  enable_epel_if_needed  # Enable EPEL repo if needed
+  ensure_python3         # Ensure python3 is installed
+  ensure_pkgset          # Install system packages
+  ensure_python_packages # Install Python packages for GUI tools
+  check_after_installs   # Check for missing dependencies
+  install_files          # Copy and normalize all scripts
+  patch_py36_text_kwarg  # Patch subprocess.run for Python <3.7
+  install_symlinks       # Create all CLI symlinks
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
   log "Symlinks created in $BIN_DIR:"
   ls -l "$BIN_DIR"/freepbx-* "$BIN_DIR"/freepbx_* "$BIN_DIR"/asterisk-full-diagnostic.sh 2>/dev/null || true
   log "Output directory: $CALLFLOWS_DIR"
-  print_policy_banner
+  print_policy_banner    # Print version policy and run version checks
 
-  post_install_smoke
+  post_install_smoke     # Run post-install smoke test
 
   log "Done."
 }
