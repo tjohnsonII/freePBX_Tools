@@ -157,7 +157,7 @@ install_files() {
   for rel in \
   bin/freepbx_dump.py \
   bin/freepbx_callflow_menu.py \
-  bin/freepbx_callflow_graphV2.py \
+  bin/freepbx_callflow_graph.py \
   bin/freepbx_tc_status.py
 do
   [[ -f "$INSTALL_DIR/$rel" ]] || continue
@@ -227,7 +227,7 @@ install_symlinks() {
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
-  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graphV2.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_callflow_graph.py" "$BIN_DIR/freepbx_callflow_graph.py"   2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_render_from_dump.sh" "$BIN_DIR/freepbx_render_from_dump.sh" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_tc_status.py" "$BIN_DIR/freepbx_tc_status.py" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_module_analyzer.py" "$BIN_DIR/freepbx_module_analyzer.py" 2>/dev/null || true
