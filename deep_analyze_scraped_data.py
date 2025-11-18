@@ -1,13 +1,55 @@
 #!/usr/bin/env python3
 """
-Comprehensive Deep Analysis of Scraped VPBX Data
-Extracts ALL information from HTML files including:
-- Server credentials (FTP, SSH, REST API)
-- Phone configurations (SIP credentials, MAC addresses)
-- Site-specific settings
-- Device inventory
-- Security analysis
-- Version tracking
+deep_analyze_scraped_data.py
+
+Purpose:
+    Perform comprehensive, deep analysis of scraped VPBX (Virtual PBX) data. Extracts, audits, and summarizes all information from HTML and config files, including:
+    - Server credentials (FTP, SSH, REST API)
+    - Phone configurations (SIP credentials, MAC addresses)
+    - Site-specific settings
+    - Device inventory
+    - Security analysis
+    - Version tracking
+
+Technical Overview:
+    1. Loads all scraped HTML/config files for each site from a specified directory.
+    2. Extracts structured data (servers, phones, SIP configs, site configs) using regex and HTML parsing.
+    3. Performs security audits (weak passwords, EOL versions, etc) and platform detection.
+    4. Aggregates statistics and generates multiple CSV/JSON reports for further analysis.
+    5. Outputs all results to the data directory for downstream use.
+
+Variable Legend:
+    data_dir: Path to directory containing all scraped site folders (entry_*).
+    entry_dirs: List of Path objects for each site (entry_12345, etc).
+    site_id: Unique identifier for each site (from folder name).
+    self.results: Main dict holding all extracted and computed data.
+        - servers: Dict of server info per site_id
+        - phones: List of all phone/device dicts
+        - sip_configs: List of SIP config dicts
+        - site_configs: Dict of site-wide XML config per site_id
+        - security_audit: List of security issue dicts
+        - statistics: Dict of overall stats
+        - platforms: Counter of detected platform types
+    server_info: Dict of extracted server fields for a site
+    device: Dict of extracted phone/device fields
+    config: Dict of extracted site XML config fields
+    issues: List of security issue dicts for a site/config
+    args: Parsed command-line arguments
+
+Script Flow:
+    - ComprehensiveVPBXAnalyzer: Main class for all analysis logic
+        - analyze_all(): Orchestrates full analysis for all sites
+        - analyze_site(): Extracts all data for a single site
+        - extract_server_info(): Parses server credentials/info from HTML
+        - extract_device_inventory(): Parses phone/device table from HTML
+        - extract_site_xml_config(): Parses site-wide XML config from HTML
+        - extract_sip_configs(): Parses SIP credentials from HTML
+        - audit_server_security(): Checks for weak/EOL credentials/versions
+        - audit_site_config_security(): Checks for weak phone admin passwords
+        - generate_*(): Prints and saves various reports
+        - save_*_csv(): Writes CSV files for inventory, security, credentials
+    - main(): Handles CLI args, runs analysis, prints output summary
+
 """
 
 import re
@@ -19,10 +61,16 @@ from datetime import datetime
 import html
 
 class ComprehensiveVPBXAnalyzer:
-    """Deep analyzer for all scraped VPBX data"""
+    """
+    Deep analyzer for all scraped VPBX data.
+    Loads, parses, audits, and summarizes all site/server/phone/config/security data from a directory of scraped HTML/config files.
+    Produces comprehensive JSON and CSV reports for further analysis.
+    """
     
     def __init__(self, data_dir):
+        # Path to directory containing all entry_* site folders
         self.data_dir = Path(data_dir)
+        # Main results dict for all extracted and computed data
         self.results = {
             'servers': {},           # Server-level data (credentials, versions)
             'phones': [],            # All phone devices across all sites
@@ -34,15 +82,23 @@ class ComprehensiveVPBXAnalyzer:
         }
         
     def analyze_all(self):
-        """Run comprehensive analysis"""
+        """
+        Run comprehensive analysis for all sites in data_dir.
+        - Iterates over all entry_* folders
+        - Extracts all server, phone, config, and security data
+        - Aggregates statistics and generates reports
+        - Saves all results to JSON/CSV files
+        Returns: self.results
+        """
         print("=" * 80)
         print("COMPREHENSIVE VPBX DATA ANALYSIS")
         print("=" * 80)
         print()
         
         # Find all entry directories
+        # Find all entry_* directories (one per site)
         entry_dirs = sorted([d for d in self.data_dir.iterdir() 
-                           if d.is_dir() and d.name.startswith('entry_')])
+                   if d.is_dir() and d.name.startswith('entry_')])
         
         total = len(entry_dirs)
         print(f"Found {total} sites to analyze")
@@ -72,7 +128,12 @@ class ComprehensiveVPBXAnalyzer:
         return self.results
     
     def analyze_site(self, site_id, entry_dir):
-        """Analyze all files for a single site"""
+        """
+        Analyze all files for a single site (entry_dir).
+        - Extracts server info, phone inventory, site XML config, SIP configs
+        - Runs security audits and platform detection
+        - Appends all results to self.results
+        """
         
         # 1. Extract server credentials and info from detail_main.html
         detail_html = entry_dir / "detail_main.html"
@@ -116,7 +177,11 @@ class ComprehensiveVPBXAnalyzer:
                 self.results['sip_configs'].append(sip_config)
     
     def extract_server_info(self, html_file):
-        """Extract all server information from detail_main.html"""
+        """
+        Extract all server information from detail_main.html for a site.
+        Uses regex to parse all credential/version fields and admin URL.
+        Returns: dict of server fields or None on error.
+        """
         try:
             with open(html_file, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -161,7 +226,11 @@ class ComprehensiveVPBXAnalyzer:
             return None
     
     def extract_device_inventory(self, html_file):
-        """Extract device inventory table from HTML"""
+        """
+        Extract device inventory table from HTML for a site.
+        Parses each row for device_id, MAC, make, model, directory_name, extension.
+        Returns: list of device dicts.
+        """
         devices = []
         
         try:
@@ -241,7 +310,11 @@ class ComprehensiveVPBXAnalyzer:
         return devices
     
     def extract_site_xml_config(self, html_file):
-        """Extract site-wide XML configuration"""
+        """
+        Extract site-wide XML configuration from HTML for a site.
+        Looks for key config fields (SIP server, admin/user password, NTP, GMT offset).
+        Returns: dict of config fields or None.
+        """
         try:
             with open(html_file, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -268,7 +341,11 @@ class ComprehensiveVPBXAnalyzer:
             return None
     
     def extract_sip_configs(self, html_file):
-        """Extract SIP configuration from view_config.html"""
+        """
+        Extract SIP configuration from view_config.html for a site.
+        Looks for SIP registration parameters (userid, password, address, etc).
+        Returns: list of SIP config dicts.
+        """
         configs = []
         
         try:
@@ -299,7 +376,11 @@ class ComprehensiveVPBXAnalyzer:
         return configs
     
     def detect_platform(self, server_info):
-        """Detect platform type (FreePBX, Fusion, or 123NET UC)"""
+        """
+        Detect platform type (FreePBX, Fusion, or 123NET UC) for a server.
+        Uses version and VM ID fields to classify platform.
+        Returns: string platform name.
+        """
         fpbx_ver = server_info.get('freepbx_version', '').upper()
         vm_id = server_info.get('vm_id', '').upper()
         
@@ -311,7 +392,11 @@ class ComprehensiveVPBXAnalyzer:
             return 'FreePBX'
     
     def audit_server_security(self, site_id, server_info):
-        """Audit server-level security"""
+        """
+        Audit server-level security for a site.
+        Checks for weak FTP/REST passwords, EOL Asterisk versions, etc.
+        Appends any issues found to self.results['security_audit'].
+        """
         issues = []
         
         # Check FTP password strength
@@ -357,7 +442,11 @@ class ComprehensiveVPBXAnalyzer:
         self.results['security_audit'].extend(issues)
     
     def audit_site_config_security(self, site_id, config):
-        """Audit site configuration security"""
+        """
+        Audit site-wide phone configuration security for a site.
+        Checks for weak/numeric admin passwords.
+        Appends any issues found to self.results['security_audit'].
+        """
         issues = []
         
         # Check admin password
@@ -382,7 +471,10 @@ class ComprehensiveVPBXAnalyzer:
         self.results['security_audit'].extend(issues)
     
     def generate_server_inventory(self):
-        """Generate complete server inventory report"""
+        """
+        Generate and print a complete server inventory report.
+        Shows platform and status breakdowns, call center stats.
+        """
         print("=" * 80)
         print("SERVER INVENTORY")
         print("=" * 80)
@@ -418,7 +510,10 @@ class ComprehensiveVPBXAnalyzer:
         print()
     
     def generate_phone_inventory(self):
-        """Generate phone inventory report"""
+        """
+        Generate and print a phone inventory report.
+        Shows manufacturer and model breakdowns.
+        """
         print("=" * 80)
         print("PHONE INVENTORY")
         print("=" * 80)
@@ -453,7 +548,10 @@ class ComprehensiveVPBXAnalyzer:
         print()
     
     def generate_security_report(self):
-        """Generate security audit report"""
+        """
+        Generate and print a security audit report.
+        Groups issues by severity and type.
+        """
         print("=" * 80)
         print("SECURITY AUDIT")
         print("=" * 80)
@@ -488,7 +586,10 @@ class ComprehensiveVPBXAnalyzer:
                 print()
     
     def generate_configuration_summary(self):
-        """Generate configuration summary"""
+        """
+        Generate and print a configuration summary.
+        Shows FreePBX and Asterisk version breakdowns.
+        """
         print("=" * 80)
         print("CONFIGURATION SUMMARY")
         print("=" * 80)
@@ -517,7 +618,9 @@ class ComprehensiveVPBXAnalyzer:
         print()
     
     def generate_statistics(self):
-        """Generate overall statistics"""
+        """
+        Generate overall statistics and store in self.results['statistics'].
+        """
         self.results['statistics'] = {
             'total_servers': len(self.results['servers']),
             'total_phones': len(self.results['phones']),
@@ -528,7 +631,14 @@ class ComprehensiveVPBXAnalyzer:
         }
     
     def save_results(self):
-        """Save all results to files"""
+        """
+        Save all results to files in the data directory.
+        - comprehensive_analysis.json: All extracted and computed data
+        - server_inventory.csv: Server inventory
+        - phone_inventory.csv: Phone inventory
+        - security_audit.csv: Security findings
+        - server_credentials_SENSITIVE.csv: Credentials (keep secure)
+        """
         output_dir = self.data_dir
         
         # 1. Save comprehensive JSON
@@ -564,7 +674,9 @@ class ComprehensiveVPBXAnalyzer:
         print()
     
     def save_server_inventory_csv(self):
-        """Save server inventory as CSV"""
+        """
+        Save server inventory as CSV (server_inventory.csv).
+        """
         csv_file = self.data_dir / "server_inventory.csv"
         
         if not self.results['servers']:
@@ -585,7 +697,9 @@ class ComprehensiveVPBXAnalyzer:
         print(f"✓ Saved: {csv_file}")
     
     def save_phone_inventory_csv(self):
-        """Save phone inventory as CSV"""
+        """
+        Save phone inventory as CSV (phone_inventory.csv).
+        """
         csv_file = self.data_dir / "phone_inventory.csv"
         
         if not self.results['phones']:
@@ -602,7 +716,9 @@ class ComprehensiveVPBXAnalyzer:
         print(f"✓ Saved: {csv_file}")
     
     def save_security_audit_csv(self):
-        """Save security audit as CSV"""
+        """
+        Save security audit as CSV (security_audit.csv).
+        """
         csv_file = self.data_dir / "security_audit.csv"
         
         if not self.results['security_audit']:
@@ -618,7 +734,10 @@ class ComprehensiveVPBXAnalyzer:
         print(f"✓ Saved: {csv_file}")
     
     def save_credentials_csv(self):
-        """Save server credentials as CSV (SENSITIVE!)"""
+        """
+        Save server credentials as CSV (server_credentials_SENSITIVE.csv).
+        This file contains sensitive information and should be kept secure.
+        """
         csv_file = self.data_dir / "server_credentials_SENSITIVE.csv"
         
         if not self.results['servers']:
@@ -639,24 +758,22 @@ class ComprehensiveVPBXAnalyzer:
         print(f"✓ Saved: {csv_file} (KEEP SECURE!)")
 
 def main():
-    """Main entry point"""
+    """
+    Main entry point for the script.
+    Parses command-line arguments, runs comprehensive analysis, prints output summary.
+    """
     import argparse
-    
     parser = argparse.ArgumentParser(
         description='Comprehensive deep analysis of scraped VPBX data'
     )
-    
     parser.add_argument(
         '--data-dir',
         default='freepbx-tools/bin/123net_internal_docs/vpbx_test_comprehensive',
         help='Directory containing scraped VPBX data'
     )
-    
     args = parser.parse_args()
-    
     analyzer = ComprehensiveVPBXAnalyzer(args.data_dir)
     results = analyzer.analyze_all()
-    
     print("=" * 80)
     print("ANALYSIS COMPLETE")
     print("=" * 80)

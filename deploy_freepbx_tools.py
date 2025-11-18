@@ -1,7 +1,38 @@
 #!/usr/bin/env python3
 """
-FreePBX Tools Deployment Script
-Deploys tools to multiple FreePBX servers via SSH
+deploy_freepbx_tools.py
+
+Purpose:
+    Deploys the FreePBX Tools suite to multiple FreePBX servers via SSH, automating file transfer, installation, and setup across a fleet. Supports parallel deployment, dry-run mode, and flexible credential sourcing.
+
+Technical Overview:
+    1. Loads server list from file or CLI args (CSV/TSV/IPs).
+    2. Gathers all relevant files from LOCAL_SOURCE_DIR for deployment.
+    3. Uses paramiko to SSH/SFTP into each server, uploading files to a temp directory.
+    4. Runs bootstrap.sh and install.sh as root to complete installation.
+    5. Supports parallel execution with ThreadPoolExecutor and dry-run mode for testing.
+
+Variable Legend:
+    REMOTE_INSTALL_DIR: Target directory on remote servers for installation.
+    LOCAL_SOURCE_DIR: Local directory containing files to deploy.
+    DEFAULT_USER, DEFAULT_PASSWORD, ROOT_PASSWORD: SSH credentials (from config.py or env).
+    servers: List of server IPs/hostnames to deploy to.
+    files: List of (local_path, rel_path) tuples for files to deploy.
+    max_workers: Number of parallel deployment threads.
+    dry_run: If True, only simulates deployment.
+    result: Dict summarizing deployment outcome for a server.
+    Colors: Class for ANSI color codes for terminal output.
+    args: Parsed command-line arguments.
+
+Script Flow:
+    - Parse credentials from config.py or environment.
+    - Parse server list from file or CLI args.
+    - get_local_files(): Recursively collects all files to deploy, skipping test/docs.
+    - deploy_to_server(): Handles SSH/SFTP, file upload, and install for one server.
+    - deploy_parallel(): Runs deploy_to_server() in parallel for all servers.
+    - print_summary(): Prints deployment results and summary.
+    - main(): Orchestrates argument parsing, file gathering, deployment, and summary.
+
 """
 
 import sys
@@ -43,7 +74,9 @@ REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
 LOCAL_SOURCE_DIR = "freepbx-tools"
 
 class Colors:
-    """ANSI color codes for terminal output"""
+    """
+    ANSI color codes for terminal output (for pretty printing status/info).
+    """
     CYAN = '\033[96m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -52,29 +85,42 @@ class Colors:
     BOLD = '\033[1m'
 
 def print_header(text):
-    """Print a formatted header"""
+    """
+    Print a formatted section header in the terminal.
+    """
     print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
     print(f"  {text}")
     print(f"{'='*70}{Colors.RESET}")
 
 def print_success(text):
-    """Print success message"""
+    """
+    Print a green success message.
+    """
     print(f"{Colors.GREEN}[OK] {text}{Colors.RESET}")
 
 def print_error(text):
-    """Print error message"""
+    """
+    Print a red error message.
+    """
     print(f"{Colors.RED}[ERROR] {text}{Colors.RESET}")
 
 def print_warning(text):
-    """Print warning message"""
+    """
+    Print a yellow warning message.
+    """
     print(f"{Colors.YELLOW}[WARNING] {text}{Colors.RESET}")
 
 def print_info(text):
-    """Print info message"""
+    """
+    Print a cyan info message.
+    """
     print(f"{Colors.CYAN}ℹ️  {text}{Colors.RESET}")
 
 def read_server_list(filename):
-    """Read server IPs from file"""
+    """
+    Read server IPs/hostnames from a file (CSV/TSV/one-per-line).
+    Skips comments and blank lines. Returns list of IPs.
+    """
     servers = []
     try:
         with open(filename, 'r') as f:
@@ -95,7 +141,11 @@ def read_server_list(filename):
         return []
 
 def get_local_files():
-    """Get list of files to deploy"""
+    """
+    Recursively collect all files to deploy from LOCAL_SOURCE_DIR.
+    Skips __pycache__, .git, .vscode, docs, and test files.
+    Returns: List of (local_path, rel_path) tuples.
+    """
     files_to_deploy = []
     
     # Make source directory absolute
@@ -125,7 +175,13 @@ def get_local_files():
     return files_to_deploy
 
 def deploy_to_server(server_ip, username, password, files, dry_run=False):
-    """Deploy files to a single server"""
+    """
+    Deploy all files to a single server via SSH/SFTP.
+    - Connects as username/password using paramiko
+    - Uploads files to temp directory
+    - Runs bootstrap.sh and install.sh as root
+    - Returns result dict summarizing outcome
+    """
     result = {
         'server': server_ip,
         'success': False,
@@ -261,7 +317,10 @@ ROOTEOF
     return result
 
 def deploy_parallel(servers, username, password, files, max_workers=5, dry_run=False):
-    """Deploy to multiple servers in parallel"""
+    """
+    Deploy to multiple servers in parallel using ThreadPoolExecutor.
+    Prints progress and collects results for summary.
+    """
     print_header(f"Deploying to {len(servers)} servers")
     print(f"{Colors.CYAN}Files to deploy:{Colors.RESET} {Colors.BOLD}{len(files)}{Colors.RESET}")
     print(f"{Colors.CYAN}Max parallel workers:{Colors.RESET} {Colors.BOLD}{max_workers}{Colors.RESET}")
@@ -296,7 +355,9 @@ def deploy_parallel(servers, username, password, files, max_workers=5, dry_run=F
     return results
 
 def print_summary(results):
-    """Print deployment summary"""
+    """
+    Print deployment summary, showing successful and failed deployments.
+    """
     print_header("Deployment Summary")
     
     successful = [r for r in results if r['success']]
@@ -320,6 +381,13 @@ def print_summary(results):
             print(f"  {Colors.RED}•{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {Colors.RED}{r['message']}{Colors.RESET}")
 
 def main():
+    """
+    Main entry point for the deployment script.
+    - Parses CLI arguments for server list, credentials, and options
+    - Gathers files to deploy
+    - Runs deployment in parallel
+    - Prints summary and exits with error code if any failures
+    """
     parser = argparse.ArgumentParser(
         description='Deploy FreePBX Tools to multiple servers',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -338,16 +406,13 @@ Examples:
   python deploy_freepbx_tools.py servers.txt --user admin --password secret
         """
     )
-    
     parser.add_argument('server_file', nargs='?', help='File containing server IPs (one per line)')
     parser.add_argument('--servers', nargs='+', help='Specify server IPs directly')
     parser.add_argument('--user', default=DEFAULT_USER, help=f'SSH username (default: {DEFAULT_USER})')
     parser.add_argument('--password', default=DEFAULT_PASSWORD, help='SSH password')
     parser.add_argument('--workers', type=int, default=5, help='Number of parallel workers (default: 5)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be deployed without making changes')
-    
     args = parser.parse_args()
-    
     # Get list of servers
     servers = []
     if args.servers:
@@ -357,31 +422,25 @@ Examples:
     else:
         parser.print_help()
         sys.exit(1)
-    
     if not servers:
         print_error("No servers specified")
         sys.exit(1)
-    
     # Get files to deploy
     files = get_local_files()
     if not files:
         print_error("No files found to deploy")
         sys.exit(1)
-    
     print_header("FreePBX Tools Deployment")
     print(f"Source: {LOCAL_SOURCE_DIR}")
     print(f"Target: {REMOTE_INSTALL_DIR}")
     print(f"Servers: {len(servers)}")
-    
     # Start deployment
     start_time = time.time()
     results = deploy_parallel(servers, args.user, args.password, files, args.workers, args.dry_run)
     elapsed = time.time() - start_time
-    
     # Print summary
     print_summary(results)
     print(f"\nTotal time: {elapsed:.1f} seconds")
-    
     # Exit with error code if any deployments failed
     failed_count = len([r for r in results if not r['success']])
     sys.exit(1 if failed_count > 0 else 0)

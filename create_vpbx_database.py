@@ -1,6 +1,43 @@
 #!/usr/bin/env python3
 """
-Create SQLite database from scraped VPBX data
+create_vpbx_database.py
+
+Purpose:
+    This script creates a normalized SQLite database (vpbx_data.db) from scraped VPBX (Virtual PBX) data, including company, device, and security information. It parses JSON and text files from scraping output, extracts structured data, and populates a relational schema for analysis and reporting.
+
+Technical Overview:
+    1. Defines a normalized schema with tables: sites, devices, security_issues.
+    2. Extracts company and device info from scraped Details_*.txt files.
+    3. Loads master site/device/security data from complete_analysis.json.
+    4. Populates the database, handling duplicates and missing data.
+    5. Generates a sample SQL query file for analysts.
+
+Variable Legend:
+    db_path: Path to the SQLite database file (default 'vpbx_data.db').
+    conn: SQLite connection object.
+    cursor: SQLite cursor for executing SQL commands.
+    filepath: Path to a Details_*.txt file.
+    content: Raw text content of a Details file.
+    company_handle: Short code for company/reseller (from Details file).
+    company_name: Human-readable company name (from Details file).
+    site_id: Unique integer ID for a site (from Details file or JSON).
+    devices: List of device dicts extracted from Details file.
+    data: Parsed JSON from complete_analysis.json.
+    company_info: Dict mapping site_id to (company_handle, company_name).
+    sites_inserted: Counter for successfully inserted sites.
+
+Script Flow:
+    - create_database(): Defines schema, creates tables and indexes.
+    - extract_company_info(): Regex parses company handle/name from Details file.
+    - extract_device_info(): Regex parses device info (MAC, vendor, model, ext) from Details file.
+    - populate_database():
+        * Loads complete_analysis.json for master site/security data.
+        * Extracts company/device info from Details_*.txt files.
+        * Inserts all data into normalized tables, handling duplicates.
+        * Prints summary statistics.
+    - create_sample_queries(): Writes a .sql file with example queries for analysts.
+    - main(): Orchestrates the above steps and prints usage instructions.
+
 """
 import sqlite3
 import json
@@ -9,68 +46,70 @@ import re
 from datetime import datetime
 
 def create_database(db_path='vpbx_data.db'):
-    """Create SQLite database with proper schema"""
-    
-    # Remove existing database
+    """
+    Create SQLite database with normalized schema for VPBX data.
+    Drops any existing database at db_path, then creates tables:
+      - sites: Company/site metadata
+      - devices: Phone/device inventory
+      - security_issues: Security findings per site
+    Also creates indexes for query performance.
+    Returns: sqlite3.Connection object
+    """
+    # Remove any existing database to ensure a clean slate
     if os.path.exists(db_path):
         print(f"Removing existing database: {db_path}")
         os.remove(db_path)
-    
     print(f"Creating new database: {db_path}")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
-    # Create sites table
+    # Create main tables
     cursor.execute('''
         CREATE TABLE sites (
-            site_id INTEGER PRIMARY KEY,
-            company_handle TEXT,
-            company_name TEXT,
-            system_ip TEXT,
-            deployment_id TEXT,
-            ftp_host TEXT,
-            ftp_user TEXT,
-            ftp_pass TEXT,
-            admin_url TEXT,
-            ssh_command TEXT,
-            freepbx_version TEXT,
-            freepbx_major TEXT,
-            asterisk_version TEXT,
-            asterisk_major TEXT,
-            platform TEXT,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            site_id INTEGER PRIMARY KEY,           -- Unique site identifier
+            company_handle TEXT,                   -- Short code for company/reseller
+            company_name TEXT,                     -- Human-readable company name
+            system_ip TEXT,                        -- Main system IP address
+            deployment_id TEXT,                    -- Deployment identifier
+            ftp_host TEXT,                         -- FTP host for configs
+            ftp_user TEXT,                         -- FTP username
+            ftp_pass TEXT,                         -- FTP password
+            admin_url TEXT,                        -- Web admin URL
+            ssh_command TEXT,                      -- SSH command for access
+            freepbx_version TEXT,                  -- Full FreePBX version string
+            freepbx_major TEXT,                    -- Major FreePBX version
+            asterisk_version TEXT,                 -- Full Asterisk version string
+            asterisk_major TEXT,                   -- Major Asterisk version
+            platform TEXT,                         -- Hardware/software platform
+            notes TEXT,                            -- Freeform notes
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Row creation time
         )
     ''')
-    
-    # Create devices table
+    # Device inventory table
     cursor.execute('''
         CREATE TABLE devices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id INTEGER,
-            mac_address TEXT,
-            extension TEXT,
-            model TEXT,
-            vendor TEXT,
-            directory_name TEXT,
-            cid TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Unique device row
+            site_id INTEGER,                       -- Foreign key to sites
+            mac_address TEXT,                      -- Device MAC address
+            extension TEXT,                        -- Phone extension
+            model TEXT,                            -- Phone model
+            vendor TEXT,                           -- Phone vendor
+            directory_name TEXT,                   -- Directory name (if any)
+            cid TEXT,                              -- Caller ID (if any)
             FOREIGN KEY (site_id) REFERENCES sites(site_id)
         )
     ''')
-    
-    # Create security_issues table
+    # Security issues table
     cursor.execute('''
         CREATE TABLE security_issues (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id INTEGER,
-            issue_type TEXT,
-            severity TEXT,
-            description TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Unique issue row
+            site_id INTEGER,                       -- Foreign key to sites
+            issue_type TEXT,                       -- Type of issue
+            severity TEXT,                         -- Severity (CRITICAL/HIGH/etc)
+            description TEXT,                      -- Details
             FOREIGN KEY (site_id) REFERENCES sites(site_id)
         )
     ''')
-    
-    # Create indexes for better query performance
+    # Indexes for fast lookups
     cursor.execute('CREATE INDEX idx_sites_company_name ON sites(company_name)')
     cursor.execute('CREATE INDEX idx_sites_company_handle ON sites(company_handle)')
     cursor.execute('CREATE INDEX idx_sites_ip ON sites(system_ip)')
@@ -78,85 +117,76 @@ def create_database(db_path='vpbx_data.db'):
     cursor.execute('CREATE INDEX idx_devices_vendor ON devices(vendor)')
     cursor.execute('CREATE INDEX idx_devices_model ON devices(model)')
     cursor.execute('CREATE INDEX idx_security_site_id ON security_issues(site_id)')
-    
     conn.commit()
     print("✅ Database schema created")
-    
     return conn
 
 def extract_company_info(filepath):
-    """Extract company information from Details file"""
+    """
+    Extract company handle and name from a Details_*.txt file.
+    Uses regex to find 'Company Handle' and 'Company Name' fields.
+    Returns: (company_handle, company_name) or (None, None) on error.
+    """
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
-        # Extract Company Handle
+        # Regex for 'Company Handle:'
         company_handle = None
         handle_match = re.search(r'Company Handle:\s*\n\s*([A-Z0-9\-]+)', content)
         if handle_match:
             company_handle = handle_match.group(1).strip()
-        
-        # Extract Company Name
+        # Regex for 'Company Name:'
         company_name = None
         name_match = re.search(r'Company Name:\s*\n\s*(.+?)(?:\n|$)', content)
         if name_match:
             company_name = name_match.group(1).strip()
-        
         return company_handle, company_name
-    
     except Exception as e:
+        # On error, return None for both fields
         return None, None
 
 def extract_device_info(filepath):
-    """Extract device information from Details file"""
+    """
+    Extract device inventory from a Details_*.txt file.
+    Looks for MAC addresses, then parses nearby lines for vendor, model, extension.
+    Returns: List of device dicts (site_id, mac_address, extension, model, vendor, directory_name, cid)
+    """
     devices = []
-    
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
-        # Extract site ID
+        # Extract site ID from file
         site_id_match = re.search(r'id=(\d+)', content)
         if not site_id_match:
             return devices
         site_id = site_id_match.group(1)
-        
         lines = content.split('\n')
-        
-        # Look for device table data
-        # Pattern: MAC address followed by vendor and model
+        # Scan for MAC addresses (12 hex chars)
         for i, line in enumerate(lines):
-            # Match MAC address format
             if re.match(r'^[0-9a-f]{12}$', line.strip().lower()):
                 mac = line.strip().lower()
-                
-                # Look at next few lines for vendor and model
                 vendor = None
                 model = None
                 extension = None
                 directory_name = None
-                
+                # Look ahead for vendor/model/extension
                 for j in range(1, 10):
                     if i + j < len(lines):
                         next_line = lines[i + j].strip()
-                        
-                        # Common vendors
+                        # Known vendors
                         if next_line.lower() in ['polycom', 'yealink', 'cisco', 'grandstream', 'sangoma', 'fanvil']:
                             vendor = next_line
-                        
-                        # Model patterns
+                        # Model patterns (VVX, SIP-T, CP, etc)
                         elif re.match(r'(VVX|SIP-T|CP|W\d+P|\d+h Dect)', next_line, re.IGNORECASE):
                             model = next_line
-                        
-                        # Extension number (2-4 digits)
+                        # Extension (2-4 digits)
                         elif re.match(r'^\d{2,4}$', next_line):
                             if not extension:
                                 extension = next_line
-                        
-                        # Stop if we hit another MAC or empty section
+                        # Stop if next MAC or section break
                         if re.match(r'^[0-9a-f]{12}$', next_line.lower()) or next_line == 'Edit':
                             break
-                
+                # Only add if vendor or model found
                 if vendor or model:
                     devices.append({
                         'site_id': site_id,
@@ -167,37 +197,35 @@ def extract_device_info(filepath):
                         'directory_name': directory_name,
                         'cid': None
                     })
-    
     except Exception as e:
         print(f"Error extracting devices from {filepath}: {e}")
-    
     return devices
 
 def populate_database(conn):
-    """Populate database from scraped data"""
+    """
+    Populate the SQLite database from scraped JSON and Details files.
+    - Loads master site/security data from complete_analysis.json
+    - Extracts company/device info from Details_*.txt files
+    - Inserts all data into normalized tables, handling duplicates
+    - Prints summary statistics
+    """
     cursor = conn.cursor()
-    
-    # Load complete_analysis.json
+    # Load master JSON data
     print("\nLoading complete_analysis.json...")
     with open('vpbx_ultimate_analysis/complete_analysis.json', 'r') as f:
         data = json.load(f)
-    
     print(f"Found {len(data['sites'])} sites in analysis data")
-    
-    # Get company info from scraped Details files
+    # Extract company info from Details files
     print("\nExtracting company names from scraped pages...")
     company_info = {}
     data_dir = 'test_scrape_output/vpbx_tables_all'
-    
     if os.path.exists(data_dir):
         files = [f for f in os.listdir(data_dir) if f.startswith('Details_') and f.endswith('.txt')]
         for i, filename in enumerate(files):
             if i % 50 == 0:
                 print(f"  Processed {i}/{len(files)} files...")
-            
             filepath = os.path.join(data_dir, filename)
-            
-            # Extract site ID
+            # Extract site ID from first line
             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                 first_line = f.readline()
                 site_id_match = re.search(r'id=(\d+)', first_line)
@@ -206,8 +234,7 @@ def populate_database(conn):
                     handle, name = extract_company_info(filepath)
                     if handle or name:
                         company_info[site_id] = (handle, name)
-                    
-                    # Extract devices
+                    # Extract and insert device inventory
                     devices = extract_device_info(filepath)
                     if devices:
                         for device in devices:
@@ -223,21 +250,16 @@ def populate_database(conn):
                                 device['directory_name'],
                                 device['cid']
                             ))
-        
         print(f"  ✅ Extracted company info for {len(company_info)} sites")
-    
-    # Insert sites data
+    # Insert sites data from JSON
     print("\nInserting site data...")
     sites_inserted = 0
-    
     for site in data['sites']:
         site_id = site.get('site_id')
         if not site_id:
             continue
-        
-        # Get company info from scraped data
+        # Get company info from Details scrape if available
         handle, name = company_info.get(site_id, (None, None))
-        
         try:
             cursor.execute('''
                 INSERT INTO sites (
@@ -268,8 +290,7 @@ def populate_database(conn):
         except sqlite3.IntegrityError:
             # Duplicate site_id, skip
             pass
-        
-        # Insert security issues
+        # Insert security issues for this site
         for issue in site.get('security', []):
             cursor.execute('''
                 INSERT INTO security_issues (site_id, issue_type, severity, description)
@@ -280,23 +301,17 @@ def populate_database(conn):
                 issue.get('severity'),
                 issue.get('details')
             ))
-    
     conn.commit()
     print(f"✅ Inserted {sites_inserted} sites")
-    
-    # Print statistics
+    # Print summary statistics
     cursor.execute('SELECT COUNT(*) FROM sites')
     site_count = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM devices')
     device_count = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM security_issues')
     security_count = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM sites WHERE company_name IS NOT NULL')
     named_sites = cursor.fetchone()[0]
-    
     print(f"\n📊 Database Statistics:")
     print(f"   Sites: {site_count}")
     print(f"   Sites with company names: {named_sites}")
@@ -304,8 +319,10 @@ def populate_database(conn):
     print(f"   Security issues: {security_count}")
 
 def create_sample_queries(db_path='vpbx_data.db'):
-    """Create a file with sample SQL queries"""
-    
+    """
+    Write a file (vpbx_sample_queries.sql) with example SQL queries for analysts.
+    These queries cover common reporting and analysis tasks for the VPBX database.
+    """
     queries = """
 -- Sample SQL Queries for VPBX Database
 -- Database: vpbx_data.db
@@ -503,22 +520,22 @@ ORDER BY count DESC, s.company_name;
     print(f"\n💾 Sample queries saved to: vpbx_sample_queries.sql")
 
 def main():
+    """
+    Main entry point for the script.
+    Orchestrates database creation, population, and sample query generation.
+    Prints usage instructions for analysts.
+    """
     print("=" * 80)
     print("VPBX SQLite Database Creator")
     print("=" * 80)
-    
-    # Create database
+    # Step 1: Create database and schema
     conn = create_database()
-    
-    # Populate with data
+    # Step 2: Populate with scraped data
     populate_database(conn)
-    
-    # Create sample queries file
+    # Step 3: Write sample queries for analysts
     create_sample_queries()
-    
-    # Close connection
+    # Step 4: Close DB connection
     conn.close()
-    
     print("\n" + "=" * 80)
     print("✅ Database created successfully!")
     print("=" * 80)
@@ -534,6 +551,7 @@ def main():
     print("  - DB Browser for SQLite (https://sqlitebrowser.org/)")
     print("  - DBeaver (https://dbeaver.io/)")
     print("\nSample queries available in: vpbx_sample_queries.sql")
-    
+
+# Script entry point
 if __name__ == '__main__':
     main()
