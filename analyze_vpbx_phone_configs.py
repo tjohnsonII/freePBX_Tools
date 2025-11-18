@@ -1,42 +1,113 @@
-#!/usr/bin/env python3
+
+#!/usr/bin/env python3  # Shebang for Python 3
+
+
 """
 VPBX Phone Configuration Deep Analysis Tool
+-------------------------------------------
+This script analyzes scraped VPBX data to provide:
+    - Phone inventory across all sites
+    - Configuration patterns and anomalies
+    - Security issues (weak passwords, default configs)
+    - Version compliance
+    - Device health and issues
 
-Analyzes scraped VPBX data to provide comprehensive insights into:
-- Phone inventory across all sites
-- Configuration patterns and anomalies
-- Security issues (weak passwords, default configs)
-- Version compliance
-- Device health and issues
+HOW IT WORKS:
+    1. Loads main table and per-site config data from a data directory.
+    2. Extracts device, site, and config details from CSV and text files.
+    3. Analyzes for inventory, security, config patterns, and anomalies.
+    4. Generates human-readable reports and saves results as JSON/CSV.
 """
 
-import os
-import re
-import csv
-import json
-from collections import Counter, defaultdict
-from pathlib import Path
-import xml.etree.ElementTree as ET
-from datetime import datetime
+
+# Standard library imports
+import os  # For file and directory operations
+import re  # For regular expressions
+import csv  # For reading/writing CSV files
+import json  # For reading/writing JSON files
+from collections import Counter, defaultdict  # For counting and grouping
+from pathlib import Path  # For path manipulations
+import xml.etree.ElementTree as ET  # For XML parsing (if needed)
+from datetime import datetime  # For timestamps and date handling
 
 class VPBXPhoneAnalyzer:
-    """Deep analyzer for VPBX phone configurations"""
+    """
+    Deep analyzer for VPBX phone configurations.
+    Loads, parses, and analyzes all relevant data for inventory, security,
+    configuration, and anomaly detection. Results are saved as JSON and CSV.
+
+    Attributes:
+        data_dir (Path): Path to the directory containing all data files.
+        results (dict): Main container for all analysis outputs, including:
+            - sites: Site-level info keyed by site ID
+            - phones: List of all phone/device dicts
+            - inventory: Inventory counts by make/model
+            - security_issues: List of detected security issues
+            - config_patterns: Patterns in config
+            - version_info: Version info by site
+            - anomalies: List of detected anomalies
+            - statistics: Summary statistics
+    """
+
+    # ...existing code...
     
     def __init__(self, data_dir):
-        self.data_dir = Path(data_dir)
+        """
+        Initialize the analyzer with the data directory and set up the main results dictionary.
+        Args:
+            data_dir (str or Path): Directory containing all data files for analysis.
+        """
+        # Initialize analyzer with the data directory
+        self.data_dir = Path(data_dir)  # Convert data_dir to Path object for easy file ops
+        # Results dictionary holds all analysis outputs
         self.results = {
-            'sites': {},
-            'phones': [],
-            'inventory': Counter(),
-            'security_issues': [],
-            'config_patterns': defaultdict(Counter),
-            'version_info': defaultdict(list),
-            'anomalies': [],
-            'statistics': {}
+            'sites': {},              # Site-level info keyed by site ID
+            'phones': [],             # List of all phone/device dicts
+            'inventory': Counter(),   # Inventory counts by make/model
+            'security_issues': [],    # List of detected security issues
+            'config_patterns': defaultdict(Counter),  # Patterns in config
+            'version_info': defaultdict(list),        # Version info by site
+            'anomalies': [],          # List of detected anomalies
+            'statistics': {}          # Summary statistics
         }
         
     def analyze_all(self):
-        """Run complete analysis"""
+        """
+        Orchestrates the entire analysis workflow:
+            - Loads the main table
+            - Analyzes all sites
+            - Generates all reports
+            - Saves results
+        Returns:
+            dict: The results dictionary containing all analysis outputs.
+        """
+        """
+        Run complete analysis: loads data, analyzes, generates reports, saves results.
+        Returns the results dictionary.
+        """
+        # Print header for analysis start
+        print("=" * 80)  # Print separator line
+        print("VPBX Phone Configuration Deep Analysis")  # Print script title
+        print("=" * 80)  # Print separator line
+        print()  # Blank line for spacing
+        # Load main table (site metadata)
+        self.load_main_table()  # Load site metadata from CSV
+        # Analyze each site for configs/devices
+        self.analyze_sites()  # Analyze all entry_* directories
+        # Generate inventory report (counts by make/model)
+        self.generate_inventory_report()  # Print and save inventory summary
+        # Generate security report (weak/default passwords, etc)
+        self.generate_security_report()  # Print and save security findings
+        # Generate configuration pattern report
+        self.generate_configuration_report()  # Print and save config patterns
+        # Generate version compliance report
+        self.generate_version_report()  # Print and save version info
+        # Generate anomaly/outlier report
+        self.generate_anomaly_report()  # Print and save anomaly findings
+        # Save all results to disk
+        self.save_results()  # Save all results as JSON/CSV
+        # Return results dict for further use
+        return self.results  # Return results for caller
         print("=" * 80)
         print("VPBX Phone Configuration Deep Analysis")
         print("=" * 80)
@@ -61,7 +132,47 @@ class VPBXPhoneAnalyzer:
         return self.results
     
     def load_main_table(self):
-        """Load the main VPBX table CSV"""
+        """
+        Loads the main site metadata table from table_data.csv and populates self.results['sites'].
+        Each row represents a site with metadata and summary fields.
+        """
+        """
+        Load the main VPBX table CSV (table_data.csv) and populate site info.
+        Each row represents a site with metadata and summary fields.
+        """
+        csv_file = self.data_dir / "table_data.csv"  # Path to main table CSV
+        if not csv_file.exists():  # Check if file exists
+            print(f"Warning: {csv_file} not found")  # Warn if missing
+            return  # Exit if file not found
+        print(f"Loading main table: {csv_file}")  # Announce loading
+        with open(csv_file, 'r', encoding='utf-8') as f:  # Open CSV file
+            reader = csv.DictReader(f)  # Create CSV reader
+            for row in reader:  # Iterate over each row
+                if row.get('ID'):  # Only process rows with an ID
+                    site_id = row['ID']  # Extract site ID
+                    # Populate site info dict
+                    self.results['sites'][site_id] = {
+                        'id': site_id,  # Site ID
+                        'handle': row.get('Handle', ''),  # Site handle
+                        'name': row.get('NAME', ''),  # Site name
+                        'ip': row.get('IP', ''),  # Site IP
+                        'status': row.get('Status', ''),  # Site status
+                        'freepbx_version': row.get('FreePBX', ''),  # FreePBX version
+                        'asterisk_version': row.get('Asterisk', ''),  # Asterisk version
+                        'device_count': row.get('Devices', '0'),  # Device count
+                        'call_center': row.get('Call Center', ''),  # Asternic Call Center 2
+                        'devices': []  # List of devices (to be filled)
+                    }
+                    # Determine platform type from FreePBX version string
+                    fpbx_ver = row.get('FreePBX', '').upper()  # Uppercase for matching
+                    if 'FUSION' in fpbx_ver:
+                        self.results['sites'][site_id]['platform'] = 'Fusion'  # Mark as Fusion
+                    elif '123NET UC' in fpbx_ver or 'UC' in fpbx_ver:
+                        self.results['sites'][site_id]['platform'] = '123NET UC'  # Mark as 123NET UC
+                    else:
+                        self.results['sites'][site_id]['platform'] = 'FreePBX'  # Default to FreePBX
+        print(f"  Loaded {len(self.results['sites'])} sites")  # Print count
+        print()  # Blank line
         csv_file = self.data_dir / "table_data.csv"
         
         if not csv_file.exists():
@@ -101,7 +212,32 @@ class VPBXPhoneAnalyzer:
         print()
     
     def analyze_sites(self):
-        """Analyze all site directories"""
+        """
+        Iterates through all site directories and triggers per-site analysis.
+        Calls sub-analyzers for each config type (site config, phone configs, view configs).
+        Populates self.results with per-site device/config/security data.
+        """
+        """
+        Analyze all site directories (entry_*) for per-site configs and devices.
+        Calls sub-analyzers for each config type.
+        """
+        print("Analyzing site configurations...")
+        print()
+        # Find all entry_* directories (one per site)
+        entry_dirs = sorted([d for d in self.data_dir.iterdir() if d.is_dir() and d.name.startswith('entry_')])
+        total = len(entry_dirs)
+        for idx, entry_dir in enumerate(entry_dirs, 1):
+            site_id = entry_dir.name.replace('entry_', '')  # Extract site ID from dir name
+            if idx % 50 == 0:
+                print(f"  Progress: {idx}/{total} sites analyzed...")
+            # Analyze site-specific config file
+            self.analyze_site_config(site_id, entry_dir)
+            # Analyze phone config files
+            self.analyze_phone_configs(site_id, entry_dir)
+            # Analyze view config files
+            self.analyze_view_configs(site_id, entry_dir)
+        print(f"  Completed: {total} sites analyzed")
+        print()
         print("Analyzing site configurations...")
         print()
         
@@ -123,7 +259,44 @@ class VPBXPhoneAnalyzer:
         print()
     
     def analyze_site_config(self, site_id, entry_dir):
-        """Analyze site_specific_config.txt for device inventory"""
+        """
+        Analyzes the site_specific_config.txt file for device inventory and site-wide configuration.
+        Updates self.results['sites'][site_id] and global phone/inventory/security lists.
+        Args:
+            site_id (str): Site identifier.
+            entry_dir (Path): Directory for the site.
+        """
+        """
+        Analyze site_specific_config.txt for device inventory and site-wide config.
+        Extracts device table and site XML config, checks for security issues.
+        """
+        config_file = entry_dir / "site_specific_config.txt"  # Path to config file
+        if not config_file.exists():  # Skip if file missing
+            return
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                content = f.read()  # Read file content
+            # Extract device table data from config text
+            devices = self.extract_devices_from_table(content)
+            if site_id in self.results['sites']:
+                self.results['sites'][site_id]['devices'] = devices  # Save device list to site
+            for device in devices:
+                device['site_id'] = site_id  # Annotate device with site ID
+                device['site_handle'] = self.results['sites'].get(site_id, {}).get('handle', '')
+                device['site_name'] = self.results['sites'].get(site_id, {}).get('name', '')
+                self.results['phones'].append(device)  # Add to global phone list
+                # Count by make/model for inventory
+                make_model = f"{device['make']}_{device['model']}"
+                self.results['inventory'][make_model] += 1
+                self.results['inventory'][f"make_{device['make']}"] += 1
+            # Extract site-wide XML config from text
+            site_config = self.extract_site_xml_config(content)
+            if site_config and site_id in self.results['sites']:
+                self.results['sites'][site_id]['site_config'] = site_config
+                # Check for security issues in config
+                self.check_site_security(site_id, site_config)
+        except Exception as e:
+            print(f"    Error analyzing site config for {site_id}: {e}")
         config_file = entry_dir / "site_specific_config.txt"
         
         if not config_file.exists():
@@ -162,7 +335,48 @@ class VPBXPhoneAnalyzer:
             print(f"    Error analyzing site config for {site_id}: {e}")
     
     def extract_devices_from_table(self, content):
-        """Extract device information from table format"""
+        """
+        Parses device inventory from a table in the config text.
+        Args:
+            content (str): Text content of the config file.
+        Returns:
+            list: List of device dictionaries with keys: device_id, directory_name, extension, mac, make, model, etc.
+        """
+        """
+        Extract device information from a table in the config text.
+        Returns a list of device dicts with keys: device_id, directory_name, extension, mac, make, model, etc.
+        """
+        devices = []  # List to hold all parsed devices
+        # Split content into lines for parsing
+        lines = content.split('\n')
+        in_device_table = False  # Flag to track if inside device table
+        for i, line in enumerate(lines):
+            # Detect table start by header row
+            if 'Device ID' in line and 'MAC' in line and 'Make' in line:
+                in_device_table = True
+                continue
+            if in_device_table:
+                # Stop at summary/footer lines
+                if 'Showing' in line or 'Previous' in line or 'Next' in line:
+                    break
+                # Parse device rows (pipe-delimited)
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) >= 8 and parts[0].isdigit():
+                    try:
+                        device = {
+                            'device_id': parts[0],  # Device ID
+                            'directory_name': parts[1],  # Directory name
+                            'extension': self.extract_extension(parts[1]),  # Extension from name
+                            'cid': parts[2] if len(parts) > 2 else '',  # Caller ID
+                            'mac': self.clean_mac_address(parts[-4]) if len(parts) > 4 else '',  # MAC address
+                            'make': parts[-3].lower() if len(parts) > 3 else '',  # Make (vendor)
+                            'model': parts[-2] if len(parts) > 2 else ''  # Model
+                        }
+                        if device['mac']:  # Only add if MAC present
+                            devices.append(device)
+                    except Exception as e:
+                        pass  # Skip malformed rows
+        return devices
         devices = []
         
         # Look for device table patterns
@@ -205,12 +419,37 @@ class VPBXPhoneAnalyzer:
         return devices
     
     def extract_extension(self, directory_name):
-        """Extract extension from directory name like 'Conf Room <142>'"""
+        """
+        Extracts the extension number from a directory name string.
+        Args:
+            directory_name (str): Directory name, e.g., 'Conf Room <142>'.
+        Returns:
+            str: The extension as a string, or '' if not found.
+        """
+        """
+        Extract extension number from directory name like 'Conf Room <142>'.
+        Returns the extension as a string, or '' if not found.
+        """
+        match = re.search(r'<(\d+)>', directory_name)  # Regex for <digits>
+        return match.group(1) if match else ''  # Return extension or empty
         match = re.search(r'<(\d+)>', directory_name)
         return match.group(1) if match else ''
     
     def clean_mac_address(self, mac):
-        """Clean and normalize MAC address"""
+        """
+        Normalizes and validates a MAC address string.
+        Args:
+            mac (str): Raw MAC address string.
+        Returns:
+            str: Cleaned MAC address or empty string if invalid.
+        """
+        """
+        Clean and normalize MAC address: strip, lowercase, remove non-hex chars.
+        Returns normalized MAC or '' if invalid.
+        """
+        mac = mac.strip().lower()  # Remove whitespace, lowercase
+        mac = re.sub(r'[^0-9a-f:]', '', mac)  # Remove non-hex chars
+        return mac if len(mac) >= 12 else ''  # Require at least 12 chars
         # Remove whitespace and convert to lowercase
         mac = mac.strip().lower()
         # Keep only hex digits and colons/dashes
@@ -218,7 +457,31 @@ class VPBXPhoneAnalyzer:
         return mac if len(mac) >= 12 else ''
     
     def extract_site_xml_config(self, content):
-        """Extract site-wide XML configuration"""
+        """
+        Extracts site-wide XML configuration parameters from config text.
+        Args:
+            content (str): Text content of the config file.
+        Returns:
+            dict or None: Dictionary of config parameters (e.g., SIP server, admin/user password), or None if not found.
+        """
+        """
+        Extract site-wide XML configuration parameters from config text.
+        Returns a dict with keys like sip_server, admin_password, user_password.
+        """
+        config = {}  # Dict to hold config params
+        # Extract SIP server address
+        match = re.search(r'voIpProt\.server\.1\.address\s*=\s*"([^"]+)"', content)
+        if match:
+            config['sip_server'] = match.group(1)
+        # Extract admin password
+        match = re.search(r'device\.auth\.localAdminPassword\s*=\s*"([^"]+)"', content)
+        if match:
+            config['admin_password'] = match.group(1)
+        # Extract user password
+        match = re.search(r'device\.auth\.localUserPassword\s*=\s*"([^"]+)"', content)
+        if match:
+            config['user_password'] = match.group(1)
+        return config if config else None
         config = {}
         
         # Extract SIP server
@@ -238,7 +501,38 @@ class VPBXPhoneAnalyzer:
         return config if config else None
     
     def check_site_security(self, site_id, config):
-        """Check for security issues in site configuration"""
+        """
+        Checks for security issues in the site configuration (e.g., weak/default admin passwords).
+        Appends security issues to self.results['security_issues'].
+        Args:
+            site_id (str): Site identifier.
+            config (dict): Site config dictionary.
+        """
+        """
+        Check for security issues in site configuration (e.g., weak/default admin passwords).
+        Appends issues to self.results['security_issues'].
+        """
+        issues = []  # List to hold detected issues
+        # Check for weak/default admin passwords
+        if 'admin_password' in config:
+            pwd = config['admin_password']
+            if len(pwd) < 8:
+                issues.append({
+                    'site_id': site_id,
+                    'type': 'weak_admin_password',
+                    'severity': 'high',
+                    'detail': f"Admin password too short: {len(pwd)} characters"
+                })
+            # Check for common weak/default patterns
+            if pwd.isdigit() or pwd.lower() in ['password', 'admin', '12345678']:
+                issues.append({
+                    'site_id': site_id,
+                    'type': 'default_admin_password',
+                    'severity': 'critical',
+                    'detail': f"Admin password is default/weak: {pwd}"
+                })
+        # Add all found issues to global list
+        self.results['security_issues'].extend(issues)
         issues = []
         
         # Check for weak/default admin passwords
@@ -264,7 +558,10 @@ class VPBXPhoneAnalyzer:
         self.results['security_issues'].extend(issues)
     
     def analyze_phone_configs(self, site_id, entry_dir):
-        """Analyze individual phone configurations"""
+        """
+        Analyze individual phone configurations (edit_main.txt) for template assignments.
+        Updates config_patterns for template usage.
+        """
         edit_file = entry_dir / "edit_main.txt"
         
         if not edit_file.exists():
@@ -285,7 +582,10 @@ class VPBXPhoneAnalyzer:
             pass
     
     def analyze_view_configs(self, site_id, entry_dir):
-        """Analyze view_config.txt for detailed phone settings"""
+        """
+        Analyze view_config.txt for detailed phone settings (SIP credentials, transfer types, logs).
+        Updates config_patterns for password types, lengths, transfer types, and logs.
+        """
         config_file = entry_dir / "view_config.txt"
         
         if not config_file.exists():
@@ -340,7 +640,10 @@ class VPBXPhoneAnalyzer:
             pass
     
     def generate_inventory_report(self):
-        """Generate phone inventory statistics"""
+        """
+        Generate and print phone inventory statistics by manufacturer and model.
+        Updates self.results['statistics'] with summary data.
+        """
         print("=" * 80)
         print("PHONE INVENTORY REPORT")
         print("=" * 80)
@@ -377,7 +680,10 @@ class VPBXPhoneAnalyzer:
         self.results['statistics']['top_models'] = dict(models[:20])
     
     def generate_security_report(self):
-        """Generate security analysis report"""
+        """
+        Generate and print security analysis report, grouped by severity.
+        Lists all detected security issues.
+        """
         print("=" * 80)
         print("SECURITY ANALYSIS")
         print("=" * 80)
@@ -404,7 +710,9 @@ class VPBXPhoneAnalyzer:
                 print()
     
     def generate_configuration_report(self):
-        """Generate configuration patterns report"""
+        """
+        Generate and print configuration patterns report (transfer types, password types, templates).
+        """
         print("=" * 80)
         print("CONFIGURATION PATTERNS")
         print("=" * 80)
@@ -439,7 +747,10 @@ class VPBXPhoneAnalyzer:
             print()
     
     def generate_version_report(self):
-        """Generate FreePBX/Asterisk version report"""
+        """
+        Generate and print FreePBX/Asterisk version report, platform distribution, and call center stats.
+        Updates self.results['statistics'] with version/platform data.
+        """
         print("=" * 80)
         print("VERSION ANALYSIS")
         print("=" * 80)
@@ -487,7 +798,10 @@ class VPBXPhoneAnalyzer:
         self.results['statistics']['call_center_count'] = len(call_center_sites)
     
     def generate_anomaly_report(self):
-        """Detect and report anomalies"""
+        """
+        Detect and print anomalies (unusual device counts, mismatches).
+        Updates self.results['anomalies'] with detected issues.
+        """
         print("=" * 80)
         print("ANOMALY DETECTION")
         print("=" * 80)
@@ -542,7 +856,10 @@ class VPBXPhoneAnalyzer:
         self.results['anomalies'] = anomalies
     
     def save_results(self):
-        """Save analysis results to JSON"""
+        """
+        Save analysis results to analysis_results.json and phone inventory to CSV.
+        Converts Counters to dicts for JSON serialization.
+        """
         output_file = self.data_dir / "analysis_results.json"
         
         # Convert Counters to dicts for JSON serialization
@@ -569,7 +886,9 @@ class VPBXPhoneAnalyzer:
         self.save_phone_inventory_csv()
     
     def save_phone_inventory_csv(self):
-        """Save complete phone inventory as CSV"""
+        """
+        Save complete phone inventory as CSV (phone_inventory_complete.csv).
+        """
         output_file = self.data_dir / "phone_inventory_complete.csv"
         
         if not self.results['phones']:
@@ -589,7 +908,9 @@ class VPBXPhoneAnalyzer:
         print()
 
 def main():
-    """Main entry point"""
+    """
+    Main entry point: parses arguments, runs analysis, prints summary.
+    """
     import argparse
     
     parser = argparse.ArgumentParser(

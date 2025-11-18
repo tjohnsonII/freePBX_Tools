@@ -1,27 +1,51 @@
+
 #!/usr/bin/env python3
-# 123NET FreePBX Tools - Version Policy Checker (Python 3.6 safe)
+# ============================================================================
+# 123NET FreePBX Tools - Version Policy Checker
+# --------------------------------------------------------------------------
+# This script checks the installed FreePBX and Asterisk versions against a
+# version policy JSON file, ensuring compliance with organizational standards.
+# It is Python 3.6+ compatible and can autogenerate a minimal policy if missing.
+#
+# MAIN STEPS:
+# 1. Detects installed FreePBX and Asterisk versions using CLI tools.
+# 2. Loads version policy from JSON (default: /usr/local/123net/freepbx-tools/version_policy.json).
+# 3. Compares detected versions to allowed majors/ranges in policy.
+# 4. Prints a professional compliance report with color-coded status.
+# 5. Exits 0 if all versions are compliant, 1 otherwise (non-fatal for installer).
+#
+# OPTIONS:
+#   --policy PATH      Use a custom version_policy.json path.
+#   --quiet            Suppress banner and human-readable output.
+#   --no-autolearn     Do not auto-create a minimal policy if missing.
+#
+# This script is safe for repeated use and is idempotent.
+# ============================================================================
 
-import argparse
-import json
-import os
-import re
-import subprocess
-import sys
-from typing import Optional, Dict, Any, List, Tuple
 
-# ANSI Color codes for professional output
+import argparse      # For command-line argument parsing
+import json          # For reading/writing policy JSON
+import os            # For file and environment operations
+import re            # For regex version parsing
+import subprocess    # For running shell commands
+import sys           # For exit codes and argv
+from typing import Optional, Dict, Any, List, Tuple  # Type hints
+
+
+# ANSI Color codes for professional output formatting
 class Colors:
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
+    HEADER = '\033[95m'   # Magenta
+    BLUE = '\033[94m'     # Blue
+    CYAN = '\033[96m'     # Cyan
+    GREEN = '\033[92m'    # Green
+    YELLOW = '\033[93m'   # Yellow
+    RED = '\033[91m'      # Red
+    ENDC = '\033[0m'      # Reset
+    BOLD = '\033[1m'      # Bold
 
+
+# Print a professional header banner for the compliance check
 def print_header():
-    """Print professional header banner"""
     print(Colors.GREEN + Colors.BOLD + """
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
@@ -32,8 +56,12 @@ def print_header():
 ╚═══════════════════════════════════════════════════════════════╝
     """ + Colors.ENDC)
 
+
+# Default path to the version policy JSON file
 DEFAULT_POLICY = "/usr/local/123net/freepbx-tools/version_policy.json"
 
+
+# Run a shell command and return its output as a string, or empty string on error
 def sh(cmd: List[str]) -> str:
     try:
         out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -41,36 +69,46 @@ def sh(cmd: List[str]) -> str:
     except Exception:
         return ""
 
+
+# Detect the installed FreePBX version using fwconsole
 def detect_freepbx_version() -> Optional[str]:
-    # Typical: fwconsole --version -> "... 16.0.40.13"
+    # Typical output: fwconsole --version -> "... 16.0.40.13"
     out = sh(["fwconsole", "--version"])
     if out:
         toks = out.split()
         if toks:
-            return toks[-1]
+            return toks[-1]  # Return the last token (version string)
     return None
 
+
+# Detect the installed Asterisk version using CLI
 def detect_asterisk_version() -> Optional[str]:
-    # Prefer detailed runtime banner
+    # Prefer detailed runtime banner for accuracy
     out = sh(["asterisk", "-rx", "core show version"])
     m = re.search(r"Asterisk\s+([0-9]+(?:\.[0-9]+)*)", out or "")
     if m:
         return m.group(1)
-    # Fallback
+    # Fallback to asterisk -V if needed
     out = sh(["asterisk", "-V"])
     m = re.search(r"Asterisk\s+([0-9]+(?:\.[0-9]+)*)", out or "")
     return m.group(1) if m else None
 
+
+# Extract the major version number from a version string
 def major_of(s: Optional[str]) -> Optional[int]:
     if not s:
         return None
     m = re.match(r"([0-9]+)", s)
     return int(m.group(1)) if m else None
 
+
+# Load the version policy JSON from disk
 def load_policy(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
         return json.load(f)
 
+
+# Save the version policy JSON to disk, creating parent directories if needed
 def save_policy(path: str, policy: Dict[str, Any]) -> None:
     d = os.path.dirname(path)
     if d and not os.path.isdir(d):
@@ -78,6 +116,8 @@ def save_policy(path: str, policy: Dict[str, Any]) -> None:
     with open(path, "w") as f:
         json.dump(policy, f, indent=2, sort_keys=True)
 
+
+# Normalize a list of allowed major versions from policy (convert to int)
 def normalize_allowed_majors(v: Any) -> List[int]:
     out = []
     if isinstance(v, list):
@@ -88,6 +128,8 @@ def normalize_allowed_majors(v: Any) -> List[int]:
                 pass
     return out
 
+
+# Normalize a list of allowed version ranges from policy
 def normalize_allowed_ranges(v: Any) -> List[Tuple[int, int]]:
     ranges = []
     if isinstance(v, list):
@@ -101,6 +143,9 @@ def normalize_allowed_ranges(v: Any) -> List[Tuple[int, int]]:
                     pass
     return ranges
 
+
+# Determine if a major version is allowed by the component policy
+# Supports allowed_majors, allowed_ranges, min_major, max_major
 def major_allowed(major: Optional[int], comp_policy: Dict[str, Any]) -> bool:
     if major is None:
         return False
@@ -130,17 +175,21 @@ def major_allowed(major: Optional[int], comp_policy: Dict[str, Any]) -> bool:
         pass
     return False
 
+
+# Print a separator line for banners
 def banner_line():
     print("=" * 66)
 
-def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
-    # Detect versions
-    fpbx_ver = detect_freepbx_version()
-    ast_ver  = detect_asterisk_version()
-    fpbx_maj = major_of(fpbx_ver)
-    ast_maj  = major_of(ast_ver)
 
-    # Load or autolearn policy
+# Main logic for version check: detect, load policy, compare, print, return status
+def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
+    # Detect installed versions
+    fpbx_ver = detect_freepbx_version()   # e.g., '16.0.40.13'
+    ast_ver  = detect_asterisk_version()  # e.g., '18.9.0'
+    fpbx_maj = major_of(fpbx_ver)         # e.g., 16
+    ast_maj  = major_of(ast_ver)          # e.g., 18
+
+    # Load policy from file, or autolearn if missing and allowed
     policy = {}  # type: Dict[str, Any]
     if os.path.isfile(policy_path):
         try:
@@ -148,6 +197,7 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
         except Exception:
             policy = {}
     elif autolearn:
+        # If policy missing, create a minimal one from detected versions
         policy = {
             "FreePBX":  {"allowed_majors": [fpbx_maj] if fpbx_maj is not None else [16]},
             "Asterisk": {"allowed_majors": [ast_maj]  if ast_maj  is not None else [16, 18]},
@@ -158,12 +208,15 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
             # Non-fatal: continue without writing
             pass
 
+    # Extract component policies
     fpbx_policy = policy.get("FreePBX", {})
     ast_policy  = policy.get("Asterisk", {})
 
+    # Check if detected versions are allowed
     fpbx_ok = major_allowed(fpbx_maj, fpbx_policy)
     ast_ok  = major_allowed(ast_maj,  ast_policy)
 
+    # Print human-readable banner unless --quiet
     if not quiet:
         print_header()
         print(Colors.CYAN + "Policy file: " + Colors.BOLD + policy_path + Colors.ENDC)
@@ -172,7 +225,7 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
         print(Colors.BOLD + "{:<12} {:<18} {}".format("Component", "Version", "Status") + Colors.ENDC)
         print(Colors.CYAN + "─" * 70 + Colors.ENDC)
         
-        # FreePBX status
+        # FreePBX status line
         fpbx_status_icon = "✓" if fpbx_ok else "✗"
         fpbx_status_color = Colors.GREEN if fpbx_ok else Colors.RED
         fpbx_status_text = "IN-POLICY" if fpbx_ok else "OUT-OF-POLICY"
@@ -182,7 +235,7 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
             fpbx_status_color + fpbx_status_icon + " " + fpbx_status_text + Colors.ENDC
         ))
         
-        # Asterisk status
+        # Asterisk status line
         ast_status_icon = "✓" if ast_ok else "✗"
         ast_status_color = Colors.GREEN if ast_ok else Colors.RED
         ast_status_text = "IN-POLICY" if ast_ok else "OUT-OF-POLICY"
@@ -194,7 +247,7 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
         
         print(Colors.CYAN + "─" * 70 + Colors.ENDC)
         
-        # Overall status
+        # Overall status summary
         if fpbx_ver and ast_ver and fpbx_ok and ast_ok:
             print(Colors.GREEN + Colors.BOLD + "\n✓ All versions are compliant with policy" + Colors.ENDC)
         else:
@@ -206,6 +259,8 @@ def run(policy_path: str, quiet: bool, autolearn: bool) -> int:
         return 0
     return 1
 
+
+# Entry point: parse arguments, run check, exit with status
 def main():
     ap = argparse.ArgumentParser(description="Check FreePBX/Asterisk versions against version_policy.json")
     ap.add_argument("--policy", default=os.environ.get("VERSION_POLICY_JSON", DEFAULT_POLICY),
@@ -218,5 +273,7 @@ def main():
     rc = run(args.policy, args.quiet, autolearn=(not args.no_autolearn))
     sys.exit(rc)
 
+
+# Standard Python entry point
 if __name__ == "__main__":
     main()
