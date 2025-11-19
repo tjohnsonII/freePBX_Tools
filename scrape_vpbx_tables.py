@@ -1,8 +1,42 @@
 #!/usr/bin/env python3
 """
 123NET VPBX Table Scraper
-Focuses on extracting table data and following links within tables
+-------------------------
+This script automates the extraction of table data and detail pages from the 123NET VPBX admin interface.
+It uses Selenium to control a browser, extract tables, follow links, and save results as CSV/JSON.
 """
+
+# =====================================
+# Variable Map Legend (Key Variables)
+# =====================================
+#
+# VPBXTableScraper class:
+#   self.base_url (str): Base URL for the VPBX admin interface
+#   self.output_dir (str): Output directory for scraped data
+#   self.visited_urls (set): Set of URLs already visited for detail scraping
+#   self.table_data (list[dict]): All extracted table row data
+#   self.detail_pages (list[dict]): Metadata for each scraped detail page
+#   self.driver (webdriver.Chrome): Selenium WebDriver instance
+#
+# Table extraction:
+#   headers (list[str]): Column headers for each table
+#   rows (list[dict]): Row data for each table
+#   links_in_row (list[dict]): Links found in each table row
+#
+# Pagination:
+#   next_button: Selenium element for the Next button
+#   page_num (int): Current page number in pagination
+#
+# Detail scraping:
+#   detail_url (str): URL of the detail page being scraped
+#   saved_files (dict): File paths for saved HTML/text of each sub-page
+#   edit_url (str): URL of the Edit page for an entry
+#   edit_sub_pages (list[tuple]): Sub-pages to scrape from Edit page
+#
+# Output:
+#   filepath (str): Path to output CSV/JSON file
+#   all_keys (list[str]): All unique column names for CSV output
+# =====================================
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,7 +54,10 @@ from urllib.parse import urljoin, urlparse
 from datetime import datetime
 
 class Colors:
-    """ANSI color codes"""
+    """
+    ANSI color codes for colored terminal output.
+    Used to highlight status messages and errors.
+    """
     RESET = '\033[0m'
     BOLD = '\033[1m'
     RED = '\033[91m'
@@ -30,26 +67,29 @@ class Colors:
     CYAN = '\033[96m'
 
 class VPBXTableScraper:
-    """Scraper focused on table data from 123NET VPBX admin"""
+    """
+    Main scraper class for extracting table data and detail pages from 123NET VPBX admin.
+    Handles browser setup, table parsing, pagination, link following, and output.
+    """
     
     def __init__(self, base_url, output_dir):
+        # Store base URL and output directory
         self.base_url = base_url
         self.output_dir = output_dir
-        self.visited_urls = set()
-        self.table_data = []
-        self.detail_pages = []
-        
-        # Create output directory
+        self.visited_urls = set()  # Track visited detail pages
+        self.table_data = []       # All extracted table rows
+        self.detail_pages = []     # Metadata for each scraped detail page
+
+        # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Setup Chrome driver
+
+        # Setup Selenium Chrome driver with anti-detection options
         print(f"{Colors.CYAN}Initializing Chrome browser...{Colors.RESET}")
-        
         options = webdriver.ChromeOptions()
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        
+
         try:
             self.driver = webdriver.Chrome(options=options)
             self.driver.implicitly_wait(10)
@@ -59,7 +99,10 @@ class VPBXTableScraper:
             sys.exit(1)
     
     def extract_table_data(self):
-        """Extract data from tables on the current page"""
+        """
+        Extract all tables from the current page using BeautifulSoup.
+        Returns a list of table data dicts (headers, rows, links).
+        """
         print(f"\n{Colors.BLUE}Extracting table data...{Colors.RESET}")
         
         html = self.driver.page_source
@@ -136,30 +179,29 @@ class VPBXTableScraper:
         return all_table_data
     
     def extract_all_pages(self):
-        """Extract data from all paginated pages"""
+        """
+        Extract table data from all paginated pages by clicking 'Next' until the end.
+        Returns a list of all table data from all pages.
+        """
         print(f"\n{Colors.BOLD}Handling pagination...{Colors.RESET}")
         
         all_table_data = []
         page_num = 1
         
         while True:
-            print(f"\n{Colors.CYAN}Extracting page {page_num}...{Colors.RESET}")
-            
-            # Extract current page
-            page_data = self.extract_table_data()
-            all_table_data.extend(page_data)
-            
-            # Look for "Next" button at the bottom of the page
             try:
+                print(f"\n{Colors.CYAN}Extracting page {page_num}...{Colors.RESET}")
+                # Extract current page
+                page_data = self.extract_table_data()
+                all_table_data.extend(page_data)
+                # Look for "Next" button at the bottom of the page
                 # Find the "Next" button by ID (most reliable)
                 next_button = None
-                
                 try:
                     next_button = self.driver.find_element(By.ID, "vpbx_list_next")
                     print(f"{Colors.BLUE}  Found Next button by ID{Colors.RESET}")
                 except NoSuchElementException:
                     print(f"{Colors.YELLOW}  Next button not found by ID, trying other methods...{Colors.RESET}")
-                
                 # If not found by ID, try by link text
                 if not next_button:
                     next_links = self.driver.find_elements(By.LINK_TEXT, "Next")
@@ -168,17 +210,13 @@ class VPBXTableScraper:
                     if next_links:
                         next_button = next_links[0]
                         print(f"{Colors.BLUE}  Found Next button by link text{Colors.RESET}")
-                
                 if next_button:
                     # Check if the Next button is disabled
                     classes = next_button.get_attribute("class") or ""
-                    
                     if "ui-state-disabled" in classes or "disabled" in classes.lower():
                         print(f"{Colors.YELLOW}  'Next' button is disabled - reached last page{Colors.RESET}")
                         break
-                    
                     print(f"{Colors.BLUE}  → Clicking 'Next' button...{Colors.RESET}")
-                    
                     # Use JavaScript to click to avoid "element click intercepted" errors
                     try:
                         self.driver.execute_script("arguments[0].click();", next_button)
@@ -188,15 +226,12 @@ class VPBXTableScraper:
                         self.driver.execute_script("arguments[0].scrollIntoView();", next_button)
                         time.sleep(1)
                         next_button.click()
-                    
                     print(f"{Colors.CYAN}  Waiting for next page to load...{Colors.RESET}")
                     time.sleep(3)  # Wait for page to load
-                    
                     page_num += 1
                 else:
                     print(f"{Colors.YELLOW}  No 'Next' button found - single page or end of pagination{Colors.RESET}")
                     break
-                    
             except Exception as e:
                 print(f"{Colors.YELLOW}  Pagination ended: {e}{Colors.RESET}")
                 break
@@ -205,7 +240,9 @@ class VPBXTableScraper:
         return all_table_data
     
     def save_table_as_csv(self, table_data, filename="table_data.csv"):
-        """Save table data as CSV"""
+        """
+        Save all extracted table data to a CSV file in the output directory.
+        """
         if not self.table_data:
             print(f"{Colors.YELLOW}No table data to save{Colors.RESET}")
             return
@@ -232,7 +269,9 @@ class VPBXTableScraper:
             print(f"{Colors.RED}✗ Error saving CSV: {e}{Colors.RESET}")
     
     def save_table_as_json(self, table_data, filename="table_data.json"):
-        """Save table data as JSON with full structure including links"""
+        """
+        Save all extracted table data to a JSON file (with metadata and links).
+        """
         filepath = os.path.join(self.output_dir, filename)
         
         export_data = {
@@ -252,7 +291,10 @@ class VPBXTableScraper:
             print(f"{Colors.RED}✗ Error saving JSON: {e}{Colors.RESET}")
     
     def extract_links_from_table(self, table_data):
-        """Extract all links from table data"""
+        """
+        Extract all links from the table data for later detail page scraping.
+        Returns a flat list of link dicts.
+        """
         all_links = []
         
         for table in table_data:
@@ -276,7 +318,10 @@ class VPBXTableScraper:
         return all_links
     
     def _save_page_content(self, output_dir, page_name, page_url):
-        """Helper to save current page's HTML and text content"""
+        """
+        Helper to save the current page's HTML and extracted text to files.
+        Returns the HTML and text file paths.
+        """
         html = self.driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
         
@@ -303,7 +348,11 @@ class VPBXTableScraper:
         return html_file, text_file
     
     def scrape_detail_page_comprehensive(self, detail_url, entry_id, output_dir):
-        """Scrape a detail page and all its sub-pages (Site Notes, Site Specific Config, Edit, etc.)"""
+        """
+        Scrape a detail page and all its sub-pages (Site Notes, Site Specific Config, Edit, etc.).
+        Saves each sub-page's HTML and text to the output directory.
+        Returns a dict of saved file paths.
+        """
         saved_files = {}
         
         try:
@@ -358,7 +407,6 @@ class VPBXTableScraper:
                 # Go back to detail page
                 self.driver.get(detail_url)
                 time.sleep(1)
-                
                 # Look for Edit link/button
                 edit_button = None
                 try:
@@ -366,33 +414,22 @@ class VPBXTableScraper:
                     edit_links = self.driver.find_elements(By.PARTIAL_LINK_TEXT, "Edit")
                     if edit_links:
                         edit_button = edit_links[0]
-                except:
-                    pass
-                
-                if edit_button:
-                    # Click Edit
-                    self.driver.execute_script("arguments[0].click();", edit_button)
                     time.sleep(2)
-                    
                     edit_url = self.driver.current_url
-                    
                     # Save main Edit page
                     html_file, text_file = self._save_page_content(output_dir, "edit_main", edit_url)
                     saved_files['edit_main'] = {'html': html_file, 'text': text_file}
                     print(f"{Colors.GREEN}    ✓ Edit page{Colors.RESET}")
-                    
                     # Now look for sub-buttons on Edit page: View Config, Bulk Attribute Edit
                     edit_sub_pages = [
                         ('View Config', 'view_config'),
                         ('Bulk Attribute Edit', 'bulk_attribute_edit'),
                     ]
-                    
                     for sub_button_text, page_name in edit_sub_pages:
                         try:
                             # Go back to edit page
                             self.driver.get(edit_url)
                             time.sleep(1)
-                            
                             # Find the sub-button
                             sub_button = None
                             try:
@@ -404,25 +441,21 @@ class VPBXTableScraper:
                                     if sub_button_text.lower() in btn.text.lower():
                                         sub_button = btn
                                         break
-                            
                             if sub_button:
                                 self.driver.execute_script("arguments[0].click();", sub_button)
                                 time.sleep(2)
-                                
                                 current_url = self.driver.current_url
                                 html_file, text_file = self._save_page_content(output_dir, page_name, current_url)
                                 saved_files[page_name] = {'html': html_file, 'text': text_file}
                                 print(f"{Colors.GREEN}    ✓ {sub_button_text}{Colors.RESET}")
                             else:
                                 print(f"{Colors.YELLOW}    ⚠ {sub_button_text} not found{Colors.RESET}")
-                                
                         except Exception as e:
                             print(f"{Colors.YELLOW}    ⚠ Error with {sub_button_text}: {e}{Colors.RESET}")
-                else:
-                    print(f"{Colors.YELLOW}    ⚠ Edit button not found{Colors.RESET}")
-                    
+                except Exception as e:
+                    print(f"{Colors.YELLOW}    ⚠ Edit button not found or error: {e}{Colors.RESET}")
             except Exception as e:
-                print(f"{Colors.YELLOW}    ⚠ Error accessing Edit page: {e}{Colors.RESET}")
+                print(f"{Colors.YELLOW}    ⚠ Error handling Edit page and sub-pages: {e}{Colors.RESET}")
             
         except Exception as e:
             print(f"{Colors.RED}    ✗ Error scraping detail page: {e}{Colors.RESET}")
@@ -430,12 +463,10 @@ class VPBXTableScraper:
         return saved_files
     
     def scrape_detail_pages(self, links, max_pages=None, comprehensive=False):
-        """Follow links to scrape detail pages
-        
-        Args:
-            links: List of link dictionaries to scrape
-            max_pages: Maximum number of pages to scrape (None for all)
-            comprehensive: If True, scrape all sub-pages (Site Notes, Edit, etc.)
+        """
+        Follow links to scrape detail pages for each entry in the table.
+        If comprehensive is True, scrape all sub-pages for each entry.
+        Returns the number of pages scraped.
         """
         print(f"\n{Colors.BOLD}Scraping detail pages...{Colors.RESET}")
         
@@ -540,12 +571,14 @@ class VPBXTableScraper:
         return scraped_count
     
     def run(self, scrape_details=True, max_detail_pages=None, comprehensive=False):
-        """Main workflow
-        
-        Args:
-            scrape_details: Whether to scrape detail pages
-            max_detail_pages: Maximum number of detail pages to scrape (None for all)
-            comprehensive: If True, scrape all sub-pages (Site Notes, Edit, etc.)
+        """
+        Main workflow for the scraper:
+          1. Loads the main page and waits for authentication.
+          2. Attempts to show all entries if possible.
+          3. Extracts all table data from all pages.
+          4. Saves table data as CSV and JSON.
+          5. Optionally follows and scrapes detail pages (and sub-pages).
+        Returns True if successful, False otherwise.
         """
         print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
         print(f"{Colors.YELLOW}{Colors.BOLD}📊 123NET VPBX Table Scraper{Colors.RESET}")
@@ -626,70 +659,75 @@ class VPBXTableScraper:
         return True
     
     def close(self):
-        """Close browser"""
+        """
+        Close the Selenium browser instance.
+        """
         if self.driver:
             self.driver.quit()
 
 def main():
-    """Main entry point"""
+    """
+    Main entry point for the VPBX table scraper CLI.
+    Parses command-line arguments, initializes the scraper, and runs the workflow.
+    """
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description='Scrape table data from 123NET VPBX admin interface'
     )
-    
+
     parser.add_argument(
         '--url',
         default='https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi',
         help='URL to scrape (default: 123NET VPBX interface)'
     )
-    
+
     parser.add_argument(
         '--output',
         default='freepbx-tools/bin/123net_internal_docs/vpbx_tables',
         help='Output directory'
     )
-    
+
     parser.add_argument(
         '--max-details',
         type=int,
         default=None,
         help='Maximum detail pages to scrape (default: all pages)'
     )
-    
+
     parser.add_argument(
         '--no-details',
         action='store_true',
         help='Skip scraping detail pages'
     )
-    
+
     parser.add_argument(
         '--comprehensive',
         action='store_true',
         help='Scrape all sub-pages (Site Notes, Site Specific Config, Edit, View Config, Bulk Attribute Edit)'
     )
-    
+
     args = parser.parse_args()
-    
+
     scraper = None
     try:
         scraper = VPBXTableScraper(
             base_url=args.url,
             output_dir=args.output
         )
-        
+
         success = scraper.run(
             scrape_details=not args.no_details,
             max_detail_pages=args.max_details,
             comprehensive=args.comprehensive
         )
-        
+
         sys.exit(0 if success else 1)
-        
+
     except KeyboardInterrupt:
         print(f"\n\n{Colors.YELLOW}⚠ Interrupted by user{Colors.RESET}")
         sys.exit(1)
-    
+
     finally:
         if scraper:
             scraper.close()

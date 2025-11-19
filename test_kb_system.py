@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """
 Knowledge Base System - Self Test
-Verifies all components are working correctly
+---------------------------------
+This script performs a comprehensive self-test of the knowledge base system.
+It checks Python version, dependencies, required files, documentation, module imports,
+database creation, and the UnifiedKnowledgeBase class. It provides a summary and next steps.
+
+====================================
+Variable Map Legend (Key Variables)
+====================================
+
+results (list[tuple]): List of (test_name, result) for all self-tests
+version (sys.version_info): Python version info
+required_packages (dict): Required Python packages and their descriptions
+required_files (list[str]): List of required KB system source files
+doc_files (list[str]): List of documentation files (optional)
+modules (dict): Module names and descriptions for import tests
+test_db, test_unified_kb.db (Path): Temporary SQLite database files for tests
+conn, cursor: SQLite connection and cursor objects
+tables, indexes (list[str]): List of table/index names in test databases
+missing (list[str]): List of missing required tables
+kb (UnifiedKnowledgeBase): Instance of the knowledge base class
+count (int): Row count for DB test
+test_name (str): Name of each test in summary
+passed, total (int): Number of tests passed/total
+
 """
 
 import sys
@@ -9,7 +32,10 @@ from pathlib import Path
 import subprocess
 
 def check_python_version():
-    """Check Python version"""
+    """
+    Check that the Python version is 3.6 or higher.
+    Prints the version and returns True if compatible, False otherwise.
+    """
     print("\n" + "="*60)
     print("1. Checking Python Version")
     print("="*60)
@@ -25,7 +51,10 @@ def check_python_version():
         return False
 
 def check_dependencies():
-    """Check required packages"""
+    """
+    Check that all required Python packages are installed.
+    Prints status for each and returns True if all are present.
+    """
     print("\n" + "="*60)
     print("2. Checking Dependencies")
     print("="*60)
@@ -52,7 +81,10 @@ def check_dependencies():
     return all_ok
 
 def check_files():
-    """Check required files exist"""
+    """
+    Check that all required source files for the KB system exist.
+    Prints status for each and returns True if all are present.
+    """
     print("\n" + "="*60)
     print("3. Checking Required Files")
     print("="*60)
@@ -79,7 +111,10 @@ def check_files():
     return all_ok
 
 def check_documentation():
-    """Check documentation files"""
+    """
+    Check that documentation files exist (optional, not required to pass).
+    Prints status for each file.
+    """
     print("\n" + "="*60)
     print("4. Checking Documentation")
     print("="*60)
@@ -104,7 +139,10 @@ def check_documentation():
     return True  # Documentation is optional
 
 def test_imports():
-    """Test importing the modules"""
+    """
+    Attempt to import all major KB modules to verify they are importable.
+    Prints status for each and returns True if all imports succeed.
+    """
     print("\n" + "="*60)
     print("5. Testing Module Imports")
     print("="*60)
@@ -128,7 +166,10 @@ def test_imports():
     return all_ok
 
 def test_database_creation():
-    """Test creating a sample database"""
+    """
+    Test that a SQLite database can be created, written to, and queried.
+    Returns True if all steps succeed.
+    """
     print("\n" + "="*60)
     print("6. Testing Database Creation")
     print("="*60)
@@ -182,7 +223,10 @@ def test_database_creation():
         return False
 
 def test_unified_kb_class():
-    """Test UnifiedKnowledgeBase class"""
+    """
+    Test the UnifiedKnowledgeBase class for correct DB/table creation and connection.
+    Returns True if all checks pass.
+    """
     print("\n" + "="*60)
     print("7. Testing UnifiedKnowledgeBase Class")
     print("="*60)
@@ -242,7 +286,9 @@ def test_unified_kb_class():
         return False
 
 def show_next_steps():
-    """Show what to do next"""
+    """
+    Print next steps and usage instructions for the knowledge base system after a successful self-test.
+    """
     print("\n" + "="*60)
     print("NEXT STEPS")
     print("="*60)
@@ -283,7 +329,10 @@ def show_next_steps():
     print("\n" + "="*60)
 
 def main():
-    """Run all tests"""
+    """
+    Run all self-tests for the knowledge base system, print a summary, and show next steps.
+    Returns 0 if all tests pass, 1 otherwise.
+    """
     print("\n" + "="*70)
     print(" "*15 + "KNOWLEDGE BASE SYSTEM - SELF TEST")
     print("="*70)

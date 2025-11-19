@@ -1,7 +1,58 @@
 #!/usr/bin/env python3
 """
 123NET Ticket Scraper - Session-Based Version
-Uses existing browser session/cookies for authentication
+---------------------------------------------
+This script scrapes support tickets from 123NET using an existing browser session (cookies).
+It allows authentication via cookies exported from a browser, avoiding the need to store credentials in the script.
+
+Key Features:
+- Uses browser session cookies for authentication
+- Fetches ticket lists and details for a customer
+- Supports interactive or file-based cookie entry
+- Outputs all ticket data to JSON for later analysis
+
+Author: 123NET Team
+
+====================================
+Variable Map Legend (Key Variables)
+====================================
+
+Global/Script Arguments:
+-----------------------
+args.customer (str): Customer handle to fetch tickets for
+args.cookie_file (str): Path to JSON file with cookies
+args.interactive (bool): Whether to prompt for cookies interactively
+args.test_only (bool): Only test authentication, do not scrape
+args.output (str): Output directory for JSON results
+
+SessionTicketScraper Class:
+--------------------------
+self.base_url (str): Base URL for 123NET admin portal
+self.session (requests.Session): Persistent HTTP session with cookies
+
+get_customer_tickets():
+    customer_handle (str): Customer identifier
+    tickets (list[dict]): List of ticket metadata dicts
+
+get_ticket_details():
+    ticket_id (str): Ticket identifier
+    ticket_url (str): Optional direct URL to ticket
+    details (dict): Full ticket details and messages
+
+test_authentication():
+    test_url (str): URL used to verify authentication
+
+extract_cookies_from_browser():
+    cookies (dict): Dictionary of cookie name/value pairs
+
+Other:
+------
+cookies (dict): Cookies loaded from file or entered interactively
+tickets (list[dict]): List of tickets for customer
+detailed_tickets (list[dict]): List of tickets with full details
+output_dir (Path): Output directory as pathlib.Path
+output_file (Path): Output JSON file path
+full_ticket (dict): Merged ticket info and details
 """
 
 import requests
@@ -33,15 +84,16 @@ class SessionTicketScraper:
         self.session.cookies.set(name, value)
     
     def test_authentication(self):
-        """Test if the session is authenticated"""
+        """
+        Test if the session is authenticated by accessing a protected page.
+        Returns True if authenticated, False otherwise.
+        """
         test_url = f"{self.base_url}/cgi-bin/web_interface/admin/customers.cgi"
         response = self.session.get(test_url)
-        
         # Check if redirected to login
         if 'login' in response.url.lower():
             print("❌ Session not authenticated - redirected to login")
             return False
-        
         if response.status_code == 200:
             print("✅ Session authenticated successfully")
             return True
