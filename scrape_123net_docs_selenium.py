@@ -1,3 +1,35 @@
+"""
+VARIABLE MAP LEGEND - scrape_123net_docs_selenium.py
+----------------------------------------------------
+Colors: Class for ANSI color codes for terminal output
+SeleniumDocScraper: Main class for scraping 123NET docs using Selenium
+    base_url: (str) Root URL to start scraping from
+    output_dir: (str) Directory to save scraped files
+    visited_urls: (set) Tracks URLs already scraped to avoid duplicates
+    downloaded_files: (list) List of saved HTML file paths
+    driver: (webdriver.Chrome) Selenium browser instance
+
+Methods:
+    __init__(base_url, output_dir, headless): Initializes scraper and browser
+    extract_links(html, current_url): Extracts all links from a page
+    scrape_page(url, depth, max_depth): Recursively scrapes a page and its links
+    generate_index(): Creates an index markdown file of all downloaded files
+    close(): Closes the Selenium browser
+    wait_for_auth(): Waits for user to complete authentication
+    get_page_content(url): Loads a page and returns its HTML
+    sanitize_filename(name): Cleans a string for safe filenames
+    save_content(url, html, title): Saves HTML content to disk
+
+Other variables:
+    html_file: (str) Path to the HTML file being saved
+    filename: (str) Sanitized filename for saving content
+    soup: (BeautifulSoup) Parsed HTML content
+    links: (list) List of extracted link dicts
+    title_text: (str) Page title text
+    indent: (str) Indentation for pretty-printing recursion depth
+    cmd: (list) Command to run subprocesses (if used)
+----------------------------------------------------
+"""
 #!/usr/bin/env python3
 """
 123NET Internal Documentation Scraper (Selenium Version)
@@ -84,6 +116,9 @@ class SeleniumDocScraper:
                     f.write(f"- [{filename}](./{filename})\n")
             print(f"\n{Colors.GREEN}✓ Generated index: {index_file}{Colors.RESET}")
         except Exception as e:
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
             print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
             print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
             print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
@@ -312,3 +347,4 @@ class SeleniumDocScraper:
                 f.write(html)
             print(f"{Colors.GREEN}  ✓ Saved HTML: {os.path.basename(html_file)}{Colors.RESET}")
         except Exception as e:
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
