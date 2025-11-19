@@ -30,30 +30,80 @@ class Colors:
     CYAN = '\033[96m'
 
 class SeleniumDocScraper:
-    """Scraper for 123NET internal documentation using Selenium"""
-    
+
+    def extract_links(self, html, current_url):
+        """Extract all links from page HTML, return list of dicts with 'url' and 'text'"""
+        soup = BeautifulSoup(html, 'html.parser')
+        links = []
+        for a in soup.find_all('a', href=True):
+            href = str(a['href'])
+            url = urljoin(current_url, href)
+            text = a.get_text(strip=True)
+            # Skip javascript, mailto, anchors
+            if href.startswith('javascript:') or href.startswith('mailto:') or href.startswith('#'):
+                continue
+            links.append({'url': url, 'text': text, 'href': href})
+        return links
+
+    def scrape_page(self, url, depth=0, max_depth=2):
+        """Recursively scrape a page and its links"""
+        if depth > max_depth:
+            return
+        if url in self.visited_urls:
+            return
+        self.visited_urls.add(url)
+        indent = "  " * depth
+        print(f"{indent}{Colors.CYAN}→{Colors.RESET} Scraping: {url}")
+        html = self.get_page_content(url)
+        if not html:
+            return
+        soup = BeautifulSoup(html, 'html.parser')
+        title = soup.find('title')
+        title_text = title.get_text(strip=True) if title else ""
+        self.save_content(url, html, title_text)
+        if depth < max_depth:
+            links = self.extract_links(html, url)
+            # Only follow relevant admin/docs links
+            relevant_links = [l for l in links if any(x in l['url'].lower() for x in ['vpbx', 'admin', 'docs', 'help', 'cgi-bin'])]
+            print(f"{indent}  Found {len(relevant_links)} relevant links")
+            for link in relevant_links[:10]:  # Limit to 10 links per page
+                self.scrape_page(link['url'], depth + 1, max_depth)
+
+    def generate_index(self):
+        """Generate index of downloaded files"""
+        index_file = os.path.join(self.output_dir, "_INDEX.md")
+        try:
+            with open(index_file, 'w', encoding='utf-8') as f:
+                f.write("# 123NET Internal Documentation\n\n")
+                f.write(f"**Scraped:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write(f"**Total Files:** {len(self.downloaded_files)}\n\n")
+                f.write("---\n\n")
+                f.write("## Downloaded Files\n\n")
+                for html_file in self.downloaded_files:
+                    filename = os.path.basename(html_file)
+                    f.write(f"- [{filename}](./{filename})\n")
+            print(f"\n{Colors.GREEN}✓ Generated index: {index_file}{Colors.RESET}")
+        except Exception as e:
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}  ✗ Failed to save HTML: {e}{Colors.RESET}")
+            print(f"{Colors.RED}✗ Error generating index: {e}{Colors.RESET}")
+
     def __init__(self, base_url, output_dir, headless=False):
         self.base_url = base_url
         self.output_dir = output_dir
         self.visited_urls = set()
         self.downloaded_files = []
-        
-        # Create output directory
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Setup Chrome driver
         print(f"{Colors.CYAN}Initializing Chrome browser...{Colors.RESET}")
-        
         options = webdriver.ChromeOptions()
         if headless:
             options.add_argument('--headless')
-        
-        # Use existing user profile to preserve authentication
-        # This will open Chrome with your existing session
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        
         try:
             self.driver = webdriver.Chrome(options=options)
             self.driver.implicitly_wait(10)
@@ -62,6 +112,71 @@ class SeleniumDocScraper:
             print(f"{Colors.RED}✗ Failed to initialize browser: {e}{Colors.RESET}")
             print(f"{Colors.YELLOW}Please install Chrome and chromedriver{Colors.RESET}")
             sys.exit(1)
+
+    def scrape_all(self, max_depth=2):
+        """
+        Main scraping workflow. Handles browser navigation, authentication, and triggers recursive scraping.
+        Args:
+            max_depth (int): Maximum link depth to crawl.
+        Returns:
+            bool: True if scraping succeeded, False otherwise.
+        """
+        print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
+        print(f"{Colors.YELLOW}{Colors.BOLD}📚 123NET Documentation Scraper (Selenium){Colors.RESET}")
+        print(f"{Colors.CYAN}{'═' * 80}{Colors.RESET}\n")
+        print(f"{Colors.CYAN}🎯 Target:{Colors.RESET} {self.base_url}")
+        print(f"{Colors.CYAN}📁 Output:{Colors.RESET} {self.output_dir}")
+        print(f"{Colors.CYAN}🔍 Max Depth:{Colors.RESET} {max_depth}\n")
+        try:
+            print(f"{Colors.BLUE}Navigating to {self.base_url}...{Colors.RESET}")
+            self.driver.get(self.base_url)
+            print(f"{Colors.CYAN}Waiting for page to load (10 seconds)...{Colors.RESET}")
+            time.sleep(10)
+            current_url = self.driver.current_url
+            print(f"{Colors.BLUE}Current URL: {current_url}{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}{'═' * 80}{Colors.RESET}")
+            print(f"{Colors.YELLOW}{Colors.BOLD}⚠  PLEASE AUTHENTICATE IF PROMPTED{Colors.RESET}")
+            print(f"{Colors.YELLOW}{'═' * 80}{Colors.RESET}")
+            print(f"\n{Colors.CYAN}If you see a login page or MFA prompt:{Colors.RESET}")
+            print(f"  1. Enter your credentials")
+            print(f"  2. Complete MFA")
+            print(f"  3. The scraper will detect when you're logged in")
+            print(f"\n{Colors.CYAN}Waiting 30 seconds for you to authenticate...{Colors.RESET}\n")
+            time.sleep(30)
+            current_url = self.driver.current_url
+            if 'login' in current_url.lower() or 'auth' in current_url.lower():
+                print(f"{Colors.YELLOW}Still on login page - continuing to wait...{Colors.RESET}")
+                if not self.wait_for_auth():
+                    print(f"{Colors.RED}✗ Failed to authenticate{Colors.RESET}")
+                    return False
+            else:
+                print(f"{Colors.GREEN}✓ Authentication complete or not required{Colors.RESET}\n")
+                time.sleep(2)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Error accessing site: {e}{Colors.RESET}")
+            return False
+        print(f"{Colors.CYAN}{'─' * 80}{Colors.RESET}\n")
+        print(f"{Colors.BOLD}Starting to scrape pages...{Colors.RESET}\n")
+        self.scrape_page(self.base_url, depth=0, max_depth=max_depth)
+        print(f"\n{Colors.BOLD}Generating index file...{Colors.RESET}")
+        self.generate_index()
+        print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
+        print(f"{Colors.GREEN}✅ Scraping complete!{Colors.RESET}")
+        print(f"\n{Colors.CYAN}📊 Summary:{Colors.RESET}")
+        print(f"  • Pages visited: {len(self.visited_urls)}")
+        print(f"  • Files saved: {len(self.downloaded_files)}")
+        print(f"  • Output directory: {self.output_dir}")
+        print(f"{Colors.CYAN}{'═' * 80}{Colors.RESET}\n")
+        print(f"{Colors.YELLOW}Browser will close in 5 seconds...{Colors.RESET}")
+        time.sleep(5)
+        return True
+
+    def close(self):
+        """
+        Close the Selenium browser instance if open.
+        """
+        if self.driver:
+            self.driver.quit()
     
     def wait_for_auth(self):
         """Wait for user to complete authentication"""
@@ -197,259 +312,3 @@ class SeleniumDocScraper:
                 f.write(html)
             print(f"{Colors.GREEN}  ✓ Saved HTML: {os.path.basename(html_file)}{Colors.RESET}")
         except Exception as e:
-            print(f"{Colors.RED}  ✗ Error saving HTML: {e}{Colors.RESET}")
-            return
-        
-        # Extract and save text
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Remove scripts and styles
-        for script in soup(["script", "style"]):
-            script.decompose()
-        
-        text = soup.get_text(separator='\n', strip=True)
-        
-        text_file = html_file.replace('.html', '.txt')
-        try:
-            with open(text_file, 'w', encoding='utf-8') as f:
-                f.write(f"Source: {url}\n")
-                f.write(f"Scraped: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 80 + "\n\n")
-                f.write(text)
-            print(f"{Colors.GREEN}  ✓ Saved text: {os.path.basename(text_file)}{Colors.RESET}")
-        except Exception as e:
-            print(f"{Colors.RED}  ✗ Error saving text: {e}{Colors.RESET}")
-        
-        self.downloaded_files.append({
-            'url': url,
-            'html_file': html_file,
-            'text_file': text_file,
-            'timestamp': datetime.now().isoformat()
-        })
-    
-    def extract_links(self, html, current_url):
-        """Extract all links from page"""
-        soup = BeautifulSoup(html, 'html.parser')
-        links = []
-        
-        for link in soup.find_all('a', href=True):
-            href = link.get('href', '')
-            if not href or not isinstance(href, str):
-                continue
-                
-            absolute_url = urljoin(current_url, href)
-            
-            # Only follow same-domain links
-            if urlparse(absolute_url).netloc == urlparse(self.base_url).netloc:
-                # Skip common trap URLs
-                if not any(x in href.lower() for x in ['logout', 'login', 'javascript:', '#']):
-                    links.append({
-                        'url': absolute_url,
-                        'text': link.get_text(strip=True)
-                    })
-        
-        return links
-    
-    def scrape_page(self, url, depth=0, max_depth=2):
-        """Recursively scrape a page"""
-        
-        if depth > max_depth:
-            return
-        
-        if url in self.visited_urls:
-            return
-        
-        self.visited_urls.add(url)
-        
-        indent = "  " * depth
-        print(f"{indent}{Colors.CYAN}→{Colors.RESET} Scraping: {url}")
-        
-        # Get page content
-        html = self.get_page_content(url)
-        if not html:
-            return
-        
-        # Get title
-        soup = BeautifulSoup(html, 'html.parser')
-        title = soup.find('title')
-        title_text = title.get_text(strip=True) if title else ""
-        
-        # Save content
-        self.save_content(url, html, title_text)
-        
-        # Extract and follow links if not too deep
-        if depth < max_depth:
-            links = self.extract_links(html, url)
-            
-            # Filter for relevant admin/docs links
-            relevant_links = [
-                l for l in links 
-                if any(x in l['url'].lower() for x in ['vpbx', 'admin', 'docs', 'help', 'cgi-bin'])
-            ]
-            
-            print(f"{indent}  Found {len(relevant_links)} relevant links")
-            
-            for link in relevant_links[:10]:  # Limit to 10 links per page
-                self.scrape_page(link['url'], depth + 1, max_depth)
-    
-    def generate_index(self):
-        """Generate index of downloaded files"""
-        
-        index_file = os.path.join(self.output_dir, "_INDEX.md")
-        
-        try:
-            with open(index_file, 'w', encoding='utf-8') as f:
-                f.write("# 123NET Internal Documentation\n\n")
-                f.write(f"**Scraped:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                f.write(f"**Total Files:** {len(self.downloaded_files)}\n\n")
-                f.write("---\n\n")
-                f.write("## Downloaded Files\n\n")
-                
-                for item in self.downloaded_files:
-                    filename = os.path.basename(item['html_file'])
-                    f.write(f"- [{filename}](./{filename}) - {item['url']}\n")
-            
-            print(f"\n{Colors.GREEN}✓ Generated index: {index_file}{Colors.RESET}")
-            
-        except Exception as e:
-            print(f"{Colors.RED}✗ Error generating index: {e}{Colors.RESET}")
-    
-    def scrape_all(self, max_depth=2):
-        """Main scraping workflow"""
-        
-        print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
-        print(f"{Colors.YELLOW}{Colors.BOLD}📚 123NET Documentation Scraper (Selenium){Colors.RESET}")
-        print(f"{Colors.CYAN}{'═' * 80}{Colors.RESET}\n")
-        
-        print(f"{Colors.CYAN}🎯 Target:{Colors.RESET} {self.base_url}")
-        print(f"{Colors.CYAN}📁 Output:{Colors.RESET} {self.output_dir}")
-        print(f"{Colors.CYAN}🔍 Max Depth:{Colors.RESET} {max_depth}\n")
-        
-        # Navigate to base URL
-        try:
-            print(f"{Colors.BLUE}Navigating to {self.base_url}...{Colors.RESET}")
-            self.driver.get(self.base_url)
-            
-            print(f"{Colors.CYAN}Waiting for page to load (10 seconds)...{Colors.RESET}")
-            time.sleep(10)  # Give page and redirects time to complete
-            
-            current_url = self.driver.current_url
-            print(f"{Colors.BLUE}Current URL: {current_url}{Colors.RESET}")
-            
-            # Always give user the authentication prompt since MFA may be required
-            print(f"\n{Colors.YELLOW}{'═' * 80}{Colors.RESET}")
-            print(f"{Colors.YELLOW}{Colors.BOLD}⚠  PLEASE AUTHENTICATE IF PROMPTED{Colors.RESET}")
-            print(f"{Colors.YELLOW}{'═' * 80}{Colors.RESET}")
-            print(f"\n{Colors.CYAN}If you see a login page or MFA prompt:{Colors.RESET}")
-            print(f"  1. Enter your credentials")
-            print(f"  2. Complete MFA")
-            print(f"  3. The scraper will detect when you're logged in")
-            print(f"\n{Colors.CYAN}Waiting 30 seconds for you to authenticate...{Colors.RESET}\n")
-            
-            # Give user 30 seconds to start authentication
-            time.sleep(30)
-            
-            # Now check if we need to wait longer
-            current_url = self.driver.current_url
-            if 'login' in current_url.lower() or 'auth' in current_url.lower():
-                print(f"{Colors.YELLOW}Still on login page - continuing to wait...{Colors.RESET}")
-                if not self.wait_for_auth():
-                    print(f"{Colors.RED}✗ Failed to authenticate{Colors.RESET}")
-                    return False
-            else:
-                print(f"{Colors.GREEN}✓ Authentication complete or not required{Colors.RESET}\n")
-                time.sleep(2)  # Brief pause
-            
-        except Exception as e:
-            print(f"{Colors.RED}✗ Error accessing site: {e}{Colors.RESET}")
-            return False
-        
-        print(f"{Colors.CYAN}{'─' * 80}{Colors.RESET}\n")
-        print(f"{Colors.BOLD}Starting to scrape pages...{Colors.RESET}\n")
-        
-        # Start scraping
-        self.scrape_page(self.base_url, depth=0, max_depth=max_depth)
-        
-        # Generate index
-        print(f"\n{Colors.BOLD}Generating index file...{Colors.RESET}")
-        self.generate_index()
-        
-        # Summary
-        print(f"\n{Colors.CYAN}{'═' * 80}{Colors.RESET}")
-        print(f"{Colors.GREEN}✅ Scraping complete!{Colors.RESET}")
-        print(f"\n{Colors.CYAN}📊 Summary:{Colors.RESET}")
-        print(f"  • Pages visited: {len(self.visited_urls)}")
-        print(f"  • Files saved: {len(self.downloaded_files)}")
-        print(f"  • Output directory: {self.output_dir}")
-        print(f"{Colors.CYAN}{'═' * 80}{Colors.RESET}\n")
-        
-        print(f"{Colors.YELLOW}Browser will close in 5 seconds...{Colors.RESET}")
-        time.sleep(5)
-        
-        return True
-    
-    def close(self):
-        """Close the browser"""
-        if self.driver:
-            self.driver.quit()
-
-def main():
-    """Main entry point"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(
-        description='Scrape 123NET internal documentation using Selenium',
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    
-    parser.add_argument(
-        '--url',
-        default='https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi',
-        help='URL to scrape (default: 123NET VPBX interface)'
-    )
-    
-    parser.add_argument(
-        '--output',
-        default='freepbx-tools/bin/123net_internal_docs/scraped',
-        help='Output directory (default: 123net_internal_docs/scraped)'
-    )
-    
-    parser.add_argument(
-        '--depth',
-        type=int,
-        default=2,
-        help='Maximum crawl depth (default: 2)'
-    )
-    
-    parser.add_argument(
-        '--headless',
-        action='store_true',
-        help='Run browser in headless mode (no GUI)'
-    )
-    
-    args = parser.parse_args()
-    
-    scraper = None
-    try:
-        # Create scraper
-        scraper = SeleniumDocScraper(
-            base_url=args.url,
-            output_dir=args.output,
-            headless=args.headless
-        )
-        
-        # Run scraper
-        success = scraper.scrape_all(max_depth=args.depth)
-        
-        sys.exit(0 if success else 1)
-        
-    except KeyboardInterrupt:
-        print(f"\n\n{Colors.YELLOW}⚠ Interrupted by user{Colors.RESET}")
-        sys.exit(1)
-    
-    finally:
-        if scraper:
-            scraper.close()
-
-if __name__ == '__main__':
-    main()
