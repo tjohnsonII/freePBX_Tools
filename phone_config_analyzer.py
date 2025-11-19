@@ -1,8 +1,26 @@
+
 #!/usr/bin/env python3
 """
 Phone Configuration Analyzer
+---------------------------
 Parses and analyzes VoIP phone configuration files (Polycom, Yealink, Cisco, etc.)
-Provides security audits, feature analysis, and compliance checks
+Provides security audits, feature analysis, and compliance checks.
+
+VARIABLE MAP (Key Objects & Structures)
+---------------------------------------
+config_data: Dict[str, Any]   # Parsed config parameters from file
+phone_type: str               # Detected phone vendor/type (polycom, yealink, etc.)
+findings: Dict[str, Any]      # All analysis results (security_issues, warnings, features, etc.)
+security_standards: Dict      # Security policy/baseline values
+recommended_features: Dict    # Feature keys and recommended values
+
+Major Methods:
+    - parse_config_file: Dispatches to vendor-specific parser
+    - analyze_*: Each analyzes a config aspect (SIP, security, network, etc.)
+    - print_report: Outputs human-readable summary
+    - export_json/csv: Save results for automation
+
+Usage: See main() for CLI options and examples
 """
 
 import re
@@ -15,6 +33,10 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 
+
+# =========================
+# Terminal Color Codes
+# =========================
 class Colors:
     """ANSI color codes for terminal output"""
     RESET = '\033[0m'
@@ -28,25 +50,37 @@ class Colors:
     WHITE = '\033[97m'
 
 
+
+# =========================
+# Main Analyzer Class
+# =========================
 class PhoneConfigAnalyzer:
-    """Parse and analyze VoIP phone configuration files"""
+    """
+    Parse and analyze VoIP phone configuration files.
+    Handles vendor detection, parsing, and all analysis routines.
+    Results are stored in self.findings for reporting/export.
+    """
     
     def __init__(self):
+        # Parsed config parameters (key-value pairs)
         self.config_data = {}
+        # Detected phone type (polycom, yealink, etc.)
         self.phone_type = None
+        # Model (optional, not always detected)
         self.model = None
+        # All findings/results from analysis
         self.findings = {
-            'security_issues': [],
-            'config_warnings': [],
-            'feature_status': {},
-            'sip_accounts': [],
-            'network_config': {},
-            'line_keys': [],
-            'softkeys': [],
-            'statistics': {}
+            'security_issues': [],      # List of security problems
+            'config_warnings': [],      # List of config warnings
+            'feature_status': {},       # Feature enablement status
+            'sip_accounts': [],         # SIP account details
+            'network_config': {},       # Network config summary
+            'line_keys': [],            # Line key assignments
+            'softkeys': [],             # Custom softkeys
+            'statistics': {}            # Misc. stats (e.g., line key summary)
         }
         
-        # Security baselines
+        # Security baselines (policy)
         self.security_standards = {
             'min_password_length': 8,
             'require_https': True,
@@ -55,7 +89,7 @@ class PhoneConfigAnalyzer:
             'secure_protocols': ['TLS', 'SRTP', 'HTTPS']
         }
         
-        # Feature recommendations
+        # Feature recommendations (best practices)
         self.recommended_features = {
             'voice.volume.persist.handset': '1',
             'voice.volume.persist.headset': '1',
@@ -65,12 +99,15 @@ class PhoneConfigAnalyzer:
         }
     
     def detect_phone_type(self, content: str) -> str:
-        """Detect phone manufacturer from config content"""
+        """
+        Detect phone manufacturer from config content using unique markers.
+        Returns: 'polycom', 'yealink', 'cisco', 'grandstream', 'sangoma', or 'unknown'
+        """
         if '<PHONE_CONFIG>' in content or 'voIpProt.SIP' in content:
             return 'polycom'
         elif 'account.1.enable' in content and 'static.auto_provision' in content:
             return 'yealink'
-        elif '<cisco>' in content or '<device>' in content and 'cisco' in content.lower():
+        elif '<cisco>' in content or ('<device>' in content and 'cisco' in content.lower()):
             return 'cisco'
         elif 'P-Value' in content or 'account.1.enable' in content:
             return 'grandstream'
@@ -80,63 +117,63 @@ class PhoneConfigAnalyzer:
             return 'unknown'
     
     def parse_polycom_xml(self, filepath: Path) -> Dict[str, Any]:
-        """Parse Polycom XML configuration file"""
+        """
+        Parse Polycom XML configuration file.
+        Returns a dict of config parameters. Falls back to regex if XML is invalid.
+        """
         try:
             tree = ET.parse(filepath)
             root = tree.getroot()
-            
-            # Extract all attributes from ALL element
+            # Extract all attributes from ALL element (Polycom convention)
             if root.tag == 'PHONE_CONFIG':
                 all_elem = root.find('.//ALL')
                 if all_elem is not None:
                     self.config_data = dict(all_elem.attrib)
-                    
             return self.config_data
-            
         except ET.ParseError as e:
             print(f"{Colors.YELLOW}Warning: XML parse error - {e}{Colors.RESET}")
-            # Fallback to regex parsing
+            # Fallback to regex parsing for broken XML
             return self.parse_polycom_text(filepath)
     
     def parse_polycom_text(self, filepath: Path) -> Dict[str, Any]:
-        """Parse Polycom config using text/regex (fallback method)"""
+        """
+        Parse Polycom config using text/regex (fallback method).
+        Handles .cfg and broken XML files. Returns dict of config params.
+        """
         content = filepath.read_text(encoding='utf-8', errors='ignore')
-        
-        # Pattern: parameter="value" or parameter="value"
+        # Pattern: parameter="value"
         pattern = r'(\S+)\s*=\s*"([^"]*)"'
         matches = re.findall(pattern, content)
-        
         for key, value in matches:
             self.config_data[key] = value
-        
         return self.config_data
     
     def parse_yealink_cfg(self, filepath: Path) -> Dict[str, Any]:
-        """Parse Yealink configuration file"""
+        """
+        Parse Yealink configuration file (key = value format).
+        Ignores comments and blank lines. Returns dict of config params.
+        """
         content = filepath.read_text(encoding='utf-8', errors='ignore')
-        
         # Yealink format: parameter = value
         pattern = r'^([^#\s][^=]+?)\s*=\s*(.+?)$'
-        
         for line in content.split('\n'):
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            
             match = re.match(pattern, line)
             if match:
                 key, value = match.groups()
                 self.config_data[key.strip()] = value.strip()
-        
         return self.config_data
     
     def parse_config_file(self, filepath: Path) -> Dict[str, Any]:
-        """Main config parsing dispatcher"""
+        """
+        Main config parsing dispatcher. Detects phone type and calls appropriate parser.
+        Returns dict of config params.
+        """
         content = filepath.read_text(encoding='utf-8', errors='ignore')
         self.phone_type = self.detect_phone_type(content)
-        
         print(f"{Colors.CYAN}Detected phone type: {Colors.BOLD}{self.phone_type.upper()}{Colors.RESET}")
-        
         if self.phone_type == 'polycom':
             if filepath.suffix.lower() in ['.xml', '.cfg']:
                 return self.parse_polycom_xml(filepath)
@@ -145,21 +182,23 @@ class PhoneConfigAnalyzer:
         elif self.phone_type == 'yealink':
             return self.parse_yealink_cfg(filepath)
         else:
-            # Generic key=value parser
+            # Generic key=value parser for unknown types
             return self.parse_polycom_text(filepath)
     
     def analyze_sip_accounts(self):
-        """Extract and analyze SIP account configurations"""
+        """
+        Extract and analyze SIP account configurations.
+        Checks for exposed passwords and collects account details.
+        Populates self.findings['sip_accounts'] and adds security issues if found.
+        """
         sip_accounts = []
-        
-        # Polycom: reg.X.* parameters
+        # Polycom: reg.X.* parameters (X = line number)
         reg_nums = set()
         for key in self.config_data.keys():
             if key.startswith('reg.'):
                 match = re.match(r'reg\.(\d+)\.', key)
                 if match:
                     reg_nums.add(int(match.group(1)))
-        
         for reg_num in sorted(reg_nums):
             account = {
                 'line': reg_num,
@@ -170,7 +209,6 @@ class PhoneConfigAnalyzer:
                 'server': self.config_data.get(f'voIpProt.server.{reg_num}.address', ''),
                 'password_set': self.config_data.get(f'reg.{reg_num}.auth.password.set', '0'),
             }
-            
             # Check if password is exposed (should be masked)
             pwd_key = f'reg.{reg_num}.auth.password'
             if pwd_key in self.config_data and self.config_data[pwd_key]:
@@ -180,9 +218,7 @@ class PhoneConfigAnalyzer:
                     'line': reg_num,
                     'detail': 'Password should be masked or excluded from exports'
                 })
-            
             sip_accounts.append(account)
-        
         self.findings['sip_accounts'] = sip_accounts
         return sip_accounts
     

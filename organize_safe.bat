@@ -1,8 +1,14 @@
+
 @echo off
-REM Safe Repository Organization Script
+REM organize_safe.bat
+REM ---------------------------------------------
+REM SAFE Repository Organization Script for FreePBX Tools
 REM Only moves documentation and data files - NO CODE FILES
 REM All Python scripts stay at root to preserve functionality
 
+REM =========================
+REM Section 1: Create Directory Structure
+REM =========================
 echo.
 echo ========================================================
 echo    FreePBX Tools - SAFE Repository Organization
@@ -11,6 +17,7 @@ echo ========================================================
 echo.
 
 echo [1/4] Creating directory structure...
+REM Create docs and data subfolders if they don't exist
 if not exist "docs" mkdir "docs"
 if not exist "data" mkdir "data"
 if not exist "data\analysis-output" mkdir "data\analysis-output"
@@ -18,8 +25,12 @@ if not exist "data\test-data" mkdir "data\test-data"
 if not exist "data\backups" mkdir "data\backups"
 echo    Done!
 
+REM =========================
+REM Section 2: Move Documentation Files
+REM =========================
 echo.
 echo [2/4] Moving Documentation to docs/...
+REM Move all .md documentation files to docs/
 if exist "COMPREHENSIVE_SCRAPING.md" move /Y "COMPREHENSIVE_SCRAPING.md" "docs\" >nul && echo    - COMPREHENSIVE_SCRAPING.md
 if exist "INTEGRATION_COMPLETE.md" move /Y "INTEGRATION_COMPLETE.md" "docs\" >nul && echo    - INTEGRATION_COMPLETE.md
 if exist "LOG_ANALYSIS.md" move /Y "LOG_ANALYSIS.md" "docs\" >nul && echo    - LOG_ANALYSIS.md
@@ -37,8 +48,12 @@ if exist "VPBX_DATABASE_README.md" move /Y "VPBX_DATABASE_README.md" "docs\" >nu
 if exist "VPBX_DATA_ANALYSIS.md" move /Y "VPBX_DATA_ANALYSIS.md" "docs\" >nul && echo    - VPBX_DATA_ANALYSIS.md
 if exist "WEB_INTERFACE_README.md" move /Y "WEB_INTERFACE_README.md" "docs\" >nul && echo    - WEB_INTERFACE_README.md
 
+REM =========================
+REM Section 3: Move Analysis Outputs
+REM =========================
 echo.
 echo [3/4] Moving Analysis Outputs to data/analysis-output/...
+REM Move all analysis result files to data/analysis-output/
 if exist "analysis_output.json" move /Y "analysis_output.json" "data\analysis-output\" >nul && echo    - analysis_output.json
 if exist "analysis_summary.csv" move /Y "analysis_summary.csv" "data\analysis-output\" >nul && echo    - analysis_summary.csv
 if exist "FMU_analysis.json" move /Y "FMU_analysis.json" "data\analysis-output\" >nul && echo    - FMU_analysis.json
@@ -50,9 +65,13 @@ if exist "yealink_companies_with_names.csv" move /Y "yealink_companies_with_name
 if exist "yealink_sites_report.csv" move /Y "yealink_sites_report.csv" "data\analysis-output\" >nul && echo    - yealink_sites_report.csv
 if exist "yealink_sites_report.json" move /Y "yealink_sites_report.json" "data\analysis-output\" >nul && echo    - yealink_sites_report.json
 
+REM =========================
+REM Section 4: Move Test and Backup Files
+REM =========================
 echo.
 echo [4/4] Moving Test and Backup Files...
 echo    - Test outputs to test-data/
+REM Move test output folders to data/test-data/
 if exist "test_scrape_output" (
     xcopy "test_scrape_output" "data\test-data\test_scrape_output\" /E /I /Y >nul
     rmdir /S /Q "test_scrape_output"
@@ -66,17 +85,22 @@ if exist "vpbx_ultimate_analysis" (
 if exist "test_password_file.txt" move /Y "test_password_file.txt" "data\test-data\" >nul && echo      * test_password_file.txt
 
 echo    - Backup files to backups/
+REM Move backup and archive files to data/backups/
 if exist "scrape_vpbx_tables.py.backup" move /Y "scrape_vpbx_tables.py.backup" "data\backups\" >nul && echo      * scrape_vpbx_tables.py.backup
 if exist "freepbx-tools.tar" move /Y "freepbx-tools.tar" "data\backups\" >nul && echo      * freepbx-tools.tar
 
+REM =========================
+REM Section 5: Clean Up Temporary Files and Empty Dirs
+REM =========================
 echo.
 echo    - Cleaning up temporary organization files
+REM Delete temp scripts and instructions
 if exist ".gitkeep-instructions.txt" del /Q ".gitkeep-instructions.txt" >nul
 if exist "organize_repo.ps1" del /Q "organize_repo.ps1" >nul
 if exist "organize_repo.bat" del /Q "organize_repo.bat" >nul
 if exist "organize_complete.bat" del /Q "organize_complete.bat" >nul
 
-REM Clean up empty directories that were created but not used
+REM Remove empty directories that may have been created but not used
 if exist "cli-tools" rmdir "cli-tools" 2>nul
 if exist "web-app\templates" rmdir "web-app\templates" 2>nul
 if exist "web-app\static" rmdir "web-app\static" 2>nul
@@ -85,6 +109,9 @@ if exist "database\queries" rmdir "database\queries" 2>nul
 if exist "database" rmdir "database" 2>nul
 if exist "data\server-lists" rmdir "data\server-lists" 2>nul
 
+REM =========================
+REM Section 6: Final Summary
+REM =========================
 echo.
 echo ========================================================
 echo                  Organization Complete!
