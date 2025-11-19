@@ -764,20 +764,42 @@ class UltimateVPBXAnalyzer:
         
         print(f"   ✓ JSON Dump → {filename.name}")
 
+# =====================
+# Main CLI Entry Point
+# =====================
 
 def main():
-    parser = argparse.ArgumentParser(description='Ultimate VPBX Data Analyzer')
-    parser.add_argument('--data-dir', required=True, help='Directory containing scraped VPBX data')
-    parser.add_argument('--output-dir', default='.', help='Output directory for reports')
-    
-    args = parser.parse_args()
-    
-    analyzer = UltimateVPBXAnalyzer(args.data_dir)
-    analyzer.analyze_all_sites()
-    analyzer.generate_reports(args.output_dir)
-    
-    print("\n🎉 Ultimate analysis complete!")
+        """
+        Main entry point for the Ultimate VPBX Data Analyzer CLI.
+        Handles argument parsing, orchestrates the full analysis workflow, and triggers report generation.
+        Steps:
+            1. Parse command-line arguments for data and output directories.
+            2. Initialize the analyzer with the provided data directory.
+            3. Run the full analysis across all sites.
+            4. Generate all summary and detail reports in the output directory.
+            5. Print completion message.
+        """
+        # Set up command-line argument parsing
+        parser = argparse.ArgumentParser(description='Ultimate VPBX Data Analyzer')
+        parser.add_argument('--data-dir', required=True, help='Directory containing scraped VPBX data')
+        parser.add_argument('--output-dir', default='.', help='Output directory for reports')
+
+        # Parse arguments from sys.argv
+        args = parser.parse_args()
+
+        # Initialize the main analyzer object with the data directory
+        analyzer = UltimateVPBXAnalyzer(args.data_dir)
+
+        # Run the main analysis routine for all sites
+        analyzer.analyze_all_sites()
+
+        # Generate all output reports (JSON, HTML, etc.)
+        analyzer.generate_reports(args.output_dir)
+
+        # Notify user of completion
+        print("\n🎉 Ultimate analysis complete!")
 
 
 if __name__ == '__main__':
+    # If this script is run directly (not imported), invoke the main CLI entry point
     main()

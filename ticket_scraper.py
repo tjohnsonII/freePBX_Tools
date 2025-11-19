@@ -1,7 +1,95 @@
 #!/usr/bin/env python3
 """
 123NET Ticket Scraper and Knowledge Base Builder
-Scrapes all tickets for a customer and creates a searchable knowledge base
+------------------------------------------------
+This script logs into the 123NET admin interface, scrapes all support tickets for a given customer,
+and builds a structured, searchable knowledge base using SQLite. It can also export reports in JSON and Markdown.
+
+Key Features:
+- Authenticates to the admin portal
+- Scrapes ticket lists and details for a customer
+- Extracts ticket metadata and message history
+- Categorizes and tags tickets automatically
+- Stores all data in a normalized SQLite database
+- Analyzes recurring issues and generates reports
+
+Usage:
+    python ticket_scraper.py --customer <handle> --username <user> --password <pass> [--export-md]
+
+Dependencies:
+    - requests
+    - beautifulsoup4
+    - sqlite3 (standard library)
+    - argparse (standard library)
+
+Author: 123NET Team
+
+====================================
+Variable Map (Key Variables & Types)
+====================================
+
+Global/Script Arguments:
+-----------------------
+args.customer (str): Customer handle to fetch tickets for
+args.username (str): Admin username for login
+args.password (str): Admin password for login
+args.output (str): Output directory for reports and database
+args.export_md (bool): Whether to export Markdown report
+
+TicketScraper Class:
+--------------------
+self.username (str): Username for authentication
+self.password (str): Password for authentication
+self.base_url (str): Base URL for 123NET admin portal
+self.session (requests.Session): Persistent HTTP session
+
+get_customer_tickets():
+    customer_handle (str): Customer identifier
+    tickets (list[dict]): List of ticket metadata dicts
+
+get_ticket_details():
+    ticket_id (str): Ticket identifier
+    ticket_url (str): Optional direct URL to ticket
+    ticket_data (dict): Full ticket details and messages
+
+categorize_ticket():
+    ticket (dict): Ticket data
+    categories (list[str]): Assigned categories
+
+extract_keywords():
+    ticket (dict): Ticket data
+    keywords (list[str]): Extracted keywords
+
+KnowledgeBaseBuilder Class:
+--------------------------
+self.db_path (str): Path to SQLite database file
+self.conn (sqlite3.Connection): Database connection
+
+add_ticket():
+    ticket (dict): Ticket data
+    customer_handle (str): Customer identifier
+
+analyze_patterns():
+    patterns (list[tuple]): Recurring issue summary
+
+generate_knowledge_base_report():
+    customer_handle (str): Customer identifier
+    report (dict): Summary report (counts, breakdowns)
+
+export_to_markdown():
+    customer_handle (str): Customer identifier
+    output_file (str): Markdown file path
+
+Other:
+------
+output_dir (Path): Output directory as pathlib.Path
+db_path (Path): Path to SQLite DB file
+tickets (list[dict]): List of tickets for customer
+full_ticket (dict): Detailed ticket info
+kb (KnowledgeBaseBuilder): Knowledge base manager instance
+md_file (Path): Markdown report file path
+json_file (Path): JSON report file path
+report (dict): Final summary report
 """
 
 import requests
@@ -18,32 +106,34 @@ from collections import defaultdict
 import argparse
 
 class TicketScraper:
+    """
+    Handles authentication and scraping of ticket data from the 123NET admin portal.
+    Provides methods to login, fetch ticket lists, fetch ticket details, categorize, and extract keywords.
+    """
     def __init__(self, username, password, base_url="https://secure.123.net"):
         self.username = username
         self.password = password
         self.base_url = base_url
-        self.session = requests.Session()
-        
+        self.session = requests.Session()  # Maintains cookies/session state
+
     def login(self):
-        """Login to 123NET admin interface"""
+        """
+        Login to 123NET admin interface using provided credentials.
+        Returns True if login appears successful, False otherwise.
+        """
         login_url = f"{self.base_url}/cgi-bin/admin.cgi"
-        
         payload = {
             'username': self.username,
             'password': self.password,
             'action': 'login'
         }
-        
         try:
             response = self.session.post(login_url, data=payload, timeout=30)
-            
-            # Check if login was successful by looking for session cookies or redirect
+            # Check for session cookies or redirect as evidence of successful login
             if response.status_code == 200:
-                # Check if we got session cookies
                 if len(self.session.cookies) > 0:
                     print(f"✅ Successfully logged in (got {len(self.session.cookies)} cookies)")
                     return True
-                # Check if redirected (some systems redirect on success)
                 elif 'admin' in response.url or 'dashboard' in response.url.lower():
                     print("✅ Successfully logged in")
                     return True
@@ -56,7 +146,6 @@ class TicketScraper:
             else:
                 print(f"❌ Login failed with status code: {response.status_code}")
                 return False
-                
         except requests.exceptions.Timeout:
             print("❌ Login request timed out")
             return False
@@ -65,34 +154,27 @@ class TicketScraper:
             return False
     
     def get_customer_tickets(self, customer_handle):
-        """Get all tickets for a customer"""
+        """
+        Retrieve all tickets for a given customer handle.
+        Returns a list of ticket metadata dicts (ticket_id, subject, status, etc).
+        """
         tickets_url = f"{self.base_url}/cgi-bin/web_interface/admin/customers.cgi"
-        
-        params = {
-            'customer_handle': customer_handle
-        }
-        
+        params = {'customer_handle': customer_handle}
         try:
             response = self.session.get(tickets_url, params=params, timeout=30)
-            
             if response.status_code != 200:
                 print(f"❌ Failed to fetch tickets: HTTP {response.status_code}")
                 return []
-            
             soup = BeautifulSoup(response.text, 'html.parser')
-            
             tickets = []
-            
-            # Find the ticket table - look for table with "Ticket ID" header
+            # Find the ticket table by searching for a table with 'Ticket ID' in the header
             tables = soup.find_all('table', {'border': '0'})
             ticket_table = None
-            
             for table in tables:
                 header_row = table.find('tr')
                 if header_row and 'Ticket ID' in header_row.get_text():
                     ticket_table = table
                     break
-            
             if not ticket_table:
                 print("⚠️  No ticket table found on page")
                 print(f"   This could mean:")
@@ -100,13 +182,11 @@ class TicketScraper:
                 print(f"   2. Customer handle is incorrect")
                 print(f"   3. Not authenticated properly")
                 return []
-            
             rows = ticket_table.find_all('tr')[1:]  # Skip header row
-            
             for row in rows:
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    # Extract ticket ID from the link
+                    # Extract ticket ID and URL from the first column
                     ticket_link = cols[0].find('a')
                     if ticket_link:
                         ticket_id = ticket_link.text.strip()
@@ -114,12 +194,10 @@ class TicketScraper:
                     else:
                         ticket_id = cols[0].text.strip()
                         ticket_url = ''
-                    
                     subject = cols[1].text.strip()
                     status = cols[2].text.strip()
                     priority = cols[3].text.strip() if len(cols) > 3 else ''
                     created = cols[4].text.strip() if len(cols) > 4 else ''
-                    
                     tickets.append({
                         'ticket_id': ticket_id,
                         'ticket_url': ticket_url,
@@ -128,10 +206,8 @@ class TicketScraper:
                         'priority': priority,
                         'created': created
                     })
-        
             print(f"📋 Found {len(tickets)} tickets for customer {customer_handle}")
             return tickets
-            
         except requests.exceptions.Timeout:
             print("❌ Request timed out while fetching tickets")
             return []
@@ -140,24 +216,22 @@ class TicketScraper:
             return []
     
     def get_ticket_details(self, ticket_id, ticket_url=''):
-        """Get full details and conversation for a specific ticket"""
-        
+        """
+        Fetch full details and conversation history for a specific ticket.
+        Returns a dict with ticket metadata and a list of messages.
+        """
         try:
             # Use the URL from the ticket list if provided, otherwise construct it
             if ticket_url and ticket_url.startswith('http'):
                 full_url = ticket_url
             else:
-                # Construct the URL - format from your screenshot
+                # Construct the URL for ticket details
                 full_url = f"{self.base_url}/cgi-bin/web_interface/new_tickets.cgi?id=ticket/{ticket_id}"
-            
             response = self.session.get(full_url, timeout=30)
-            
             if response.status_code != 200:
                 print(f"⚠️  Failed to fetch ticket {ticket_id}: HTTP {response.status_code}")
                 return {}
-            
             soup = BeautifulSoup(response.text, 'html.parser')
-            
             ticket_data = {
                 'ticket_id': ticket_id,
                 'subject': '',
@@ -171,11 +245,8 @@ class TicketScraper:
                 'issue_category': '',
                 'keywords': []
             }
-            
-            # Extract ticket details from the page
-            # Look for the ticket metadata table
+            # Extract ticket metadata from tables
             tables = soup.find_all('table')
-            
             for table in tables:
                 rows = table.find_all('tr')
                 for row in rows:
@@ -183,7 +254,6 @@ class TicketScraper:
                     if len(cells) >= 2:
                         label = cells[0].get_text(strip=True).lower()
                         value = cells[1].get_text(strip=True)
-                        
                         if 'subject' in label:
                             ticket_data['subject'] = value
                         elif 'status' in label:
@@ -194,41 +264,31 @@ class TicketScraper:
                             ticket_data['created_date'] = value
                         elif 'resolved' in label or 'closed' in label:
                             ticket_data['resolved_date'] = value
-            
-            # Find all messages/updates in the ticket
-            # Messages are typically in divs or a separate table
+            # Find all messages/updates in the ticket (usually in tables)
             message_tables = soup.find_all('table')
-            
             for table in message_tables:
-                # Look for message-like content
                 rows = table.find_all('tr')
                 for row in rows:
                     cells = row.find_all('td')
                     if len(cells) >= 2:
-                        # Check if this looks like a message row
+                        # Heuristic: if row text is long, treat as a message
                         text = row.get_text(strip=True)
-                        if len(text) > 50:  # Messages are usually longer
+                        if len(text) > 50:
                             message_data = {
-                                'author': 'System',  # Will try to extract if format is clear
+                                'author': 'System',  # Could be improved with more parsing
                                 'date': '',
                                 'content': text
                             }
-                            
-                            # Try to extract date from content
+                            # Try to extract a date from the message
                             date_match = re.search(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}', text)
                             if date_match:
                                 message_data['date'] = date_match.group()
-                            
                             ticket_data['messages'].append(message_data)
-            
-            # Extract resolution if ticket is closed
+            # If ticket is closed/resolved, treat last message as resolution
             if ticket_data['status'].lower() in ['closed', 'resolved']:
-                # Last message is usually the resolution
                 if ticket_data['messages']:
                     ticket_data['resolution'] = ticket_data['messages'][-1]['content']
-            
             return ticket_data
-            
         except requests.exceptions.Timeout:
             print(f"⚠️  Timeout while fetching ticket {ticket_id}")
             return {}
@@ -240,50 +300,36 @@ class TicketScraper:
             return {}
     
     def categorize_ticket(self, ticket):
-        """Automatically categorize ticket based on subject and content"""
+        """
+        Automatically assign one or more categories to a ticket based on its subject and message content.
+        Returns a list of category strings.
+        """
         subject_lower = ticket['subject'].lower()
         content = ' '.join([msg['content'] for msg in ticket.get('messages', [])])
         content_lower = content.lower()
-        
         categories = []
-        
-        # Network/Connectivity issues
-        if any(word in subject_lower or word in content_lower for word in 
-               ['down', 'offline', 'connection', 'network', 'internet', 'circuit', 'outage']):
+        # Heuristic keyword matching for common support categories
+        if any(word in subject_lower or word in content_lower for word in ['down', 'offline', 'connection', 'network', 'internet', 'circuit', 'outage']):
             categories.append('Network/Connectivity')
-        
-        # Phone/VoIP issues
-        if any(word in subject_lower or word in content_lower for word in 
-               ['phone', 'voip', 'sip', 'pbx', 'call', 'dial tone', 'extension', 'trunk']):
+        if any(word in subject_lower or word in content_lower for word in ['phone', 'voip', 'sip', 'pbx', 'call', 'dial tone', 'extension', 'trunk']):
             categories.append('Phone/VoIP')
-        
-        # Hardware issues
-        if any(word in subject_lower or word in content_lower for word in 
-               ['hardware', 'device', 'router', 'switch', 'modem', 'firewall']):
+        if any(word in subject_lower or word in content_lower for word in ['hardware', 'device', 'router', 'switch', 'modem', 'firewall']):
             categories.append('Hardware')
-        
-        # Configuration/Setup
-        if any(word in subject_lower or word in content_lower for word in 
-               ['config', 'setup', 'install', 'provision', 'configure']):
+        if any(word in subject_lower or word in content_lower for word in ['config', 'setup', 'install', 'provision', 'configure']):
             categories.append('Configuration')
-        
-        # Billing
-        if any(word in subject_lower or word in content_lower for word in 
-               ['billing', 'invoice', 'payment', 'charge']):
+        if any(word in subject_lower or word in content_lower for word in ['billing', 'invoice', 'payment', 'charge']):
             categories.append('Billing')
-        
-        # Emergency/Critical
-        if any(word in subject_lower or word in content_lower for word in 
-               ['emergency', 'critical', 'urgent', 'down', 'outage']):
+        if any(word in subject_lower or word in content_lower for word in ['emergency', 'critical', 'urgent', 'down', 'outage']):
             categories.append('Critical')
-        
         return categories if categories else ['General']
     
     def extract_keywords(self, ticket):
-        """Extract important keywords from ticket"""
+        """
+        Extract important technical keywords and error codes from the ticket's subject and messages.
+        Returns a deduplicated list of keywords.
+        """
         text = ticket['subject'] + ' ' + ' '.join([msg['content'] for msg in ticket.get('messages', [])])
-        
-        # Common technical keywords
+        # List of technical keywords to search for
         tech_keywords = [
             'SIP', 'PBX', 'trunk', 'DID', 'extension', 'IVR', 'queue',
             'router', 'switch', 'firewall', 'VPN', 'VLAN',
@@ -291,26 +337,29 @@ class TicketScraper:
             'bandwidth', 'latency', 'jitter', 'packet loss',
             'failover', 'redundancy', 'backup'
         ]
-        
         keywords = []
         for keyword in tech_keywords:
             if keyword.lower() in text.lower():
                 keywords.append(keyword)
-        
-        # Extract error codes or specific identifiers
+        # Extract error codes or specific identifiers (e.g., "error 500")
         error_codes = re.findall(r'error\s*\d+|code\s*\d+|\d{3}\s*error', text.lower())
         keywords.extend(error_codes)
-        
         return list(set(keywords))
 
 class KnowledgeBaseBuilder:
+    """
+    Handles creation and management of the SQLite knowledge base for tickets.
+    Provides methods to initialize the DB, add tickets/messages, analyze patterns, and export reports.
+    """
     def __init__(self, db_path: str = 'ticket_knowledge_base.db'):
         self.db_path = db_path
         self.conn: Optional[sqlite3.Connection] = None
         self.init_database()
     
     def init_database(self) -> None:
-        """Initialize SQLite database for knowledge base"""
+        """
+        Initialize SQLite database and create tables for tickets, messages, and incidents if not present.
+        """
         self.conn = sqlite3.connect(self.db_path)
         if not self.conn:
             raise Exception("Failed to connect to database")
@@ -360,7 +409,9 @@ class KnowledgeBaseBuilder:
         print(f"✅ Database initialized: {self.db_path}")
     
     def add_ticket(self, ticket, customer_handle):
-        """Add a ticket to the knowledge base"""
+        """
+        Add a ticket and its messages to the knowledge base database.
+        """
         if not self.conn:
             raise Exception("Database not initialized")
         cursor = self.conn.cursor()
@@ -398,7 +449,9 @@ class KnowledgeBaseBuilder:
         self.conn.commit()
     
     def analyze_patterns(self):
-        """Analyze tickets to identify recurring issues"""
+        """
+        Analyze tickets in the database to identify recurring issue categories and print a summary.
+        """
         if not self.conn:
             raise Exception("Database not initialized")
         cursor = self.conn.cursor()
@@ -423,7 +476,10 @@ class KnowledgeBaseBuilder:
         return patterns
     
     def generate_knowledge_base_report(self, customer_handle):
-        """Generate comprehensive knowledge base report"""
+        """
+        Generate a summary report for a customer's tickets, including counts by status, priority, and category.
+        Returns a dictionary suitable for JSON export.
+        """
         if not self.conn:
             raise Exception("Database not initialized")
         cursor = self.conn.cursor()
@@ -462,7 +518,9 @@ class KnowledgeBaseBuilder:
         return report
     
     def export_to_markdown(self, customer_handle, output_file):
-        """Export knowledge base to markdown format"""
+        """
+        Export the knowledge base for a customer to a Markdown file, including summary and ticket history.
+        """
         if not self.conn:
             raise Exception("Database not initialized")
         report = self.generate_knowledge_base_report(customer_handle)
@@ -515,78 +573,62 @@ class KnowledgeBaseBuilder:
         print(f"✅ Knowledge base exported to: {output_file}")
 
 def main():
+    """
+    Main entry point for the script. Parses arguments, runs the scraping and knowledge base build process,
+    and exports reports as requested.
+    """
     parser = argparse.ArgumentParser(description='Scrape tickets and build knowledge base')
     parser.add_argument('--customer', required=True, help='Customer handle')
     parser.add_argument('--username', required=True, help='Admin username')
     parser.add_argument('--password', required=True, help='Admin password')
     parser.add_argument('--output', default='knowledge_base', help='Output directory')
     parser.add_argument('--export-md', action='store_true', help='Export to markdown')
-    
     args = parser.parse_args()
-    
-    # Create output directory
+    # Create output directory if it doesn't exist
     output_dir = Path(args.output)
     output_dir.mkdir(exist_ok=True)
-    
-    # Initialize scraper
+    # Initialize scraper and login
     scraper = TicketScraper(args.username, args.password)
-    
     if not scraper.login():
         print("❌ Failed to login")
         return
-    
-    # Get tickets
+    # Fetch all tickets for the customer
     print(f"\n📥 Fetching tickets for customer: {args.customer}")
     tickets = scraper.get_customer_tickets(args.customer)
-    
-    # Initialize knowledge base
+    # Initialize knowledge base database
     db_path = output_dir / f"{args.customer}_tickets.db"
     kb = KnowledgeBaseBuilder(str(db_path))
-    
-    # Process each ticket
+    # Process each ticket: fetch details, categorize, extract keywords, and store
     print("\n🔍 Processing tickets...")
     for i, ticket in enumerate(tickets, 1):
         print(f"  [{i}/{len(tickets)}] Processing ticket {ticket['ticket_id']}...")
-        
-        # Get full ticket details
-        full_ticket = scraper.get_ticket_details(
-            ticket['ticket_id'], 
-            ticket.get('ticket_url', '')
-        )
-        
-        # Merge basic ticket info with full details
+        full_ticket = scraper.get_ticket_details(ticket['ticket_id'], ticket.get('ticket_url', ''))
+        # Merge basic ticket info with full details (prefer details if present)
         full_ticket.update({
             'subject': ticket['subject'] if not full_ticket['subject'] else full_ticket['subject'],
             'status': ticket['status'] if not full_ticket['status'] else full_ticket['status'],
             'priority': ticket['priority'] if not full_ticket['priority'] else full_ticket['priority'],
             'created_date': ticket['created'] if not full_ticket['created_date'] else full_ticket['created_date']
         })
-        
         # Categorize and extract keywords
         full_ticket['categories'] = scraper.categorize_ticket(full_ticket)
         full_ticket['keywords'] = scraper.extract_keywords(full_ticket)
-        
         # Add to knowledge base
         kb.add_ticket(full_ticket, args.customer)
-        
-        # Be polite - don't hammer the server
+        # Be polite to the server
         time.sleep(0.5)
-    
-    # Analyze patterns
+    # Analyze recurring issue patterns
     print("\n📊 Analyzing patterns...")
     kb.analyze_patterns()
-    
-    # Generate report
+    # Optionally export to Markdown
     if args.export_md:
         md_file = output_dir / f"{args.customer}_knowledge_base.md"
         kb.export_to_markdown(args.customer, md_file)
-    
-    # Export to JSON
+    # Always export summary report to JSON
     json_file = output_dir / f"{args.customer}_tickets.json"
     report = kb.generate_knowledge_base_report(args.customer)
     with open(json_file, 'w') as f:
         json.dump(report, f, indent=2, default=str)
-    
     print(f"\n✅ Knowledge base created successfully!")
     print(f"   Database: {db_path}")
     print(f"   JSON: {json_file}")
