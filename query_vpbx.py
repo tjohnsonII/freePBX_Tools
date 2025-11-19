@@ -1,17 +1,28 @@
+
 #!/usr/bin/env python3
 """
-Quick database query examples
+Quick database query examples for VPBX data.
+This script connects to the local vpbx_data.db SQLite database and runs a series of example queries
+to demonstrate how to extract useful information about phones, sites, vendors, and security issues.
 """
+
+# Import the SQLite3 library for database access
 import sqlite3
 
+
+# Connect to the local VPBX SQLite database
 conn = sqlite3.connect('vpbx_data.db')
+# Create a cursor object for executing SQL queries
 cursor = conn.cursor()
 
+
+# Print banner
 print("=" * 80)
 print("VPBX Database Query Examples")
 print("=" * 80)
 
-# Query 1: Yealink companies
+
+# Query 1: List companies with Yealink phones (showing phone counts)
 print("\n1️⃣  Companies with Yealink phones (showing phone counts):")
 print("-" * 80)
 cursor.execute('''
@@ -24,10 +35,12 @@ cursor.execute('''
     LIMIT 10
 ''')
 
+# Print each company and their Yealink phone count
 for row in cursor.fetchall():
     print(f"  {row[0]:50s} {row[1]:3d} phones")
 
-# Query 2: Phone vendor distribution
+
+# Query 2: Show phone vendor distribution (number of sites and phones per vendor)
 print("\n2️⃣  Phone vendor distribution:")
 print("-" * 80)
 cursor.execute('''
@@ -38,10 +51,12 @@ cursor.execute('''
     ORDER BY phones DESC
 ''')
 
+# Print each vendor, number of sites, and total phones
 for row in cursor.fetchall():
     print(f"  {row[0]:15s} {row[1]:4d} sites, {row[2]:5d} phones")
 
-# Query 3: Yealink models
+
+# Query 3: List top Yealink phone models by count
 print("\n3️⃣  Top Yealink models:")
 print("-" * 80)
 cursor.execute('''
@@ -53,11 +68,13 @@ cursor.execute('''
     LIMIT 10
 ''')
 
+# Print each model and its count
 for row in cursor.fetchall():
     model = row[0] if row[0] else 'Unknown'
     print(f"  {model:30s} {row[1]:4d} units")
 
-# Query 4: Sites with security issues and Yealink
+
+# Query 4: List sites with both Yealink phones and security issues
 print("\n4️⃣  Sites with Yealink AND security issues:")
 print("-" * 80)
 cursor.execute('''
@@ -73,10 +90,12 @@ cursor.execute('''
     LIMIT 10
 ''')
 
+# Print each site, number of Yealink phones, and number of issues
 for row in cursor.fetchall():
     print(f"  {row[0]:40s} {row[2]:2d} phones, {row[3]:2d} issues")
 
-# Query 5: FreePBX versions
+
+# Query 5: Show FreePBX version distribution across sites
 print("\n5️⃣  FreePBX version distribution:")
 print("-" * 80)
 cursor.execute('''
@@ -87,10 +106,12 @@ cursor.execute('''
     ORDER BY freepbx_major DESC
 ''')
 
+# Print each FreePBX version and number of sites
 for row in cursor.fetchall():
     print(f"  FreePBX {row[0]:3s} {row[1]:4d} sites")
 
-# Query 6: Search example
+
+# Query 6: Search for companies with 'Medical' or 'Health' in their name
 print("\n6️⃣  Companies with 'Medical' or 'Health' in name:")
 print("-" * 80)
 cursor.execute('''
@@ -101,10 +122,12 @@ cursor.execute('''
     LIMIT 10
 ''')
 
+# Print each matching site
 for row in cursor.fetchall():
     print(f"  Site {row[0]:<6} {row[1]:45s} {row[2]}")
 
-# Query 7: Total stats
+
+# Query 7: Print total stats for the database
 print("\n7️⃣  Database totals:")
 print("-" * 80)
 cursor.execute('SELECT COUNT(*) FROM sites')
@@ -125,6 +148,7 @@ print(f"  Total Yealink phones: {cursor.fetchone()[0]}")
 cursor.execute('SELECT COUNT(*) FROM security_issues')
 print(f"  Security issues: {cursor.fetchone()[0]}")
 
+# Print usage tips
 print("\n" + "=" * 80)
 print("💡 To run your own queries:")
 print("  python query_vpbx.py")
@@ -132,4 +156,5 @@ print("  sqlite3 vpbx_data.db")
 print("  Or check vpbx_sample_queries.sql for more examples")
 print("=" * 80)
 
+# Close the database connection
 conn.close()
