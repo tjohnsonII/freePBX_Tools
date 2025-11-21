@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+extract_credentials(html_file):
+    Extract credentials (usernames, passwords) from an HTML file.
+main():
+    Orchestrate extraction and output of credentials from CLI.
+"""
+"""
 Extract and display server credentials from scraped VPBX data
 """
 

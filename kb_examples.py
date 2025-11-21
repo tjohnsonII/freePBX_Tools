@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+example_search():
+    Demonstrate searching the knowledge base for a query.
+example_similar_issues():
+    Show how to find similar issues in the knowledge base.
+example_common_resolutions():
+    Display common resolutions for a given issue type.
+example_statistics():
+    Print statistics about the knowledge base.
+example_customer_overview():
+    Show an overview of tickets for a specific customer.
+example_create_knowledge_article():
+    Demonstrate creating a new knowledge article.
+example_practical_workflow():
+    Walk through a practical support workflow using the KB.
+main():
+    Run all example functions for demonstration.
+"""
+"""
 Example: Using the Unified Knowledge Base
 Shows common use cases and query patterns
 """

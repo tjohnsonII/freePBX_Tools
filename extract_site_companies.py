@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+extract_site_companies():
+    Extract mapping of sites to companies from a CSV or data source and print or save the results.
+"""
+"""
 Extract site-to-company mapping from main admin page
 """
 import re

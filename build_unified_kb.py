@@ -1,4 +1,16 @@
+
 #!/usr/bin/env python3
+"""
+FUNCTION MAP LEGEND
+-------------------
+main():
+    Entry point for building the unified knowledge base.
+    - Parses CLI arguments
+    - Finds all *_tickets.db files in the input directory
+    - Imports each customer DB into a unified SQLite DB
+    - Optionally prints statistics about the unified KB
+    - Provides CLI usage instructions for querying the KB
+"""
 
 """
 Build Unified Knowledge Base from All Customer Databases

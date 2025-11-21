@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+extract_company_from_details(filepath):
+    Extract company name from a Details_*.txt file.
+main():
+    Orchestrate extraction of Yealink companies and output results.
+"""
+"""
 Extract company names from VPBX detail pages
 """
 import os

@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+extract_site_info(filepath):
+    Extract site information from a Details_*.txt file.
+main():
+    Orchestrate extraction of Yealink sites and output results.
+"""
+"""
 Find all sites/companies with Yealink phones from scraped VPBX data
 """
 import os
