@@ -1,7 +1,29 @@
 #!/bin/bash
 
+
 # FreePBX Host Profile Auto-Detection Script
 # Automatically detects and populates host configuration values
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# RED, GREEN, YELLOW, BLUE, NC : ANSI color codes for output
+# OUTPUT_FILE                  : Path to generated host profile config
+# (other variables are local to functions)
+#
+# FUNCTION MAP (Major Functions)
+# -----------------------------
+# detect_os_family         : Detect OS family (el7/el8/el9) from system files
+# detect_architecture      : Detect CPU architecture (x86_64, arm, etc.)
+# detect_virtualization    : Detect if running in VM or on bare metal
+# detect_freepbx_version   : Detect installed FreePBX version
+# detect_asterisk_version  : Detect installed Asterisk version
+# detect_mysql_version     : Detect installed MySQL/MariaDB version
+# detect_network_info      : Gather network interface and IP info
+# detect_hardware_info     : Gather CPU, RAM, disk info
+# write_profile            : Write detected values to config file
+# print_summary            : Print summary of detected values
+# main script body         : Calls detection functions and prints results
+#
 
 set -euo pipefail
 

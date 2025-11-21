@@ -1,7 +1,37 @@
 #!/usr/bin/env python3
 """
 FreePBX GUI vs CLI Comparison Tool
+----------------------------------
 Extract data from FreePBX web interface and compare with our tool
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+FreePBXGUIComparator : Main class for GUI/CLI comparison
+base_url      : Base URL of FreePBX web interface
+username      : Web interface username
+password      : Web interface password
+session       : Requests session for HTTP calls
+HAS_BS4       : Boolean, True if BeautifulSoup4 is available
+args          : Parsed command-line arguments (if any)
+cli_data      : Data extracted from CLI tool
+gui_data      : Data extracted from GUI scraping
+
+Key Function Arguments:
+-----------------------
+url           : URL to fetch
+data          : Data to compare
+args          : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    FreePBXGUIComparator.__init__    : Initialize comparator with credentials
+    FreePBXGUIComparator.login       : Login to FreePBX web interface
+    FreePBXGUIComparator.fetch_page  : Fetch a page from the web interface
+    FreePBXGUIComparator.extract_data: Extract relevant data from GUI
+    compare_data                     : Compare CLI and GUI data
+    main                             : CLI entry point, parses args and runs comparison
 """
 
 import requests

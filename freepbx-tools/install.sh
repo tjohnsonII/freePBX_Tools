@@ -201,7 +201,6 @@ check_after_installs() {
       *)     have "$c"  || { warn "Missing dependency: $c";             ((missing++)); } ;;
     esac
   done
-done
   if (( missing > 0 )); then
     warn "Some optional dependencies are missing."
     warn "  Required at runtime on most hosts: mysql, python3"
@@ -220,13 +219,9 @@ install_files() {
   mkdir -p "$INSTALL_DIR"  # Ensure install directory exists
   cp -a "$src_dir/." "$INSTALL_DIR/"  # Copy all files
 
-  # Normalize Python entrypoints and make executables
-  for rel in \
-  bin/freepbx_dump.py \
-  bin/freepbx_callflow_menu.py \
-  bin/freepbx_callflow_graph.py \
-  bin/freepbx_tc_status.py
 
+  # Normalize Python entrypoints and make executables
+  for rel in bin/freepbx_dump.py bin/freepbx_callflow_menu.py bin/freepbx_callflow_graph.py bin/freepbx_tc_status.py; do
     [[ -f "$INSTALL_DIR/$rel" ]] || continue  # Skip if file missing
     sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' "$INSTALL_DIR/$rel" || true  # Fix shebang
     chmod +x "$INSTALL_DIR/$rel" || true  # Make executable

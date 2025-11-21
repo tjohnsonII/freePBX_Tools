@@ -2,9 +2,30 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_module_status.py
+------------------------
 Quick FreePBX module status checker - simplified version of the full analyzer.
 Shows just the enabled/disabled status of all modules.
 ✓ Python 3.6 compatible.
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+args           : Parsed command-line arguments (if any)
+modules        : List of module status dictionaries
+stdout, stderr, rc : Output, error, and return code from fwconsole command
+
+Key Function Arguments:
+-----------------------
+cmd            : Command string to pass to fwconsole
+line           : Line of output from fwconsole
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    run_fwconsole_command     : Run fwconsole command and return output
+    get_module_list           : Get list of all FreePBX modules and their status
+    print_module_status       : Print enabled/disabled status for all modules
+    main                     : CLI entry point, prints module status
 """
 
 import subprocess, sys, re

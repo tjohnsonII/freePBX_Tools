@@ -1,6 +1,16 @@
 #!/bin/bash
+
 # Example usage script for the FreePBX Module Analyzer
 # Demonstrates different ways to use the new module analysis tools
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# (No persistent variables; all commands are run directly)
+#
+# FUNCTION MAP (Major Script Sections)
+# ------------------------------------
+# (main script body) : Prints usage examples and command explanations
+#
 
 echo "🔍 FreePBX Module Analysis Tools - Usage Examples"
 echo "================================================="

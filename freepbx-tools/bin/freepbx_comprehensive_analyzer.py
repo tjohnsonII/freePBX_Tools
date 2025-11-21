@@ -2,11 +2,46 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_comprehensive_analyzer.py
+---------------------------------
 Complete analysis of all major FreePBX components and configurations.
 Covers: Announcements, Calendar, Call Flow Control, Call Recording, Conferences,
 Directory, Extensions, Follow Me, IVR, Misc Destinations, Paging & Intercom,
 Parking, Queues, Ring Groups, Set CallerID, Time Conditions, Time Groups.
 ✓ Python 3.6 compatible (uses mysql CLI via subprocess; no external modules).
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ANSI_ESCAPE_RE : Regex for stripping ANSI codes
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_dir     : Directory for output reports
+component_data : Parsed data for each FreePBX component
+summary_stats  : Dictionary of computed summary statistics
+
+Key Function Arguments:
+-----------------------
+text           : String to display or process
+width          : Target width for padding
+component      : Name of FreePBX component
+data           : Data structure for component
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    pad_ansi                  : Pad text to width, accounting for ANSI codes
+    print_header              : Print professional header banner
+    parse_args                : Parse command-line arguments
+    run_mysql_query           : Run a MySQL query using the CLI
+    analyze_component         : Analyze a specific FreePBX component
+    analyze_all_components    : Analyze all major FreePBX components
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write analysis report to file
+    main                     : CLI entry point, parses args and runs analysis
 """
 
 import argparse, json, os, subprocess, sys, time, re
