@@ -1,8 +1,42 @@
 #!/usr/bin/env python3
 """
 FreePBX CDR/CEL Call Log Analyzer
+---------------------------------
 Comprehensive analysis of Call Detail Records and Channel Event Logs
 Provides call statistics, quality metrics, and billing data
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+TeeOutput      : Class for writing to terminal and file
+args           : Parsed command-line arguments
+input_file     : Path to CDR/CEL input file
+output_file    : Path to output report file
+cdr_data       : Parsed CDR records
+cel_data       : Parsed CEL records
+stats          : Dictionary of computed statistics
+call_groups    : Grouped call records by criteria
+
+Key Function Arguments:
+-----------------------
+filename       : Path to file to read or write
+records        : List of CDR or CEL records
+stats          : Dictionary of computed statistics
+group_by       : Field to group calls by
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    parse_args                : Parse command-line arguments
+    read_cdr_file             : Read and parse CDR file
+    read_cel_file             : Read and parse CEL file
+    analyze_cdrs              : Compute statistics from CDR records
+    analyze_cels              : Compute statistics from CEL records
+    group_calls               : Group call records by field
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write analysis report to file
+    main                      : CLI entry point, parses args and runs analysis
 """
 
 import os

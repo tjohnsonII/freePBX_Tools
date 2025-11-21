@@ -1,8 +1,43 @@
 #!/usr/bin/env python3
 """
 FreePBX Log Analyzer - Automated issue detection
+-----------------------------------------------
 Analyzes Asterisk logs to detect errors, trunk issues, queue performance, and security events
 Enhanced with SIP/Q.850 cause code mapping and error playbook references
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+CAUSE_CODE_MAP : Mapping of SIP/Q.850/Asterisk cause codes
+args           : Parsed command-line arguments
+log_file       : Path to Asterisk log file
+output_file    : Path to output report file
+log_lines      : List of log file lines
+error_events   : List of detected error events
+trunk_issues   : List of detected trunk issues
+queue_stats    : Dictionary of queue performance metrics
+security_events: List of detected security events
+
+Key Function Arguments:
+-----------------------
+filename       : Path to file to read or write
+lines          : List of log file lines
+events         : List of detected events
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    parse_args                : Parse command-line arguments
+    read_log_file             : Read and parse log file
+    detect_errors             : Detect error events in logs
+    detect_trunk_issues       : Detect trunk issues in logs
+    analyze_queues            : Analyze queue performance from logs
+    detect_security_events    : Detect security events in logs
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write analysis report to file
+    main                      : CLI entry point, parses args and runs analysis
 """
 
 import os

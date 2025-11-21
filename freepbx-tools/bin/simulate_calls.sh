@@ -1,6 +1,20 @@
 #!/bin/bash
+
 # FreePBX Call Simulation Monitor
 # Monitors active call files and Asterisk activity
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# SPOOL_DIR      : Path to Asterisk outgoing call file spool directory
+# LOG_FILE       : Path to Asterisk full log file
+# active_files   : List of active call files in spool directory
+# file           : Current call file being processed in loop
+#
+# FUNCTION MAP (Major Functions)
+# -----------------------------
+# monitor_calls      : Main monitoring loop, displays active call files and log activity
+# (main script body) : Calls monitor_calls and handles script execution
+#
 
 set -euo pipefail
 

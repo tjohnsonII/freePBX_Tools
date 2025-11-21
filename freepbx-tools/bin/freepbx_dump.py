@@ -2,8 +2,42 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_dump.py
+---------------
 Normalize FreePBX call-flow data across schema differences and dump to JSON.
 ✓ Python 3.6 compatible (uses mysql CLI via subprocess; no external modules).
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ASTERISK_DB    : Name of the Asterisk database
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_file    : Path to output JSON file
+tables         : List of FreePBX tables to extract
+schema_map     : Mapping of schema differences across versions
+data           : Extracted and normalized FreePBX data
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+table          : Table name
+row            : Row of data from DB
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    print_header              : Print professional header banner
+    run_mysql_query           : Run a MySQL query using the CLI
+    get_tables                : Get list of tables in the database
+    has_table                 : Check if a table exists
+    extract_table_data        : Extract data from a table
+    normalize_schema          : Normalize data across schema versions
+    dump_to_json              : Write normalized data to JSON file
+    main                      : CLI entry point, parses args and runs extraction
 """
 
 import argparse, json, os, socket as pysocket, subprocess, sys, time

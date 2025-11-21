@@ -2,9 +2,44 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_module_analyzer.py
+--------------------------
 Comprehensive FreePBX module status and configuration analysis tool.
 Evaluates all installed modules and their configurations.
 ✓ Python 3.6 compatible (uses mysql CLI via subprocess; no external modules).
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ASTERISK_DB    : Name of the Asterisk database
+DEFAULT_SOCK   : Default MySQL socket path
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_file    : Path to output report file
+modules        : List of installed FreePBX modules
+module_data    : Parsed data for each module
+summary_stats  : Dictionary of computed summary statistics
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+module         : Module name
+row            : Row of data from DB
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    print_header              : Print professional header banner
+    run_mysql_query           : Run a MySQL query using the CLI
+    get_installed_modules     : Get list of installed FreePBX modules
+    analyze_module            : Analyze a specific module's configuration
+    analyze_all_modules       : Analyze all installed modules
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write analysis report to file
+    main                     : CLI entry point, parses args and runs analysis
 """
 
 import argparse, json, os, subprocess, sys, time, re

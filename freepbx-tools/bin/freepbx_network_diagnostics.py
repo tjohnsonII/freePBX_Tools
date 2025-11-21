@@ -1,8 +1,43 @@
 #!/usr/bin/env python3
 """
 FreePBX Network Diagnostics Tool
+-------------------------------
 Comprehensive network analysis and packet capture utilities
 Integrates: sngrep, tcpdump, ping, traceroute, arp, routing, interfaces, DNS, netstat
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+TeeOutput      : Class for writing to terminal and file
+args           : Parsed command-line arguments
+output_file    : Path to output report file
+interface      : Network interface to analyze
+diagnostics    : Dictionary of diagnostic results
+capture_file   : Path to packet capture file
+
+Key Function Arguments:
+-----------------------
+filename       : Path to file to read or write
+interface      : Network interface name
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    parse_args                : Parse command-line arguments
+    run_command               : Run a shell command and capture output
+    run_ping                  : Run ping diagnostic
+    run_traceroute            : Run traceroute diagnostic
+    run_arp                   : Run ARP table diagnostic
+    run_ifconfig              : Get network interface configuration
+    run_netstat               : Get network socket statistics
+    run_dns_lookup            : Perform DNS lookup
+    run_tcpdump               : Run tcpdump packet capture
+    run_sngrep                : Run sngrep for SIP analysis
+    print_summary             : Print summary of diagnostics to terminal
+    write_report              : Write diagnostics report to file
+    main                      : CLI entry point, parses args and runs diagnostics
 """
 
 import subprocess

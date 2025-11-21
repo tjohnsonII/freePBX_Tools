@@ -2,10 +2,44 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_callflow_menu.py
+------------------------
 Menu-driven wrapper to:
-  1) snapshot FreePBX data -> JSON (via freepbx_dump.py)
-  2) render SVG call-flow(s) for selected or all DIDs (via freepbx_callflow_graph.py)
+    1) snapshot FreePBX data -> JSON (via freepbx_dump.py)
+    2) render SVG call-flow(s) for selected or all DIDs (via freepbx_callflow_graph.py)
 Python 3.6 safe. No external modules.
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ANSI_ESCAPE_RE : Regex for stripping ANSI codes
+menu_options   : List of menu options for user selection
+json_path      : Path to FreePBX data JSON snapshot
+svg_dir        : Directory for SVG output
+did_list       : List of DIDs available for rendering
+selected_dids  : List of DIDs selected by user
+args           : Parsed command-line arguments (if any)
+
+Key Function Arguments:
+-----------------------
+text           : String to display or process
+width          : Target width for padding
+menu_options   : List of menu options
+json_path      : Path to FreePBX data JSON
+svg_dir        : Output directory for SVGs
+did_list       : List of DIDs
+
+See function docstrings for additional details on arguments and return values.
+
+        FUNCTION MAP (Major Functions)
+        -----------------------------
+        visible_len              : Return printable length of ANSI-colored string
+        pad_ansi                 : Pad ANSI-colored text to target width
+        print_menu               : Print the interactive menu
+        get_menu_choice          : Get user menu selection
+        run_freepbx_dump         : Run freepbx_dump.py to snapshot data
+        run_callflow_graph       : Run freepbx_callflow_graph.py to render SVGs
+        list_dids_from_json      : Extract DID list from JSON snapshot
+        main                     : Main menu loop and entry point
 """
 
 import json, os, sys, subprocess, time, shutil, re
