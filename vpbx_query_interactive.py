@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
+
 """
 Interactive VPBX database query tool
 This script provides a command-line menu for running common and custom SQL queries
 against the VPBX (Virtual PBX) SQLite database (vpbx_data.db). It is designed for
 analysts and admins to quickly explore, audit, and troubleshoot the phone system data.
+
+VARIABLE MAP LEGEND
+-------------------
+conn         : sqlite3.Connection object to vpbx_data.db
+cursor       : sqlite3.Cursor for executing SQL queries
+query        : str, the SQL query to execute
+results      : list of tuples, rows returned from a query
+columns      : list of str, column names for query results
+col_widths   : list of int, used for pretty-printing tables
+menu_choice  : str/int, user input for menu selection
+custom_query : str, user-entered SQL for ad-hoc queries
+args         : sys.argv, command-line arguments (if used)
 """
 import sqlite3
 import sys

@@ -1,5 +1,50 @@
 
+
 #!/usr/bin/env python3  # Shebang for Python 3
+"""
+FUNCTION MAP LEGEND
+-------------------
+VPBXPhoneAnalyzer.__init__(data_dir):
+    Initialize analyzer with data directory and results container.
+VPBXPhoneAnalyzer.analyze_all():
+    Orchestrate full analysis workflow and save results.
+VPBXPhoneAnalyzer.load_main_table():
+    Load main site metadata from CSV into results.
+VPBXPhoneAnalyzer.analyze_sites():
+    Analyze all site directories for configs/devices.
+VPBXPhoneAnalyzer.analyze_site_config(site_id, entry_dir):
+    Analyze a single site's config and update results.
+VPBXPhoneAnalyzer.extract_devices_from_table(content):
+    Parse device table content and return device list.
+VPBXPhoneAnalyzer.extract_extension(directory_name):
+    Extract extension from directory name.
+VPBXPhoneAnalyzer.clean_mac_address(mac):
+    Normalize MAC address format.
+VPBXPhoneAnalyzer.extract_site_xml_config(content):
+    Parse XML config for a site and return config dict.
+VPBXPhoneAnalyzer.check_site_security(site_id, config):
+    Check for security issues in a site's config.
+VPBXPhoneAnalyzer.analyze_phone_configs(site_id, entry_dir):
+    Analyze phone config files for a site.
+VPBXPhoneAnalyzer.analyze_view_configs(site_id, entry_dir):
+    Analyze view config files for a site.
+VPBXPhoneAnalyzer.generate_inventory_report():
+    Generate and print inventory summary.
+VPBXPhoneAnalyzer.generate_security_report():
+    Generate and print security findings.
+VPBXPhoneAnalyzer.generate_configuration_report():
+    Generate and print config pattern report.
+VPBXPhoneAnalyzer.generate_version_report():
+    Generate and print version compliance report.
+VPBXPhoneAnalyzer.generate_anomaly_report():
+    Generate and print anomaly/outlier report.
+VPBXPhoneAnalyzer.save_results():
+    Save all results as JSON/CSV.
+VPBXPhoneAnalyzer.save_phone_inventory_csv():
+    Save phone inventory as CSV file.
+main():
+    Script entry point for running analysis from CLI.
+"""
 
 
 """

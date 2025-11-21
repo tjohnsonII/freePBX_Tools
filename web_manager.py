@@ -1,9 +1,33 @@
 #!/usr/bin/env python3
+
 """
 Flask Web Interface for FreePBX Tools Manager
 This script provides a web dashboard and API endpoints for managing FreePBX tools deployment,
 running phone config analysis, and querying the VPBX database. It uses Flask for HTTP routes
 and Flask-SocketIO for real-time log streaming.
+
+VARIABLE MAP LEGEND
+-------------------
+app                : Flask app instance (main web server)
+socketio           : Flask-SocketIO instance for real-time events
+active_deployments : dict, deployment_id -> status ('running', 'completed', etc.)
+deployment_logs    : dict, deployment_id -> list of log lines (for streaming to UI)
+
+Key request/response variables:
+    - servers        : List of server IPs for deployment (from POST data)
+    - username       : SSH username for deployment
+    - password       : SSH password for deployment
+    - root_password  : Root password for deployment (optional)
+    - action         : Deployment action ('deploy', 'uninstall', 'redeploy')
+    - deployment_id  : Unique hex string for tracking a deployment session
+
+Other:
+    - config.py      : Temporary credentials file written for deployment scripts
+    - process        : Subprocess running deployment or analysis scripts
+    - thread         : Background thread for async deployment
+    - temp_path      : Path to temporarily saved uploaded config file
+    - query_type     : Type of canned DB query requested by UI
+    - params         : Dict of parameters for DB query
 """
 
 # Flask and SocketIO imports for web and real-time features

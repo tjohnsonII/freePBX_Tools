@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+uninstall_from_server(host, user, password, root_password):
+    Uninstall FreePBX tools from a remote server via SSH.
+main():
+    Orchestrate the uninstallation process from CLI arguments.
+"""
+"""
 Deploy uninstall command to FreePBX servers
 Runs the uninstall.sh script to remove FreePBX tools from servers
 """

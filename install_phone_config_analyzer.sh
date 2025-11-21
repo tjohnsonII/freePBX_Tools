@@ -1,5 +1,18 @@
 #!/bin/bash
 #
+# FUNCTION MAP LEGEND
+# -------------------
+# (This script is procedural but organized into major sections)
+#
+# - Root Check: Warns if running as root and prompts for confirmation.
+# - Python Version Check: Ensures Python 3 is available and meets requirements.
+# - Directory Setup: Creates install directory if missing.
+# - File Copy: Copies analyzer script to install location.
+# - Symlink Creation: Creates/updates symlink for easy CLI access.
+# - Permissions: Sets executable permissions on installed files.
+# - Success Message: Prints completion and usage instructions.
+#
+#
 # Phone Config Analyzer - Installation Script
 # Installs and configures the phone config analyzer tool
 #

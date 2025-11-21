@@ -201,6 +201,7 @@ check_after_installs() {
       *)     have "$c"  || { warn "Missing dependency: $c";             ((missing++)); } ;;
     esac
   done
+done
   if (( missing > 0 )); then
     warn "Some optional dependencies are missing."
     warn "  Required at runtime on most hosts: mysql, python3"
@@ -209,9 +210,6 @@ check_after_installs() {
     warn "  For PBX reads: asterisk, fwconsole"
   fi
 }
-
-do
-done
 
 # Copy all files to install directory, normalize scripts, and set permissions
 install_files() {

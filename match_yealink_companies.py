@@ -1,6 +1,12 @@
 
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+main():
+    Match Yealink companies between different data sources and print or save the results.
+"""
+"""
 match_yealink_companies.py
 --------------------------
 Matches Yealink phone sites with company information from a master analysis file.
