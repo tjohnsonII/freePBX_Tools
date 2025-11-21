@@ -1,5 +1,35 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+print_banner():
+    Print the main banner for the tool.
+print_menu():
+    Print the interactive menu for user selection.
+get_credentials():
+    Prompt for and return user credentials.
+create_temp_config(username, password, root_password):
+    Create a temporary config file with credentials.
+get_servers():
+    Retrieve the list of servers to manage.
+deploy_tools():
+    Deploy FreePBX tools to selected servers.
+uninstall_tools():
+    Uninstall FreePBX tools from selected servers.
+clean_deploy():
+    Clean up deployment artifacts and temp files.
+test_dashboard():
+    Run dashboard integration tests.
+view_status():
+    View deployment or server status.
+ssh_to_server():
+    Open an SSH session to a selected server.
+phone_config_analyzer():
+    Launch the phone configuration analyzer tool.
+main():
+    Orchestrate the interactive menu and user actions.
+"""
+"""
 freePBX Version Manager - Interactive deployment and uninstall tool
 """
 

@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+run_command(cmd: List[str], description: str) -> bool:
+    Run a shell command and print its description and result.
+quick_start_guide():
+    Provide a step-by-step quick start guide for the knowledge base system.
+main():
+    Run the quick start guide from the command line.
+"""
+"""
 Quick Start - Knowledge Base System
 One command to scrape, build, and query
 """

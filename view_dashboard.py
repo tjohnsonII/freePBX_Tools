@@ -1,11 +1,20 @@
 
 #!/usr/bin/env python3
+
 """
 Simple script to view the dashboard - creates SSH session for manual testing
 
 This script provides instructions for connecting to a FreePBX server and testing the dashboard.
 It prints out the SSH command, credentials, and describes the dashboard features for manual verification.
 No actual SSH connection is made; this is a helper for human testers.
+
+VARIABLE MAP LEGEND
+-------------------
+host              : str, IP address of the FreePBX server to test
+FREEPBX_USER      : str, imported from config.py, SSH username
+FREEPBX_PASSWORD  : str, imported from config.py, SSH password
+
+All other variables are used only in print statements for instructional output.
 """
 
 

@@ -1,4 +1,17 @@
+
 #!/usr/bin/env python3
+"""
+VARIABLE MAP LEGEND
+-------------------
+sample_config : str
+    Path to a sample phone config file for analysis
+os           : module
+    Used for file existence checks
+subprocess   : module
+    Used to run external scripts/commands
+sys          : module
+    Used for exiting the script on error
+"""
 """
 Quick test of the Phone Config Analyzer integration in freepbx_tools_manager.py
 -------------------------------------------------------------------------------

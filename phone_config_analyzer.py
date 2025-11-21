@@ -1,6 +1,54 @@
 
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+PhoneConfigAnalyzer.__init__():
+    Initialize analyzer and set up data structures.
+PhoneConfigAnalyzer.detect_phone_type(content):
+    Detect phone type from config content.
+PhoneConfigAnalyzer.parse_polycom_xml(filepath):
+    Parse Polycom XML config file.
+PhoneConfigAnalyzer.parse_polycom_text(filepath):
+    Parse Polycom text config file.
+PhoneConfigAnalyzer.parse_yealink_cfg(filepath):
+    Parse Yealink config file.
+PhoneConfigAnalyzer.parse_config_file(filepath):
+    Parse config file and route to correct parser.
+PhoneConfigAnalyzer.analyze_sip_accounts():
+    Analyze SIP account settings.
+PhoneConfigAnalyzer.analyze_security():
+    Analyze security settings and report issues.
+PhoneConfigAnalyzer.analyze_network_config():
+    Analyze network configuration.
+PhoneConfigAnalyzer.analyze_line_keys():
+    Analyze line key assignments.
+PhoneConfigAnalyzer.analyze_softkeys():
+    Analyze softkey assignments.
+PhoneConfigAnalyzer.analyze_features():
+    Analyze feature settings and compliance.
+PhoneConfigAnalyzer.analyze_dial_plan():
+    Analyze dial plan configuration.
+PhoneConfigAnalyzer.analyze_provisioning():
+    Analyze provisioning server settings.
+PhoneConfigAnalyzer.analyze_attendant_resources():
+    Analyze attendant resource settings.
+PhoneConfigAnalyzer.analyze_all(filepath):
+    Run all analysis steps on a config file.
+PhoneConfigAnalyzer.print_report():
+    Print detailed analysis report.
+PhoneConfigAnalyzer.print_summary():
+    Print summary of analysis results.
+PhoneConfigAnalyzer.determine_phone_role():
+    Determine the role of the phone (e.g., user, common area).
+PhoneConfigAnalyzer.export_json(output_path):
+    Export analysis results to JSON file.
+PhoneConfigAnalyzer.export_csv_summary(output_path):
+    Export summary results to CSV file.
+main():
+    Script entry point for running analysis from CLI.
+"""
+"""
 Phone Configuration Analyzer
 ---------------------------
 Parses and analyzes VoIP phone configuration files (Polycom, Yealink, Cisco, etc.)

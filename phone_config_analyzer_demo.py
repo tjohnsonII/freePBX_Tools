@@ -1,6 +1,26 @@
 
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+demo_basic_analysis():
+    Demonstrate basic phone config analysis and print results.
+demo_security_check(findings):
+    Show security check results from analysis findings.
+demo_sip_account_extraction(findings):
+    Extract and display SIP account info from findings.
+demo_line_key_analysis(findings):
+    Analyze and print line key assignments from findings.
+demo_feature_compliance(findings):
+    Check and display feature compliance from findings.
+demo_network_audit(findings):
+    Audit and print network-related findings.
+demo_json_export():
+    Demonstrate exporting analysis results to JSON.
+main():
+    Run all demo functions for demonstration.
+"""
+"""
 Phone Config Analyzer - Demo Script
 -----------------------------------
 Demonstrates various capabilities and use cases of the PhoneConfigAnalyzer.

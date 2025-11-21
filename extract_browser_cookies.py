@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+find_chrome_cookies():
+    Locate the Chrome cookies SQLite file on the local system.
+extract_cookies_from_chrome(domain="secure.123.net"):
+    Extract cookies for a given domain from Chrome's cookie store.
+manual_cookie_entry():
+    Prompt user for manual cookie entry if extraction fails.
+main():
+    Orchestrate cookie extraction and saving to file.
+"""
+"""
 Browser Cookie Extractor for Windows
 Extracts cookies from Chrome/Edge for secure.123.net
 """

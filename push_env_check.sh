@@ -1,5 +1,17 @@
 
 #!/usr/bin/env bash
+#
+# FUNCTION MAP LEGEND
+# -------------------
+# (This script is procedural but organized into major sections)
+#
+# - Variable Map & Defaults: Defines all key variables and their defaults.
+# - Pre-flight Checks: Ensures required files and directories exist.
+# - Main Loop: Iterates over each server, attempts file transfer and permission setting.
+# - Logging: Logs results for each host to a per-host log file.
+# - Fallback Logic: Retries with root if primary user fails.
+# - Summary: Prints a summary of successes and failures.
+#
 # push_env_check.sh
 # -----------------
 # Deploys the env_check.sh script to a fleet of servers listed in a file.

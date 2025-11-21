@@ -1,7 +1,32 @@
 #!/usr/bin/env python3
+
 """
 Ultimate VPBX Data Analyzer - Deep Intelligence Extraction
 Extracts every possible piece of actionable data from comprehensive scrape
+
+VARIABLE MAP LEGEND
+-------------------
+UltimateVPBXAnalyzer attributes:
+    data_dir         : Path, root directory containing all site data folders
+    sites            : list of dict, analyzed site summaries
+    all_credentials  : list, all credentials found across sites
+    all_devices      : list, all device records found
+    all_sip_accounts : list, all SIP account records
+    all_site_notes   : list, all notes/comments found
+    all_configs      : list, all parsed config files
+    security_issues  : list, all security issues found
+    version_data     : list, version info for all sites
+
+Key method variables:
+    entry_dirs       : list of Path, directories for each site (entry_*)
+    site_id          : str, unique identifier for a site
+    entry_dir        : Path, directory for a single site's data
+    site             : dict, all extracted data for a site
+    detail_main      : Path, main HTML file for a site
+    row, record      : dict, single data record in loops
+    results          : list, results from a function or query
+    args             : argparse.Namespace, parsed CLI arguments
+    f                : file handle (for reading/writing)
 """
 
 import re

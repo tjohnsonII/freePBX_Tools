@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 #!/usr/bin/env python3
 """
 Pre-commit security verification script
@@ -6,6 +6,18 @@ Pre-commit security verification script
 This script scans all staged files in a git repository for patterns that may indicate
 the presence of sensitive data (such as passwords, API keys, secrets, or IP addresses).
 It is intended to be used as a pre-commit hook to prevent accidental commits of secrets.
+
+VARIABLE MAP LEGEND
+-------------------
+Colors           : ANSI color code class for terminal output
+result           : subprocess.CompletedProcess, result of running a shell command
+filepath         : str, path to a file being scanned
+sensitive_patterns: dict, regex patterns mapped to description strings
+issues           : list of dict, each with type, match, and position for a finding
+content          : str, file contents being scanned
+files            : list of str, files staged for commit
+all_issues       : dict, filepath -> list of issues found in that file
+exit_code        : int, exit status for the script (0 = safe, 1 = unsafe)
 """
 
 import subprocess

@@ -1,5 +1,18 @@
 
+
 #!/usr/bin/env python3
+"""
+VARIABLE MAP LEGEND
+-------------------
+conn    : sqlite3.Connection
+    Connection object to the local VPBX SQLite database
+cursor  : sqlite3.Cursor
+    Cursor object for executing SQL queries
+results : list of tuples
+    Query results: (company_name, system_ip, phone_count)
+sqlite3 : module
+    SQLite3 database library
+"""
 """
 Quick query for Yealink W60P phones by company/site.
 This script connects to the local vpbx_data.db SQLite database,

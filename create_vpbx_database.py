@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+create_database(db_path='vpbx_data.db'):
+    Create SQLite database and tables for VPBX data.
+extract_company_info(filepath):
+    Extract company handle and name from Details_*.txt file.
+extract_device_info(filepath):
+    Extract device inventory from Details_*.txt file.
+populate_database(conn):
+    Populate database from scraped JSON and Details files.
+create_sample_queries(db_path='vpbx_data.db'):
+    Write a file with example SQL queries for analysts.
+main():
+    Orchestrate database creation, population, and sample query generation.
+"""
+"""
 create_vpbx_database.py
 
 Purpose:

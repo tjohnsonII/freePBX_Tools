@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Test Selenium Setup Script
 -------------------------
@@ -6,14 +7,15 @@ This script verifies that Selenium and ChromeDriver are installed and working.
 It attempts to launch a Chrome browser, navigate to Google, and print the page title.
 Intended for troubleshooting Selenium environment issues.
 
-====================================
-Variable Map Legend (Key Variables)
-====================================
+VARIABLE MAP LEGEND
+-------------------
 
-options (webdriver.ChromeOptions): Chrome browser options for Selenium
-driver (webdriver.Chrome): Selenium WebDriver instance for Chrome
-e (Exception): Exception object for error handling
-
+options : webdriver.ChromeOptions
+    Chrome browser options for Selenium
+driver  : webdriver.Chrome
+    Selenium WebDriver instance for Chrome
+e       : Exception
+    Exception object for error handling
 """
 
 try:

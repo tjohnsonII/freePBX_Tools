@@ -1,5 +1,31 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+print_header(text):
+    Print a formatted section header.
+print_success(text):
+    Print a success message.
+print_error(text):
+    Print an error message.
+print_warning(text):
+    Print a warning message.
+print_info(text):
+    Print an informational message.
+read_server_list(filename):
+    Read a list of server IPs/hostnames from a file.
+get_local_files():
+    Get the list of local files to deploy.
+deploy_to_server(server_ip, username, password, files, dry_run=False):
+    Deploy files to a single server via SSH/SCP.
+deploy_parallel(servers, username, password, files, max_workers=5, dry_run=False):
+    Deploy to multiple servers in parallel using threads.
+print_summary(results):
+    Print a summary of deployment results.
+main():
+    Orchestrate the deployment process from CLI arguments.
+"""
+"""
 deploy_freepbx_tools.py
 
 Purpose:

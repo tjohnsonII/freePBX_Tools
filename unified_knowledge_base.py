@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
+
 """
 Unified Knowledge Base for 123.NET Tickets
 Aggregates tickets from all customers into a single searchable database
+
+VARIABLE MAP LEGEND
+-------------------
+UnifiedKnowledgeBase attributes:
+    db_path        : str, path to the unified SQLite database file
+    conn           : sqlite3.Connection, active DB connection
+
+Database tables:
+    tickets        : Main table for ticket metadata (customer, subject, status, etc.)
+    messages       : Table for ticket message history
+
+Key method variables:
+    cursor         : sqlite3.Cursor, used for DB operations
+    ticket         : dict or sqlite3.Row, single ticket record
+    message        : dict or sqlite3.Row, single message record
+    results        : list of dicts or rows, query results
+    data           : list/dict, loaded from JSON or API
+    args           : argparse.Namespace, parsed CLI arguments
+    filters        : dict, search or filter parameters
+    row            : sqlite3.Row, result row from DB
+    query          : str, SQL query string
+    params         : tuple/list, SQL query parameters
 """
 
 import sqlite3

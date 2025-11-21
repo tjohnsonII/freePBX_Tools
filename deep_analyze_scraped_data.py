@@ -1,5 +1,51 @@
 #!/usr/bin/env python3
 """
+FUNCTION MAP LEGEND
+-------------------
+DeepAnalyzer.__init__(data_dir):
+    Initialize analyzer with data directory and results container.
+DeepAnalyzer.analyze_all():
+    Orchestrate full analysis workflow for all sites.
+DeepAnalyzer.analyze_site(site_id, entry_dir):
+    Analyze a single site's data and update results.
+DeepAnalyzer.extract_server_info(html_file):
+    Extract server info from HTML file.
+DeepAnalyzer.extract_device_inventory(html_file):
+    Extract device inventory from HTML file.
+DeepAnalyzer.extract_site_xml_config(html_file):
+    Parse XML config for a site and return config dict.
+DeepAnalyzer.extract_sip_configs(html_file):
+    Extract SIP configuration details from HTML file.
+DeepAnalyzer.detect_platform(server_info):
+    Detect platform type from server info.
+DeepAnalyzer.audit_server_security(site_id, server_info):
+    Check for server security issues.
+DeepAnalyzer.audit_site_config_security(site_id, config):
+    Check for config security issues.
+DeepAnalyzer.generate_server_inventory():
+    Generate and print server inventory summary.
+DeepAnalyzer.generate_phone_inventory():
+    Generate and print phone inventory summary.
+DeepAnalyzer.generate_security_report():
+    Generate and print security findings.
+DeepAnalyzer.generate_configuration_summary():
+    Generate and print configuration summary.
+DeepAnalyzer.generate_statistics():
+    Generate and print summary statistics.
+DeepAnalyzer.save_results():
+    Save all results as JSON/CSV.
+DeepAnalyzer.save_server_inventory_csv():
+    Save server inventory as CSV file.
+DeepAnalyzer.save_phone_inventory_csv():
+    Save phone inventory as CSV file.
+DeepAnalyzer.save_security_audit_csv():
+    Save security audit as CSV file.
+DeepAnalyzer.save_credentials_csv():
+    Save credentials as CSV file.
+main():
+    Script entry point for running analysis from CLI.
+"""
+"""
 deep_analyze_scraped_data.py
 
 Purpose:
