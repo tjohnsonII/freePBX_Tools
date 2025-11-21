@@ -1,8 +1,47 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# freepbx_callflow_graphV3.py
-# Build a call-flow SVG for a DID, expanding Time Conditions, IVRs, Ring Groups, Queues, etc.
-# No Python DB drivers needed: we shell out to the mysql CLI.
+
+"""
+freepbx_callflow_graphV3.py
+---------------------------
+Build a call-flow SVG for a DID, expanding Time Conditions, IVRs, Ring Groups, Queues, etc.
+No Python DB drivers needed: we shell out to the mysql CLI.
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+args           : Parsed command-line arguments
+did            : The DID being visualized
+svg_output     : Path to output SVG file
+dot_output     : Path to output Graphviz dot file
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+callflow_data  : Parsed call flow data from FreePBX
+graph_lines    : List of lines for Graphviz dot file
+
+Key Function Arguments:
+-----------------------
+did            : The DID to visualize
+callflow_data  : Data structure representing the call flow
+dot_lines      : List of lines for Graphviz dot file
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    print_header            : Print CLI banner
+    parse_args              : Parse command-line arguments
+    run_mysql_query         : Run a MySQL query using the CLI
+    extract_callflow        : Extract call flow for a DID from FreePBX
+    expand_time_conditions  : Expand time condition branches in call flow
+    expand_ivr              : Expand IVR branches in call flow
+    expand_ring_group       : Expand ring group branches in call flow
+    expand_queue            : Expand queue branches in call flow
+    build_graphviz_dot      : Build Graphviz dot file from call flow data
+    render_svg              : Render SVG from dot file using Graphviz
+    main                    : CLI entry point, parses args and runs diagram generation
+"""
 
 import argparse
 import subprocess

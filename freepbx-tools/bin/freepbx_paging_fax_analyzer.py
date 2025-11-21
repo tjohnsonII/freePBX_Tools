@@ -2,9 +2,43 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_paging_fax_analyzer.py
+------------------------------
 Specialized analyzer for paging systems, overhead speakers, and fax configurations in FreePBX.
 Provides detailed analysis of these specific communication features.
 ✓ Python 3.6 compatible (uses mysql CLI via subprocess; no external modules).
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ASTERISK_DB    : Name of the Asterisk database
+DEFAULT_SOCK   : Default MySQL socket path
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_file    : Path to output report file
+paging_data    : Parsed data for paging/overhead systems
+fax_data       : Parsed data for fax configurations
+summary_stats  : Dictionary of computed summary statistics
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+component      : Paging or fax component name
+row            : Row of data from DB
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    print_header              : Print professional header banner
+    run_mysql_query           : Run a MySQL query using the CLI
+    analyze_paging_systems    : Analyze paging/overhead speaker systems
+    analyze_fax_config        : Analyze fax configuration and usage
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write analysis report to file
+    main                     : CLI entry point, parses args and runs analysis
 """
 
 import argparse, json, os, subprocess, sys, time, re

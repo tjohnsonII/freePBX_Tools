@@ -1,6 +1,19 @@
 #!/bin/bash
+
 # Comprehensive FreePBX Call Flow Testing Suite
 # Run all validation tests and generate accuracy report
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# TEST_SERVER   : Target FreePBX/Asterisk server IP address
+# SSH_USER      : SSH username for remote server access
+# SAMPLE_DIDS   : Array of sample DIDs to test (call flow scenarios)
+#
+# FUNCTION MAP (Major Functions)
+# -----------------------------
+# run_remote_test    : Run the validation script remotely for a given DID
+# (main script body) : Loops through test types and DIDs, runs validations, prints results
+#
 
 echo "🚀 COMPREHENSIVE FREEPBX CALL FLOW TESTING"
 echo "============================================="

@@ -1,8 +1,39 @@
 #!/usr/bin/env python3
 """
 FreePBX Phone/Endpoint Analyzer
+------------------------------
 Analyzes phone registrations, configurations, firmware, and provisioning status
 Supports: Polycom, Yealink, Cisco, Grandstream, Sangoma
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+PhoneAnalyzer  : Main class for phone/endpoint analysis
+output_dir     : Directory for output reports
+mysql_socket   : MySQL socket path (if used)
+standard_firmware: Dict of standard firmware versions by vendor/model
+phone_data     : Parsed phone/endpoint data
+registration_data: Parsed phone registration data
+args           : Parsed command-line arguments
+
+Key Function Arguments:
+-----------------------
+vendor         : Phone vendor (e.g., Polycom, Yealink)
+model          : Phone model
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    find_mysql_socket           : Find MySQL socket path
+    get_phone_data              : Extract phone/endpoint data from FreePBX
+    get_registration_data       : Extract phone registration data
+    analyze_firmware_versions   : Compare phone firmware to standards
+    analyze_provisioning        : Analyze provisioning status
+    print_summary               : Print summary statistics to terminal
+    write_report                : Write analysis report to file
+    main                       : CLI entry point, parses args and runs analysis
 """
 
 import subprocess

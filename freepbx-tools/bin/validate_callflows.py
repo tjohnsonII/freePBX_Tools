@@ -1,7 +1,36 @@
 #!/usr/bin/env python3
 """
 FreePBX Call Flow Validation Tool
+---------------------------------
 Compare our tool's output with direct database queries and GUI behavior
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+CallFlowValidator : Main class for call flow validation
+host           : Database host
+user           : Database username
+password       : Database password
+args           : Parsed command-line arguments (if any)
+sql            : SQL query string
+did            : DID number to validate
+db_result      : Result from direct DB query
+tool_result    : Result from call flow tool
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+did            : DID number to validate
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    CallFlowValidator.__init__    : Initialize validator with DB params
+    CallFlowValidator.query_db     : Execute direct MySQL query
+    CallFlowValidator.run_callflow_tool: Run call flow tool and parse output
+    CallFlowValidator.compare_results  : Compare DB and tool results
+    main                             : CLI entry point, parses args and runs validation
 """
 
 import subprocess

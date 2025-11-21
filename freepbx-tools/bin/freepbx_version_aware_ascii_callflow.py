@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 freePBX Complete Version-Aware ASCII Call Flow Generator
+-------------------------------------------------------
 Handles FreePBX 2.8 - 16.x, Asterisk 1.8 - 18.x, MySQL/MariaDB variations
 
 This comprehensive version addresses ALL schema variations across FreePBX versions:
@@ -9,6 +10,37 @@ This comprehensive version addresses ALL schema variations across FreePBX versio
 - Table name variations (incoming vs inbound_routes, timeconditions vs time_conditions)
 - Column name differences (toggle_mode vs mode, mohclass vs rvolume, etc.)
 - Version-specific detection and adaptation
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+FreePBXUniversalCollector: Class for version-aware DB collection
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_file    : Path to output ASCII call flow file
+callflow_data  : Parsed call flow data from FreePBX
+schema_map     : Mapping of schema differences across versions
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+table          : Table name
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    FreePBXUniversalCollector.__init__      : Initialize collector with DB params
+    FreePBXUniversalCollector.run_mysql      : Run a MySQL query using the CLI
+    FreePBXUniversalCollector.get_tables     : Get list of tables in the database
+    FreePBXUniversalCollector.has_table      : Check if a table exists
+    FreePBXUniversalCollector.collect_all    : Collect all relevant call flow data
+    FreePBXUniversalCollector.normalize      : Normalize data across schema versions
+    build_ascii_callflow                     : Build ASCII call flow from data
+    main                                     : CLI entry point, parses args and runs generator
 """
 
 import argparse

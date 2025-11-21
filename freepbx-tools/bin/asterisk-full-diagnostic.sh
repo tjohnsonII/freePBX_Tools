@@ -1,7 +1,15 @@
 [root@pbx-oib diagnostic]# cat asterisk-full-diagnostic.sh 
-#!/bin/bash
 
-# ANSI Color codes
+#!/bin/bash
+#
+# VARIABLE MAP LEGEND
+# -------------------
+# RED, GREEN, YELLOW, BLUE, CYAN, MAGENTA, BOLD, NC : ANSI color codes for output formatting
+# TIMESTAMP : Current date/time string for output file naming
+# OUTPUT    : Name of the diagnostic output file (includes timestamp)
+#
+
+## ANSI Color codes for pretty output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -15,12 +23,12 @@ NC='\033[0m' # No Color
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 OUTPUT="full_diagnostic_$TIMESTAMP.txt"
 
-# Print header
+## Print ASCII art header for tool branding
 echo -e "${CYAN}${BOLD}"
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║          🔧  Asterisk & FreePBX Full Diagnostic Tool          ║
+║          🔧 Asterisk & FreePBX Full Diagnostic Tool           ║
 ║                                                               ║
 ║          Complete System Health & Configuration Report        ║
 ║                                                               ║
@@ -31,7 +39,7 @@ echo -e "${NC}"
 echo -e "${YELLOW}📋 Generating comprehensive diagnostic report...${NC}"
 echo -e "${CYAN}Output file: ${BOLD}$OUTPUT${NC}\n"
 
-# Header
+## Main diagnostic block: gather all system and PBX info
 {
 echo "========== Asterisk + FreePBX Full Diagnostic Report =========="
 echo "Generated: $(date)"
@@ -93,14 +101,15 @@ mysql -u root -e "USE asteriskcdrdb; SELECT calldate, src, dst, disposition, dur
 echo
 } > "$OUTPUT"
 
+## Announce completion and show output location
 echo -e "${GREEN}${BOLD}✓ Diagnostic complete!${NC}"
 echo -e "${CYAN}Output saved to: ${BOLD}$OUTPUT${NC}"
 
-# Show file size
+## Show file size of the report
 SIZE=$(du -h "$OUTPUT" | cut -f1)
 echo -e "${CYAN}File size: ${BOLD}$SIZE${NC}"
 
-# Show quick summary
+## Show quick summary of disk and memory health
 echo -e "\n${YELLOW}${BOLD}Quick Summary:${NC}"
 DISK_WARN=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
 if [ "$DISK_WARN" -gt 80 ]; then

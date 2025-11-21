@@ -2,6 +2,38 @@
 """
 freePBX Call Flow Validation through Live Simulation
 Compare predicted call flows with actual Asterisk behavior
+
+VARIABLE MAP (Key Instance Variables)
+-------------------------------------
+logger           : Logger instance for debug/info/error output
+server_ip        : Target FreePBX/Asterisk server IP address
+ssh_user         : SSH username for remote server access
+test_cases       : List of call flow test cases to validate
+results          : List of dictionaries storing results of each test
+debug            : Boolean flag to enable/disable debug output
+timeout          : Timeout for remote commands (seconds)
+
+Key Method Arguments:
+---------------------
+callflow_json     : JSON object describing expected call flow
+test_case         : Dictionary describing a single test scenario
+channel           : Asterisk channel string (e.g., Local/1234@from-internal)
+expected_path     : List of expected call flow steps
+actual_path       : List of observed call flow steps
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Methods)
+    ---------------------------
+    setup_logging           : Configure and return logger instance
+    parse_args              : Parse command-line arguments
+    load_test_cases         : Load call flow test cases from file or stdin
+    run_all_tests           : Run all call flow validation tests
+    run_single_test         : Run a single call flow validation test
+    simulate_call           : Simulate a call and capture actual call flow
+    compare_call_flows      : Compare expected and actual call flows
+    print_summary           : Print summary of all test results
+    main                    : CLI entry point, parses arguments and runs tests
 """
 
 import sys

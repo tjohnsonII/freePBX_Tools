@@ -1,51 +1,115 @@
+
+
 #!/usr/bin/env python3
 """
 freePBX Call Simulator
-Generate and execute Asterisk call files to test call flow routing
-Monitors call outcomes and validates against expected behavior
+----------------------
+Generate and execute Asterisk call files to test call flow routing.
+Monitors call outcomes and validates against expected behavior.
+
+VARIABLE MAP (Key Instance Variables)
+server_ip        : Target FreePBX/Asterisk server IP address
+ssh_user         : SSH username for remote server access
+spool_dir        : Path to Asterisk outgoing call file spool directory
+tmp_dir          : Temporary directory for staging call files
+asterisk_user    : System user that owns Asterisk processes/files
+test_results     : List of dictionaries storing results of each test
+debug            : Boolean flag to enable/disable debug output
+is_local_execution: True if running on the same host as server_ip
+
+Key Method Arguments:
+channel           : Asterisk channel string (e.g., Local/1234@from-internal)
+caller_id         : Caller ID to display for the simulated call
+destination       : Extension or number to call (or ring)
+context           : Asterisk dialplan context (default: from-internal)
+priority          : Dialplan priority (default: 1)
+wait_time         : Seconds to wait before call fails
+max_retries       : Number of call retries
+application       : Optional Asterisk application (e.g., Voicemail, Playback)
+data              : Data for the application (e.g., mailbox, sound file)
+archive           : Whether to archive the call file after execution
+call_id           : Unique identifier for each simulated call
+
+
+See function docstrings for additional details on arguments and return values.
+
+        FUNCTION MAP (Major Methods)
+        ---------------------------
+        FreePBXCallSimulator:
+                * __init__                  : Initialize simulator with server, user, and config
+                * debug_print               : Print colorized debug/info output if enabled
+                * _is_local_execution       : Detect if running on local or remote server
+                * _run_command              : Run shell command locally or via SSH
+                * create_call_file          : Generate an Asterisk call file with given parameters
+                * execute_call_file         : Upload, set permissions, and trigger call file execution
+                * _get_recent_call_logs     : Fetch recent Asterisk log entries for a call
+                * simulate_did_call         : Simulate an incoming call to a DID (optionally force destination)
+                * test_extension_call       : Simulate a call to a specific extension
+                * test_voicemail_call       : Simulate a call directly to a voicemail box
+                * test_playback_application : Simulate a call that plays a sound file (Playback app)
+                * run_comprehensive_test_suite: Run a full suite of DID, extension, voicemail, and playback tests
+                * generate_test_summary     : Print and save a summary report of all test results
+
+        main
+                * CLI entry point, parses arguments and dispatches to test methods
 """
+# (Removed duplicate function map lines; see docstring above)
+# Standard library imports
+import os      # File and directory operations
+import sys     # System-specific parameters and functions
+import time    # Time-related functions
+import subprocess  # Run shell commands
+import tempfile    # Temporary file/directory creation
+import argparse    # Command-line argument parsing
+from datetime import datetime, timedelta  # Date/time handling
+import json     # JSON encoding/decoding
+import socket   # Network interface and IP handling
+import re       # Regular expressions
 
-import os
-import sys
-import time
-import subprocess
-import tempfile
-import argparse
-from datetime import datetime, timedelta
-import json
-import socket
-import re
 
+# Terminal color codes for pretty output
 class Colors:
     """ANSI color codes for terminal output"""
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    MAGENTA = '\033[95m'
-    WHITE = '\033[97m'
-    BOLD = '\033[1m'
-    RESET = '\033[0m'
+    CYAN = '\033[96m'      # Info
+    GREEN = '\033[92m'     # Success
+    YELLOW = '\033[93m'    # Warning
+    RED = '\033[91m'       # Error
+    BLUE = '\033[94m'      # Response
+    MAGENTA = '\033[95m'   # Command
+    WHITE = '\033[97m'     # Default
+    BOLD = '\033[1m'       # Bold
+    RESET = '\033[0m'      # Reset
 
+
+# Main simulator class for generating and executing test calls
 class FreePBXCallSimulator:
     def __init__(self, server_ip=None, ssh_user="123net"):
-        self.server_ip = server_ip or "69.39.69.102"
-        self.ssh_user = ssh_user
-        self.spool_dir = "/var/spool/asterisk/outgoing"
-        self.tmp_dir = "/tmp"
-        self.asterisk_user = "asterisk"
-        self.test_results = []
-        self.debug = False  # Enable debug output when True
-        self.is_local_execution = self._is_local_execution()
+        """
+        Initialize the call simulator.
+        Args:
+            server_ip (str): Target FreePBX/Asterisk server IP.
+            ssh_user (str): SSH username for remote execution.
+        """
+        self.server_ip = server_ip or "69.39.69.102"  # Default server IP
+        self.ssh_user = ssh_user                      # SSH user
+        self.spool_dir = "/var/spool/asterisk/outgoing"  # Asterisk call file spool
+        self.tmp_dir = "/tmp"                        # Temp directory for file staging
+        self.asterisk_user = "asterisk"              # Asterisk system user
+        self.test_results = []                        # Store test results
+        self.debug = False                            # Enable debug output when True
+        self.is_local_execution = self._is_local_execution()  # Detect local/remote
         
+
     def debug_print(self, message, level="INFO"):
-        """Print debug messages with colorized level indicators"""
+        """
+        Print debug messages with colorized level indicators.
+        Args:
+            message (str): The message to print.
+            level (str): Log level (INFO, SUCCESS, WARNING, ERROR, COMMAND, RESPONSE).
+        """
         if not self.debug:
             return
-            
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        
         level_colors = {
             "INFO": Colors.CYAN,
             "SUCCESS": Colors.GREEN,
@@ -54,7 +118,6 @@ class FreePBXCallSimulator:
             "COMMAND": Colors.MAGENTA,
             "RESPONSE": Colors.BLUE
         }
-        
         color = level_colors.get(level, Colors.WHITE)
         level_icon = {
             "INFO": "ℹ️",
@@ -64,11 +127,14 @@ class FreePBXCallSimulator:
             "COMMAND": "🔧",
             "RESPONSE": "📥"
         }.get(level, "•")
-        
         print(f"{Colors.WHITE}[{timestamp}]{Colors.RESET} {color}{Colors.BOLD}{level_icon} {level}:{Colors.RESET} {color}{message}{Colors.RESET}")
         
+
     def _is_local_execution(self):
-        """Check if we're running on the same server as the target"""
+        """
+        Check if we're running on the same server as the target.
+        Returns True if the script is running on the same host as the target server_ip.
+        """
         try:
             # Get local IP addresses
             hostname = socket.gethostname()
@@ -76,7 +142,6 @@ class FreePBXCallSimulator:
             local_ips.add(socket.gethostbyname(hostname))
             local_ips.add("127.0.0.1")
             local_ips.add("localhost")
-            
             # Add all local interface IPs
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -85,18 +150,23 @@ class FreePBXCallSimulator:
                 s.close()
             except:
                 pass
-                
             return self.server_ip in local_ips
         except:
             return False
     
+
     def _run_command(self, command, timeout=10):
-        """Run command locally or via SSH based on execution context"""
+        """
+        Run a shell command locally or via SSH based on execution context.
+        Args:
+            command (str): The shell command to execute.
+            timeout (int): Timeout in seconds.
+        Returns:
+            subprocess.CompletedProcess: The result object.
+        """
         execution_mode = "LOCAL" if self.is_local_execution else "SSH"
         self.debug_print(f"{execution_mode} Command: {command}", "COMMAND")
-        
         start_time = time.time()
-        
         try:
             if self.is_local_execution:
                 # Running locally, execute directly
@@ -112,9 +182,7 @@ class FreePBXCallSimulator:
                     "ssh", f"{self.ssh_user}@{self.server_ip}", command
                 ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                    universal_newlines=True, timeout=timeout)
-            
             elapsed = time.time() - start_time
-            
             if result.returncode == 0:
                 self.debug_print(f"Command succeeded in {elapsed:.2f}s", "SUCCESS")
                 if result.stdout.strip():
@@ -139,7 +207,20 @@ class FreePBXCallSimulator:
                         priority=1, wait_time=30, max_retries=2, application=None, 
                         data=None, archive=False):
         """
-        Create an Asterisk call file with specified parameters
+        Create an Asterisk call file with specified parameters.
+        Args:
+            channel (str): Channel string (e.g., Local/1234@from-internal)
+            caller_id (str): Caller ID to display
+            destination (str): Extension or number to call
+            context (str): Dialplan context
+            priority (int): Dialplan priority
+            wait_time (int): Wait time before call fails
+            max_retries (int): Number of retries
+            application (str): Optional Asterisk application
+            data (str): Data for application
+            archive (bool): Whether to archive the call file
+        Returns:
+            str: The call file content
         """
         
         self.debug_print(f"Creating call file for {channel} -> {destination}", "INFO")
@@ -181,8 +262,13 @@ class FreePBXCallSimulator:
     
     def execute_call_file(self, call_content, call_id=None):
         """
-        Execute a call file on the remote freePBX server
-        Returns call execution results
+        Execute a call file on the remote FreePBX server.
+        Handles file creation, permission setting, moving to spool, and log retrieval.
+        Args:
+            call_content (str): The call file content.
+            call_id (str): Optional unique call identifier.
+        Returns:
+            dict: Call execution results and logs.
         """
         
         if not call_id:
@@ -340,7 +426,12 @@ class FreePBXCallSimulator:
     
     def _get_recent_call_logs(self, call_id, minutes=2):
         """
-        Get recent Asterisk logs related to the call
+        Get recent Asterisk logs related to the call.
+        Args:
+            call_id (str): The call identifier.
+            minutes (int): How far back to look in logs.
+        Returns:
+            list: Recent log lines.
         """
         try:
             # Get logs from the last few minutes
@@ -357,12 +448,14 @@ class FreePBXCallSimulator:
     
     def simulate_did_call(self, did, destination=None, caller_id=None, wait_time=10):
         """
-        Simulate a call to a specific DID number
+        Simulate a call to a specific DID number.
         Args:
-            did: The DID number being called (this becomes the callerID shown)
-            destination: Where the call should ring (e.g., cell phone) - if None, follows DID routing
-            caller_id: Override caller ID if needed (defaults to DID)
-            wait_time: How long to wait before considering call failed
+            did (str): The DID number being called (becomes callerID shown).
+            destination (str): Where the call should ring (e.g., cell phone). If None, follows DID routing.
+            caller_id (str): Override caller ID if needed (defaults to DID).
+            wait_time (int): How long to wait before considering call failed.
+        Returns:
+            dict: Result of the call simulation.
         """
         if caller_id is None:
             caller_id = did
@@ -448,7 +541,12 @@ class FreePBXCallSimulator:
     
     def test_extension_call(self, extension, caller_id="7140"):
         """
-        Test calling a specific extension
+        Test calling a specific extension.
+        Args:
+            extension (str): Extension to call.
+            caller_id (str): Caller ID to use.
+        Returns:
+            dict: Result of the extension call test.
         """
         print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 TESTING EXTENSION CALL: {extension:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -483,7 +581,12 @@ class FreePBXCallSimulator:
     
     def test_voicemail_call(self, mailbox, caller_id="7140"):
         """
-        Test calling directly to voicemail
+        Test calling directly to voicemail.
+        Args:
+            mailbox (str): Mailbox to call.
+            caller_id (str): Caller ID to use.
+        Returns:
+            dict: Result of the voicemail call test.
         """
         print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📧 TESTING VOICEMAIL CALL: {mailbox:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -520,7 +623,12 @@ class FreePBXCallSimulator:
     
     def test_playback_application(self, sound_file="demo-congrats", caller_id="7140"):
         """
-        Test playback application (like the zombies example)
+        Test playback application (e.g., play a sound file).
+        Args:
+            sound_file (str): Name of the sound file to play.
+            caller_id (str): Caller ID to use.
+        Returns:
+            dict: Result of the playback test.
         """
         print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🎵 TESTING PLAYBACK APPLICATION: {sound_file:<32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -557,7 +665,10 @@ class FreePBXCallSimulator:
     
     def run_comprehensive_test_suite(self, test_dids=None):
         """
-        Run a comprehensive suite of call simulation tests
+        Run a comprehensive suite of call simulation tests.
+        Runs DID, extension, voicemail, and application tests, then prints a summary.
+        Args:
+            test_dids (list): List of DIDs to test. Uses defaults if None.
         """
         print(f"\n{Colors.YELLOW}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.YELLOW}║{Colors.BOLD}{Colors.WHITE} 🚀 COMPREHENSIVE CALL SIMULATION TEST SUITE{' ' * 34}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
@@ -616,7 +727,8 @@ class FreePBXCallSimulator:
     
     def generate_test_summary(self):
         """
-        Generate a summary report of all test results
+        Generate a summary report of all test results.
+        Prints statistics and saves results to a JSON file.
         """
         print(f"\n{Colors.GREEN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.GREEN}║{Colors.BOLD}{Colors.WHITE} 📊 CALL SIMULATION TEST SUMMARY{' ' * 45}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
@@ -680,6 +792,10 @@ class FreePBXCallSimulator:
             print(f"\n{Colors.YELLOW}⚠️  Could not save results: {str(e)}{Colors.RESET}")
 
 def main():
+    """
+    Main entry point for the FreePBX Call Simulator CLI.
+    Parses command-line arguments and dispatches to the appropriate test method.
+    """
     parser = argparse.ArgumentParser(description="FreePBX Call Simulator")
     parser.add_argument("--server", default="69.39.69.102", help="FreePBX server IP")
     parser.add_argument("--user", default="123net", help="SSH username")
@@ -692,16 +808,12 @@ def main():
     parser.add_argument("--comprehensive", action="store_true", help="Run comprehensive test suite")
     parser.add_argument("--debug", action="store_true", help="Enable detailed debug output")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output (same as --debug)")
-    
     args = parser.parse_args()
-    
     # Enable debug mode if requested
     debug_mode = args.debug or args.verbose
-    
     # Initialize simulator
     simulator = FreePBXCallSimulator(args.server, args.user)
     simulator.debug = debug_mode  # Set debug flag on simulator instance
-    
     print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
     print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 FREEPBX CALL SIMULATOR{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
@@ -710,7 +822,6 @@ def main():
     if args.caller_id:
         print(f"{Colors.CYAN}║{Colors.WHITE} Caller ID: {Colors.MAGENTA}{Colors.BOLD}{args.caller_id:<64}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
-    
     # Execute based on arguments
     if args.comprehensive:
         simulator.run_comprehensive_test_suite()
@@ -726,6 +837,7 @@ def main():
         caller = args.caller_id or "7140"
         simulator.test_playback_application(args.playback, caller)
     else:
+        # Print usage examples if no valid arguments provided
         print(f"\n{Colors.YELLOW}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.YELLOW}║{Colors.BOLD}{Colors.WHITE} 🎯 USAGE EXAMPLES{' ' * 59}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
         print(f"{Colors.YELLOW}╠{'═' * 78}╣{Colors.RESET}")
@@ -745,5 +857,6 @@ def main():
         print(f"{Colors.YELLOW}║{Colors.WHITE}   python3 call_simulator.py --comprehensive{' ' * 33}{Colors.RESET}{Colors.YELLOW} ║{Colors.RESET}")
         print(f"{Colors.YELLOW}╚{'═' * 78}╝{Colors.RESET}")
 
+# Standard Python entry point
 if __name__ == "__main__":
     main()

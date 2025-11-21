@@ -2,9 +2,41 @@
 # -*- coding: utf-8 -*-
 """
 freepbx_tc_status.py
+--------------------
 Report Time Condition override state + last feature-code (*<id>) use from CDRs.
 - Python 3.6 friendly (uses mysql CLI via subprocess)
 - No external modules needed
+
+VARIABLE MAP (Key Script Variables)
+-----------------------------------
+Colors         : ANSI color codes for CLI output
+ASTERISK_DB    : Name of the Asterisk database
+CDR_DB         : Name of the CDR database
+MYSQL_BIN      : Path to mysql binary
+args           : Parsed command-line arguments
+db_socket      : MySQL socket path (if used)
+db_user        : MySQL username
+db_password    : MySQL password (if used)
+output_file    : Path to output report file
+tc_status      : Parsed time condition status data
+feature_code_usage: Parsed feature code usage data
+
+Key Function Arguments:
+-----------------------
+sql            : SQL query string
+args           : Parsed command-line arguments
+
+See function docstrings for additional details on arguments and return values.
+
+    FUNCTION MAP (Major Functions)
+    -----------------------------
+    print_header              : Print professional header banner
+    run_mysql_query           : Run a MySQL query using the CLI
+    get_time_condition_status : Get current status of all time conditions
+    get_feature_code_usage    : Get last usage of feature codes from CDRs
+    print_summary             : Print summary statistics to terminal
+    write_report              : Write status report to file
+    main                     : CLI entry point, parses args and runs status check
 """
 
 import argparse, subprocess, os, sys, re

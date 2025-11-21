@@ -1,6 +1,19 @@
 #!/bin/bash
+
 # SSH Key Setup for FreePBX Call Simulation
 # Sets up passwordless SSH authentication for testing
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# SERVER_IP      : Target FreePBX server IP address
+# SSH_USER       : SSH username for remote server access
+# SERVER_PASSWORD: SSH password (from env or prompt)
+# GREEN, BLUE, YELLOW, RED, NC : ANSI color codes for output
+#
+# FUNCTION MAP (Major Script Sections)
+# ------------------------------------
+# (main script body) : Checks for SSH key, generates if needed, copies key to server, verifies auth
+#
 
 set -euo pipefail
 

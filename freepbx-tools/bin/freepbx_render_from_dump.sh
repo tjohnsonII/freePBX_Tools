@@ -6,13 +6,21 @@ tighten the run_mysql() arg building (minor cleanup).
 
 Here’s a drop-in update of freepbx_dump.py with those tweaks plus a couple of defensive queries (it keeps your current outputs/shape the same):
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-freepbx_dump.py
-Normalize FreePBX call-flow data across schema differences and dump to JSON.
-Designed for Python 3.6 (EL7-era boxes), uses the mysql CLI via subprocess.
-"""
+
+# freepbx_render_from_dump.sh
+# Render FreePBX call flow SVGs from a JSON dump using the callflow graph tool.
+#
+# VARIABLE MAP (Key Script Variables)
+# -----------------------------------
+# JSON_FILE      : Path to FreePBX data JSON dump
+# SVG_DIR        : Output directory for SVG files
+# DID_LIST       : List of DIDs to render
+# GRAPH_SCRIPT   : Path to callflow graph rendering script
+#
+# FUNCTION MAP (Major Script Sections)
+# ------------------------------------
+# (main script body) : Loops through DIDs, calls rendering tool, prints results
+#
 
 import argparse, json, os, subprocess, sys, datetime, socket as pysocket
 
