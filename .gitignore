@@ -98,3 +98,27 @@ test_scrape_output/
 # Backup files that might contain sensitive data
 *.backup
 *_backup.*
+tickets.json
+customers_raw.html
+freepbx-tools/bin/123net_internal_docs/scraped/tickets.json
+freepbx-tools/bin/123net_internal_docs/scraped/customers_raw.html
+
+# Sensitive data and output files
+customer_handles.txt
+tickets.json
+customers_raw.html
+freepbx-tools/bin/123net_internal_docs/scraped/tickets.json
+freepbx-tools/bin/123net_internal_docs/scraped/customers_raw.html
+backups/
+data/
+config.py
+credentials.py
+test_password_file.txt
+123NET Admin.csv
+cookies.json
+*.db
+*.backup
+*_backup.*
+*.json
+*.csv
+# End sensitive files
