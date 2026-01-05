@@ -127,6 +127,17 @@ def fill_template(template_path: str, out_path: str, handle: str, customer_addr:
     content = content.replace("HANDLE-CUSTOMERADDRESS", f"{handle}-{customer_addr}")
     content = content.replace("CUSTOMER NAME, CUSTOMER ADDRESS, CITY MI ZIP", f"{handle}, {customer_addr}")
 
+    # Diagnostics: placeholders present before replacement steps
+    try:
+        print("[DEBUG] Placeholders present before replacement:", {
+            'gateway_placeholder': 'gateway=XXX.XXX.XXX.XXX' in content,
+            'mgmt_placeholder': 'add address=XXX.XXX.XXX.XXX/29 list=MGMT' in content,
+            'ether10_placeholder': 'add address=XXX.XXX.XXX.XXX/29 interface=ether10 network=XXX.XXX.XXX.XXX' in content,
+            'identity_placeholder': 'HANDLE-CUSTOMERADDRESS' in content,
+        })
+    except Exception:
+        pass
+
     # Remove leading informational paragraph/comments before first config section
     # Drop everything before the first line that starts with a slash command (e.g., /interface)
     lines = content.splitlines()
@@ -159,6 +170,59 @@ def fill_template(template_path: str, out_path: str, handle: str, customer_addr:
     # Also update any plain /29 occurrences tied to placeholders
     content = content.replace("XXX.XXX.XXX.XXX/29", f"{network}/{prefix}")
     content = content.replace("network=XXX.XXX.XXX.XXX", f"network={network}")
+
+    # Fallback: if any placeholders remain, perform broad replacements to ensure output is usable
+    # Replace any remaining generic placeholder IPs with the computed network
+    if "XXX.XXX.XXX.XXX" in content:
+        content = content.replace("XXX.XXX.XXX.XXX", network)
+
+    # Ensure ether10 line uses the chosen usable host
+    content = re.sub(
+        r"(add address=)(\d+\.\d+\.\d+\.\d+/\d+)(\s+interface=ether10)",
+        rf"\g<1>{usable_ip}/{prefix}\g<3>",
+        content,
+    )
+
+    # Ensure MGMT off-net block reflects the network/prefix and preserves any comment text
+    content = re.sub(
+        r"(add address=)(\d+\.\d+\.\d+\.\d+/\d+)(\s+list=MGMT(?:[^\n]*)?)",
+        rf"\g<1>{network}/{prefix}\g<3>",
+        content,
+    )
+
+    # Do not broadly replace 'gateway=' values; only placeholder replacements above should apply.
+
+    # Diagnostics: check whether replacements took effect
+    try:
+        print("[DEBUG] Replacement check:", {
+            'has_gateway_final': f"gateway={gateway}" in content,
+            'has_mgmt_final': f"add address={network}/{prefix} list=MGMT" in content,
+            'has_ether10_final': f"add address={usable_ip}/{prefix} interface=ether10 network={network}" in content,
+            'has_identity_final': f"{handle}-{customer_addr}" in content,
+        })
+    except Exception:
+        pass
+
+    # Final line-by-line fallback to catch any variations not matched above
+    lines = content.splitlines()
+    fixed_lines = []
+    for ln in lines:
+        # ether10 address assignment
+        if "interface=ether10" in ln and "address=XXX.XXX.XXX.XXX" in ln:
+            ln = re.sub(r"address=XXX\.XXX\.XXX\.XXX/\d+", f"address={usable_ip}/{prefix}", ln)
+            ln = re.sub(r"network=XXX\.XXX\.XXX\.XXX", f"network={network}", ln)
+        # MGMT off-net list placeholder
+        elif "list=MGMT" in ln and "XXX.XXX.XXX.XXX" in ln:
+            ln = re.sub(r"address=XXX\.XXX\.XXX\.XXX/\d+", f"address={network}/{prefix}", ln)
+            # normalize comment style
+            ln = re.sub(r"<--Customer Off-Net IP", "", ln).strip()
+            if "comment=" not in ln:
+                ln += f" comment=\"Customer Off-Net IP\""
+        # default route gateway placeholder line
+        elif ln.strip().startswith("add distance=1") and "gateway=XXX.XXX.XXX.XXX" in ln:
+            ln = re.sub(r"gateway=XXX\.XXX\.XXX\.XXX", f"gateway={gateway}", ln)
+        fixed_lines.append(ln)
+    content = "\n".join(fixed_lines)
 
     # Save filled file
     # Ensure directory exists and write with normalized newlines
