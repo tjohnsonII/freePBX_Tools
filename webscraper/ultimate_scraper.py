@@ -30,6 +30,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 	# Local imports to avoid top-level dependency failures
 	from selenium import webdriver
 	from selenium.webdriver.chrome.options import Options
+	from selenium.webdriver.chrome.service import Service
 	from selenium.webdriver.common.by import By
 	from selenium.common.exceptions import NoSuchElementException
 
@@ -54,9 +55,11 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 		pass
 
 	chrome_options = Options()
-	if headless:
 		# Keep classic flag for wider compatibility
-		chrome_options.add_argument("--headless")
+	if headless:
+		chrome_options.add_argument("--headless=new")
+		chrome_options.add_argument("--disable-gpu")
+		chrome_options.add_argument("--no-sandbox")
 	# Allow navigating IP/under-secured endpoints without blocking
 	chrome_options.add_argument("--ignore-certificate-errors")
 	chrome_options.add_argument("--allow-insecure-localhost")
@@ -67,7 +70,19 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 	except Exception:
 		pass
 
-	driver = webdriver.Chrome(options=chrome_options)
+	# Use E:\-aware paths if provided via config/env
+	try:
+		from .ultimate_scraper_config import CHROME_BINARY_PATH, CHROMEDRIVER_PATH
+	except Exception:
+		CHROME_BINARY_PATH = None
+		CHROMEDRIVER_PATH = None
+	if CHROME_BINARY_PATH:
+		chrome_options.binary_location = CHROME_BINARY_PATH
+	if CHROMEDRIVER_PATH:
+		service = Service(CHROMEDRIVER_PATH)
+		driver = webdriver.Chrome(service=service, options=chrome_options)
+	else:
+		driver = webdriver.Chrome(options=chrome_options)
 
 	# Attempt to load and inject cookies before main navigation
 	if cookie_file and os.path.exists(cookie_file):

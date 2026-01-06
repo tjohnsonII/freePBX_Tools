@@ -139,3 +139,10 @@ cookies_header_string.txt
 *.json
 *.csv
 # End sensitive files
+# Large/local binaries and environment-specific folders (do not commit)
+webscraper/chromedriver-win64/
+webscraper/chromedriver-win64.zip
+webscraper/output/
+E:/DevTools/Graphviz/
+E:/DevTools/WebDriver/
+E:/DevTools/Chromium/
