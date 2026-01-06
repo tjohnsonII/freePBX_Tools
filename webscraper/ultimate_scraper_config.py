@@ -17,6 +17,16 @@ DEFAULT_HEADLESS = True
 DEFAULT_HANDLES = ["KPM"]
 DEFAULT_COOKIE_FILE = "webscraper/output/kb-run/selenium_cookies.json"
 
+# Preferred E:\ installs for browser and driver (override via env if needed)
+CHROME_BINARY_PATH = None  # e.g., "E:\\DevTools\\Chromium\\chrome.exe"
+CHROMEDRIVER_PATH = None   # e.g., "E:\\DevTools\\WebDriver\\chromedriver.exe"
+CHROME_BINARY_PATH = CHROME_BINARY_PATH or (
+    __import__('os').environ.get('CHROME_PATH')
+)
+CHROMEDRIVER_PATH = CHROMEDRIVER_PATH or (
+    __import__('os').environ.get('CHROMEDRIVER_PATH')
+)
+
 # Search input selectors (ordered by priority)
 # Tuned: prefer explicit customer handle inputs seen in summaries
 SEARCH_INPUT_SELECTORS = [
