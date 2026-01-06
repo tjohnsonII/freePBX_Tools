@@ -34,8 +34,8 @@ env/
 venv/
 *.egg-info/
 
-# VS Code settings
-.vscode/
+# VS Code settings (commit workspace settings)
+# .vscode/
 
 # SSH/keys
 *.pem
@@ -137,6 +137,7 @@ cookies_header_string.txt
 *.backup
 *_backup.*
 *.json
+!.vscode/settings.json
 *.csv
 # End sensitive files
 # Large/local binaries and environment-specific folders (do not commit)

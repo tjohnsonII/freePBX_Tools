@@ -1,0 +1,18 @@
+{
+    "python.defaultInterpreterPath": "E:/DevTools/Python/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.pycodestyleEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "terminal.integrated.env.windows": {
+        "Path": "E:\\DevTools\\Graphviz\\Graphviz\\bin;${env:Path}",
+        "CHROME_PATH": "E:\\DevTools\\Chromium\\chrome.exe",
+        "CHROMEDRIVER_PATH": "E:\\DevTools\\WebDriver\\chromedriver.exe",
+        "PIP_CACHE_DIR": "E:\\DevTools\\pip-cache",
+        "TEMP": "E:\\DevTools\\Temp",
+        "TMP": "E:\\DevTools\\Temp"
+    }
+}
