@@ -110,17 +110,57 @@ class TicketScraper:
     Handles authentication and scraping of ticket data from the 123NET admin portal.
     Provides methods to login, fetch ticket lists, fetch ticket details, categorize, and extract keywords.
     """
-    def __init__(self, username, password, base_url="https://secure.123.net"):
+    def __init__(self, username, password, base_url="https://secure.123.net", cookie_file=None):
         self.username = username
         self.password = password
         self.base_url = base_url
         self.session = requests.Session()  # Maintains cookies/session state
+        self.cookie_file = cookie_file
+
+    def load_cookies(self, cookie_path: str) -> bool:
+        """Load Selenium-exported cookies (list of dicts) into requests session."""
+        try:
+            import json
+            from http.cookiejar import Cookie
+            with open(cookie_path, "r", encoding="utf-8") as f:
+                cookies = json.load(f)
+            jar = self.session.cookies
+            for c in cookies:
+                name = c.get("name"); value = c.get("value")
+                domain = c.get("domain") or "secure.123.net"
+                path = c.get("path") or "/"
+                if name is None or value is None:
+                    continue
+                try:
+                    jar.set(name, value, domain=domain, path=path)
+                except Exception:
+                    continue
+            print(f"[OK] Loaded {len(cookies)} cookies from {cookie_path}")
+            return True
+        except Exception as e:
+            print(f"[WARN] Could not load cookies from {cookie_path}: {e}")
+            return False
 
     def login(self):
         """
         Login to 123NET admin interface using provided credentials.
         Returns True if login appears successful, False otherwise.
         """
+        # If cookie file is provided, try cookie-based auth first
+        if getattr(self, "cookie_file", None):
+            try:
+                if self.load_cookies(self.cookie_file):
+                    # Test access to customers page
+                    test_url = f"{self.base_url}/cgi-bin/web_interface/admin/customers.cgi"
+                    r = self.session.get(test_url, timeout=30)
+                    if r.status_code == 200 and ("Ticket" in r.text or "Customer" in r.text or "Search" in r.text):
+                        print("[OK] Authenticated via injected cookies")
+                        return True
+                    else:
+                        print(f"[WARN] Cookie auth test failed: HTTP {r.status_code}")
+            except Exception as e:
+                print(f"[WARN] Cookie auth error: {e}")
+
         login_url = f"{self.base_url}/cgi-bin/admin.cgi"
         payload = {
             'username': self.username,
@@ -132,25 +172,26 @@ class TicketScraper:
             # Check for session cookies or redirect as evidence of successful login
             if response.status_code == 200:
                 if len(self.session.cookies) > 0:
-                    print(f"✅ Successfully logged in (got {len(self.session.cookies)} cookies)")
+                    print(f"[OK] Successfully logged in (got {len(self.session.cookies)} cookies)")
                     return True
                 elif 'admin' in response.url or 'dashboard' in response.url.lower():
-                    print("✅ Successfully logged in")
+                    print("[OK] Successfully logged in")
                     return True
                 else:
-                    print("⚠️  Login response received but authentication unclear")
+                    print("[WARN] Login response received but authentication unclear")
                     print(f"   URL: {response.url}")
                     print(f"   Cookies: {len(self.session.cookies)}")
                     # Try to proceed anyway
                     return True
             else:
-                print(f"❌ Login failed with status code: {response.status_code}")
+                print(f"[ERROR] Login failed with status code: {response.status_code}")
                 return False
-        except requests.exceptions.Timeout:
-            print("❌ Login request timed out")
+        except requests.exceptions.Timeout as e:
+            print("[ERROR] Login request timed out")
+            print(f"[ERROR] Login request failed: {e}")
             return False
         except requests.exceptions.RequestException as e:
-            print(f"❌ Login request failed: {e}")
+            print(f"[ERROR] Login request failed: {e}")
             return False
     
     def get_customer_tickets(self, customer_handle):
@@ -163,7 +204,7 @@ class TicketScraper:
         try:
             response = self.session.get(tickets_url, params=params, timeout=30)
             if response.status_code != 200:
-                print(f"❌ Failed to fetch tickets: HTTP {response.status_code}")
+                print(f"[ERROR] Failed to fetch tickets: HTTP {response.status_code}")
                 return []
             soup = BeautifulSoup(response.text, 'html.parser')
             tickets = []
@@ -176,7 +217,7 @@ class TicketScraper:
                     ticket_table = table
                     break
             if not ticket_table:
-                print("⚠️  No ticket table found on page")
+                print("[WARN] No ticket table found on page")
                 print(f"   This could mean:")
                 print(f"   1. No tickets exist for customer '{customer_handle}'")
                 print(f"   2. Customer handle is incorrect")
@@ -209,10 +250,10 @@ class TicketScraper:
             print(f"📋 Found {len(tickets)} tickets for customer {customer_handle}")
             return tickets
         except requests.exceptions.Timeout:
-            print("❌ Request timed out while fetching tickets")
+            print("[ERROR] Request timed out while fetching tickets")
             return []
         except requests.exceptions.RequestException as e:
-            print(f"❌ Error fetching tickets: {e}")
+            print(f"[ERROR] Error fetching tickets: {e}")
             return []
     
     def get_ticket_details(self, ticket_id, ticket_url=''):
@@ -229,7 +270,7 @@ class TicketScraper:
                 full_url = f"{self.base_url}/cgi-bin/web_interface/new_tickets.cgi?id=ticket/{ticket_id}"
             response = self.session.get(full_url, timeout=30)
             if response.status_code != 200:
-                print(f"⚠️  Failed to fetch ticket {ticket_id}: HTTP {response.status_code}")
+                print(f"[WARN] Failed to fetch ticket {ticket_id}: HTTP {response.status_code}")
                 return {}
             soup = BeautifulSoup(response.text, 'html.parser')
             ticket_data = {
@@ -290,13 +331,13 @@ class TicketScraper:
                     ticket_data['resolution'] = ticket_data['messages'][-1]['content']
             return ticket_data
         except requests.exceptions.Timeout:
-            print(f"⚠️  Timeout while fetching ticket {ticket_id}")
+            print(f"[WARN] Timeout while fetching ticket {ticket_id}")
             return {}
         except requests.exceptions.RequestException as e:
-            print(f"⚠️  Error fetching ticket {ticket_id}: {e}")
+            print(f"[WARN] Error fetching ticket {ticket_id}: {e}")
             return {}
         except Exception as e:
-            print(f"⚠️  Unexpected error processing ticket {ticket_id}: {e}")
+            print(f"[WARN] Unexpected error processing ticket {ticket_id}: {e}")
             return {}
     
     def categorize_ticket(self, ticket):
@@ -406,7 +447,7 @@ class KnowledgeBaseBuilder:
         ''')
         
         self.conn.commit()
-        print(f"✅ Database initialized: {self.db_path}")
+        print(f"[OK] Database initialized: {self.db_path}")
     
     def add_ticket(self, ticket, customer_handle):
         """
@@ -570,7 +611,7 @@ class KnowledgeBaseBuilder:
                 
                 f.write("\n")
         
-        print(f"✅ Knowledge base exported to: {output_file}")
+        print(f"[OK] Knowledge base exported to: {output_file}")
 
 def main():
     """
@@ -581,6 +622,7 @@ def main():
     parser.add_argument('--customer', required=True, help='Customer handle')
     parser.add_argument('--username', required=True, help='Admin username')
     parser.add_argument('--password', required=True, help='Admin password')
+    parser.add_argument('--cookie-file', help='Path to Selenium-exported cookies JSON (optional)')
     parser.add_argument('--output', default='knowledge_base', help='Output directory')
     parser.add_argument('--export-md', action='store_true', help='Export to markdown')
     args = parser.parse_args()
@@ -588,18 +630,18 @@ def main():
     output_dir = Path(args.output)
     output_dir.mkdir(exist_ok=True)
     # Initialize scraper and login
-    scraper = TicketScraper(args.username, args.password)
+    scraper = TicketScraper(args.username, args.password, cookie_file=args.cookie_file)
     if not scraper.login():
-        print("❌ Failed to login")
+        print("[ERROR] Failed to login")
         return
     # Fetch all tickets for the customer
-    print(f"\n📥 Fetching tickets for customer: {args.customer}")
+    print(f"\n[FETCH] Fetching tickets for customer: {args.customer}")
     tickets = scraper.get_customer_tickets(args.customer)
     # Initialize knowledge base database
     db_path = output_dir / f"{args.customer}_tickets.db"
     kb = KnowledgeBaseBuilder(str(db_path))
     # Process each ticket: fetch details, categorize, extract keywords, and store
-    print("\n🔍 Processing tickets...")
+    print("\n[PROCESS] Processing tickets...")
     for i, ticket in enumerate(tickets, 1):
         print(f"  [{i}/{len(tickets)}] Processing ticket {ticket['ticket_id']}...")
         full_ticket = scraper.get_ticket_details(ticket['ticket_id'], ticket.get('ticket_url', ''))
@@ -618,7 +660,7 @@ def main():
         # Be polite to the server
         time.sleep(0.5)
     # Analyze recurring issue patterns
-    print("\n📊 Analyzing patterns...")
+    print("\n[ANALYZE] Analyzing patterns...")
     kb.analyze_patterns()
     # Optionally export to Markdown
     if args.export_md:
@@ -629,7 +671,7 @@ def main():
     report = kb.generate_knowledge_base_report(args.customer)
     with open(json_file, 'w') as f:
         json.dump(report, f, indent=2, default=str)
-    print(f"\n✅ Knowledge base created successfully!")
+    print(f"\n[OK] Knowledge base created successfully!")
     print(f"   Database: {db_path}")
     print(f"   JSON: {json_file}")
     if args.export_md:

@@ -430,66 +430,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 						f.write(driver.page_source)
 					print(f"[DEBUG] Saved HTML to {html_path}")
 
-										# Helper: instrument network logging to capture XHR/fetch
-										def instrument_network_logging(tag: str):
-												try:
-														driver.execute_script(
-																"""
-																(function(){
-																	if (window.__netlog_installed) return;
-																	window.__netlog_installed = true;
-																	window.__netlog = [];
-																	function push(rec){ try { window.__netlog.push(rec); } catch(e){} }
-																	// XHR
-																	var XHR = window.XMLHttpRequest;
-																	var open = XHR.prototype.open;
-																	var send = XHR.prototype.send;
-																	XHR.prototype.open = function(method, url){ this.__method = method; this.__url = url; return open.apply(this, arguments); };
-																	XHR.prototype.send = function(body){
-																		var start = Date.now();
-																		var xhr = this;
-																		function done(){
-																			var rec = { type:'xhr', method: xhr.__method||'', url: xhr.__url||'', status: xhr.status||0, time: Date.now()-start, responseText: '' };
-																			try { rec.responseText = xhr.responseText; } catch(e){}
-																			push(rec);
-																		}
-																		this.addEventListener('load', done);
-																		this.addEventListener('error', done);
-																		return send.apply(this, arguments);
-																	};
-																	// fetch
-																	var origFetch = window.fetch;
-																	if (origFetch){
-																		window.fetch = function(){
-																			var args = arguments; var url = (args && args[0] && args[0].url) ? args[0].url : (typeof args[0]==='string'?args[0]:'' );
-																			var method = (args && args[1] && args[1].method) ? args[1].method : 'GET';
-																			var start = Date.now();
-																			return origFetch.apply(this, args).then(function(resp){
-																				var clone = resp.clone();
-																				return clone.text().then(function(text){
-																					push({ type:'fetch', method: method, url: url, status: resp.status, time: Date.now()-start, responseText: text });
-																					return resp;
-																				});
-																			});
-																		};
-																	}
-																})();
-																"""
-														)
-														print(f"[INFO] Network logging instrumented ({tag})")
-												except Exception as e:
-														print(f"[WARN] Could not instrument network logging: {e}")
-
-										def dump_network_log(handle_tag: str):
-												try:
-														logs = driver.execute_script("return window.__netlog || [];") or []
-														import json
-														out = os.path.join(output_dir, f"netlog_{handle_tag}.json")
-														with open(out, "w", encoding="utf-8") as f:
-																json.dump(logs, f, indent=2)
-														print(f"[INFO] Saved network log to {out} ({len(logs)} records)")
-												except Exception as e:
-														print(f"[WARN] Could not dump network log: {e}")
 
 										# If we have a search box, perform dropdown + search flow
 					if search_box is not None:
@@ -655,8 +595,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 
 							# Click Search button regardless of dropdown selection
 							print("[STEP] Triggering Search...")
-							if aggressive:
-								instrument_network_logging(f"{handle}")
+							# Aggressive network logging disabled
 							clicked = False
 							# Direct JS click on the known hidden button id
 							try:
@@ -701,8 +640,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 									f.write(post_html)
 								print(f"[DEBUG] Saved post-click snapshot to {post_path}")
 								dump_browser_console(f"post_click_{handle}")
-								if aggressive:
-									dump_network_log(handle)
 							except Exception:
 								pass
 
@@ -1158,7 +1095,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 											except Exception:
 												pass
 
-											# Aggressive: extract attachments and download if possible
+											# Extract attachments (record links only)
 											attachments = []
 											try:
 												from webscraper.ultimate_scraper_config import ATTACHMENT_PATTERNS
@@ -1173,24 +1110,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 													abs_url = urljoin(driver.current_url, href)
 													att_name = text or abs_url.split('/')[-1]
 													att_rec = {"name": att_name, "href": abs_url, "path": None}
-													# Attempt download when aggressive and requests available
-													if aggressive and req_session is not None:
-														try:
-															import os
-															def safe_filename(name: str) -> str:
-																return "".join(ch for ch in name if ch.isalnum() or ch in (".", "_", "-"))[:150]
-															fn = safe_filename(f"attach_{handle}_{ticket_id or 'ticket'}_{att_name}")
-															att_path = os.path.join(output_dir, fn)
-															r = req_session.get(abs_url, timeout=20)
-															if r.status_code == 200:
-																with open(att_path, "wb") as bf:
-																	bf.write(r.content)
-																att_rec["path"] = att_path
-																print(f"[ATTACH] Saved {att_name} -> {att_path}")
-														else:
-															print(f"[ATTACH] Download failed ({r.status_code}) for {abs_url}")
-														except Exception as de:
-															print(f"[ATTACH] Error downloading {abs_url}: {de}")
 													attachments.append(att_rec)
 
 											# Aggressive: extract comments/timeline entries

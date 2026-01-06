@@ -49,7 +49,7 @@ def main():
     
     # Check if input directory exists
     if not input_dir.exists():
-        print(f"❌ Input directory not found: {input_dir}")
+        print(f"[ERROR] Input directory not found: {input_dir}")
         print(f"   Run ticket_scraper.py first to create customer databases")
         return 1
     
@@ -57,12 +57,12 @@ def main():
     customer_dbs = list(input_dir.glob('*_tickets.db'))
     
     if not customer_dbs:
-        print(f"❌ No customer databases found in {input_dir}")
+        print(f"[ERROR] No customer databases found in {input_dir}")
         print(f"   Expected files like: CUSTOMER_NAME_tickets.db")
         return 1
     
-    print(f"📦 Found {len(customer_dbs)} customer database(s)")
-    print(f"🎯 Building unified knowledge base: {args.output_db}\n")
+    print(f"[OK] Found {len(customer_dbs)} customer database(s)")
+    print(f"[BUILD] Building unified knowledge base: {args.output_db}\n")
     
     # Initialize the unified knowledge base (creates or opens output DB)
     kb = UnifiedKnowledgeBase(args.output_db)
@@ -71,21 +71,21 @@ def main():
         # Import each customer database into the unified KB
         for db_file in customer_dbs:
             customer_handle = db_file.stem.replace('_tickets', '')
-            print(f"📥 Importing {customer_handle}...")
+            print(f"[IMPORT] Importing {customer_handle}...")
             
             try:
                 kb.import_customer_database(str(db_file), customer_handle)
             except Exception as e:
-                print(f"   ⚠️  Error importing {customer_handle}: {e}")
+                print(f"   [WARN] Error importing {customer_handle}: {e}")
                 continue
         
-        print(f"\n✅ Unified knowledge base created successfully!")
+        print(f"\n[OK] Unified knowledge base created successfully!")
         print(f"   Database: {args.output_db}")
         
         # Show statistics if requested
         if args.stats:
             print("\n" + "="*60)
-            print("📊 KNOWLEDGE BASE STATISTICS")
+            print("[STATS] KNOWLEDGE BASE STATISTICS")
             print("="*60 + "\n")
             
             # Get global statistics from the KB

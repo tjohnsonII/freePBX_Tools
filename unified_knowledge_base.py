@@ -134,7 +134,7 @@ class UnifiedKnowledgeBase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_keywords ON tickets(keywords)')
         
         self.conn.commit()
-        print(f"✅ Unified knowledge base initialized: {self.db_path}")
+        print(f"[OK] Unified knowledge base initialized: {self.db_path}")
     
     def import_customer_database(self, customer_db_path: str, customer_handle: str):
         """Import tickets from a per-customer database"""
@@ -144,7 +144,7 @@ class UnifiedKnowledgeBase:
         source_conn = sqlite3.connect(customer_db_path)
         source_cursor = source_conn.cursor()
         
-        print(f"\n📥 Importing tickets from {customer_handle}...")
+        print(f"\n[IMPORT] Importing tickets from {customer_handle}...")
         
         # Import tickets
         source_cursor.execute('SELECT * FROM tickets')
@@ -221,7 +221,7 @@ class UnifiedKnowledgeBase:
         # Update customer metadata
         self.update_customer_stats(customer_handle)
         
-        print(f"   ✅ Imported {imported_count} tickets from {customer_handle}")
+        print(f"   [OK] Imported {imported_count} tickets from {customer_handle}")
     
     def update_customer_stats(self, customer_handle: str):
         """Update statistics for a customer"""
@@ -524,7 +524,7 @@ class UnifiedKnowledgeBase:
         with open(output_file, 'w') as f:
             json.dump(data, f, indent=2, default=str)
         
-        print(f"✅ Knowledge base exported to: {output_file}")
+        print(f"[OK] Knowledge base exported to: {output_file}")
     
     def close(self):
         """Close database connection"""
@@ -563,7 +563,7 @@ def main():
         
         # Query operations
         elif args.search:
-            print(f"\n🔍 Searching for: {args.search}\n")
+            print(f"\n[SEARCH] Searching for: {args.search}\n")
             results = kb.search_across_customers(args.search)
             for r in results:
                 print(f"[{r['customer']}] Ticket #{r['ticket_id']}: {r['subject']}")
@@ -574,7 +574,7 @@ def main():
         
         elif args.similar:
             keywords = [k.strip() for k in args.similar.split(',')]
-            print(f"\n🔍 Finding similar issues for: {', '.join(keywords)}\n")
+            print(f"\n[SEARCH] Finding similar issues for: {', '.join(keywords)}\n")
             results = kb.find_similar_issues_across_customers(keywords)
             for r in results:
                 print(f"[{r['customer']}] Ticket #{r['ticket_id']}: {r['subject']}")
@@ -584,7 +584,7 @@ def main():
                 print()
         
         elif args.category:
-            print(f"\n📊 Common resolutions for category: {args.category}\n")
+            print(f"\n[STATS] Common resolutions for category: {args.category}\n")
             results = kb.get_common_resolutions_by_category(args.category)
             for i, r in enumerate(results, 1):
                 print(f"{i}. {r['resolution'][:200]}")
@@ -595,7 +595,7 @@ def main():
                 print()
         
         elif args.stats:
-            print("\n📊 Global Knowledge Base Statistics\n")
+            print("\n[STATS] Global Knowledge Base Statistics\n")
             stats = kb.get_global_statistics()
             print(f"Total Tickets: {stats['total_tickets']}")
             print(f"Total Customers: {stats['total_customers']}")
@@ -615,7 +615,7 @@ def main():
                 print(f"\nAverage Resolution Time: {stats['avg_resolution_days']} days")
         
         elif args.customers:
-            print("\n👥 Customer Overview\n")
+            print("\n[CUSTOMERS] Customer Overview\n")
             customers = kb.get_customer_overview()
             for c in customers:
                 print(f"{c['customer']}")
