@@ -1,3 +1,16 @@
+# Prevent saving cookies and sensitive credentials
+webscraper/cookies_netscape_format.txt
+webscraper/cookies.json
+webscraper/cookies.txt
+webscraper/*_cookies.txt
+webscraper/*_cookies.json
+webscraper/*_cookies.csv
+webscraper/*_credentials.txt
+webscraper/*_passwords.txt
+# Root-level cookie artifacts (exclude from repo)
+cookies.json
+cookies.txt
+cookies_header_string.txt
 123NET Admin.csv
 ProductionServers.txt
 
@@ -38,6 +51,8 @@ server_ips.txt
 
 # Configuration files with potential secrets
 *config.conf
+scraper_config.py
+webscraper/webscraper_config.py
 *secret*
 *password*
 .env.*
@@ -116,6 +131,8 @@ credentials.py
 test_password_file.txt
 123NET Admin.csv
 cookies.json
+cookies.txt
+cookies_header_string.txt
 *.db
 *.backup
 *_backup.*
