@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen, urlretrieve
 from zipfile import ZipFile
@@ -287,6 +288,29 @@ def run_gitleaks_scan():
     return code == 0, out, err
 
 
+def has_staged_changes() -> bool:
+    _, out, _ = run(["git", "diff", "--cached", "--name-only"], check=False)
+    return bool(out.strip())
+
+
+def auto_stage_and_commit(message: str | None = None) -> bool:
+    """Stage all changes and commit if any staged deltas exist after hooks."""
+    # Stage everything respecting .gitignore
+    run(["git", "add", "-A"], check=True)
+    # Block known sensitive artifacts
+    verify_staged_files_safe()
+    # Run hooks across all files and re-stage if they made fixes
+    code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
+    if code != 0:
+        raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
+    run(["git", "add", "-A"], check=True)
+    if not has_staged_changes():
+        return False
+    msg = message or f"security: automated commit ({datetime.now().isoformat(timespec='seconds')})"
+    run(["git", "commit", "-m", msg], check=True)
+    return True
+
+
 def purge_history():
     paths_file = REPO_ROOT / "sensitive_paths.txt"
     paths_file.write_text(
@@ -326,6 +350,7 @@ def main():
     # Default to mirror pushes; allow override with --normal
     parser.add_argument("--normal", dest="mirror", action="store_false", help="Use normal push instead of mirror")
     parser.add_argument("--remote", default="origin", help="Git remote (default: origin)")
+    parser.add_argument("--message", default=None, help="Commit message for auto-commit")
     parser.set_defaults(mirror=True)
     args = parser.parse_args()
 
@@ -334,9 +359,9 @@ def main():
 
     ensure_gitignore()
     untrack_generated_outputs()
-    verify_staged_files_safe()
-
     ensure_precommit()
+    # Auto-stage and commit in one run
+    auto_stage_and_commit(args.message)
     clean, gout, gerr = run_gitleaks_scan()
     if not clean:
         print("[WARN] Gitleaks found leaks. Attempting history purge...")

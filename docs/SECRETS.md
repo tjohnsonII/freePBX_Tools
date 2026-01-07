@@ -52,12 +52,15 @@ This affects scans only and does not replace history purge.
 ## Secure Push Workflow (Default Mirror)
 - One command does everything:
   - `python scripts/secure_push.py`
+  - Automatically stages, runs hooks, commits (if changes exist), then scans history and pushes securely.
 - What it does:
   - Runs pre-commit hooks (`detect-secrets`, `gitleaks`), normalizes allowlist pragmas, and blocks staged sensitive files.
   - Scans repo history with `gitleaks`; if leaks are detected, automatically runs a history purge and re-scans.
   - Defaults to force `--mirror` push so remote refs match local after any rewrite.
 - Optional: Normal (non-mirror) push for routine non-rewrite commits:
   - `python scripts/secure_push.py --normal`
+  - Provide a custom commit message:
+    - `python scripts/secure_push.py --message "update: docs and config"`
 - Note: Mirror pushing is destructive and overwrites remote refs; use `--normal` for routine commits if you do not want to mirror.
 
 ## Will This Prevent Committing Passwords?
