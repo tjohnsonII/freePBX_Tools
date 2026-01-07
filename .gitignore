@@ -144,6 +144,7 @@ cookies_header_string.txt
 webscraper/chromedriver-win64/
 webscraper/chromedriver-win64.zip
 webscraper/output/
+webscraper/ticket-discovery-output/
 E:/DevTools/Graphviz/
 E:/DevTools/WebDriver/
 E:/DevTools/Chromium/
