@@ -1,3 +1,26 @@
+import os
+
+# E:\-aware paths loaded from VS Code terminal env
+# If unset, leave as None to allow Selenium Manager defaults.
+CHROME_BINARY_PATH = os.environ.get("CHROME_PATH") or None
+CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH") or None
+
+# Optional selector/config knobs used by ultimate_scraper.py. Leave undefined
+# unless you need to override defaults. Examples below for future tuning.
+#
+# SEARCH_INPUT_SELECTORS = [
+#     "input#customers",
+#     "input[name='customer']",
+#     "input[name='customer_handle']",
+# ]
+# DROPDOWN_CONTAINER_SELECTORS = ["ul.ui-autocomplete", "div.ui-autocomplete"]
+# DROPDOWN_ITEM_SELECTORS = ["li.ui-menu-item a", "a.ui-corner-all"]
+# SEARCH_BUTTON_SELECTORS = ["input[type='submit'][value*='Search']", "button[type='submit']"]
+# SHOW_HIDE_TT_SELECTORS = ["a.show_hide[rel='#slideid5']"]
+# XPATH_FALLBACKS = {"search_input": [], "dropdown_items": [], "search_button": []}
+# MAX_VACUUM_LINKS = 200
+# MAX_SCROLL_STEPS = 50
+# AGGRESSIVE_SKIP_PATTERNS = ["new_ticket", "create", "delete", "logout"]
 """
 Selector and behavior configuration for ultimate_scraper.py
 

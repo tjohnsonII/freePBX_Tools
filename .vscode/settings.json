@@ -9,10 +9,12 @@
     "python.analysis.typeCheckingMode": "basic",
     "terminal.integrated.env.windows": {
         "Path": "E:\\DevTools\\Graphviz\\Graphviz\\bin;${env:Path}",
-        "CHROME_PATH": "E:\\DevTools\\Chromium\\chrome.exe",
-        "CHROMEDRIVER_PATH": "E:\\DevTools\\WebDriver\\chromedriver.exe",
+        "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "CHROMEDRIVER_PATH": "E:\\DevTools\\freepbx-tools\\webscraper\\chromedriver-win64\\chromedriver-win64\\chromedriver.exe",
         "PIP_CACHE_DIR": "E:\\DevTools\\pip-cache",
         "TEMP": "E:\\DevTools\\Temp",
         "TMP": "E:\\DevTools\\Temp"
-    }
+    },
+    "terminal.integrated.shellIntegration.enabled": true,
+    "terminal.integrated.defaultProfile.windows": "PowerShell"
 }
