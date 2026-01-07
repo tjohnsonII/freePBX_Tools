@@ -58,11 +58,11 @@ def check_for_sensitive_patterns(filepath):
     # Define regex patterns for sensitive data
     sensitive_patterns = {
         r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b': 'IP Address',
-        r'password\s*=\s*["\"]([^"\"]{8,})["\"]': 'Password Assignment',
-        r'api[_-]?key\s*[=:]\s*["\']?[\w-]{20,}': 'API Key',
-        r'secret\s*[=:]\s*["\']?[\w-]{20,}': 'Secret Token',
-        r'ftp[_-]?pass': 'FTP Password Reference',
-        r'ssh[_-]?password': 'SSH Password Reference',
+        r'password\s*=\s*["\"]([^"\"]{8,})["\"]': 'Password Assignment',  # pragma: allowlist secret
+        r'api[_-]?key\s*[=:]\s*["\']?[\w-]{20,}': 'API Key',  # pragma: allowlist secret
+        r'secret\s*[=:]\s*["\']?[\w-]{20,}': 'Secret Token',  # pragma: allowlist secret
+        r'ftp[_-]?pass': 'FTP Password Reference',  # pragma: allowlist secret
+        r'ssh[_-]?password': 'SSH Password Reference',  # pragma: allowlist secret
     }
     issues = []
     try:

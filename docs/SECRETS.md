@@ -27,13 +27,47 @@ If any real secrets were pushed previously, rotate them and scrub history.
      - Run: `java -jar bfg.jar --delete-files cookies.txt --delete-files cookies_header_string.txt repo.git`
    - Option B: git filter-repo
      - Install: https://github.com/newren/git-filter-repo
-     - Run filters to remove files and replace sensitive strings.
+     - Use a purge list to remove generated outputs:
+       - Create `sensitive_paths.txt` with:
+         - `webscraper/output/`
+         - `webscraper/ticket-discovery-output/`
+       - Run: `git filter-repo --force --invert-paths --paths-from-file sensitive_paths.txt`
 3. Force push to the remote and ask collaborators to re-clone.
+
+## Gitleaks Configuration
+
+To reduce noise from generated artifacts (while still preferring history purge), add an allowlist config:
+
+- `.gitleaks.toml`:
+  - `[allowlist]`
+  - `paths = ["webscraper/output", "webscraper/ticket-discovery-output"]`
+
+This affects scans only and does not replace history purge.
 
 ## Pre-Commit Guardrails
 - Add a pre-commit hook to scan for secrets:
   - Install `pre-commit` and `detect-secrets` or `gitleaks`.
   - Configure `.pre-commit-config.yaml` and run `pre-commit install`.
+
+## Secure Push Workflow (Default Mirror)
+- One command does everything:
+  - `python scripts/secure_push.py`
+- What it does:
+  - Runs pre-commit hooks (`detect-secrets`, `gitleaks`), normalizes allowlist pragmas, and blocks staged sensitive files.
+  - Scans repo history with `gitleaks`; if leaks are detected, automatically runs a history purge and re-scans.
+  - Defaults to force `--mirror` push so remote refs match local after any rewrite.
+- Optional: Normal (non-mirror) push for routine non-rewrite commits:
+  - `python scripts/secure_push.py --normal`
+- Note: Mirror pushing is destructive and overwrites remote refs; use `--normal` for routine commits if you do not want to mirror.
+
+## Will This Prevent Committing Passwords?
+- Yes, the workflow prevents committing passwords in normal use by:
+  - Pre-commit hooks (`detect-secrets`, `gitleaks`) scanning all files before commit/push.
+  - A staged-file safety check that explicitly blocks known sensitive artifacts.
+  - Allowlist pragmas only on placeholder/example lines, to avoid false positives without masking real secrets.
+- Caveats:
+  - If hooks are bypassed (`git commit --no-verify`) or pushes occur outside the script, protections may not run.
+  - Keep real credentials out of the repo entirely; use environment variables and runtime injection.
 
 ## Ongoing Practices
 - Keep `config.py` ignored (see .gitignore) and empty of real secrets.

@@ -11,7 +11,7 @@ SCRAPER_CONFIG = {
             "output_dir": "data/analysis-output/",
             "credentials": {
                 "username": "YOUR_USERNAME",
-                "password": "YOUR_PASSWORD"
+                "password": "YOUR_PASSWORD"  # pragma: allowlist secret
             }
         },
         "staging": {
@@ -22,7 +22,7 @@ SCRAPER_CONFIG = {
             "output_dir": "data/staging-output/",
             "credentials": {
                 "username": "STAGING_USER",
-                "password": "STAGING_PASS"
+                "password": "STAGING_PASS"  # pragma: allowlist secret
             }
         }
     },

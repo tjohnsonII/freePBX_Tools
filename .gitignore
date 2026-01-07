@@ -145,6 +145,15 @@ webscraper/chromedriver-win64/
 webscraper/chromedriver-win64.zip
 webscraper/output/
 webscraper/ticket-discovery-output/
+gitleaks-report.json
+tools/gitleaks/
+scripts/secure_push.ps1
+cookies.txt
+cookies.json
+cookies_header_string.txt
+scraper.log
+data/analysis-output/
+data/staging-output/
 E:/DevTools/Graphviz/
 E:/DevTools/WebDriver/
 E:/DevTools/Chromium/

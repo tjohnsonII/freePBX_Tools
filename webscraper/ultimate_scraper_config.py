@@ -220,7 +220,7 @@ WEBSCRAPER_CONFIG = {
             "output_dir": "webscraper/output/",
             "credentials": {
                 "username": "REDACTED",  # If needed for login
-                "password": "REDACTED"   # If needed for login
+                "password": "REDACTED"  # pragma: allowlist secret
             }
         }
     },
