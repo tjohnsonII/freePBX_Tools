@@ -280,6 +280,22 @@ All tools follow a consistent 3-stage pipeline:
 
 ## 🔧 Development
 
+For a unified “suite” workflow (multi-root workspace + common VS Code Tasks), see [docs/SUITE_DEV.md](docs/SUITE_DEV.md).
+
+### Suite Layout (Monorepo)
+This repository is a *suite* of tools. The safest way to keep it maintainable is to treat each major tool as a self-contained subproject with its own dependencies and run commands from that subproject’s folder.
+
+Key subprojects in this repo:
+- **Core FreePBX tools (installer + CLI utilities):** `freepbx-tools/`
+- **Traceroute Visualizer (Next.js UI):** `traceroute-visualizer-main/traceroute-visualizer-main/`
+- **Traceroute Visualizer backend deps (FastAPI dev server option):** `traceroute-visualizer-main/backend/`
+- **Web scraping utilities:** `webscraper/`
+
+Recommended conventions:
+- **Python:** use a separate virtual environment per subproject (e.g. `webscraper/.venv`, `traceroute-visualizer-main/backend/.venv`) to avoid dependency collisions.
+- **Node/Next.js:** keep `node_modules/` and one lockfile next to that project’s `package.json`.
+- **Config:** store machine-local settings in `.env.local` or `*.example` templates; avoid committing secrets.
+
 ### File Structure
 ```
 freepbx-tools/

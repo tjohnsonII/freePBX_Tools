@@ -1,0 +1,14 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "freepbx-tools" },
+    { "path": "webscraper" },
+    { "path": "traceroute-visualizer-main/backend" },
+    { "path": "traceroute-visualizer-main/traceroute-visualizer-main" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true
+    }
+  }
+}

@@ -1,0 +1,49 @@
+/interface ethernet
+set [ find default-name=ether7 ] comment="Uplink to 123Net Switch"
+/interface vlan
+add interface=ether7 name=vlan102 vlan-id=102
+add interface=ether7 name=vlan202 vlan-id=202
+/ip dhcp-server option
+add code=2 name="GMT Offset -5" value=0xFFFFB9B0
+add code=42 name=NTP value="'184.105.182.16'"
+add code=160 name=prov_160 value="'http://provisioner.123.net'"
+add code=66 name=prov_66 value="'http://provisioner.123.net'"
+add code=202 name=Phone_vlan value="'VLAN-A=202'"
+/ip dhcp-server option sets
+add name=Phones_Options options="GMT Offset -5,NTP,prov_66,prov_160,Phone_vlan"
+/ip pool
+add name=Phones_IP_Pool ranges=172.16.1.30-172.16.1.250
+/ip dhcp-server
+add address-pool=Phones_IP_Pool authoritative=after-2sec-delay dhcp-option-set=Phones_Options disabled=no interface=vlan202 name=\
+    "Phones DHCP"
+/ip address
+add address=192.168.10.1/24 interface=vlan102 network=192.168.10.0
+add address=172.16.1.1/24 interface=vlan202 network=172.16.1.0
+/ip dhcp-server network
+add address=172.16.1.0/24 dhcp-option-set=Phones_Options dns-server=8.8.8.8,216.234.97.2,216.234.97.3 gateway=172.16.1.1 \
+    netmask=24 ntp-server=184.105.182.16
+/ip firewall address-list
+add address=192.168.10.0/24 list=MGMT
+add address=172.16.1.0/24 list=PHONEVLAN
+add address=205.251.183.0/24 list=PBX
+add address=69.39.69.0/24 list=PBX
+add address=216.109.194.50 list=PBX
+add address=184.105.182.16 comment=NTP list=PBX
+/ip firewall connection tracking
+set udp-timeout=1m30s
+/ip firewall filter
+add action=accept chain=forward comment="ALLOW CUSTOMER PASSTHROUGH"
+add action=accept chain=input comment=ALLOW_PBX src-address-list=PBX
+add action=accept chain=input comment=ALLOW_PHONES src-address-list=PHONEVLAN
+/ip firewall nat
+add action=masquerade chain=srcnat src-address=172.16.1.0/24
+/ip firewall service-port
+set ftp disabled=yes
+set tftp disabled=yes
+set irc disabled=yes
+set h323 disabled=yes
+set sip disabled=yes
+set pptp disabled=yes
+set udplite disabled=yes
+set dccp disabled=yes
+set sctp disabled=yes

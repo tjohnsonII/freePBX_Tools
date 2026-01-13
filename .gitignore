@@ -139,6 +139,18 @@ cookies_header_string.txt
 *.json
 !.vscode/settings.json
 *.csv
+
+# Node/Next.js artifacts
+**/node_modules/
+**/.next/
+**/.turbo/
+
+# Allowlist essential project JSON (kept even though *.json is ignored above)
+!**/package.json
+!**/package-lock.json
+!**/components.json
+!**/tsconfig.json
+!**/version_policy.json
 # End sensitive files
 # Large/local binaries and environment-specific folders (do not commit)
 webscraper/chromedriver-win64/

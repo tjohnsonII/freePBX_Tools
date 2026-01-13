@@ -1,0 +1,608 @@
+616 773 5397
+W56P/W60P:
+
+account.1.subscribe_mwi_to_vm=1
+custom.handset.time_format=0
+features.remote_phonebook.enable=1
+features.remote_phonebook.flash_time=3600
+local_time.dhcp_time=0
+local_time.ntp_server1=pool.ntp.org
+local_time.summer_time=2
+local_time.time_format=0
+local_time.time_zone=-5
+local_time.time_zone_name=United States-Eastern Time
+programablekey.2.label=Directory
+programablekey.2.line=%EMPTY%
+programablekey.2.type=47
+programablekey.2.xml_phonebook=-1
+sip.mac_in_ua=1
+sip.trust_ctrl=1
+static.auto_provision.custom.protect=1
+static.auto_provision.server.url= http://provisioner.123.net/
+voice_mail.number.1=*97
+static.security.user_password=admin:08520852
+
+
+Yealink:
+
+static.network.ip_address_mode=0
+static.network.static_dns_enable=1
+static.network.primary_dns=8.8.8.8
+static.network.secondary_dns=8.8.4.4
+account.1.subscribe_mwi_to_vm=1
+account.1.cid_source=1
+custom.handset.time_format=0
+features.remote_phonebook.enable=1
+features.remote_phonebook.flash_time=3600
+features.call_log_show_num=2
+features.enhanced_dss_keys.enable=1
+feature.enhancedFeatureKeys.enabled=1
+local_time.dhcp_time=0
+local_time.ntp_server1=pool.ntp.org
+local_time.summer_time=2
+local_time.time_format=0
+local_time.time_zone=-5
+local_time.time_zone_name=United States-Eastern Time
+programablekey.2.label=Directory
+programablekey.2.line=%EMPTY%
+programablekey.2.type=47
+programablekey.2.xml_phonebook=-1
+sip.mac_in_ua=1
+sip.trust_ctrl=1
+static.auto_provision.custom.protect=1
+static.auto_provision.server.url=http://provisioner.123.net/
+voice_mail.number.1=*97
+static.security.user_password=admin:08520852
+
+
+
+Polycom - Time and Date:
+
+
+device.sntp.gmtoffsetcityid=16 
+device.sntp.gmtoffsetcityid.set=1 
+device.sntp.servername=north-america.pool.ntp.org 
+device.sntp.servername.set=1 
+lcl.datetime.date.format=D,dM 
+lcl.datetime.date.longformat=0 
+tcpipapp.sntp.address=pool.ntp.org 
+tcpipapp.sntp.address.overridedhcp=1 
+tcpipapp.sntp.gmtoffset=-18000 
+tcpipapp.sntp.gmtoffset.overridedhcp=1 
+tcpipapp.sntp.gmtoffsetcityid=16
+
+
+
+
+Attributes
+Standard Phone Attributes
+Park Lines
+(VVX500)
+attendant.resourcelist.9.address=71@XX.XX.XX.XX
+attendant.resourcelist.9.calladdress=*8571@XX.XX.XX.XX
+attendant.resourcelist.9.label=Park1
+attendant.resourcelist.9.type=automata
+attendant.resourcelist.10.address=72@XX.XX.XX.XX
+attendant.resourcelist.10.calladdress=*8572@XX.XX.XX.XX
+attendant.resourcelist.10.label=Park2
+attendant.resourcelist.10.type=automata
+attendant.resourcelist.11.address=73@XX.XX.XX.XX
+attendant.resourcelist.11.calladdress=*8573@XX.XX.XX.XX
+attendant.resourcelist.11.label=Park3
+attendant.resourcelist.11.type=automata
+linekey.9.category=BLF
+linekey.9.index=9
+linekey.10.category=BLF
+linekey.10.index=10
+linekey.11.category=BLF
+linekey.11.index=11
+
+Date and Time Override
+device.sntp.gmtoffsetcityid=10
+device.sntp.gmtoffsetcityid.set=1
+device.sntp.servername=north-america.pool.ntp.org
+device.sntp.servername.set=1
+lcl.datetime.date.format=D,dM
+lcl.datetime.date.longformat=0
+tcpipapp.sntp.address=pool.ntp.org
+tcpipapp.sntp.address.overridedhcp=1
+tcpipapp.sntp.gmtoffset=-18000
+tcpipapp.sntp.gmtoffset.overridedhcp=1
+tcpipapp.sntp.gmtoffsetcityid=10
+Override Date/Time on Polycom Phones
+Polycom Date/Time Attribute(s) Example:
+device.sntp.gmtoffsetcityid=16
+device.sntp.gmtoffsetcityid.set=1
+device.sntp.servername=north-america.pool.ntp.org
+device.sntp.servername.set=1
+lcl.datetime.date.format=D,dM
+lcl.datetime.date.longformat=0
+tcpipapp.sntp.address=pool.ntp.org
+tcpipapp.sntp.address.overridedhcp=1
+tcpipapp.sntp.gmtoffset=-18000
+tcpipapp.sntp.gmtoffsetcityid=16
+Site Config Changes:
+Change the IP within: device.sntp.serverName="205.251.183.50" to device.sntp.serverName="216.239.35.12"   
+*216.239.35.12 is Google's NTP Server as a FYI
+http://69.39.69.248/link/6#bkmrk-change-the-ip-within
+ 
+Change the IP within: tcpIpApp.sntp.address="205.251.183.50" to tcpIpApp.sntp.address="216.239.35.12"
+Change the 0 to a 1 within: tcpIpApp.sntp.address.overrideDHCP="0"
+Change the 0 to a 1 within: tcpIpApp.sntp.gmtOffset.overrideDHCP="0"
+Remove DND
+feature.doNotDisturb.enable and set to 0
+URL Dialing
+If you see:
+<address>sip:2482288200@69.39.69.254</address>
+Add to Global Config:
+feature.urlDialing.enabled="0"
+Enable Hold Ringback
+Within the site/phone config above the </polycomConfig> line: 
+<holdReminder call.hold.localReminder.enabled="1"/>
+Monitor Ring Group via BLF
+1. Access their PBX via CLI. Navigate to /etc/asterisk and edit the 'extensions_custom.conf' file with the following. In this example, 1001 is the Ring Group we are Monitoring and PJSIP/XXXX are the Extensions part of that Ring Group.
+exten=>1001,hint,PJSIP/XXXX&PJSIP/XXXX&PJSIP/XXXX&PJSIP/XXXX&PJSIPXXXX
+ 
+http://69.39.69.248/link/6#bkmrk-2.-then%2C-add-these-a
+ 
+2. Then, add these attributes to each phone. XXXX is the Ring Group number. The small x represents which linekey/location on the phone.
+attendant.resourcelist.x.address=XXXX@69.39.69.XXX
+attendant.resourcelist.x.label=Main Line Pickup
+attendant.resourcelist.x.type=automata
+linekey.x.category=BLF
+linekey.x.index=x
+
+From <https://bookstack.123.net/books/hardware/page/attributes> 
+
+Polycom
+
+Template:
+
+
+attendant.resourcelist.ATTENDANT_RESOURCELIST_NUM.address=CALL_ADDRESS_NUM
+attendant.resourcelist.ATTENDANT_RESOURCELIST_NUM.label=LABEL
+attendant.resourcelist.ATTENDANT_RESOURCELIST_NUM.type=LINEKEY_TYPE
+linekey.LINE_NUM.category=LINEKEY_CATEGORY
+linekey.LINE_NUM.index=ATTENDANT_RESOURCELIST_NUM
+
+
+
+
+Polycom - Linekey Numbers
+VVX600
+Ext#	linekey.5	linekey.9	linekey.13
+linekey.2	linekey.6	linekey.10	linekey.14
+linekey.3	linekey.7	linekey.11	linekey.15
+linekey.4	linekey.8	linekey.12	linekey.16
+VVX500
+Ext#	linekey.5	linekey.9
+linekey.2	linekey.6	linekey.10
+linekey.3	linekey.7	linekey.11
+linekey.4	linekey.8	linekey.12
+VVX400
+Ext#	linekey.7
+linekey.2	linekey.8
+linekey.3	linekey.9
+linekey.4	linekey.10
+linekey.5	linekey.11
+linekey.6	linekey.12
+
+
+Yealink:
+
+Template
+
+linekey.LINE_NUM.label=LABEL
+linekey.LINE_NUM.line=REGISTERED_LINE_NUM
+linekey.LINE_NUM.type=LINEKEY_TYPE
+linekey.LINE_NUM.value=LINEKEY_VALUE
+
+Breakdown
+
+LINE_NUM  = Which number linekey the button will be assigned to.
+LABEL = characters that will be displayed for the given linekey
+REGISTERD_LINE_NUM =  Which registered line the linekey will attempt to call-out on. It is recommended that is is always set to 1 unless user is using multiple extensions/lines.
+LINEKEY_TYPE = The action the linekey will take with the set LINEKEY_VALUE. See Yealink - Linekey Types for further reference
+LINEKEY_VALUE = The value the linekey will use with its specified action
+
+
+
+Yealink - Linekey Types
+All possible input values (LINEKEY_TYPE) for linekey.X.type=LINKEY_TYPE
+
+https://bookstack.123.net/link/198#bkmrk-0-na1-conference2-fo
+ 
+0-NA
+1-Conference
+2-Forward
+3-Transfer
+4-Hold
+5-DND - Turns Set Linekey into DND toggle button
+7-Call Return - Turns Set Linekey into Return Call button
+8-SMS - Not used by 123NET
+9-Directed Pickup
+10-Call Park - See Parkline-Yealink for example usage
+11-DTMF
+12-Voice Mail
+13-Speed Dial
+14-Intercom - See Intercom-Yealink for example usage
+15-Line
+16-BLF - See BLF-Yealink for example usage
+17-URL
+18-Group Listening
+20-Private Hold
+22-XML Group
+23-Group Pickup
+24-Multicast Paging
+25-Record
+27-XML Browser
+34-Hot Desking - Sets linekey Special Key that clears all user (Line) data when pressed. Meant for ease of hotdesking
+35-URL Record
+38-LDAP
+39-BLF List
+40-Prefix
+41-Zero Touch
+42-ACD
+45-Local Group
+46-Network Group
+49-Custom Button
+50-Keypad Lock
+55-Meet-Me Conference
+56-Retrieve Park
+57-Hoteling
+58-ACD Grace
+59-Sisp Code
+60-Emergency
+61-Directory
+73-MACRO- See MACRO-Yealink for example usage
+
+
+
+Yealink - Linekey Numbers - T57W/T48S
+Ext#	linekey.12	linekey.18	linekey.24	linekey.7
+linekey.2	linekey.13	linekey.19	linekey.25	linekey.8
+linekey.3	linekey.14	linekey.20	linekey.26	linekey.9
+linekey.4	linekey.15	linekey.21	linekey.27	linekey.10
+linekey.5	linekey.16	linekey.22	linekey.28	linekey.11
+linekey.6	linekey.17	linekey.23	linekey.29	More
+*Notice: Linekeys 2-11 are shown by default. The "more" will need to be pressed to show linekeys 12-29
+
+
+
+Yealink - Linekey Numbers - T54W/T46S
+*Notice: Linekeys 2-10 are shown by default. The "1 2 3" page key is not shown unless linekey 11 or greater is assigned. The "1 2 3" is used to cycle through the different pages
+ 
+Ext#	linekey.6
+linekey.2	linekey.7
+linekey.3	linekey.8
+linekey.4	linekey.9
+linekey.5	1 2 3
+linekey.10	linekey.15
+linekey.11	linekey.16
+linekey.12	linekey.17
+linekey.13	linekey.18
+linekey.14	1 2 3
+linekey.19	linekey.24
+linekey.20	linekey.25
+linekey.21	linekey.26
+linekey.22	linekey.27
+linekey.23	1 2 3
+
+
+
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+BLF Keys
+	• A BLF Key shows the whether the set extension is on the phone or not.
+	• BLF keys also allow for quick-dialing the set extension and stealing calls from the extension (if enabled)
+
+Yealink:
+Template
+linekey.LINE_NUM.label=LABEL
+linekey.LINE_NUM.line=1
+linekey.LINE_NUM.type=16
+linekey.LINE_NUM.value=EXT#
+
+Polycom:
+attendant.resourcelist.Y.address=EXT#@PBX-IP
+attendant.resourcelist.Y.label=JOHN SMITH
+attendant.resourcelist.Y.type=normal
+linekey.LINE_NUM.category=BLF
+linekey.LINE_NUM.index=Y
+
+Yealink Type Codes:
+
+
+	• 0-NA 
+	• 1-Conference 
+	• 2-Forward 
+	• 3-Transfer 
+	• 4-Hold 
+	• 5-DND 
+	• 7-Call Return 
+	• 8-SMS 
+	• 9-Directed Pickup 
+	• 10-Call Park 
+	• 11-DTMF 
+	• 12-Voice Mail 
+	• 13-Speed Dial
+	• 14-Intercom 
+	• 15-Line 
+	• 16-BLF 
+	• 17-URL 
+	• 18-Group Listening 
+	• 20-Private Hold 
+	• 22-XML Group 
+	• 23-Group Pickup 
+	• 24-Multicast Paging 
+	• 25-Record 
+	• 27-XML Browser
+	• 34-Hot Desking 
+	• 35-URL Record 
+	• 38-LDAP 
+	• 39-BLF List 
+	• 40-Prefix 
+	• 41-Zero Touch 
+	• 42-ACD 
+	• 45-Local Group 
+	• 46-Network Group 
+	• 49-Custom Button 
+	• 50-Keypad Lock
+	• 55-Meet-Me Conference 
+	• 56-Retrieve Park 
+	• 57-Hoteling 
+	• 58-ACD Grace 
+	• 59-Sisp Code 
+	• 60-Emergency 
+	• 61-Directory
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Yealink:
+Template
+linekey.XX.line=1
+linekey.XX.label=LINE_LABEL
+linekey.XX.type=13
+linekey.XX.value=YYY-YYY-YYYY
+
+
+
+Polycom:
+feature.enhancedFeatureKeys.enabled=1
+feature.EFKLineKey.enabled=1
+efk.efklist.XX.mname=Call Ext Test
+efk.efklist.XX.status=1
+efk.efklist.XX.action.string=EXTERNAL_NUM$Tinvite$
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Yealink:
+Template
+linekey.LINE_NUM.extension=EXT-NUM
+linekey.LINE_NUM.label=Transfer-2-VM
+linekey.LINE_NUM.line=1
+linekey.LINE_NUM.type=3
+linekey.LINE_NUM.value=*EXT-NUM@PBX-IP
+
+Yealink - Record Unavailable
+Template
+features.enhanced_dss_keys.enable=1
+linekey.LINE_NUM.label=Record Unavailable
+linekey.LINE_NUM.line=0
+linekey.LINE_NUM.type=73
+linekey.LINE_NUM.value=*97$Cwc$$Cp1$01$Tdtmf$
+
+Yealink - Record Busy
+features.enhanced_dss_keys.enable=1
+linekey.LINE_NUM.label=Record Busy
+linekey.LINE_NUM.line=0
+linekey.LINE_NUM.type=73
+linekey.LINE_NUM.value=*97$Cwc$$Cp1$02$Tdtmf$
+
+
+
+Yealink - Record Name:
+features.enhanced_dss_keys.enable=1
+linekey.LINE_NUM.label=Record Name
+linekey.LINE_NUM.line=0
+linekey.LINE_NUM.type=73
+linekey.LINE_NUM.value=*97$Cwc$$Cp1$03$Tdtmf$
+
+Yealink - Record Unreachable/DND:
+features.enhanced_dss_keys.enable=1
+linekey.LINE_NUM.label=Record Unreachable/DND
+linekey.LINE_NUM.line=0
+linekey.LINE_NUM.type=73
+linekey.LINE_NUM.value=*97$Cwc$$Cp1$04$Tdtmf$
+
+Polycom - Record Unavailable:
+Template
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+efk.efklist.XX.action.string=*97$Tinvite$$Cpause2$01$Tdtmf$
+efk.efklist.XX.mname=LABEL_NAME
+efk.efklist.XX.status=1
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+
+Example
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+efk.efklist.XX.action.string=*97$Tinvite$$Cpause2$01$Tdtmf$
+efk.efklist.XX.mname=Record Unavailable
+efk.efklist.XX.status=1
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+Breakdown
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+The above lines are required to enable the EFK Keys on Polycom devices. Only one set of these attributes is required per phone, regardless of EFK Key total.
+XX = Macro Resource Number
+LINE_NUM = Desired Linekey Number
+ 
+LABEL_NAME = Name to be displayed for Linekey
+
+Polycom - Record Busy:
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+efk.efklist.XX.action.string=*97$Tinvite$$Cpause2$02$Tdtmf$
+efk.efklist.XX.mname=Record Busy
+efk.efklist.XX.status=1
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+
+Polycom - Record Name:
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+efk.efklist.XX.action.string=*97$Tinvite$$Cpause2$03$Tdtmf$
+efk.efklist.XX.mname=Record Name
+efk.efklist.XX.status=1
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+
+
+Polycom - Record DND:
+feature.efklinekey.enabled=1
+feature.enhancedfeaturekeys.enabled=1
+efk.efklist.XX.action.string=*97$Tinvite$$Cpause2$04$Tdtmf$
+efk.efklist.XX.mname=Record DND
+efk.efklist.XX.status=1
+linekey.LINE_NUM.category=EFK
+linekey.LINE_NUM.index=XX
+
+Prompts user for a numerical input and then calls the inputted number with the set feature code
+
+Polycom:
+Template
+feature.enhancedFeatureKeys.enabled=1
+feature.EFKLineKey.enabled=1
+efk.efklist.XX.mname=BUTTON_LABEL
+efk.efklist.XX.status=1
+efk.efklist.XX.action.string=FEATURE_CODE$PYN4$$Tinvite$
+efk.efklist.XX.label=TOP_OF_PROMPT_LABEL
+efk.efkprompt.Y.label=LABEL_NEXT_TO_USER_INPUT
+efk.efkprompt.Y.status=1
+efk.efkprompt.Y.type=numeric
+linekey.LINENUM.category=EFK
+linekey.LINENUM.index=XX
+Example (Intercom)
+feature.enhancedFeatureKeys.enabled=1
+feature.EFKLineKey.enabled=1
+efk.efklist.2.mname=Intercom
+efk.efklist.2.status=1
+efk.efklist.2.action.string=*80$P2N4$$Tinvite$
+efk.efklist.2.label=Intercom
+efk.efkprompt.2.label=Extension
+efk.efkprompt.2.status=1
+efk.efkprompt.2.type=numeric
+linekey.2.category=EFK
+linekey.2.index=2
+
+
+Yealink:
+Template
+features.enhanced_dss_keys.enable=1
+feature.enhancedFeatureKeys.enabled=1
+linekey.LINE_NUM.label=BUTTON_LABEL
+linekey.LINE_NUM.line=0
+linekey.LINE_NUM.type=73
+linekey.LINE_NUM.value=FEATURECODE$PTEXT&TLABEL&CX&N$$Tinvite$
+Example (Intercom)
+features.enhanced_dss_keys.enable=1
+feature.enhancedFeatureKeys.enabled=1
+linekey.8.label=Intercom
+linekey.8.line=0
+linekey.8.type=73
+linekey.8.value=*80$PExtension&TIntercom&C3&N$$Tinvite$
+Breakdown of command
+$ = Begin Command
+P = Prompt
+TEXT = Text to display for the prompt
+&T = Title
+LABEL= Text to display for the window title
+&C = Expected input length
+X = X characters
+&N = Means use numeric input as the default
+$ = End Command
+ 
+$ = Start Command
+T = Action Type
+invite = Send a SIP invite
+$ = End Command
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Attributes Required to disable the missed call notification and notification light
+
+
+Yealink:
+phone_setting.missed_call_power_led_flash.enable=0
+features.missed_call_popup.enable=0
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Attributes required to extend the length of the line labels
+
+Yealink:
+features.config_dsskey_length=1
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Attributes required to enable the ability to steal the active call from a BLF line
+
+
+Yealink:
+features.pickup.direct_pickup_code=**
+features.pickup.direct_pickup_enable=1
+
+HOSTED LAB IP: 152.160.3.118
+username: i123
+Password: sdxczv
+HOSTED LAB IP Grand Rapids: 152.160.170.21
+Customer login portal:secure.123.net
+ticket#@tickets.123.net
+
+Code to change the voicemail indicator (MWI (Message Waiting Indicator)) for devices.
+
+Polycom
+Template
+msg.mwi.1.callback=*98EXT#
+msg.mwi.1.callbackmode=contact
+msg.mwi.1.subscribe=EXT#@PBX-IP
+Example
+msg.mwi.1.callback=*981000
+msg.mwi.1.callbackmode=contact
+msg.mwi.1.subscribe=1000@216.109.194.130
