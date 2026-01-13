@@ -21,7 +21,7 @@ type Hop = {
 
 export default function Page() {
   const [target, setTarget] = useState("");
-  const [server, setServer] = useState("local"); // "local" or "remote"
+  const [probe, setProbe] = useState("icmp"); // icmp or tcp
   const [loading, setLoading] = useState(false);
   const [hops, setHops] = useState<Hop[]>([]);
   const [error, setError] = useState("");
@@ -32,23 +32,12 @@ export default function Page() {
     setHops([]);
 
     try {
-      let endpoint = "";
-      let fetchOptions: RequestInit = {};
-      if (server === "local") {
-        endpoint = "http://192.168.254.253:8080/traceroute";
-        fetchOptions = {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target }),
-        };
-      } else {
-        endpoint = "/api/traceroute";
-        fetchOptions = {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target }),
-        };
-      }
+      const endpoint = "/api/traceroute";
+      const fetchOptions: RequestInit = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, mode: probe }),
+      };
       const res = await fetch(endpoint, fetchOptions);
       if (!res.ok) {
         let msg = "Unknown error";
@@ -81,17 +70,20 @@ export default function Page() {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Traceroute Visualizer</h1>
-      <div className="mb-2">
-        <label htmlFor="server-select" className="mr-2 font-medium">Server:</label>
-        <select
-          id="server-select"
-          value={server}
-          onChange={(e) => setServer(e.target.value)}
-          className="border p-1 rounded"
-        >
-          <option value="local">Local (192.168.254.253)</option>
-          <option value="remote">Remote (192.168.50.1)</option>
-        </select>
+      <div className="mb-2 flex items-center space-x-4">
+        <div>
+          <label htmlFor="probe-select" className="mr-2 font-medium">Probe:</label>
+          <select
+            id="probe-select"
+            value={probe}
+            onChange={(e) => setProbe(e.target.value)}
+            className="border p-1 rounded"
+          >
+            <option value="icmp">ICMP (recommended)</option>
+            <option value="tcp">TCP (port 80)</option>
+          </select>
+        </div>
+        <div className="text-xs text-gray-600">Backend: configured via BACKEND_URL (.env.local)</div>
       </div>
       <textarea
         className="border w-full p-2 mb-2"
