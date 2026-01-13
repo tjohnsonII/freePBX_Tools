@@ -14,8 +14,8 @@ A modular web app for generating configuration code for Polycom and Yealink phon
   ```
 
 2. Open the UI
-  - Dev server: http://localhost:3000
-  - Port and host are set in `vite.config.ts` (port 3000, strictPort, open).
+  - Dev server: http://localhost:3002
+  - Port and host are set in `vite.config.ts` (port 3002 to avoid conflict with the traceroute visualizer on 3000).
 
 3. Generate configs
   - Phone Configs: choose Polycom/Yealink model, enter fields, copy output.
