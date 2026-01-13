@@ -110,6 +110,15 @@ function App() {
   const [yealinkLabelLength, setYealinkLabelLength] = useState(false);
   const [yealinkDisableMissedCall, setYealinkDisableMissedCall] = useState(false);
   const [yealinkCallStealing, setYealinkCallStealing] = useState(false);
+  // UI banner: capture current host and port for display
+  const [clientInfo] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const { hostname, port, protocol } = window.location;
+      const resolvedPort = port || (protocol === 'https:' ? '443' : '80');
+      return { hostname, port: resolvedPort, protocol };
+    }
+    return { hostname: 'unknown', port: '', protocol: '' };
+  });
 
   // --- OTT Mikrotik Template Editor State ---
   const [ottFields, setOttFields] = useState({
@@ -797,6 +806,19 @@ function App() {
     <div className="container">
       {/* App title and tab navigation */}
       <h1>Hosted Config Generator</h1>
+      {/* Active host/port banner */}
+      <div style={{
+        marginTop: 8,
+        marginBottom: 12,
+        padding: '8px 12px',
+        borderRadius: 6,
+        background: '#f7fbff',
+        border: '1px solid #cce1fa',
+        color: '#1a3a5a',
+        display: 'inline-block'
+      }}>
+        Connected to {clientInfo.hostname}:{clientInfo.port}
+      </div>
       <div className="tabs" style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
         {TABS.map((tab, idx) => (
           <button
