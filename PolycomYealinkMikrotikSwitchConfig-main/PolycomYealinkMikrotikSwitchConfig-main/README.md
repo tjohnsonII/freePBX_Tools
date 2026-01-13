@@ -4,6 +4,29 @@ A modular web app for generating configuration code for Polycom and Yealink phon
 
 ---
 
+## Quick Start (Windows on E:\)
+
+1. Install and start the app
+  ```powershell
+  Push-Location "E:\DevTools\freepbx-tools\PolycomYealinkMikrotikSwitchConfig-main\PolycomYealinkMikrotikSwitchConfig-main"
+  npm.cmd install
+  npm.cmd run dev
+  ```
+
+2. Open the UI
+  - Dev server: http://localhost:3000
+  - Port and host are set in `vite.config.ts` (port 3000, strictPort, open).
+
+3. Generate configs
+  - Phone Configs: choose Polycom/Yealink model, enter fields, copy output.
+  - VPBX/FBPX/Streeto: import/export CSV to manage bulk data.
+  - Mikrotik/Switch: edit dynamic templates (8/24-port), copy results.
+
+Optional
+- Scripted start: `./start-app.sh` installs deps if needed and starts Vite with common flags.
+
+---
+
 ## Table of Contents
 - [Features](#features)
 - [How It Works](#how-it-works)
