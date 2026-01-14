@@ -38,6 +38,9 @@ import os
 import subprocess
 import getpass
 import tempfile
+import re
+import argparse
+import py_compile
 
 # Enable ANSI colors on Windows
 if sys.platform == "win32":
@@ -77,7 +80,8 @@ def print_menu():
     print(f"  {Colors.CYAN}5){Colors.RESET} View deployment status")
     print(f"  {Colors.CYAN}6){Colors.RESET} 🔌 SSH into a server")
     print(f"  {Colors.CYAN}7){Colors.RESET} 📱 Phone Config Analyzer")
-    print(f"  {Colors.CYAN}8){Colors.RESET} Exit")
+    print(f"  {Colors.CYAN}8){Colors.RESET} 🔍 Validate install/uninstall symlinks")
+    print(f"  {Colors.CYAN}9){Colors.RESET} Exit")
     print()
 
 def get_credentials():
@@ -99,16 +103,200 @@ def get_credentials():
     return username, password, root_password
 
 def create_temp_config(username, password, root_password):
-    """Create temporary config file with credentials"""
-    config_content = f"""# Temporary credentials for deployment
-FREEPBX_USER = "{username}"
-FREEPBX_PASSWORD = "***REMOVED***"
-FREEPBX_ROOT_PASSWORD = "***REMOVED***"
-"""
-    
-    # Write to config.py
-    with open("config.py", "w") as f:
-        f.write(config_content)
+    """DEPRECATED.
+
+    Credentials are now passed to child scripts via environment variables to avoid:
+    - writing secrets into the repo, and
+    - breaking deployments with redacted placeholder values.
+    """
+    _ = (username, password, root_password)
+    return None
+
+def _run_with_credentials(cmd, username, password, root_password):
+    env = os.environ.copy()
+    env["FREEPBX_USER"] = username
+    env["FREEPBX_PASSWORD"] = password
+    env["FREEPBX_ROOT_PASSWORD"] = root_password
+    return subprocess.run(cmd, env=env)
+
+def _parse_install_symlinks(install_sh_text):
+    bin_links = set()
+    call_sim_links = set()
+
+    for m in re.finditer(r"\bln\s+-s(?:f|fn)?\s+[^\n]*?\$BIN_DIR/([^\s\"]+)", install_sh_text):
+        bin_links.add(m.group(1).strip())
+
+    for m in re.finditer(r"\bln\s+-s(?:f|fn)?\s+[^\n]*?\$INSTALL_ROOT/call-simulation/([^\s\"]+)", install_sh_text):
+        call_sim_links.add(m.group(1).strip())
+
+    return bin_links, call_sim_links
+
+def _parse_uninstall_symlinks(uninstall_sh_text):
+    bin_links = set()
+    call_sim_links = set()
+
+    lines = uninstall_sh_text.splitlines()
+    in_for = False
+
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("for n in"):
+            in_for = True
+            continue
+        if in_for and line.startswith("do"):
+            in_for = False
+            continue
+        if in_for:
+            token = line.strip().strip('\\').strip()
+            if token and not token.startswith('#'):
+                bin_links.add(token)
+
+    for m in re.finditer(r"unlink_if_symlink\s+\"\$\{CALL_SIM_DIR\}/([^\"]+)\"", uninstall_sh_text):
+        call_sim_links.add(m.group(1).strip())
+
+    return bin_links, call_sim_links
+
+def validate_installer_uninstaller_symlinks():
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print("  🔍 Validate install/uninstall symlink consistency")
+    print(f"{'='*70}{Colors.RESET}")
+
+    install_path = os.path.join("freepbx-tools", "install.sh")
+    uninstall_path = os.path.join("freepbx-tools", "uninstall.sh")
+
+    if not os.path.exists(install_path):
+        print(f"{Colors.RED}❌ Missing: {install_path}{Colors.RESET}")
+        return
+    if not os.path.exists(uninstall_path):
+        print(f"{Colors.RED}❌ Missing: {uninstall_path}{Colors.RESET}")
+        return
+
+    with open(install_path, "r", encoding="utf-8", errors="ignore") as f:
+        install_text = f.read()
+    with open(uninstall_path, "r", encoding="utf-8", errors="ignore") as f:
+        uninstall_text = f.read()
+
+    install_bin, install_call_sim = _parse_install_symlinks(install_text)
+    uninstall_bin, uninstall_call_sim = _parse_uninstall_symlinks(uninstall_text)
+
+    missing_bin = sorted(install_bin - uninstall_bin)
+    extra_bin = sorted(uninstall_bin - install_bin)
+    missing_call_sim = sorted(install_call_sim - uninstall_call_sim)
+    extra_call_sim = sorted(uninstall_call_sim - install_call_sim)
+
+    print(f"\n{Colors.YELLOW}BIN_DIR symlinks:{Colors.RESET} install={len(install_bin)}, uninstall={len(uninstall_bin)}")
+    if missing_bin:
+        print(f"{Colors.RED}❌ Missing in uninstall.sh (will remain installed):{Colors.RESET}")
+        for n in missing_bin:
+            print(f"  • {n}")
+    else:
+        print(f"{Colors.GREEN}✅ All install.sh BIN_DIR symlinks are covered by uninstall.sh{Colors.RESET}")
+    if extra_bin:
+        print(f"{Colors.YELLOW}ℹ️  Extra symlinks removed by uninstall.sh (not created by install.sh):{Colors.RESET}")
+        for n in extra_bin[:25]:
+            print(f"  • {n}")
+        if len(extra_bin) > 25:
+            print(f"  … +{len(extra_bin)-25} more")
+
+    print(f"\n{Colors.YELLOW}call-simulation symlinks:{Colors.RESET} install={len(install_call_sim)}, uninstall={len(uninstall_call_sim)}")
+    if missing_call_sim:
+        print(f"{Colors.RED}❌ Missing in uninstall.sh:{Colors.RESET}")
+        for n in missing_call_sim:
+            print(f"  • {n}")
+    else:
+        print(f"{Colors.GREEN}✅ All install.sh call-simulation symlinks are covered by uninstall.sh{Colors.RESET}")
+    if extra_call_sim:
+        print(f"{Colors.YELLOW}ℹ️  Extra call-simulation symlinks removed by uninstall.sh:{Colors.RESET}")
+        for n in extra_call_sim:
+            print(f"  • {n}")
+
+
+def _build_deploy_cmd(script_name, servers):
+    """Build a deploy/uninstall command line.
+
+    The deploy scripts support either:
+      - positional server file, OR
+      - --servers <ip1> <ip2> ...
+
+    The manager's UI returns:
+      - a single IP string
+      - a comma-separated string of IPs
+      - a filename (ProductionServers.txt/custom file)
+    """
+    cmd = [sys.executable, script_name]
+
+    if isinstance(servers, (list, tuple)):
+        flat = [str(s).strip() for s in servers if str(s).strip()]
+        if not flat:
+            return cmd
+        return cmd + ["--servers"] + flat
+
+    if not isinstance(servers, str) or not servers.strip():
+        return cmd
+
+    servers = servers.strip()
+
+    # If it's a real file path, prefer positional arg so deploy script can parse the file.
+    if os.path.exists(servers) and os.path.isfile(servers):
+        return cmd + [servers]
+
+    # If it's comma-separated, split into list.
+    if "," in servers:
+        parts = [p.strip() for p in servers.split(",") if p.strip()]
+        return cmd + ["--servers"] + parts
+
+    return cmd + ["--servers", servers]
+
+
+def _self_test():
+    """Non-interactive sanity checks for manager + deploy scripts."""
+    print("\n=== freepbx_tools_manager self-test ===\n")
+
+    required_paths = [
+        os.path.join("freepbx-tools", "install.sh"),
+        os.path.join("freepbx-tools", "uninstall.sh"),
+        os.path.join("freepbx-tools", "bootstrap.sh"),
+        "deploy_freepbx_tools.py",
+        "deploy_uninstall_tools.py",
+    ]
+    missing = [p for p in required_paths if not os.path.exists(p)]
+    if missing:
+        print("Missing required files:")
+        for p in missing:
+            print(f"  - {p}")
+        return 1
+
+    # Python syntax check
+    to_compile = [
+        "freepbx_tools_manager.py",
+        "deploy_freepbx_tools.py",
+        "deploy_uninstall_tools.py",
+    ]
+    for f in to_compile:
+        py_compile.compile(f, doraise=True)
+    print("[OK] Python scripts compile")
+
+    # Symlink consistency (prints details)
+    validate_installer_uninstaller_symlinks()
+
+    # Deploy script dry-run (must not attempt network)
+    print("\n[INFO] Running deploy_freepbx_tools.py dry-run...")
+    r = subprocess.run([sys.executable, "deploy_freepbx_tools.py", "--dry-run", "--workers", "1", "--servers", "127.0.0.1"], check=False)
+    if r.returncode != 0:
+        print("[FAIL] deploy_freepbx_tools.py dry-run failed")
+        return 2
+    print("[OK] deploy_freepbx_tools.py dry-run")
+
+    # Uninstall script help should work
+    print("\n[INFO] Checking deploy_uninstall_tools.py --help...")
+    r = subprocess.run([sys.executable, "deploy_uninstall_tools.py", "--help"], check=False)
+    if r.returncode != 0:
+        print("[FAIL] deploy_uninstall_tools.py --help failed")
+        return 3
+    print("[OK] deploy_uninstall_tools.py --help")
+
+    print("\n=== self-test PASSED ===")
+    return 0
 
 def get_servers():
     """Prompt user for server list"""
@@ -161,9 +349,6 @@ def deploy_tools():
     # Get credentials
     username, password, root_password = get_credentials()
     
-    # Create temporary config
-    create_temp_config(username, password, root_password)
-    
     # Confirm deployment
     print(f"\n{Colors.YELLOW}📦 Ready to deploy to:{Colors.RESET} {Colors.CYAN}{servers}{Colors.RESET}")
     print(f"   {Colors.YELLOW}Username:{Colors.RESET} {Colors.CYAN}{username}{Colors.RESET}")
@@ -175,8 +360,8 @@ def deploy_tools():
     
     # Run deployment
     print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Starting deployment...{Colors.RESET}\n")
-    cmd = ["python", "deploy_freepbx_tools.py", "--servers", servers]
-    subprocess.run(cmd)
+    cmd = _build_deploy_cmd("deploy_freepbx_tools.py", servers)
+    _run_with_credentials(cmd, username, password, root_password)
 
 def uninstall_tools():
     """Uninstall tools from servers"""
@@ -198,9 +383,6 @@ def uninstall_tools():
     # Get credentials
     username, password, root_password = get_credentials()
     
-    # Create temporary config
-    create_temp_config(username, password, root_password)
-    
     # Double confirm uninstall
     print(f"\n{Colors.RED}{Colors.BOLD}🗑️  Ready to UNINSTALL from:{Colors.RESET} {Colors.CYAN}{servers}{Colors.RESET}")
     print(f"   {Colors.YELLOW}Username:{Colors.RESET} {Colors.CYAN}{username}{Colors.RESET}")
@@ -218,8 +400,8 @@ def uninstall_tools():
     
     # Run uninstall
     print(f"\n{Colors.YELLOW}{Colors.BOLD}🔄 Starting uninstall...{Colors.RESET}\n")
-    cmd = ["python", "deploy_uninstall_tools.py", "--servers", servers]
-    subprocess.run(cmd)
+    cmd = _build_deploy_cmd("deploy_uninstall_tools.py", servers)
+    _run_with_credentials(cmd, username, password, root_password)
 
 def clean_deploy():
     """Uninstall then install - clean deployment"""
@@ -268,14 +450,11 @@ def clean_deploy():
     # Get credentials
     username, password, root_password = get_credentials()
     
-    # Create temporary config
-    create_temp_config(username, password, root_password)
-    
     # Step 1: Uninstall
     print(f"\n{Colors.CYAN}{Colors.BOLD}Step 1/2: Uninstalling...{Colors.RESET}")
     print("="*70)
-    cmd = ["python", "deploy_uninstall_tools.py", "--servers", servers]
-    result = subprocess.run(cmd)
+    cmd = _build_deploy_cmd("deploy_uninstall_tools.py", servers)
+    result = _run_with_credentials(cmd, username, password, root_password)
     
     if result.returncode != 0:
         print(f"\n{Colors.RED}❌ Uninstall failed. Aborting deployment.{Colors.RESET}")
@@ -286,8 +465,8 @@ def clean_deploy():
     # Step 2: Install
     print(f"\n{Colors.CYAN}{Colors.BOLD}Step 2/2: Installing...{Colors.RESET}")
     print("="*70)
-    cmd = ["python", "deploy_freepbx_tools.py", "--servers", servers]
-    result = subprocess.run(cmd)
+    cmd = _build_deploy_cmd("deploy_freepbx_tools.py", servers)
+    result = _run_with_credentials(cmd, username, password, root_password)
     
     if result.returncode == 0:
         print(f"\n{Colors.GREEN}{Colors.BOLD}✅ Clean deployment completed successfully!{Colors.RESET}")
@@ -315,12 +494,9 @@ def test_dashboard():
     # Get credentials
     username, password, root_password = get_credentials()
     
-    # Create temporary config
-    create_temp_config(username, password, root_password)
-    
     print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Deploying to test server...{Colors.RESET}\n")
-    cmd = ["python", "deploy_freepbx_tools.py", "--servers", "69.39.69.102"]
-    subprocess.run(cmd)
+    cmd = _build_deploy_cmd("deploy_freepbx_tools.py", "69.39.69.102")
+    _run_with_credentials(cmd, username, password, root_password)
 
 def view_status():
     """View deployment status"""
@@ -570,11 +746,18 @@ def phone_config_analyzer():
     
 def main():
     """Main interactive loop"""
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--self-test", action="store_true", help="Run non-interactive sanity checks and exit")
+    args, _unknown = ap.parse_known_args()
+
+    if args.self_test:
+        raise SystemExit(_self_test())
+
     while True:
         print_banner()
         print_menu()
         
-        choice = input(f"{Colors.YELLOW}Choose option (1-8):{Colors.RESET} ").strip()
+        choice = input(f"{Colors.YELLOW}Choose option (1-9):{Colors.RESET} ").strip()
         
         if choice == "1":
             deploy_tools()
@@ -591,10 +774,12 @@ def main():
         elif choice == "7":
             phone_config_analyzer()
         elif choice == "8":
+            validate_installer_uninstaller_symlinks()
+        elif choice == "9":
             print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
             sys.exit(0)
         else:
-            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-8.{Colors.RESET}\n")
+            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-9.{Colors.RESET}\n")
         
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
 

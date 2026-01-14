@@ -66,6 +66,7 @@ import os
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+import re
 
 try:
     import paramiko  # type: ignore
@@ -74,24 +75,53 @@ except ImportError:
     print("Please install it with: pip install paramiko")
     sys.exit(1)
 
-# Try to import credentials from config.py, fall back to environment variables
-try:
-    from config import FREEPBX_USER, FREEPBX_PASSWORD, FREEPBX_ROOT_PASSWORD
-    DEFAULT_USER = FREEPBX_USER
-    DEFAULT_PASSWORD = FREEPBX_PASSWORD
-    ROOT_PASSWORD = FREEPBX_ROOT_PASSWORD
-except ImportError:
-    # Fall back to environment variables
-    DEFAULT_USER = os.getenv("FREEPBX_USER", "123net")
-    DEFAULT_PASSWORD = os.getenv("FREEPBX_PASSWORD", "")
-    ROOT_PASSWORD = os.getenv("FREEPBX_ROOT_PASSWORD", "")
-    
-    if not DEFAULT_PASSWORD or not ROOT_PASSWORD:
-        print("❌ Error: Credentials not found!")
-        print("Either:")
-        print("  1. Create config.py from config.example.py, OR")
-        print("  2. Set environment variables: FREEPBX_PASSWORD and FREEPBX_ROOT_PASSWORD")
-        sys.exit(1)
+def _is_placeholder_secret(value: str) -> bool:
+    v = (value or "").strip()
+    return v in {"***REMOVED***", "REDACTED", "<REDACTED>", ""}
+
+
+def load_credentials():
+    """Load credentials.
+
+    Precedence:
+      1) Environment variables (FREEPBX_*)
+      2) config.py
+
+    Note: If password is blank, SSH key/agent auth may still work.
+    """
+    env_user = os.getenv("FREEPBX_USER", "").strip()
+    env_pass = os.getenv("FREEPBX_PASSWORD", "")
+    env_root = os.getenv("FREEPBX_ROOT_PASSWORD", "")
+
+    if env_user or env_pass or env_root:
+        return {
+            "user": env_user or "123net",
+            "password": env_pass,
+            "root_password": env_root,
+            "source": "env",
+        }
+
+    try:
+        from config import FREEPBX_USER, FREEPBX_PASSWORD, FREEPBX_ROOT_PASSWORD  # type: ignore
+        return {
+            "user": str(FREEPBX_USER),
+            "password": str(FREEPBX_PASSWORD),
+            "root_password": str(FREEPBX_ROOT_PASSWORD),
+            "source": "config.py",
+        }
+    except Exception:
+        return {
+            "user": "123net",
+            "password": "",
+            "root_password": "",
+            "source": "none",
+        }
+
+
+_creds = load_credentials()
+DEFAULT_USER = _creds["user"]
+DEFAULT_PASSWORD = _creds["password"]
+ROOT_PASSWORD = _creds["root_password"]
 
 # Configuration
 # IMPORTANT: Store credentials in environment variables or a secure config file
@@ -109,6 +139,178 @@ class Colors:
     RED = '\033[91m'
     RESET = '\033[0m'
     BOLD = '\033[1m'
+
+
+def _run_shell_scripted(ssh, script_lines, timeout=300):
+    """Run a small scripted interaction over an interactive shell.
+
+    Returns: (exit_status, combined_output)
+    """
+    chan = ssh.invoke_shell()
+    chan.settimeout(2.0)
+
+    output_parts = []
+    start = time.time()
+
+    def _drain():
+        buf = ""
+        while chan.recv_ready():
+            chunk = chan.recv(4096).decode("utf-8", errors="ignore")
+            if not chunk:
+                break
+            buf += chunk
+        if buf:
+            output_parts.append(buf)
+        return buf
+
+    # Best effort: clear banner
+    _drain()
+
+    def _send(line: str) -> None:
+        chan.send((line + "\n").encode("utf-8"))
+
+    for line in script_lines:
+        if time.time() - start > timeout:
+            raise TimeoutError("Timed out running remote scripted shell")
+        _send(line)
+        time.sleep(0.2)
+        _drain()
+
+    # Wait for completion marker or shell close
+    marker = "__FREEPBXTOOLS_DONE__"
+    _send(f"echo {marker}; echo __FREEPBXTOOLS_RC__=$?")
+
+    combined = ""
+    while time.time() - start <= timeout:
+        time.sleep(0.2)
+        _drain()
+        combined = "".join(output_parts)
+        if marker in combined:
+            break
+
+    # Try to exit cleanly
+    try:
+        _send("exit")
+    except Exception:
+        pass
+
+    return 0, "".join(output_parts)
+
+
+def _run_as_root_via_su(ssh, root_password, workdir, commands, timeout=600, stream_output=False, stream_prefix=""):
+    """Run commands as root using 'su' in an interactive PTY shell.
+
+    This is more reliable than exec_command because 'su' reads the password from a TTY.
+    """
+    if not root_password:
+        raise ValueError("Root password is required for su-based installation")
+
+    chan = ssh.invoke_shell()
+    chan.settimeout(2.0)
+    start = time.time()
+    out = []
+
+    def _stream(buf: str) -> None:
+        if not stream_output or not buf:
+            return
+        # Prefix each line to keep multi-host output readable.
+        if stream_prefix:
+            for chunk in buf.splitlines(True):
+                sys.stdout.write(stream_prefix + chunk)
+        else:
+            sys.stdout.write(buf)
+        sys.stdout.flush()
+
+    def _drain():
+        buf = ""
+        while chan.recv_ready():
+            chunk = chan.recv(4096).decode("utf-8", errors="ignore")
+            if not chunk:
+                break
+            buf += chunk
+        if buf:
+            out.append(buf)
+            _stream(buf)
+        return buf
+
+    def _wait_for(patterns, max_wait=30, heartbeat_label: str = ""):
+        compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
+        buf = ""
+        end = time.time() + max_wait
+        last_heartbeat = 0.0
+        while time.time() < end:
+            time.sleep(0.2)
+            buf += _drain()
+            for c in compiled:
+                if c.search(buf):
+                    return True
+            if time.time() - start > timeout:
+                raise TimeoutError("Timed out waiting for remote prompt")
+
+            # Periodic heartbeat so long-running installs don't look hung.
+            if stream_output and heartbeat_label:
+                now = time.time()
+                if (now - last_heartbeat) > 20.0:
+                    last_heartbeat = now
+                    sys.stdout.write(f"{stream_prefix}... {heartbeat_label} ...\n")
+                    sys.stdout.flush()
+        return False
+
+    # Clear banner
+    _drain()
+
+    def _send(line: str) -> None:
+        chan.send((line + "\n").encode("utf-8"))
+
+    _send(f"cd {workdir}")
+    time.sleep(0.2)
+    _drain()
+
+    _send("su - root")
+    if _wait_for([r"password:"], max_wait=25, heartbeat_label="waiting for root password prompt"):
+        _send(root_password)
+
+    # Give the shell a moment to switch contexts
+    time.sleep(0.7)
+    _drain()
+
+    # Confirm we are root; if not, abort so we don't falsely report success.
+    # Use a marker to avoid prompt/echo quirks.
+    _send("printf '__FREEPBXTOOLS_IDU__%s__\\n' \"$(id -u)\"")
+    if not _wait_for([r"__FREEPBXTOOLS_IDU__0__"], max_wait=12, heartbeat_label="verifying root"):
+        raise RuntimeError("Failed to become root via su (id -u != 0)")
+
+    # su - root typically resets to root's home; cd back into the working directory.
+    _send(f"cd {workdir}")
+    time.sleep(0.2)
+    _drain()
+
+    # Run requested commands and wait for an rc marker after each.
+    # IMPORTANT: do not send `exit` until the command has completed; otherwise we
+    # can kill long-running commands like install.sh and end up with missing symlinks.
+    for i, cmd in enumerate(commands, start=1):
+        marker = f"__FREEPBXTOOLS_CMD_DONE__{i}__"
+        _send(cmd)
+        _send(f"echo {marker}RC=$?")
+        if not _wait_for([re.escape(marker) + r"RC=\\d+"], max_wait=max(30, timeout), heartbeat_label=f"running {cmd}"):
+            raise TimeoutError(f"Timed out waiting for command completion marker: {cmd}")
+        _drain()
+
+    # Exit root shell
+    _send("exit")
+    time.sleep(0.2)
+    _drain()
+
+    return 0, "".join(out)
+
+
+def _strip_internal_markers(text: str) -> str:
+    if not text:
+        return text
+    # Remove our internal sentinel markers from displayed logs.
+    return "\n".join(
+        line for line in text.splitlines() if "__FREEPBXTOOLS_" not in line
+    )
 
 def print_header(text):
     """
@@ -200,7 +402,16 @@ def get_local_files():
     
     return files_to_deploy
 
-def deploy_to_server(server_ip, username, password, files, dry_run=False):
+def deploy_to_server(
+    server_ip,
+    username,
+    password,
+    root_password,
+    files,
+    dry_run=False,
+    connect_only=False,
+    upload_only=False,
+):
     """
     Deploy all files to a single server via SSH/SFTP.
     - Connects as username/password using paramiko
@@ -233,11 +444,28 @@ def deploy_to_server(server_ip, username, password, files, dry_run=False):
         ssh.connect(
             server_ip,
             username=username,
-            password=password,
+            password=(password if password else None),
             timeout=15,
-            banner_timeout=15
+            banner_timeout=15,
+            auth_timeout=15,
+            allow_agent=True,
+            look_for_keys=True,
         )
         print_success(f"[{server_ip}] Connected")
+
+        if connect_only:
+            # Minimal remote command to verify exec works
+            stdin, stdout, stderr = ssh.exec_command("echo CONNECT_OK && id && uname -a")
+            stdout.channel.recv_exit_status()
+            out = stdout.read().decode('utf-8', errors='ignore')
+            err = stderr.read().decode('utf-8', errors='ignore')
+            if out:
+                print(f"[{server_ip}] Connect test output:\n{out}")
+            if err:
+                print(f"[{server_ip}] Connect test stderr:\n{err}")
+            result['success'] = True
+            result['message'] = 'Connect-only completed'
+            return result
         
         # Create temporary upload directory in user's home
         temp_dir = "/home/123net/freepbx-tools"
@@ -276,6 +504,12 @@ def deploy_to_server(server_ip, username, password, files, dry_run=False):
         
         sftp.close()
         print_success(f"[{server_ip}] Uploaded {files_uploaded} files")
+
+        if upload_only:
+            result['success'] = True
+            result['files_deployed'] = files_uploaded
+            result['message'] = f'Upload-only completed ({files_uploaded} files)'
+            return result
         
         # Now run the installation sequence as root
         # 1. Switch to root
@@ -284,46 +518,83 @@ def deploy_to_server(server_ip, username, password, files, dry_run=False):
         # 4. ./install.sh
         
         print(f"[{server_ip}] Running installation as root...")
+        exit_code = 0
+        install_output = ""
+        install_errors = ""
+        try:
+            _, install_output = _run_as_root_via_su(
+                ssh,
+                root_password=root_password,
+                workdir=temp_dir,
+                commands=["bash bootstrap.sh", "./install.sh"],
+                timeout=1800,
+                stream_output=True,
+                stream_prefix=f"[{server_ip}] ",
+            )
+        except Exception as e:
+            install_errors = str(e)
+            exit_code = 1
         
-        # Use su root to switch to root, then run commands in that session
-        # This mimics the manual process: su root, enter password, run commands
-        install_commands = f"""cd {temp_dir}
-su root << 'ROOTEOF'
-{ROOT_PASSWORD}
-bash bootstrap.sh
-./install.sh
-exit
-ROOTEOF
-"""
-        
-        stdin, stdout, stderr = ssh.exec_command(install_commands)
-        exit_code = stdout.channel.recv_exit_status()
-        
-        install_output = stdout.read().decode()
-        install_errors = stderr.read().decode()
-        
-        if install_output:
-            print(f"[{server_ip}] Installation output:\n{install_output}")
+        # Output is streamed live; keep a copy for banner/postcheck parsing.
         if install_errors:
             print(f"[{server_ip}] Installation errors:\n{install_errors}")
+        
+        # Only treat as success if install.sh printed its success banner,
+        # AND postconditions exist (symlink + profile.d PATH helper).
+        banner_ok = exit_code == 0 and "Installed 123NET FreePBX Tools to" in install_output
 
-        
-        if install_output:
-            print(f"[{server_ip}] Installation output:\n{install_output}")
-        if install_errors:
-            print(f"[{server_ip}] Installation errors:\n{install_errors}")
-        
-        # Check for success indicators in output rather than relying on exit code
-        # Exit code can be 1 due to password prompts but installation still succeeds
-        if "Installed 123NET FreePBX Tools" in install_output or "symlinks created" in install_output.lower():
-            print_success(f"[{server_ip}] Installation completed successfully")
-            result['success'] = True
-        elif exit_code == 0:
+        postcheck_cmd = (
+            # Verify key CLI links exist AND resolve to real targets
+            "for n in freepbx-callflows freepbx-dump freepbx-tc-status; do "
+            "  p=\"/usr/local/bin/$n\"; "
+            "  if [ -L \"$p\" ] && [ -e \"$(readlink -f \"$p\" 2>/dev/null)\" ]; then "
+            "    echo ${n}_OK; "
+            "  else "
+            "    echo ${n}_MISSING; "
+            "  fi; "
+            "done; "
+            "test -f /etc/profile.d/123net-freepbx-tools.sh && echo PROFILE_OK || echo PROFILE_MISSING; "
+            "bash -lc 'case \":$PATH:\" in *:/usr/local/bin:*) echo LOGINPATH_OK ;; *) echo LOGINPATH_MISSING ;; esac' 2>/dev/null || echo LOGINPATH_UNKNOWN"
+        )
+        stdin, stdout, stderr = ssh.exec_command(postcheck_cmd)
+        stdout.channel.recv_exit_status()
+        post_out = stdout.read().decode('utf-8', errors='ignore')
+        post_err = stderr.read().decode('utf-8', errors='ignore')
+
+        callflows_ok = "freepbx-callflows_OK" in post_out
+        dump_ok = "freepbx-dump_OK" in post_out
+        tc_ok = "freepbx-tc-status_OK" in post_out
+        profile_ok = "PROFILE_OK" in post_out
+        loginpath_ok = "LOGINPATH_OK" in post_out
+
+        if banner_ok and callflows_ok and dump_ok and tc_ok and (profile_ok or loginpath_ok):
             print_success(f"[{server_ip}] Installation completed successfully")
             result['success'] = True
         else:
-            print_warning(f"[{server_ip}] Installation may have issues (exit code {exit_code})")
+            print_warning(f"[{server_ip}] Installation did not meet post-install checks")
             result['success'] = False
+            details = []
+            if not banner_ok:
+                details.append("missing installer success banner")
+            if not callflows_ok:
+                details.append("missing/broken /usr/local/bin/freepbx-callflows")
+            if not dump_ok:
+                details.append("missing/broken /usr/local/bin/freepbx-dump")
+            if not tc_ok:
+                details.append("missing/broken /usr/local/bin/freepbx-tc-status")
+            if not (profile_ok or loginpath_ok):
+                details.append("PATH not ensured (no /etc/profile.d helper and login PATH missing /usr/local/bin)")
+            if post_err.strip():
+                details.append("postcheck stderr present")
+            result['message'] = "Install incomplete: " + ", ".join(details)
+            if post_out.strip():
+                print(f"[{server_ip}] Post-install check output:\n{post_out}")
+            if post_err.strip():
+                print(f"[{server_ip}] Post-install check stderr:\n{post_err}")
+
+        # If we failed, print a cleaned summary of the captured session output for debugging.
+        if not result['success'] and install_output:
+            print(f"[{server_ip}] Installation output (captured, markers stripped):\n{_strip_internal_markers(install_output)}")
         
         result['files_deployed'] = files_uploaded
         result['message'] = f'Deployed {files_uploaded} files'
@@ -331,6 +602,7 @@ ROOTEOF
     except paramiko.AuthenticationException:
         result['message'] = 'Authentication failed'
         print_error(f"[{server_ip}] Authentication failed")
+        print_info(f"[{server_ip}] Tip: if you normally SSH with keys, leave SSH Password blank so agent/key auth is used.")
     except paramiko.SSHException as e:
         result['message'] = f'SSH error: {str(e)}'
         print_error(f"[{server_ip}] SSH error: {e}")
@@ -341,8 +613,17 @@ ROOTEOF
         ssh.close()
     
     return result
-
-def deploy_parallel(servers, username, password, files, max_workers=5, dry_run=False):
+def deploy_parallel(
+    servers,
+    username,
+    password,
+    root_password,
+    files,
+    max_workers=5,
+    dry_run=False,
+    connect_only=False,
+    upload_only=False,
+):
     """
     Deploy to multiple servers in parallel using ThreadPoolExecutor.
     Prints progress and collects results for summary.
@@ -359,7 +640,17 @@ def deploy_parallel(servers, username, password, files, max_workers=5, dry_run=F
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all deployment tasks
         future_to_server = {
-            executor.submit(deploy_to_server, server, username, password, files, dry_run): server
+            executor.submit(
+                deploy_to_server,
+                server,
+                username,
+                password,
+                root_password,
+                files,
+                dry_run,
+                connect_only,
+                upload_only,
+            ): server
             for server in servers
         }
         
@@ -436,9 +727,22 @@ Examples:
     parser.add_argument('--servers', nargs='+', help='Specify server IPs directly')
     parser.add_argument('--user', default=DEFAULT_USER, help=f'SSH username (default: {DEFAULT_USER})')
     parser.add_argument('--password', default=DEFAULT_PASSWORD, help='SSH password')
+    parser.add_argument('--root-password', default=ROOT_PASSWORD, help='Root password (for su root)')
     parser.add_argument('--workers', type=int, default=5, help='Number of parallel workers (default: 5)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be deployed without making changes')
+    parser.add_argument('--connect-only', action='store_true', help='Only test SSH connect + remote exec (no upload/install)')
+    parser.add_argument('--upload-only', action='store_true', help='Upload files but skip root install')
     args = parser.parse_args()
+
+    if args.connect_only and args.upload_only:
+        print_error("Choose only one: --connect-only or --upload-only")
+        sys.exit(2)
+
+    # If the config was redacted/placeholder, treat as blank.
+    if _is_placeholder_secret(args.password):
+        args.password = ""
+    if _is_placeholder_secret(args.root_password):
+        args.root_password = ""
     # Get list of servers
     servers = []
     if args.servers:
@@ -462,7 +766,17 @@ Examples:
     print(f"Servers: {len(servers)}")
     # Start deployment
     start_time = time.time()
-    results = deploy_parallel(servers, args.user, args.password, files, args.workers, args.dry_run)
+    results = deploy_parallel(
+        servers,
+        args.user,
+        args.password,
+        args.root_password,
+        files,
+        args.workers,
+        args.dry_run,
+        args.connect_only,
+        args.upload_only,
+    )
     elapsed = time.time() - start_time
     # Print summary
     print_summary(results)

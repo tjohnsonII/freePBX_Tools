@@ -72,7 +72,7 @@ Copy the freepbx-tools directory to your FreePBX server.
 bash bootstrap.sh
 
 # Or the traditional approach:
-chmod +x make_executable.sh && ./make_executable.sh
+chmod +x bootstrap.sh && ./bootstrap.sh
 
 # Or do it all manually:
 chmod +x *.sh bin/*.sh *.py bin/*.py
@@ -92,7 +92,7 @@ chmod +x *.sh bin/*.sh *.py bin/*.py 2>/dev/null && echo "✅ Ready for installa
 2. Copy to FreePBX server: `scp -r freepbx-tools/ user@freepbx-server:/tmp/`
 3. SSH to server: `ssh user@freepbx-server`
 4. Navigate: `cd /tmp/freepbx-tools/`
-5. Make executable: `./make_executable.sh`
+5. Make executable: `./bootstrap.sh`
 6. Install: `sudo ./install.sh`
 
 

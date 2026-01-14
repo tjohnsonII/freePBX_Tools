@@ -313,6 +313,80 @@ install_symlinks() {
 }
 
 
+# Verify key symlinks exist and are discoverable on PATH.
+verify_symlinks() {
+  echo ">>> Verifying CLI symlinks..."
+
+  local expected
+  expected="$BIN_DIR/freepbx-callflows"
+
+  if [[ ! -L "$expected" ]]; then
+    warn "Expected symlink not found: $expected"
+    warn "Symlinks are created in: $BIN_DIR"
+    return 0
+  fi
+
+  if have freepbx-callflows; then
+    echo "  [OK] freepbx-callflows is on PATH"
+    return 0
+  fi
+
+  # Symlink exists, but not on PATH
+  warn "Symlink exists but command is not on PATH: freepbx-callflows"
+  warn "Try: export PATH=$BIN_DIR:\$PATH"
+  warn "Or run directly: $expected"
+}
+
+
+# Ensure /usr/local/bin is on PATH for interactive shells.
+ensure_path_profile() {
+  local pf="/etc/profile.d/123net-freepbx-tools.sh"
+  # If the helper already exists, don't touch it.
+  if [[ -f "$pf" ]]; then
+    echo ">>> PATH helper already present: $pf"
+    return 0
+  fi
+
+  if [[ ! -d /etc/profile.d ]]; then
+    warn "/etc/profile.d not found; cannot write PATH helper."
+    return 0
+  fi
+
+  # Only write the helper if we can detect that a login shell PATH is missing /usr/local/bin.
+  # Prefer checking as the typical operator user (123net) when present.
+  local login_path=""
+  if have bash; then
+    if id 123net >/dev/null 2>&1; then
+      login_path="$(su - 123net -c 'bash -lc "printf %s \"\$PATH\""' 2>/dev/null || true)"
+    else
+      login_path="$(bash -lc 'printf %s "$PATH"' 2>/dev/null || true)"
+    fi
+  fi
+
+  if [[ -z "$login_path" ]]; then
+    warn "Could not reliably detect login-shell PATH; leaving /etc/profile.d untouched."
+    warn "If freepbx-* commands are not found after reconnect, add /usr/local/bin to PATH or create $pf manually."
+    return 0
+  fi
+
+  if [[ ":$login_path:" == *":/usr/local/bin:"* ]]; then
+    echo ">>> Login shell PATH already includes /usr/local/bin; skipping $pf"
+    return 0
+  fi
+
+  cat > "$pf" <<'EOF'
+# Added by 123NET FreePBX Tools installer
+# Ensure /usr/local/bin is in PATH so freepbx-* commands are found.
+case ":$PATH:" in
+  *:/usr/local/bin:*) ;;
+  *) export PATH="/usr/local/bin:$PATH" ;;
+esac
+EOF
+  chmod 0644 "$pf" || true
+  echo ">>> Wrote PATH helper: $pf"
+}
+
+
 # Print version policy banner and create version_policy.json if missing
 print_policy_banner() {
   local policy_file="$INSTALL_DIR/version_policy.json"
@@ -416,6 +490,8 @@ main() {
   install_files          # Copy and normalize all scripts
   patch_py36_text_kwarg  # Patch subprocess.run for Python <3.7
   install_symlinks       # Create all CLI symlinks
+  verify_symlinks         # Validate symlinks/PATH
+  ensure_path_profile      # Persist PATH fix on hosts missing /usr/local/bin
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
   log "Symlinks created in $BIN_DIR:"
