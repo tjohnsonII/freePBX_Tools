@@ -41,6 +41,7 @@ import tempfile
 import re
 import argparse
 import py_compile
+from typing import List
 
 # Enable ANSI colors on Windows
 if sys.platform == "win32":
@@ -81,24 +82,229 @@ def print_menu():
     print(f"  {Colors.CYAN}6){Colors.RESET} 🔌 SSH into a server")
     print(f"  {Colors.CYAN}7){Colors.RESET} 📱 Phone Config Analyzer")
     print(f"  {Colors.CYAN}8){Colors.RESET} 🔍 Validate install/uninstall symlinks")
-    print(f"  {Colors.CYAN}9){Colors.RESET} Exit")
+    print(f"  {Colors.CYAN}9){Colors.RESET} 📦 Create + upload offline bundle (zip)")
+    print(f"  {Colors.CYAN}10){Colors.RESET} Exit")
     print()
 
-def get_credentials():
-    """Prompt for SSH credentials"""
+
+def create_offline_bundle():
+    """Create a zip bundle of deployable files for manual upload/install."""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print("  📦 Create Offline Bundle")
+    print(f"{'='*70}{Colors.RESET}")
+    default_name = "freepbx-tools-bundle.zip"
+    out_name = input(f"Output zip filename [{default_name}]: ").strip() or default_name
+    cmd = [sys.executable, "deploy_freepbx_tools.py", "--bundle", out_name]
+    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Creating bundle...{Colors.RESET}\n")
+    subprocess.run(cmd)
+    print(
+        f"\n{Colors.GREEN}✅ Bundle created. Copy it to the server, unzip into /home/123net/freepbx-tools, then run bootstrap.sh + install.sh as root.{Colors.RESET}"
+    )
+
+
+def _ensure_paramiko():
+    try:
+        import paramiko  # type: ignore
+
+        return paramiko
+    except Exception:
+        return None
+
+
+def _read_server_list_file(path: str) -> List[str]:
+    servers: List[str] = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # CSV/TSV/space: take first column
+                token = re.split(r"[\t,\s]", line, maxsplit=1)[0].strip()
+                if token:
+                    servers.append(token)
+    except Exception as e:
+        print(f"{Colors.RED}❌ Failed to read server list file: {path} ({e}){Colors.RESET}")
+    return servers
+
+
+def _resolve_servers(servers) -> List[str]:
+    if isinstance(servers, (list, tuple)):
+        return [str(s).strip() for s in servers if str(s).strip()]
+
+    if not isinstance(servers, str) or not servers.strip():
+        return []
+
+    servers = servers.strip()
+    if os.path.exists(servers) and os.path.isfile(servers):
+        return _read_server_list_file(servers)
+    if "," in servers:
+        return [p.strip() for p in servers.split(",") if p.strip()]
+    return [servers]
+
+
+def _sftp_upload_file(server: str, username: str, password: str, local_path: str, remote_path: str) -> bool:
+    paramiko = _ensure_paramiko()
+    if paramiko is None:
+        print(f"{Colors.RED}❌ paramiko is not installed (required for password-based upload).{Colors.RESET}")
+        print(f"{Colors.YELLOW}Install it with:{Colors.RESET} pip install paramiko")
+        print(f"{Colors.YELLOW}Or upload manually with scp (SSH keys recommended).{Colors.RESET}")
+        return False
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        print(f"{Colors.CYAN}[{server}]{Colors.RESET} Uploading {os.path.basename(local_path)} ...")
+        ssh.connect(
+            server,
+            username=username,
+            password=(password if password else None),
+            timeout=20,
+            banner_timeout=20,
+            auth_timeout=20,
+            allow_agent=True,
+            look_for_keys=True,
+        )
+        sftp = ssh.open_sftp()
+        try:
+            sftp.put(local_path, remote_path)
+        finally:
+            sftp.close()
+        print(f"{Colors.GREEN}[OK]{Colors.RESET} Uploaded to {server}:{remote_path}")
+        return True
+    except Exception as e:
+        print(f"{Colors.RED}[FAILED]{Colors.RESET} Upload to {server} failed: {e}")
+        return False
+    finally:
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
+def _scp_upload_file(server: str, username: str, local_path: str, remote_path: str) -> bool:
+    """Upload via external scp binary.
+
+    Notes:
+    - This will prompt interactively for password if needed.
+    - Host key prompts may appear on first connection.
+    """
+    scp_cmd = [
+        "scp",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        local_path,
+        f"{username}@{server}:{remote_path}",
+    ]
+
+    try:
+        print(f"{Colors.CYAN}[{server}]{Colors.RESET} Running scp upload...")
+        r = subprocess.run(scp_cmd)
+        if r.returncode == 0:
+            print(f"{Colors.GREEN}[OK]{Colors.RESET} Uploaded to {server}:{remote_path}")
+            return True
+        print(f"{Colors.RED}[FAILED]{Colors.RESET} scp failed with exit {r.returncode}")
+        return False
+    except FileNotFoundError:
+        print(f"{Colors.RED}❌ scp not found on this machine.{Colors.RESET}")
+        print(f"{Colors.YELLOW}Install OpenSSH client or use SFTP (Paramiko).{Colors.RESET}")
+        return False
+
+
+def create_and_upload_offline_bundle():
+    """Create the offline bundle zip and upload it to target server(s)."""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print("  📦 Create + Upload Offline Bundle")
+    print(f"{'='*70}{Colors.RESET}")
+
+    default_name = "freepbx-tools-bundle.zip"
+    out_name = input(f"Output zip filename [{default_name}]: ").strip() or default_name
+
+    # Create bundle locally (no servers needed)
+    cmd = [sys.executable, "deploy_freepbx_tools.py", "--bundle", out_name]
+    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Creating bundle...{Colors.RESET}\n")
+    r = subprocess.run(cmd)
+    if r.returncode != 0:
+        print(f"{Colors.RED}❌ Bundle creation failed (exit {r.returncode}){Colors.RESET}")
+        return
+
+    bundle_path = os.path.abspath(out_name if out_name.lower().endswith(".zip") else out_name + ".zip")
+    if not os.path.exists(bundle_path):
+        print(f"{Colors.RED}❌ Expected bundle not found: {bundle_path}{Colors.RESET}")
+        return
+
+    # Choose upload targets
+    targets = get_servers()
+    if not targets:
+        return
+    server_list = _resolve_servers(targets)
+    if not server_list:
+        print(f"{Colors.RED}❌ No valid servers selected{Colors.RESET}")
+        return
+
+    if len(server_list) > 10:
+        print(f"{Colors.RED}{Colors.BOLD}⚠️  WARNING:{Colors.RESET} You selected {len(server_list)} servers.")
+        confirm = input("Type UPLOAD to confirm bulk upload: ").strip()
+        if confirm != "UPLOAD":
+            print(f"{Colors.RED}❌ Cancelled{Colors.RESET}")
+            return
+
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}Upload method:{Colors.RESET}")
+    print(f"  {Colors.CYAN}1){Colors.RESET} SFTP (Paramiko, supports password prompt here)")
+    print(f"  {Colors.CYAN}2){Colors.RESET} scp (external, will prompt in terminal)")
+    method = input("Choose method (1-2) [1]: ").strip() or "1"
+    if method not in {"1", "2"}:
+        print(f"{Colors.RED}❌ Invalid upload method{Colors.RESET}")
+        return
+
+    # Credentials
+    # - SFTP uses Paramiko and will use the password entered here.
+    # - scp is executed as an external command and will prompt interactively if needed.
+    username, password, _ = get_credentials(need_root_password=False)
+    remote_default = f"/home/{username}/{os.path.basename(bundle_path)}"
+    remote_path = input(f"Remote path on server [{remote_default}]: ").strip() or remote_default
+
+    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Uploading bundle...{Colors.RESET}\n")
+    ok = 0
+    for server in server_list:
+        if method == "1":
+            success = _sftp_upload_file(server, username, password, bundle_path, remote_path)
+        else:
+            if password:
+                print(f"{Colors.YELLOW}⚠️  Note:{Colors.RESET} scp will prompt; the password entered above is not passed to scp.")
+            success = _scp_upload_file(server, username, bundle_path, remote_path)
+        if success:
+            ok += 1
+
+    print(f"\n{Colors.CYAN}{Colors.BOLD}Upload Summary:{Colors.RESET}")
+    print(f"  {Colors.GREEN}✅ Uploaded:{Colors.RESET} {ok}")
+    print(f"  {Colors.RED}❌ Failed:{Colors.RESET} {len(server_list) - ok}")
+    print(
+        f"\n{Colors.YELLOW}Next steps on the server:{Colors.RESET}\n"
+        f"  ssh {username}@<SERVER>\n"
+        f"  rm -rf /home/{username}/freepbx-tools && mkdir -p /home/{username}/freepbx-tools\n"
+        f"  unzip -o {remote_path} -d /home/{username}/freepbx-tools\n"
+        f"  su - root\n"
+        f"  cd /home/{username}/freepbx-tools && bash bootstrap.sh && ./install.sh\n"
+    )
+
+def get_credentials(need_root_password=True):
+    """Prompt for SSH credentials."""
     print(f"\n{Colors.YELLOW}{Colors.BOLD}🔑 SSH Credentials:{Colors.RESET}")
     
     username = input("SSH Username [123net]: ").strip() or "123net"
     password = getpass.getpass("SSH Password: ")
     
-    # Ask if root password is different
-    root_same = input("\nIs root password the same as SSH password? (yes/no) [yes]: ").strip().lower()
-    
-    if root_same in ['no', 'n']:
-        root_password = getpass.getpass("Root Password: ")
-    else:
-        root_password = password
-        print("  → Using SSH password for root")
+    root_password = ""
+    if need_root_password:
+        # Ask if root password is different
+        root_same = input("\nIs root password the same as SSH password? (yes/no) [yes]: ").strip().lower()
+        
+        if root_same in ['no', 'n']:
+            root_password = getpass.getpass("Root Password: ")
+        else:
+            root_password = password
+            print("  → Using SSH password for root")
     
     return username, password, root_password
 
@@ -342,12 +548,34 @@ def deploy_tools():
     print(f"  🚀 Deploy freePBX Tools")
     print(f"{'='*70}{Colors.RESET}")
     
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}Deploy mode:{Colors.RESET}")
+    print(f"  {Colors.CYAN}1){Colors.RESET} Full deploy (upload + root install)")
+    print(f"  {Colors.CYAN}2){Colors.RESET} Connect-only (SSH + remote exec test, no changes)")
+    print(f"  {Colors.CYAN}3){Colors.RESET} Upload-only (upload files, no root install)")
+    print(f"  {Colors.CYAN}4){Colors.RESET} Create offline bundle (zip for manual upload/install)")
+    mode = input("Choose mode (1-4) [1]: ").strip() or "1"
+    if mode not in {"1", "2", "3", "4"}:
+        print(f"{Colors.RED}❌ Invalid mode{Colors.RESET}")
+        return
+
+    # Offline bundle does not need a server selection or credentials.
+    if mode == "4":
+        create_offline_bundle()
+        return
+
     servers = get_servers()
     if not servers:
         return
+
+    test_root = False
+    if mode == "2":
+        root_choice = input("Also test 'su root' after login? (yes/no) [no]: ").strip().lower()
+        test_root = root_choice in {"yes", "y"}
     
     # Get credentials
-    username, password, root_password = get_credentials()
+    # - Full deploy needs root password
+    # - Connect-only can optionally test su-to-root
+    username, password, root_password = get_credentials(need_root_password=(mode == "1" or test_root))
     
     # Confirm deployment
     print(f"\n{Colors.YELLOW}📦 Ready to deploy to:{Colors.RESET} {Colors.CYAN}{servers}{Colors.RESET}")
@@ -361,6 +589,10 @@ def deploy_tools():
     # Run deployment
     print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Starting deployment...{Colors.RESET}\n")
     cmd = _build_deploy_cmd("deploy_freepbx_tools.py", servers)
+    if mode == "2":
+        cmd.append("--connect-only")
+    elif mode == "3":
+        cmd.append("--upload-only")
     _run_with_credentials(cmd, username, password, root_password)
 
 def uninstall_tools():
@@ -757,7 +989,7 @@ def main():
         print_banner()
         print_menu()
         
-        choice = input(f"{Colors.YELLOW}Choose option (1-9):{Colors.RESET} ").strip()
+        choice = input(f"{Colors.YELLOW}Choose option (1-10):{Colors.RESET} ").strip()
         
         if choice == "1":
             deploy_tools()
@@ -776,10 +1008,12 @@ def main():
         elif choice == "8":
             validate_installer_uninstaller_symlinks()
         elif choice == "9":
+            create_and_upload_offline_bundle()
+        elif choice == "10":
             print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}\n")
             sys.exit(0)
         else:
-            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-9.{Colors.RESET}\n")
+            print(f"\n{Colors.RED}❌ Invalid choice. Please enter 1-10.{Colors.RESET}\n")
         
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
 

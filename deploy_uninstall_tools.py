@@ -250,15 +250,15 @@ def main():
     print()
     
     if successful:
-        print("✅ Successful Uninstalls:")
+        print("[OK] Successful Uninstalls:")
         for server in successful:
-            print(f"  • {server}")
+            print(f"  - {server}")
         print()
     
     if failed:
-        print("❌ Failed Uninstalls:")
+        print("[FAILED] Failed Uninstalls:")
         for server in failed:
-            print(f"  • {server}")
+            print(f"  - {server}")
         print()
     
     sys.exit(0 if not failed else 1)

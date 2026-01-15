@@ -67,13 +67,17 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import re
+import zipfile
+import hashlib
+from datetime import datetime, timezone
+from typing import Any
 
+paramiko: Any
 try:
     import paramiko  # type: ignore
 except ImportError:
-    print("❌ Error: paramiko library not installed")
-    print("Please install it with: pip install paramiko")
-    sys.exit(1)
+    # Defer failure until a network operation is requested.
+    paramiko = None
 
 def _is_placeholder_secret(value: str) -> bool:
     v = (value or "").strip()
@@ -128,6 +132,13 @@ ROOT_PASSWORD = _creds["root_password"]
 # Never commit passwords to git!
 REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
 LOCAL_SOURCE_DIR = "freepbx-tools"
+
+
+def _ensure_paramiko() -> None:
+    if paramiko is None:
+        print("[ERROR] paramiko library not installed")
+        print("Please install it with: pip install paramiko")
+        raise SystemExit(1)
 
 class Colors:
     """
@@ -292,7 +303,7 @@ def _run_as_root_via_su(ssh, root_password, workdir, commands, timeout=600, stre
         marker = f"__FREEPBXTOOLS_CMD_DONE__{i}__"
         _send(cmd)
         _send(f"echo {marker}RC=$?")
-        if not _wait_for([re.escape(marker) + r"RC=\\d+"], max_wait=max(30, timeout), heartbeat_label=f"running {cmd}"):
+        if not _wait_for([re.escape(marker) + r"RC=\d+"], max_wait=max(30, timeout), heartbeat_label=f"running {cmd}"):
             raise TimeoutError(f"Timed out waiting for command completion marker: {cmd}")
         _drain()
 
@@ -342,7 +353,8 @@ def print_info(text):
     """
     Print a cyan info message.
     """
-    print(f"{Colors.CYAN}ℹ️  {text}{Colors.RESET}")
+    # Keep output ASCII-only for Windows console/codepage compatibility.
+    print(f"{Colors.CYAN}[INFO] {text}{Colors.RESET}")
 
 def read_server_list(filename):
     """
@@ -402,6 +414,63 @@ def get_local_files():
     
     return files_to_deploy
 
+
+def create_offline_bundle(files, output_path: str) -> str:
+    """Create a zip bundle containing all deployable files.
+
+    The zip paths are relative to LOCAL_SOURCE_DIR (e.g. bin/foo.py).
+    Returns the SHA256 checksum of the created zip.
+    """
+    if not output_path.lower().endswith(".zip"):
+        output_path += ".zip"
+
+    output_path = os.path.abspath(output_path)
+
+    # Build an in-zip README with manual steps.
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    readme = "\n".join(
+        [
+            "FreePBX Tools Offline Bundle",
+            f"Created (UTC): {created}",
+            "",
+            "This bundle contains the same files that deploy_freepbx_tools.py would upload.",
+            "",
+            "Recommended manual install steps on the target server:",
+            "  1) Copy this zip to the server (example):",
+            "       scp freepbx-tools-bundle.zip 123net@<SERVER>:/home/123net/",
+            "  2) SSH to the server:",
+            "       ssh 123net@<SERVER>",
+            "  3) Unzip into the staging directory:",
+            "       rm -rf /home/123net/freepbx-tools",
+            "       mkdir -p /home/123net/freepbx-tools",
+            "       unzip -o /home/123net/freepbx-tools-bundle.zip -d /home/123net/freepbx-tools",
+            "  4) Become root and run bootstrap + install:",
+            "       su - root",
+            "       cd /home/123net/freepbx-tools",
+            "       bash bootstrap.sh",
+            "       ./install.sh",
+            "",
+            "Notes:",
+            "- If you see fwconsole errors as a normal user, that is expected on some systems.",
+            "  Run FreePBX commands as root (or the appropriate service user).",
+        ]
+    )
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("BUNDLE_README.txt", readme)
+        for local_path, rel_path in files:
+            # Keep zip paths consistent across platforms.
+            arcname = rel_path.replace("\\", "/")
+            z.write(local_path, arcname)
+
+    # Compute checksum
+    h = hashlib.sha256()
+    with open(output_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 def deploy_to_server(
     server_ip,
     username,
@@ -425,6 +494,8 @@ def deploy_to_server(
         'message': '',
         'files_deployed': 0
     }
+
+    _ensure_paramiko()
     
     print(f"\n{Colors.BOLD}[{server_ip}]{Colors.RESET} Starting deployment...")
     
@@ -454,7 +525,7 @@ def deploy_to_server(
         print_success(f"[{server_ip}] Connected")
 
         if connect_only:
-            # Minimal remote command to verify exec works
+            # Minimal remote command to verify exec works as the SSH user.
             stdin, stdout, stderr = ssh.exec_command("echo CONNECT_OK && id && uname -a")
             stdout.channel.recv_exit_status()
             out = stdout.read().decode('utf-8', errors='ignore')
@@ -463,8 +534,33 @@ def deploy_to_server(
                 print(f"[{server_ip}] Connect test output:\n{out}")
             if err:
                 print(f"[{server_ip}] Connect test stderr:\n{err}")
+
+            # Optional: if a root password is provided, also validate we can su to root.
+            if root_password:
+                print_info(f"[{server_ip}] Root password provided; testing su to root...")
+                rc, root_out = _run_as_root_via_su(
+                    ssh,
+                    root_password=root_password,
+                    workdir="/tmp",
+                    commands=[
+                        "echo ROOT_OK",
+                        "id",
+                        "uname -a",
+                    ],
+                    timeout=120,
+                    stream_output=False,
+                    stream_prefix=f"[{server_ip}] ",
+                )
+                root_out = _strip_internal_markers(root_out)
+                if root_out:
+                    print(f"[{server_ip}] Root test output:\n{root_out}")
+                if rc != 0:
+                    raise RuntimeError("su root test failed")
+                result['message'] = 'Connect-only + root su test completed'
+            else:
+                result['message'] = 'Connect-only completed'
+
             result['success'] = True
-            result['message'] = 'Connect-only completed'
             return result
         
         # Create temporary upload directory in user's home
@@ -687,15 +783,15 @@ def print_summary(results):
         print_error(f"Failed: {len(failed)}")
     
     if successful:
-        print(f"\n{Colors.GREEN}{Colors.BOLD}✅ Successful Deployments:{Colors.RESET}")
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[OK] Successful Deployments:{Colors.RESET}")
         for r in successful:
             files_info = f"({r['files_deployed']} files)" if r['files_deployed'] > 0 else ""
-            print(f"  {Colors.GREEN}•{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {r['message']} {Colors.YELLOW}{files_info}{Colors.RESET}")
+            print(f"  {Colors.GREEN}-{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {r['message']} {Colors.YELLOW}{files_info}{Colors.RESET}")
     
     if failed:
-        print(f"\n{Colors.RED}{Colors.BOLD}❌ Failed Deployments:{Colors.RESET}")
+        print(f"\n{Colors.RED}{Colors.BOLD}[FAILED] Failed Deployments:{Colors.RESET}")
         for r in failed:
-            print(f"  {Colors.RED}•{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {Colors.RED}{r['message']}{Colors.RESET}")
+            print(f"  {Colors.RED}-{Colors.RESET} {Colors.CYAN}{r['server']}:{Colors.RESET} {Colors.RED}{r['message']}{Colors.RESET}")
 
 def main():
     """
@@ -732,6 +828,7 @@ Examples:
     parser.add_argument('--dry-run', action='store_true', help='Show what would be deployed without making changes')
     parser.add_argument('--connect-only', action='store_true', help='Only test SSH connect + remote exec (no upload/install)')
     parser.add_argument('--upload-only', action='store_true', help='Upload files but skip root install')
+    parser.add_argument('--bundle', metavar='ZIP', help='Create an offline zip bundle of deployable files and exit')
     args = parser.parse_args()
 
     if args.connect_only and args.upload_only:
@@ -743,6 +840,21 @@ Examples:
         args.password = ""
     if _is_placeholder_secret(args.root_password):
         args.root_password = ""
+    # Offline bundle mode (no network, no servers required)
+    if args.bundle:
+        files = get_local_files()
+        if not files:
+            print_error("No files found to bundle")
+            sys.exit(1)
+        out = args.bundle
+        sha = create_offline_bundle(files, out)
+        out_path = os.path.abspath(out if out.lower().endswith('.zip') else out + '.zip')
+        print_header("Offline Bundle Created")
+        print(f"Output: {out_path}")
+        print(f"Files: {len(files)} (+ BUNDLE_README.txt)")
+        print(f"SHA256: {sha}")
+        sys.exit(0)
+
     # Get list of servers
     servers = []
     if args.servers:
@@ -755,6 +867,7 @@ Examples:
     if not servers:
         print_error("No servers specified")
         sys.exit(1)
+
     # Get files to deploy
     files = get_local_files()
     if not files:
@@ -765,6 +878,7 @@ Examples:
     print(f"Target: {REMOTE_INSTALL_DIR}")
     print(f"Servers: {len(servers)}")
     # Start deployment
+    _ensure_paramiko()
     start_time = time.time()
     results = deploy_parallel(
         servers,
