@@ -17,7 +17,7 @@
 chmod +x *.sh bin/*.sh *.py bin/*.py 2>/dev/null  # Ignore errors if files don't exist
 
 # Inform the user that permissions have been set
-echo "✅ All scripts are now executable!"
+echo "All scripts are now executable."
 
 # Suggest the next step to the user
-echo "📋 Next: sudo ./install.sh"
+echo "Next: sudo ./install.sh"

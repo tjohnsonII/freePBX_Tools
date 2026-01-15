@@ -196,9 +196,9 @@ check_after_installs() {
   local missing=0
   for c in python3 jq dot mysql; do
     case "$c" in
-      dot)   have dot   || { warn "Missing dependency: dot (graphviz)"; ((missing++)); } ;;
-      mysql) have mysql || { warn "Missing dependency: mysql client";   ((missing++)); } ;;
-      *)     have "$c"  || { warn "Missing dependency: $c";             ((missing++)); } ;;
+      dot)   have dot   || { warn "Missing dependency: dot (graphviz)"; ((missing++)) || true; } ;;
+      mysql) have mysql || { warn "Missing dependency: mysql client";   ((missing++)) || true; } ;;
+      *)     have "$c"  || { warn "Missing dependency: $c";             ((missing++)) || true; } ;;
     esac
   done
   if (( missing > 0 )); then
@@ -426,47 +426,49 @@ post_install_smoke() {
   # Check python3
   if have python3; then
     echo "  [OK] python3: $(python3 -V 2>&1)"
-    ((ok++))
+    ((ok++)) || true
   else
     warn "  [FAIL] python3 not found on PATH"
-    ((fail++))
+    ((fail++)) || true
   fi
 
   # Check graphviz dot
   if have dot; then
     echo "  [OK] graphviz 'dot': $(dot -V 2>&1)"
-    ((ok++))
+    ((ok++)) || true
   else
     warn "  [FAIL] graphviz 'dot' not found"
-    ((fail++))
+    ((fail++)) || true
   fi
 
   # Check mysql client
   if have mysql; then
     echo "  [OK] mysql client present"
-    ((ok++))
+    ((ok++)) || true
   else
     warn "  [FAIL] mysql client not found"
-    ((fail++))
+    ((fail++)) || true
   fi
 
-  # Try to show help for the callflows entrypoint
+  # Syntax-check key Python entrypoints without executing them.
+  # Running scripts (even with --help) can hang if they import modules that
+  # touch the system or expect a TTY.
   if [[ -f "$INSTALL_DIR/bin/freepbx_callflow_menu.py" ]]; then
-    if python3 "$INSTALL_DIR/bin/freepbx_callflow_menu.py" --help >/dev/null 2>&1 || true; then
-      echo "  [OK] freepbx-callflows script is runnable"
-      ((ok++))
+    if python3 -m py_compile "$INSTALL_DIR/bin/freepbx_callflow_menu.py" >/dev/null 2>&1; then
+      echo "  [OK] freepbx-callflows script syntax OK"
+      ((ok++)) || true
     else
-      warn "  [WARN] freepbx-callflows help check returned non-zero (may be expected)."
+      warn "  [WARN] freepbx-callflows script failed syntax check"
     fi
   fi
 
-  # Check time-condition status tool
+  # Check time-condition status tool syntax
   if [[ -f "$INSTALL_DIR/bin/freepbx_tc_status.py" ]]; then
-    if python3 "$INSTALL_DIR/bin/freepbx_tc_status.py" --help >/dev/null 2>&1 || true; then
-      echo "  [OK] freepbx-tc-status script is runnable"
-      ((ok++))
+    if python3 -m py_compile "$INSTALL_DIR/bin/freepbx_tc_status.py" >/dev/null 2>&1; then
+      echo "  [OK] freepbx-tc-status script syntax OK"
+      ((ok++)) || true
     else
-      warn "  [WARN] freepbx-tc-status help check returned non-zero."
+      warn "  [WARN] freepbx-tc-status script failed syntax check"
     fi
   fi
 

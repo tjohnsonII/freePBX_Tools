@@ -134,6 +134,37 @@ REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
 LOCAL_SOURCE_DIR = "freepbx-tools"
 
 
+def _configure_stdio_errors_replace() -> None:
+    """Prevent UnicodeEncodeError on Windows consoles with legacy codepages.
+
+    If the terminal encoding can't represent some characters (emoji, box-drawing,
+    etc.), we prefer replacing them over crashing mid-deploy.
+    """
+
+    try:
+        stdout_reconf = getattr(sys.stdout, "reconfigure", None)
+        if callable(stdout_reconf):
+            stdout_reconf(errors="replace")
+        stderr_reconf = getattr(sys.stderr, "reconfigure", None)
+        if callable(stderr_reconf):
+            stderr_reconf(errors="replace")
+    except Exception:
+        # Best-effort only.
+        pass
+
+
+_configure_stdio_errors_replace()
+
+
+def _safe_stdout_write(text: str) -> None:
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        sys.stdout.write(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+    sys.stdout.flush()
+
+
 def _ensure_paramiko() -> None:
     if paramiko is None:
         print("[ERROR] paramiko library not installed")
@@ -227,10 +258,9 @@ def _run_as_root_via_su(ssh, root_password, workdir, commands, timeout=600, stre
         # Prefix each line to keep multi-host output readable.
         if stream_prefix:
             for chunk in buf.splitlines(True):
-                sys.stdout.write(stream_prefix + chunk)
+                _safe_stdout_write(stream_prefix + chunk)
         else:
-            sys.stdout.write(buf)
-        sys.stdout.flush()
+            _safe_stdout_write(buf)
 
     def _drain():
         buf = ""

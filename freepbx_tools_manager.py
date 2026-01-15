@@ -47,6 +47,24 @@ from typing import List
 if sys.platform == "win32":
     os.system("")  # This enables ANSI escape sequences in Windows console
 
+
+def _configure_stdio_errors_replace() -> None:
+    """Prevent UnicodeEncodeError on Windows consoles with legacy codepages."""
+
+    try:
+        stdout_reconf = getattr(sys.stdout, "reconfigure", None)
+        if callable(stdout_reconf):
+            stdout_reconf(errors="replace")
+        stderr_reconf = getattr(sys.stderr, "reconfigure", None)
+        if callable(stderr_reconf):
+            stderr_reconf(errors="replace")
+    except Exception:
+        # Best-effort only.
+        pass
+
+
+_configure_stdio_errors_replace()
+
 class Colors:
     """ANSI color codes"""
     CYAN = '\033[96m'
@@ -73,7 +91,7 @@ def print_banner():
 
 def print_menu():
     """Display main menu"""
-    print(f"\n{Colors.YELLOW}{Colors.BOLD}📋 Main Menu:{Colors.RESET}")
+    print(f"\n{Colors.YELLOW}{Colors.BOLD}Main Menu:{Colors.RESET}")
     print(f"  {Colors.CYAN}1){Colors.RESET} Deploy tools to server(s)")
     print(f"  {Colors.CYAN}2){Colors.RESET} Uninstall tools from server(s)")
     print(f"  {Colors.CYAN}3){Colors.RESET} 🔄 Uninstall + Install (clean deployment)")
@@ -90,15 +108,15 @@ def print_menu():
 def create_offline_bundle():
     """Create a zip bundle of deployable files for manual upload/install."""
     print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
-    print("  📦 Create Offline Bundle")
+    print("  Create Offline Bundle")
     print(f"{'='*70}{Colors.RESET}")
     default_name = "freepbx-tools-bundle.zip"
     out_name = input(f"Output zip filename [{default_name}]: ").strip() or default_name
     cmd = [sys.executable, "deploy_freepbx_tools.py", "--bundle", out_name]
-    print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Creating bundle...{Colors.RESET}\n")
+    print(f"\n{Colors.GREEN}{Colors.BOLD}Creating bundle...{Colors.RESET}\n")
     subprocess.run(cmd)
     print(
-        f"\n{Colors.GREEN}✅ Bundle created. Copy it to the server, unzip into /home/123net/freepbx-tools, then run bootstrap.sh + install.sh as root.{Colors.RESET}"
+        f"\n{Colors.GREEN}[OK] Bundle created. Copy it to the server, unzip into /home/123net/freepbx-tools, then run bootstrap.sh + install.sh as root.{Colors.RESET}"
     )
 
 
@@ -124,7 +142,7 @@ def _read_server_list_file(path: str) -> List[str]:
                 if token:
                     servers.append(token)
     except Exception as e:
-        print(f"{Colors.RED}❌ Failed to read server list file: {path} ({e}){Colors.RESET}")
+        print(f"{Colors.RED}[ERROR] Failed to read server list file: {path} ({e}){Colors.RESET}")
     return servers
 
 
@@ -456,7 +474,11 @@ def _build_deploy_cmd(script_name, servers):
 
 def _self_test():
     """Non-interactive sanity checks for manager + deploy scripts."""
-    print("\n=== freepbx_tools_manager self-test ===\n")
+    print("\n=== freepbx_tools_manager self-test (OFFLINE) ===\n")
+    print("This self-test is designed to run on a developer machine.")
+    print("- No FreePBX instance required")
+    print("- No network/SSH connections are performed")
+    print("- Checks focus on syntax, packaging, and installer consistency\n")
 
     required_paths = [
         os.path.join("freepbx-tools", "install.sh"),
@@ -482,11 +504,74 @@ def _self_test():
         py_compile.compile(f, doraise=True)
     print("[OK] Python scripts compile")
 
+    # Guard against common bash + set -e pitfall:
+    #   ((ok++)) returns exit status 1 on first increment when ok was 0.
+    # If install.sh uses 'set -e', that can abort the installer even when
+    # installation actually succeeded.
+    print("\n[INFO] Checking freepbx-tools/install.sh for set -e safe counters...")
+    install_sh_path = os.path.join("freepbx-tools", "install.sh")
+    try:
+        with open(install_sh_path, "r", encoding="utf-8", errors="ignore") as f:
+            install_lines = f.read().splitlines()
+
+        uses_set_e = any(
+            re.search(r"^\s*set\s+-.*e", line) for line in install_lines
+        )
+
+        suspicious = []
+        counter_vars = {"ok", "fail", "missing"}
+        for idx, raw in enumerate(install_lines, start=1):
+            line = raw.strip()
+            m = re.search(r"\(\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\+\+\s*\)\)", line)
+            if not m:
+                continue
+            var = m.group(1)
+            if var not in counter_vars:
+                continue
+            # Under set -e, ensure the increment is guarded (e.g. `|| true`).
+            if uses_set_e and "||" not in line:
+                suspicious.append((idx, line))
+
+        # Guard against smoke tests that execute tool entrypoints.
+        # These can block/hang depending on environment (TTY, DB access, etc.).
+        bad_exec_patterns = [
+            r"\bfreepbx_callflow_menu\.py\b.*\s--help\b",
+            r"\bfreepbx_tc_status\.py\b.*\s--help\b",
+        ]
+        bad_exec_hits = []
+        for idx, raw in enumerate(install_lines, start=1):
+            for pat in bad_exec_patterns:
+                if re.search(pat, raw):
+                    bad_exec_hits.append((idx, raw.strip()))
+                    break
+
+        if bad_exec_hits:
+            print("[FAIL] install.sh smoke test executes tool scripts (can hang):")
+            for idx, line in bad_exec_hits[:15]:
+                print(f"  - L{idx}: {line}")
+            if len(bad_exec_hits) > 15:
+                print(f"  ... +{len(bad_exec_hits) - 15} more")
+            print("[INFO] Prefer syntax-only checks: python3 -m py_compile <file>")
+            return 4
+
+        if suspicious:
+            print("[FAIL] install.sh has unguarded counter increments under set -e:")
+            for idx, line in suspicious[:15]:
+                print(f"  - L{idx}: {line}")
+            if len(suspicious) > 15:
+                print(f"  ... +{len(suspicious) - 15} more")
+            return 4
+
+        print("[OK] install.sh counter increments are set -e safe")
+    except Exception as e:
+        print(f"[FAIL] Could not check {install_sh_path}: {e}")
+        return 4
+
     # Symlink consistency (prints details)
     validate_installer_uninstaller_symlinks()
 
     # Deploy script dry-run (must not attempt network)
-    print("\n[INFO] Running deploy_freepbx_tools.py dry-run...")
+    print("\n[INFO] Running deploy_freepbx_tools.py --dry-run (no SSH, no changes)...")
     r = subprocess.run([sys.executable, "deploy_freepbx_tools.py", "--dry-run", "--workers", "1", "--servers", "127.0.0.1"], check=False)
     if r.returncode != 0:
         print("[FAIL] deploy_freepbx_tools.py dry-run failed")
@@ -692,7 +777,7 @@ def clean_deploy():
         print(f"\n{Colors.RED}❌ Uninstall failed. Aborting deployment.{Colors.RESET}")
         return
     
-    print(f"\n{Colors.GREEN}✅ Uninstall complete{Colors.RESET}")
+    print(f"\n{Colors.GREEN}[OK] Uninstall complete{Colors.RESET}")
     
     # Step 2: Install
     print(f"\n{Colors.CYAN}{Colors.BOLD}Step 2/2: Installing...{Colors.RESET}")
@@ -701,9 +786,9 @@ def clean_deploy():
     result = _run_with_credentials(cmd, username, password, root_password)
     
     if result.returncode == 0:
-        print(f"\n{Colors.GREEN}{Colors.BOLD}✅ Clean deployment completed successfully!{Colors.RESET}")
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[OK] Clean deployment completed successfully!{Colors.RESET}")
     else:
-        print(f"\n{Colors.RED}❌ Installation failed.{Colors.RESET}")
+        print(f"\n{Colors.RED}[ERROR] Installation failed.{Colors.RESET}")
 
 def test_dashboard():
     """Test dashboard on test server"""

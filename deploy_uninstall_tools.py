@@ -21,6 +21,31 @@ import re
 import paramiko
 
 
+def _configure_stdio_errors_replace() -> None:
+    """Prevent UnicodeEncodeError on Windows consoles with legacy codepages."""
+
+    try:
+        stdout_reconf = getattr(sys.stdout, "reconfigure", None)
+        if callable(stdout_reconf):
+            stdout_reconf(errors="replace")
+        stderr_reconf = getattr(sys.stderr, "reconfigure", None)
+        if callable(stderr_reconf):
+            stderr_reconf(errors="replace")
+    except Exception:
+        pass
+
+
+_configure_stdio_errors_replace()
+
+
+def _safe_print(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 def load_credentials():
     env_user = os.getenv("FREEPBX_USER", "").strip()
     env_pass = os.getenv("FREEPBX_PASSWORD", "")
@@ -132,7 +157,7 @@ def uninstall_from_server(host, user, password, root_password):
         # Collect output/errors (best-effort; interactive shell doesn't separate streams)
         
         print(f"[{host}] Uninstall output:")
-        print(install_output)
+        _safe_print(install_output)
         
         if install_errors:
             print(f"[{host}] Uninstall errors:")
@@ -149,7 +174,7 @@ def uninstall_from_server(host, user, password, root_password):
             return True
         else:
             print(f"[WARNING] [{host}] Some directories may still exist:")
-            print(verify_output)
+            _safe_print(verify_output)
             ssh.close()
             return False
             
