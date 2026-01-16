@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
+import threading
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -89,7 +92,7 @@ class Job:
 
     lines: List[str] = field(default_factory=list)
     clients: Set[WebSocket] = field(default_factory=set)
-    proc: Optional[asyncio.subprocess.Process] = None
+    proc: Optional[subprocess.Popen[str]] = None
 
 
 JOBS: Dict[str, Job] = {}
@@ -145,15 +148,6 @@ async def _append_line(job: Job, line: str) -> None:
         job.clients.discard(ws)
 
 
-async def _read_stream(job: Job, stream: asyncio.StreamReader, prefix: str = "") -> None:
-    while True:
-        b = await stream.readline()
-        if not b:
-            return
-        text = b.decode("utf-8", errors="replace")
-        await _append_line(job, prefix + text)
-
-
 def _build_env(job: Job) -> Dict[str, str]:
     env = os.environ.copy()
     # Pass creds via env to avoid exposing in process list/args.
@@ -171,7 +165,23 @@ def _build_env(job: Job) -> Dict[str, str]:
 
 
 def _python_exe() -> str:
-    return os.environ.get("FREEPBX_DEPLOY_UI_PYTHON", "") or sys.executable
+    configured = os.environ.get("FREEPBX_DEPLOY_UI_PYTHON", "").strip()
+    if configured:
+        return configured
+
+    # Prefer the repo's standard Python (has Paramiko, etc.) over the backend venv.
+    candidates = [
+        Path("E:/DevTools/Python/python.exe"),
+        Path("E:/DevTools/Python/python3.exe"),
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return str(p)
+        except Exception:
+            pass
+
+    return sys.executable
 
 
 async def _run_one(job: Job, args: List[str], title: str) -> int:
@@ -180,26 +190,57 @@ async def _run_one(job: Job, args: List[str], title: str) -> int:
     await _append_line(job, ("=" * 70) + "\n")
     await _append_line(job, "CMD: " + " ".join(args) + "\n\n")
 
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(REPO_ROOT),
-        env=_build_env(job),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    job.proc = proc
+    loop = asyncio.get_running_loop()
 
-    assert proc.stdout is not None
-    assert proc.stderr is not None
+    def _emit(line: str) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(_append_line(job, line), loop)
+        except Exception:
+            # best-effort; job still completes
+            pass
 
-    await asyncio.gather(
-        _read_stream(job, proc.stdout, prefix=""),
-        _read_stream(job, proc.stderr, prefix=""),
-    )
+    def _reader(stream: Optional[object]) -> None:
+        if stream is None:
+            return
+        try:
+            while True:
+                line = stream.readline()  # type: ignore[attr-defined]
+                if not line:
+                    break
+                _emit(str(line))
+        except Exception as e:
+            _emit(f"\n[BACKEND STREAM ERROR] {type(e).__name__}: {e!r}\n")
 
-    rc = await proc.wait()
-    job.proc = None
-    return int(rc)
+    def _run_blocking() -> int:
+        proc = subprocess.Popen(
+            args,
+            cwd=str(REPO_ROOT),
+            env=_build_env(job),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            bufsize=1,
+            universal_newlines=True,
+        )
+        job.proc = proc
+
+        t_out = threading.Thread(target=_reader, args=(proc.stdout,), daemon=True)
+        t_err = threading.Thread(target=_reader, args=(proc.stderr,), daemon=True)
+        t_out.start()
+        t_err.start()
+
+        rc = proc.wait()
+        try:
+            t_out.join(timeout=2.0)
+            t_err.join(timeout=2.0)
+        except Exception:
+            pass
+
+        job.proc = None
+        return int(rc)
+
+    return await asyncio.to_thread(_run_blocking)
 
 
 async def _run_job(job: Job) -> None:
@@ -250,7 +291,10 @@ async def _run_job(job: Job) -> None:
     except Exception as e:
         job.return_code = 1
         job.status = "failed"
-        await _append_line(job, f"\n[BACKEND ERROR] {e}\n")
+        await _append_line(
+            job,
+            f"\n[BACKEND ERROR] {type(e).__name__}: {e!r}\n" + traceback.format_exc() + "\n",
+        )
     finally:
         job.finished_at = datetime.now(timezone.utc)
 
@@ -314,7 +358,7 @@ async def cancel_job(job_id: str) -> Dict[str, Any]:
         return {"ok": True, "status": job.status}
 
     job.status = "cancelled"
-    if job.proc and job.proc.returncode is None:
+    if job.proc and job.proc.poll() is None:
         try:
             job.proc.terminate()
         except Exception:
