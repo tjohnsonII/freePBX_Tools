@@ -1,65 +1,81 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 
-#ssh into the remote server
-ssh tjohnson@192.168.50.1
+HOST="192.168.50.1"
+USER="tjohnson"
 
-#Enumerate sudo version
-sudo -V
+ssh -oHostKeyAlgorithms=+ssh-dss -oPubkeyAcceptedAlgorithms=+ssh-dss "${USER}@${HOST}" 'sh -s' <<'EOF'
+set -eu
 
-#Enumerate users
-cat /etc/passwd | cut -d ":" -f 1
+OS="$(uname -s 2>/dev/null || echo unknown)"
+echo "===== BASIC ====="
+echo "Host: $(hostname)"
+echo "OS:   $OS"
+echo "Uptime:"
+uptime || true
+echo
 
-#Enumerate groups
-cat /etc/group | cut -d ":" -f 1
+echo "===== USERS ====="
+cut -d: -f1 /etc/passwd | sort
+echo
 
-#Enumerate Services
-netstat -anlp
-netstat -ano
+echo "===== GROUPS ====="
+cut -d: -f1 /etc/group | sort
+echo
 
-#Enumerate root run bianries
-ps aux | grep root
+echo "===== SHELLS ====="
+[ -f /etc/shells ] && cat /etc/shells || echo "/etc/shells not found"
+echo
+echo "Current shell (from passwd):"
+id -un | xargs -I{} sh -c "grep '^{}:' /etc/passwd | cut -d: -f7" || true
+echo
 
-#Enumerate root Crontab
-cat /etc/crontab | grep 'root'
+echo "===== LISTENING PORTS ====="
+if command -v sockstat >/dev/null 2>&1; then
+  sockstat -4l || true
+  sockstat -6l || true
+else
+  netstat -an | egrep 'LISTEN' || true
+fi
+echo
 
-#Enumerate binary version
-program -v
-program --version
-program -V
-dpkg -l | grep "program"
+echo "===== ROOT PROCESSES (sample) ====="
+ps aux | awk '$1=="root"{print}' | head -n 40 || true
+echo
 
-#Enumerate shells
-cat /etc/shells
+echo "===== CRON ====="
+if [ -f /etc/crontab ]; then
+  egrep -n 'root' /etc/crontab || true
+else
+  echo "/etc/crontab not found"
+fi
+echo
 
-#Enumberate current shell
-echo $SHELL 
+echo "===== SUID / SGID (sample) ====="
+find / -type f \( -perm -4000 -o -perm -2000 \) -exec ls -l {} \; 2>/dev/null | head -n 100 || true
+echo
 
-#Enumberate Shell Version
-/bin/bash --version
+echo "===== .rhosts (IMPORTANT) ====="
+find /usr/home /root -name .rhosts -exec ls -l {} \; 2>/dev/null || true
+echo
 
-#Enumberate sudo rights
-sudo -l
+echo "===== BACKUP-LIKE FILES (sample) ====="
+find /etc /var /usr/local /root /tmp /usr/home -type f \( \
+  -iname '*backup*' -o -iname '*.back' -o -iname '*.bck' -o -iname '*.bk' -o -iname '*.bak' \
+\) 2>/dev/null | head -n 200 || true
+echo
 
-#Enumberate root Crontab
-cat /etc/crontab | grep 'root'
+echo "===== DB FILES (sample) ====="
+find / -type f \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \) 2>/dev/null | head -n 200 || true
+echo
 
-#Enumerate SUID - SGID executables
-find / -type f -a \( -perm -u+s -o -perm -g+s \) -exec ls -l {} \; 2> /dev/null
+echo "===== LANGUAGES ====="
+for c in python python3 perl ruby lua; do
+  if command -v "$c" >/dev/null 2>&1; then
+    echo "$c: $(command -v "$c")"
+  else
+    echo "$c: not found"
+  fi
+done
+EOF
 
-#Enumberate not-reseted Env Variables
-sudo -l
-
-#Enumberate Backups
-find /var /etc /bin /sbin /home /usr/local/bin /usr/local/sbin /urs/bin /usr/games /usr/sbin /root /tmp -typ f \( -name "*backup*" -o -name *"\.back" -o -name "*\.bck" -o -name "*\.bk" \) 2>/dev/null
-
-#Enumerate DBs
-find / -name '.db' -o -name '.sqlite' -o -name '*.sqlite3' 2>/dev/null
-
-#Enumberate Hidden Files
-find / -type f -iname ".*" -ls 2>/dev/null
-
-#Enumberate Programming Languages
-which pythone
-which perl
-which ruby
-which lua0
