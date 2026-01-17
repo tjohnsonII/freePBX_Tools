@@ -6,17 +6,26 @@
 */
 
 :root {
-  /* Base font and rendering settings */
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  /* Color scheme and background for dark mode */
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  --brand-red: #E31E24;
+  --brand-green: #00A651;
+  --brand-blue: #0071BC;
+  --brand-black: #1a1a1a;
 
-  /* Font rendering optimizations */
+  --app-bg: #f6f8fb;
+  --app-fg: #1f2937;
+  --app-muted: #5b6b7c;
+  --app-surface: #ffffff;
+  --app-surface-2: #f7fbff;
+  --app-border: #cbd5e1;
+
+  color-scheme: light;
+  color: var(--app-fg);
+  background-color: var(--app-bg);
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -26,20 +35,23 @@
 a {
   /* Link color and hover effect */
   font-weight: 500;
-  color: #646cff;
+  color: var(--brand-blue);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: #005a94;
 }
 
 body {
-  /* Remove default margin and center content */
+  /* Remove default margin and use a normal document flow */
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background:
+    radial-gradient(1200px 700px at 20% 10%, rgba(0,113,188,0.12), transparent),
+    radial-gradient(900px 500px at 80% 0%, rgba(0,166,81,0.08), transparent),
+    var(--app-bg);
+  color: var(--app-fg);
 }
 
 h1 {
@@ -49,35 +61,26 @@ h1 {
 }
 
 button {
-  /* Button base style and hover/focus effects */
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: 1px solid var(--app-border);
   padding: 0.6em 1.2em;
   font-size: 1em;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: var(--app-surface);
+  color: var(--app-fg);
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color 0.2s, background-color 0.2s, color 0.2s;
 }
 button:hover {
-  border-color: #646cff;
+  border-color: var(--brand-blue);
 }
 button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: 3px solid rgba(0,113,188,0.35);
+  outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    /* Light mode overrides */
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
 }

@@ -175,8 +175,13 @@ export default function App() {
     <div className="container">
       <div className="header">
         <div className="title">
-          <h1>FreePBX Tools Deploy UI</h1>
-          <p>React/Vite frontend + FastAPI backend; wraps existing deploy scripts.</p>
+          <div className="brandRow">
+            <img className="brandLogo" src="/123net-logo.png" alt="123NET" />
+            <div className="brandText">
+              <h1>FreePBX Tools Deploy UI</h1>
+              <p>React/Vite frontend + FastAPI backend; wraps existing deploy scripts.</p>
+            </div>
+          </div>
         </div>
         <div className="badge">
           <span style={{ color: statusColor(status) }}>●</span>

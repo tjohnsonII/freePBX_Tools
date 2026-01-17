@@ -750,22 +750,18 @@ function App() {
 
   // Main UI rendering
   return (
-    <div className="container">
-      {/* App title and tab navigation */}
-      <h1>Hosted Config Generator</h1>
-      {/* Active host/port banner */}
-      <div style={{
-        marginTop: 8,
-        marginBottom: 12,
-        padding: '8px 12px',
-        borderRadius: 6,
-        background: '#f7fbff',
-        border: '1px solid #cce1fa',
-        color: '#1a3a5a',
-        display: 'inline-block'
-      }}>
-        Connected to {clientInfo.hostname}:{clientInfo.port}
-      </div>
+    <div className="appShell">
+      <header className="brandHeader">
+        <a className="brandLogo" href="/" aria-label="123NET">
+          <img src="/123net-logo.png" alt="123NET" />
+        </a>
+        <div className="brandHeaderText">
+          <div className="brandAppName">Hosted Config Generator</div>
+          <div className="brandMeta">Connected to {clientInfo.hostname}:{clientInfo.port}</div>
+        </div>
+      </header>
+
+      <main className="container">
       <div className="tabs" style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
         {TABS.map((tab, idx) => (
           <button
@@ -774,9 +770,9 @@ function App() {
             onClick={() => setActiveTab(tab.key)}
             style={{
               border: 'none',
-              borderBottom: activeTab === tab.key ? '3px solid #0078d4' : '2px solid #ccc',
-              background: activeTab === tab.key ? '#f7fbff' : '#f4f4f4',
-              color: activeTab === tab.key ? '#0078d4' : '#333',
+              borderBottom: activeTab === tab.key ? '3px solid var(--brand-blue)' : '2px solid var(--app-border)',
+              background: activeTab === tab.key ? 'var(--app-surface-2)' : 'var(--app-surface)',
+              color: activeTab === tab.key ? 'var(--brand-blue)' : 'var(--app-fg)',
               fontWeight: activeTab === tab.key ? 600 : 400,
               padding: '10px 24px',
               borderTopLeftRadius: idx === 0 ? 8 : 0,
@@ -1606,6 +1602,7 @@ function App() {
       {activeTab === 'diagnostics' && (
         <DiagnosticsTab />
       )}
+      </main>
     </div>
   );
 }

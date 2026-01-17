@@ -4,10 +4,52 @@
 */
 
 #root {
-  /* Center the app and set max width */
+  min-height: 100vh;
+}
+
+.appShell {
+  min-height: 100vh;
+  color: var(--app-fg);
+}
+
+.brandHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--brand-black);
+  color: #ffffff;
+  border-bottom: 3px solid transparent;
+  border-image: linear-gradient(90deg, var(--brand-red), var(--brand-green), var(--brand-blue));
+  border-image-slice: 1;
+}
+
+.brandLogo img {
+  width: 150px;
+  height: auto;
+  display: block;
+}
+
+.brandHeaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brandAppName {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.brandMeta {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.container {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 18px;
   text-align: center;
 }
 
