@@ -89,6 +89,77 @@ def pad_ansi(text, width, align='left'):
         return ' ' * left + text + ' ' * right
     raise ValueError(f"Unsupported alignment: {align}")
 
+
+def _safe_float(value, default):
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _read_first_line(path):
+    try:
+        with open(path, 'r') as f:
+            line = f.readline().strip()
+            return line
+    except Exception:
+        return ""
+
+
+def get_snapshot_age_seconds():
+    try:
+        if not os.path.isfile(DUMP_PATH):
+            return None
+        return max(0.0, time.time() - os.path.getmtime(DUMP_PATH))
+    except Exception:
+        return None
+
+
+def format_age(age_seconds):
+    if age_seconds is None:
+        return "N/A"
+    try:
+        age_seconds = int(age_seconds)
+    except Exception:
+        return "N/A"
+    if age_seconds < 60:
+        return "{}s".format(age_seconds)
+    if age_seconds < 3600:
+        return "{}m".format(age_seconds // 60)
+    return "{}h".format(age_seconds // 3600)
+
+
+def get_freepbx_version_live():
+    """Best-effort FreePBX version lookup (avoid heavy/slow commands)."""
+    # Common FreePBX distro file
+    v = _read_first_line("/etc/schmooze/pbx-version")
+    if v:
+        return v
+
+    # Try fwconsole quickly (may emit noise on some systems)
+    rc, out, _ = run(["fwconsole", "-V"], timeout=2)
+    if rc == 0:
+        line = (out.strip().splitlines() or [""])[0].strip()
+        if line:
+            return line
+    return None
+
+
+def get_asterisk_version_live():
+    """Best-effort Asterisk version from CLI."""
+    rc, out, _ = run(["asterisk", "-rx", "core show version"], timeout=2)
+    if rc != 0:
+        return None
+    line = (out.strip().splitlines() or [""])[0].strip()
+    if not line:
+        return None
+    # Usually: "Asterisk 16.16.0 built by ..."
+    if line.lower().startswith("asterisk"):
+        parts = line.split()
+        if len(parts) >= 2:
+            return parts[1]
+    return line
+
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"
 GRAPH_SCRIPT  = "/usr/local/bin/freepbx_callflow_graph.py"
 OUT_DIR       = "/home/123net/callflows"
@@ -1200,9 +1271,11 @@ def get_active_calls(sock):
     """Get count of active calls from Asterisk"""
     try:
         cmd = ["asterisk", "-rx", "core show channels count"]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
-        output = result.stdout
+        if result.returncode != 0:
+            return None
+        output = result.stdout or ""
         # Parse output like "2 active channels" or "0 active calls"
         for line in output.split('\n'):
             if 'active call' in line.lower() or 'active channel' in line.lower():
@@ -1229,12 +1302,17 @@ def get_time_conditions_status(sock):
         
         total_count = int(result.stdout.strip())
         
-        # Now get forced count
+        # Now get forced count (schema varies; fail gracefully)
+        forced_count = 0
         sql2 = "SELECT COUNT(*) FROM timeconditions WHERE inuse_state IN (1,2)"
         cmd2 = ["mysql", "-NBe", sql2, "asterisk"]
         result2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                universal_newlines=True, timeout=5)
-        forced_count = int(result2.stdout.strip()) if result2.returncode == 0 and result2.stdout.strip() else 0
+        if result2.returncode == 0 and (result2.stdout or "").strip():
+            try:
+                forced_count = int(result2.stdout.strip())
+            except Exception:
+                forced_count = 0
         
         # Build status display
         status_display = []
@@ -1339,35 +1417,55 @@ def get_endpoint_status(sock):
                     name = parts[1] if len(parts) > 1 else ""
                     extensions.append((ext, name))
         
-        # Check registration status via Asterisk
+        # Check registration status via Asterisk (prefer contacts which reflect registrations)
         registered = []
         unregistered = []
-        
-        cmd = ["asterisk", "-rx", "pjsip show endpoints"]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              universal_newlines=True, timeout=5)
-        
-        if result.returncode == 0 and result.stdout:
-            # Parse pjsip output - format: Endpoint/CID/Auth/Device State
-            pjsip_status = {}
-            for line in result.stdout.split('\n'):
-                parts = line.split()
-                if parts and parts[0].isdigit() and len(parts) >= 4:
-                    ext = parts[0]
-                    # Device state in format like "Unavail" or "Avail"
-                    state = parts[-1] if len(parts) > 0 else "Unknown"
-                    pjsip_status[ext] = state
-            
-            # Match extensions with registration status
-            for ext, name in extensions:  # Show ALL endpoints
-                if ext in pjsip_status:
-                    state = pjsip_status[ext]
-                    if 'avail' in state.lower() or 'online' in state.lower():
-                        registered.append((ext, name, state))
-                    else:
-                        unregistered.append((ext, name, state))
+
+        contact_endpoints = set()
+        rc, out, _ = run(["asterisk", "-rx", "pjsip show contacts"], timeout=5)
+        if rc == 0 and out:
+            for line in out.split('\n'):
+                line = line.strip()
+                if not line.startswith("Contact:"):
+                    continue
+                # Example: "Contact: 100/sip:100@1.2.3.4:5060;..." -> endpoint "100"
+                rest = line[len("Contact:"):].strip()
+                endpoint = rest.split('/', 1)[0].strip()
+                if endpoint:
+                    contact_endpoints.add(endpoint)
+
+        # Fallback: chan_sip peers (older systems)
+        sip_ok = set()
+        if not contact_endpoints:
+            rc2, out2, _ = run(["asterisk", "-rx", "sip show peers"], timeout=5)
+            if rc2 == 0 and out2:
+                for line in out2.split('\n'):
+                    if not line.strip() or line.lower().startswith("name/"):
+                        continue
+                    parts = line.split()
+                    if not parts:
+                        continue
+                    name = parts[0].split('/', 1)[0].strip()
+                    # Status is usually the last column
+                    status = parts[-1].strip() if parts else ""
+                    if name and ("ok" in status.lower() or "unknown" in status.lower()):
+                        sip_ok.add(name)
+
+        # Match extensions with registration status
+        for ext, name in extensions:
+            if contact_endpoints:
+                if ext in contact_endpoints:
+                    registered.append((ext, name, "Registered"))
                 else:
-                    unregistered.append((ext, name, "Not Found"))
+                    unregistered.append((ext, name, "Unregistered"))
+            elif sip_ok:
+                if ext in sip_ok:
+                    registered.append((ext, name, "OK"))
+                else:
+                    unregistered.append((ext, name, "Unregistered"))
+            else:
+                # Asterisk may be stopped / CLI not available
+                unregistered.append((ext, name, "N/A"))
         
         return {
             "registered": len(registered),
@@ -1405,11 +1503,11 @@ def display_system_dashboard(sock, data):
     print("/_/   /_/   \\___/\\____/_____/_____/ /_/   /    /_/  \\____/\\____/_/____/  ")
     print(Colors.RESET)
     
-    # Get meta info
+    # Get meta info (prefer live versions; fall back to snapshot meta)
     meta = data.get("meta", {}) if data else {}
     hostname = meta.get("hostname", "Unknown")
-    freepbx_ver = meta.get("freepbx_version", "N/A")
-    asterisk_ver = meta.get("asterisk_version", "N/A")
+    freepbx_ver = get_freepbx_version_live() or meta.get("freepbx_version", "N/A")
+    asterisk_ver = get_asterisk_version_live() or meta.get("asterisk_version", "N/A")
     
     # Dashboard Header with system info - full width, properly aligned
     header_text = f"📊 SYSTEM DASHBOARD  │  Host: {hostname[:25].ljust(25)}  │  FreePBX: {freepbx_ver[:15].ljust(15)}  │  Asterisk: {asterisk_ver[:30].ljust(30)}"
@@ -1520,6 +1618,7 @@ def display_system_dashboard(sock, data):
     # File path checks
     snapshot_exists = os.path.exists(DUMP_PATH)
     snapshot_size = os.path.getsize(DUMP_PATH) / (1024 * 1024) if snapshot_exists else 0
+    snapshot_age = get_snapshot_age_seconds()
     
     paths_to_check = [
         ("/etc/asterisk/", "Config", 16),
@@ -1559,7 +1658,10 @@ def display_system_dashboard(sock, data):
         # Paths column - abbreviated paths
         if i == 0:
             snap_icon = Colors.GREEN + "✓" if snapshot_exists else Colors.RED + "✗"
-            path_line = pad_ansi(f"{snap_icon}{Colors.WHITE} Snapshot {Colors.CYAN}({snapshot_size:.1f} MB){Colors.RESET}", TILE_WIDTH-2)
+            path_line = pad_ansi(
+                f"{snap_icon}{Colors.WHITE} Snapshot {Colors.CYAN}({snapshot_size:.1f} MB, age {format_age(snapshot_age)}){Colors.RESET}",
+                TILE_WIDTH-2,
+            )
         elif i - 1 < len(paths_to_check):
             path, label, path_len = paths_to_check[i - 1]
             exists = os.path.exists(path)
@@ -1986,6 +2088,18 @@ def run_phone_analysis_menu():
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="freePBX call-flow menu + dashboard")
+    parser.add_argument("--watch", action="store_true", help="Run live dashboard monitor (auto-refresh).")
+    parser.add_argument("--interval", default="2", help="Refresh interval seconds for --watch (default: 2).")
+    parser.add_argument(
+        "--watch-refresh-snapshot",
+        action="store_true",
+        help="When using --watch, refresh the DB snapshot every cycle (can be heavy).",
+    )
+    args = parser.parse_args()
+
     # Check if running as root (required for MySQL access)
     try:
         euid = os.geteuid()  # type: ignore
@@ -2010,6 +2124,24 @@ def main():
         if not refresh_dump(sock):
             sys.exit(1)
         data = load_dump()
+
+    def run_live_monitor(initial_data):
+        interval = max(0.5, _safe_float(args.interval, 2.0))
+        data_local = initial_data
+        print(Colors.YELLOW + "\nLive dashboard monitor running. Press Ctrl+C to return." + Colors.RESET)
+        try:
+            while True:
+                if args.watch_refresh_snapshot:
+                    if refresh_dump(sock):
+                        data_local = load_dump() or data_local
+                display_system_dashboard(sock, data_local)
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            return data_local
+
+    if args.watch:
+        run_live_monitor(data)
+        return
 
     while True:
         # Display system dashboard at top
@@ -2039,6 +2171,7 @@ def main():
             return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET + 
                    " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
         
+        print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
         print(menu_line("1", "Refresh DB snapshot"))
         print(menu_line("2", "Show inventory (counts) + list DIDs"))
         print(menu_line("3", "Generate call-flow for selected DID(s)"))
@@ -2060,6 +2193,19 @@ def main():
         print(menu_line("19", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+
+        if choice == "0":
+            # local monitor mode (does not exit the menu)
+            try:
+                interval = input(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
+                args.interval = interval
+                refresh_each = input(Colors.YELLOW + "Refresh DB snapshot each cycle? (y/N): " + Colors.RESET).strip().lower()
+                args.watch_refresh_snapshot = refresh_each in ("y", "yes")
+            except Exception:
+                args.interval = "2"
+                args.watch_refresh_snapshot = False
+            data = run_live_monitor(data)
+            continue
 
         if choice == "1":
             if refresh_dump(sock):

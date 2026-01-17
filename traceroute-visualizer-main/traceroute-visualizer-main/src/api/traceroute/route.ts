@@ -27,12 +27,21 @@ export async function POST(req: Request) {
 			throw new Error(`Traceroute backend responded ${response.status}: ${text}`);
 		}
 
-		const data = await response.json();
+		const data: unknown = await response.json();
 
-		const hops = Array.isArray(data)
+		const hasHopsArray = (value: unknown): value is { hops: unknown[] } => {
+			return (
+				!!value &&
+				typeof value === "object" &&
+				"hops" in value &&
+				Array.isArray((value as { hops: unknown }).hops)
+			);
+		};
+
+		const hops: unknown[] | null = Array.isArray(data)
 			? data
-			: (data && typeof data === "object" && Array.isArray((data as any).hops))
-				? (data as any).hops
+			: hasHopsArray(data)
+				? data.hops
 				: null;
 
 		if (hops === null) {

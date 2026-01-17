@@ -16,5 +16,39 @@
         "TMP": "E:\\DevTools\\Temp"
     },
     "terminal.integrated.shellIntegration.enabled": true,
-    "terminal.integrated.defaultProfile.windows": "PowerShell"
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "terminal.integrated.profiles.windows": {
+        "PowerShell": {
+            "source": "PowerShell",
+            "args": [
+                "-NoProfile"
+            ]
+        },
+        "Windows PowerShell": {
+            "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "args": [
+                "-NoProfile"
+            ]
+        },
+        "PowerShell (NoProfile)": {
+            "source": "PowerShell",
+            "args": [
+                "-NoProfile"
+            ]
+        },
+        "Command Prompt": {
+            "path": "C:\\Windows\\System32\\cmd.exe",
+            "args": [
+                "/d",
+                "/k"
+            ]
+        }
+    },
+    "terminal.integrated.automationProfile.windows": {
+        "path": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+            "/d",
+            "/c"
+        ]
+    }
 }

@@ -438,6 +438,35 @@
                     <div class="log-container" id="deployment-logs"></div>
                 </div>
             </div>
+
+            <div class="card">
+                <h2>🛰️ Traceroute Server Helper</h2>
+                <p style="color:#666; margin-bottom: 15px;">Push the background/log-follow helper script to your traceroute server (default 192.168.50.1).</p>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Host:</label>
+                        <input type="text" id="tr-host" value="192.168.50.1">
+                    </div>
+                    <div class="form-group">
+                        <label>Remote Directory:</label>
+                        <input type="text" id="tr-remote-dir" value=".">
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>SSH Username:</label>
+                        <input type="text" id="tr-username" value="tjohnson">
+                    </div>
+                    <div class="form-group">
+                        <label>SSH Password (optional if keys/agent):</label>
+                        <input type="password" id="tr-password">
+                    </div>
+                </div>
+
+                <button class="btn btn-success" onclick="startTracerouteHelperPush()">⬆️ Push Helper Script</button>
+            </div>
         </div>
         
         <!-- Phone Analyzer Tab -->
@@ -582,6 +611,37 @@
             .then(data => {
                 currentDeploymentId = data.deployment_id;
                 document.getElementById('status-text').textContent = 'Deployment started...';
+            });
+        }
+
+        function startTracerouteHelperPush() {
+            const host = document.getElementById('tr-host').value;
+            const remoteDir = document.getElementById('tr-remote-dir').value;
+            const username = document.getElementById('tr-username').value;
+            const password = document.getElementById('tr-password').value;
+
+            if (!host || !username) {
+                alert('Host and username are required');
+                return;
+            }
+
+            document.getElementById('deployment-status').style.display = 'block';
+            document.getElementById('deployment-logs').innerHTML = '';
+            document.getElementById('status-text').textContent = 'Pushing traceroute helper...';
+
+            fetch('/api/traceroute/push-helper', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    host,
+                    username,
+                    password,
+                    remote_dir: remoteDir
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                currentDeploymentId = data.deployment_id;
             });
         }
         

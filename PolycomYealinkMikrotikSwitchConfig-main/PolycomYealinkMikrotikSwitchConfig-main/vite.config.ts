@@ -8,7 +8,13 @@ export default defineConfig({
     port: 3002,
     strictPort: true,
     open: true,
-    allowedHosts:['timsablab.com','timsablab.ddn.net']
+    allowedHosts:['timsablab.com','timsablab.ddn.net'],
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8002',
+        changeOrigin: true,
+      }
+    }
   },
   plugins: [react()],
 })

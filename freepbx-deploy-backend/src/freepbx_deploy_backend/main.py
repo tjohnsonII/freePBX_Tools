@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -62,6 +63,14 @@ class JobCreate(BaseModel):
     bundle_name: str = "freepbx-tools-bundle.zip"
 
 
+class DiagnosticsSummaryRequest(BaseModel):
+    server: str = Field(..., description="Target FreePBX host")
+    username: str = "123net"
+    password: str = ""
+    root_password: str = ""
+    timeout_seconds: float = Field(15.0, ge=2.0, le=120.0)
+
+
 class JobInfo(BaseModel):
     id: str
     action: Action
@@ -106,6 +115,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3003",
         "http://127.0.0.1:3003",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -305,6 +316,72 @@ def health() -> Dict[str, Any]:
         "ok": True,
         "repo_root": str(REPO_ROOT),
     }
+
+
+@app.post("/api/diagnostics/summary")
+async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
+    """Collect a single remote-host diagnostic summary (JSON).
+
+    Runs a local helper script which SSHes into the FreePBX host and emits JSON.
+    """
+
+    script = REPO_ROOT / "scripts" / "remote_freepbx_diagnostics.py"
+    if not script.exists():
+        raise HTTPException(status_code=500, detail="Diagnostics script not found")
+
+    args = [
+        _python_exe(),
+        str(script),
+        "--server",
+        req.server,
+        "--user",
+        req.username,
+        "--password",
+        req.password,
+        "--root-password",
+        req.root_password,
+        "--timeout",
+        str(req.timeout_seconds),
+    ]
+
+    def _run() -> Dict[str, Any]:
+        p = subprocess.run(
+            args,
+            cwd=str(REPO_ROOT),
+            env={
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUTF8": "1",
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            universal_newlines=True,
+            timeout=max(2.0, float(req.timeout_seconds) + 5.0),
+        )
+
+        stdout = (p.stdout or "").strip()
+        stderr = (p.stderr or "").strip()
+        if not stdout:
+            raise RuntimeError("Diagnostics produced no output" + (": " + stderr if stderr else ""))
+
+        try:
+            payload = json.loads(stdout.splitlines()[-1])
+        except Exception as e:
+            raise RuntimeError("Failed to parse diagnostics JSON: {}".format(e))
+
+        if stderr:
+            payload.setdefault("_stderr", stderr)
+
+        return payload
+
+    try:
+        return await asyncio.to_thread(_run)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Diagnostics timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Diagnostics failed: {}".format(e))
 
 
 @app.get("/api/jobs", response_model=List[JobInfo])

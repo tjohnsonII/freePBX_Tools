@@ -42,6 +42,137 @@ import time  # For timing and delays
 import secrets  # For generating secure tokens
 
 
+def _try_import_paramiko():
+    try:
+        import paramiko  # type: ignore
+
+        return paramiko
+    except Exception:
+        return None
+
+
+def _posix_join_dir_file(remote_dir: str, filename: str) -> str:
+    rd = (remote_dir or "").strip()
+    if rd in ("", ".", "~"):
+        return filename
+    if rd.startswith("~/"):
+        # Paramiko SFTP doesn't expand '~' reliably; treat it as relative to home.
+        rd = rd[2:]
+    if rd.startswith("/"):
+        return rd.rstrip("/") + "/" + filename
+    return rd.rstrip("/") + "/" + filename
+
+
+def _sh_quote(s: str) -> str:
+    """POSIX shell single-quote escaping."""
+
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def _shell_path_from_remote_dir(remote_dir: str, filename: str) -> str:
+    """Build a remote path for shell commands, safely handling ~ expansion.
+
+    We prefer $HOME over literal ~ because quoting ~ disables expansion.
+    """
+
+    rd = (remote_dir or "").strip()
+    if rd in ("", "."):
+        return filename
+    if rd == "~":
+        return "$HOME/" + filename
+    if rd.startswith("~/"):
+        return "$HOME/" + rd[2:].rstrip("/") + "/" + filename
+    if rd.startswith("/"):
+        return rd.rstrip("/") + "/" + filename
+    return rd.rstrip("/") + "/" + filename
+
+
+def _ssh_put_via_cat(ssh, local_path: str, remote_shell_path: str, log) -> None:
+    """Upload a file without SFTP by streaming bytes to `cat > ...` over exec."""
+
+    log("Falling back to streaming upload (no SFTP subsystem)...")
+    stdin, stdout, stderr = ssh.exec_command(f"cat > {_sh_quote(remote_shell_path)}")
+    try:
+        with open(local_path, "rb") as f:
+            data = f.read()
+        stdin.write(data)
+        stdin.channel.shutdown_write()
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            try:
+                err = (stderr.read() or b"").decode("utf-8", errors="replace").strip()
+            except Exception:
+                err = ""
+            raise RuntimeError(f"remote cat failed (exit {rc}): {err}")
+    finally:
+        try:
+            stdin.close()
+        except Exception:
+            pass
+
+
+def _ssh_sftp_put_and_chmod(host: str, username: str, password: str, local_path: str, remote_dir: str, log) -> None:
+    paramiko = _try_import_paramiko()
+    if paramiko is None:
+        raise RuntimeError("paramiko is required for password-based push. Install it with: pip install paramiko")
+
+    filename = os.path.basename(local_path)
+    remote_path = _posix_join_dir_file(remote_dir, filename)
+    remote_shell_path = _shell_path_from_remote_dir(remote_dir, filename)
+    log(f"Connecting to {username}@{host}...")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        host,
+        username=username,
+        password=(password if password else None),
+        timeout=20,
+        banner_timeout=20,
+        auth_timeout=20,
+        allow_agent=True,
+        look_for_keys=True,
+    )
+
+    try:
+        if remote_dir and remote_dir not in (".", "~"):
+            rd = remote_dir
+            if rd.startswith("~/"):
+                rd = rd[2:]
+            if rd and rd not in (".", "~"):
+                log(f"Ensuring remote dir exists: {remote_dir}")
+                # Use $HOME-based shell pathing for ~ to avoid quoting issues.
+                if remote_dir == "~":
+                    ssh.exec_command("mkdir -p $HOME")
+                elif remote_dir.startswith("~/"):
+                    ssh.exec_command(f"mkdir -p {_sh_quote('$HOME/' + remote_dir[2:].rstrip('/'))}")
+                else:
+                    ssh.exec_command(f"mkdir -p {_sh_quote(remote_dir)}")
+
+        log(f"Uploading to {remote_path}...")
+        try:
+            sftp = ssh.open_sftp()
+            try:
+                sftp.put(local_path, remote_path)
+            finally:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            log(f"SFTP failed: {e}")
+            _ssh_put_via_cat(ssh, local_path, remote_shell_path, log)
+
+        log("Applying chmod +x...")
+        ssh.exec_command(f"chmod +x {_sh_quote(remote_shell_path)}")
+        log("Upload complete.")
+    finally:
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
 # Initialize Flask app and SocketIO for real-time communication
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)  # Secure session key
@@ -193,6 +324,50 @@ def get_deployment_status(deployment_id):
         'status': active_deployments.get(deployment_id, 'unknown'),
         'logs': deployment_logs.get(deployment_id, [])
     })
+
+
+@app.route('/api/traceroute/push-helper', methods=['POST'])
+def push_traceroute_helper():
+    """Push scripts/traceroute_server_ctl.sh to a traceroute server.
+
+    Returns a deployment_id; logs stream over the existing Socket.IO 'log' event.
+    """
+
+    data = request.get_json() or {}
+    host = data.get('host', '192.168.50.1')
+    username = data.get('username', 'tjohnson')
+    password = data.get('password', '')
+    remote_dir = data.get('remote_dir', '.')
+
+    local_path = os.path.abspath(os.path.join('scripts', 'traceroute_server_ctl.sh'))
+    if not os.path.exists(local_path):
+        return jsonify({'error': f'Local helper not found: {local_path}'}), 500
+
+    deployment_id = secrets.token_hex(8)
+
+    def log(msg: str) -> None:
+        deployment_logs.setdefault(deployment_id, []).append(msg)
+        socketio.emit('log', {'deployment_id': deployment_id, 'message': msg})
+
+    def run_push():
+        try:
+            active_deployments[deployment_id] = 'running'
+            log('Starting traceroute helper push...')
+            log(f'Local: {local_path}')
+            log(f'Remote: {username}@{host} dir={remote_dir}')
+            _ssh_sftp_put_and_chmod(host, username, password, local_path, remote_dir, log)
+            active_deployments[deployment_id] = 'completed'
+            socketio.emit('deployment_complete', {'deployment_id': deployment_id, 'status': 'success'})
+        except Exception as e:
+            active_deployments[deployment_id] = 'failed'
+            log(f'ERROR: {e}')
+            socketio.emit('deployment_complete', {'deployment_id': deployment_id, 'status': 'failed', 'error': str(e)})
+
+    thread = threading.Thread(target=run_push)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'deployment_id': deployment_id, 'status': 'started'})
 
 
 # API endpoint to analyze an uploaded phone configuration file

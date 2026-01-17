@@ -101,8 +101,92 @@ def print_menu():
     print(f"  {Colors.CYAN}7){Colors.RESET} 📱 Phone Config Analyzer")
     print(f"  {Colors.CYAN}8){Colors.RESET} 🔍 Validate install/uninstall symlinks")
     print(f"  {Colors.CYAN}9){Colors.RESET} 📦 Create + upload offline bundle (zip)")
+    print(f"  {Colors.CYAN}11){Colors.RESET} 🚀 Push traceroute server helper to 192.168.50.1")
     print(f"  {Colors.CYAN}10){Colors.RESET} Exit")
     print()
+
+
+def push_traceroute_server_helper() -> None:
+    """Upload scripts/traceroute_server_ctl.sh to a traceroute server.
+
+    Defaults to the lab host 192.168.50.1. Uses Paramiko SFTP if available
+    (supports password auth or keys/agent), otherwise falls back to external scp.
+    """
+
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*70}")
+    print("  🚀 Push traceroute server helper")
+    print(f"{'='*70}{Colors.RESET}")
+
+    default_host = os.environ.get("TRACEROUTE_PUSH_HOST", "192.168.50.1")
+    default_user = os.environ.get("TRACEROUTE_PUSH_USER") or os.environ.get("FREEPBX_USER") or getpass.getuser()
+    default_dir = os.environ.get("TRACEROUTE_PUSH_DIR", ".")
+
+    host = input(f"Target host [{default_host}]: ").strip() or default_host
+    username = input(f"SSH username [{default_user}]: ").strip() or default_user
+    password = getpass.getpass("SSH password (leave blank to use SSH keys/agent): ")
+    remote_dir = input(f"Remote directory (where traceroute_server_update.py lives) [{default_dir}]: ").strip() or default_dir
+
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    local_path = os.path.join(repo_root, "scripts", "traceroute_server_ctl.sh")
+    if not os.path.exists(local_path):
+        print(f"{Colors.RED}❌ Local script not found:{Colors.RESET} {local_path}")
+        return
+
+    # Build a remote path. For Paramiko/SFTP, '~' is not expanded; keep it relative.
+    rd = remote_dir.strip()
+    if rd in ("", ".", "~"):
+        remote_path = "traceroute_server_ctl.sh"
+    elif rd.startswith("~/"):
+        remote_path = "traceroute_server_ctl.sh" if rd == "~/" else rd[2:].rstrip("/") + "/traceroute_server_ctl.sh"
+    elif rd.startswith("/"):
+        remote_path = rd.rstrip("/") + "/traceroute_server_ctl.sh"
+    else:
+        remote_path = rd.rstrip("/") + "/traceroute_server_ctl.sh"
+
+    print(f"\n{Colors.YELLOW}Uploading:{Colors.RESET} {local_path}")
+    print(f"{Colors.YELLOW}To:{Colors.RESET} {username}@{host}:{remote_path}\n")
+
+    ok = False
+    paramiko = _ensure_paramiko()
+    if paramiko is not None:
+        # Prefer Paramiko when available. If the server lacks SFTP subsystem,
+        # _sftp_upload_file() will fall back to an exec-based streaming upload.
+        ok = _sftp_upload_file(host, username, password, local_path, remote_path)
+    else:
+        if password:
+            print(
+                f"{Colors.YELLOW}Note:{Colors.RESET} Paramiko is not installed; using external scp (it will prompt for password)."
+            )
+        ok = _scp_upload_file(host, username, local_path, remote_path)
+
+    if not ok:
+        return
+
+    # Best-effort chmod so it can be executed immediately.
+    paramiko = _ensure_paramiko()
+    if paramiko is not None:
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(
+                host,
+                username=username,
+                password=(password if password else None),
+                timeout=20,
+                banner_timeout=20,
+                auth_timeout=20,
+                allow_agent=True,
+                look_for_keys=True,
+            )
+            ssh.exec_command(f"chmod +x '{remote_path}'")
+            ssh.close()
+            print(f"{Colors.GREEN}[OK]{Colors.RESET} chmod +x applied")
+        except Exception:
+            pass
+
+    print(f"\n{Colors.GREEN}{Colors.BOLD}Next steps on the remote host:{Colors.RESET}")
+    print(f"  1) cd {remote_dir}")
+    print(f"  2) ./traceroute_server_ctl.sh start-follow")
 
 
 def create_offline_bundle():
@@ -127,6 +211,77 @@ def _ensure_paramiko():
         return paramiko
     except Exception:
         return None
+
+
+def _sh_quote(s: str) -> str:
+    """POSIX shell single-quote escaping."""
+
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def _ssh_put_file_via_cat(server: str, username: str, password: str, local_path: str, remote_path: str) -> bool:
+    """Upload a file without SFTP by streaming bytes to `cat > remote_path`.
+
+    This works on older SSH servers that do not provide the sftp subsystem.
+    """
+
+    paramiko = _ensure_paramiko()
+    if paramiko is None:
+        print(f"{Colors.RED}❌ paramiko is not installed (required for password-based upload).{Colors.RESET}")
+        return False
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(
+            server,
+            username=username,
+            password=(password if password else None),
+            timeout=20,
+            banner_timeout=20,
+            auth_timeout=20,
+            allow_agent=True,
+            look_for_keys=True,
+        )
+
+        # Ensure target directory exists (best-effort). If remote_path is relative, this is a no-op.
+        remote_dir = os.path.dirname(remote_path)
+        if remote_dir and remote_dir not in (".", "~"):
+            ssh.exec_command(f"mkdir -p {_sh_quote(remote_dir)}")
+
+        cmd = f"cat > {_sh_quote(remote_path)}"
+        stdin, stdout, stderr = ssh.exec_command(cmd)
+        try:
+            with open(local_path, "rb") as f:
+                data = f.read()
+            stdin.write(data)
+            stdin.channel.shutdown_write()
+
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                err = ""
+                try:
+                    err = (stderr.read() or b"").decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                print(f"{Colors.RED}[FAILED]{Colors.RESET} Remote write failed (exit {exit_status}): {err.strip()}")
+                return False
+        finally:
+            try:
+                stdin.close()
+            except Exception:
+                pass
+
+        print(f"{Colors.GREEN}[OK]{Colors.RESET} Uploaded to {server}:{remote_path} (via cat)")
+        return True
+    except Exception as e:
+        print(f"{Colors.RED}[FAILED]{Colors.RESET} Upload to {server} failed: {e}")
+        return False
+    finally:
+        try:
+            ssh.close()
+        except Exception:
+            pass
 
 
 def _read_server_list_file(path: str) -> List[str]:
@@ -183,13 +338,23 @@ def _sftp_upload_file(server: str, username: str, password: str, local_path: str
             allow_agent=True,
             look_for_keys=True,
         )
-        sftp = ssh.open_sftp()
         try:
-            sftp.put(local_path, remote_path)
-        finally:
-            sftp.close()
-        print(f"{Colors.GREEN}[OK]{Colors.RESET} Uploaded to {server}:{remote_path}")
-        return True
+            sftp = ssh.open_sftp()
+            try:
+                sftp.put(local_path, remote_path)
+            finally:
+                sftp.close()
+            print(f"{Colors.GREEN}[OK]{Colors.RESET} Uploaded to {server}:{remote_path}")
+            return True
+        except Exception as e:
+            # Common on very old SSH servers: SFTP subsystem not configured/available.
+            print(f"{Colors.YELLOW}[WARN]{Colors.RESET} SFTP upload failed ({e}). Falling back to streaming upload...")
+            # Close this SSH client and reconnect in the fallback helper (keeps logic simple).
+            try:
+                ssh.close()
+            except Exception:
+                pass
+            return _ssh_put_file_via_cat(server, username, password, local_path, remote_path)
     except Exception as e:
         print(f"{Colors.RED}[FAILED]{Colors.RESET} Upload to {server} failed: {e}")
         return False
@@ -207,10 +372,26 @@ def _scp_upload_file(server: str, username: str, local_path: str, remote_path: s
     - This will prompt interactively for password if needed.
     - Host key prompts may appear on first connection.
     """
+    # OpenSSH 9.x defaults scp to SFTP mode, which can fail on older servers
+    # that do not provide the sftp subsystem. "-O" forces the legacy scp/rcp protocol.
     scp_cmd = [
         "scp",
+        "-O",
         "-o",
         "StrictHostKeyChecking=accept-new",
+    ]
+
+    # Very old boxes (e.g., FreeBSD 7.4 OpenSSH 5.1p1) may only advertise ssh-dss host keys.
+    # Keep this scoped to the lab host.
+    if server.strip() == "192.168.50.1":
+        scp_cmd += [
+            "-o",
+            "HostKeyAlgorithms=+ssh-dss",
+            "-o",
+            "PubkeyAcceptedAlgorithms=+ssh-dss",
+        ]
+
+    scp_cmd += [
         local_path,
         f"{username}@{server}:{remote_path}",
     ]
@@ -1080,6 +1261,8 @@ def main():
             deploy_tools()
         elif choice == "2":
             uninstall_tools()
+        elif choice == "11":
+            push_traceroute_server_helper()
         elif choice == "3":
             clean_deploy()
         elif choice == "4":

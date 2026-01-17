@@ -17,6 +17,7 @@ import Switch8DynamicTemplate from './Switch8DynamicTemplate';
 import HostedOrderTrackerTab from './HostedOrderTrackerTab';
 import StrettoImportExportTab from './StrettoImportExportTab';
 import { FaInfoCircle } from 'react-icons/fa';
+import DiagnosticsTab from './tabs/DiagnosticsTab';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -34,6 +35,7 @@ const TABS = [
   { key: 'phone', label: 'Phone Configs' },
   { key: 'expansion', label: 'Expansion Modules' },
   { key: 'reference', label: 'Reference' },
+  { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'fullconfig', label: 'Full Config' },
   { key: 'fbpx', label: 'FBPX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
@@ -121,7 +123,7 @@ function App() {
   });
 
   // --- OTT Mikrotik Template Editor State ---
-  const [ottFields, setOttFields] = useState({
+  const [ottFields] = useState({
     ip: '',
     customerName: '',
     customerAddress: '',
@@ -163,6 +165,13 @@ function App() {
     pbxIp: '',
   });
   const [yealinkOutput, setYealinkOutput] = useState('');
+
+  type YealinkExpansionKey = { label: string; value: string; ip?: string };
+  const yealinkKeys: YealinkExpansionKey[] = Array.from({ length: 20 }, () => ({
+    label: yealinkSection.label,
+    value: yealinkSection.value,
+    ip: yealinkSection.pbxIp,
+  }));
   const generateYealinkExpansion = () => {
     const { templateType, sidecarPage, sidecarLine, label, value, pbxIp } = yealinkSection;
     let config = '';
@@ -182,13 +191,14 @@ function App() {
 
   // Generate all 20 Yealink expansion keys for the selected page
   function generateYealinkExpansionAll() {
+    const page = yealinkSection.sidecarPage || '1';
     let config = '';
     yealinkKeys.forEach((key, i) => {
       const idx = i + 1;
-      config += `expansion_module.1.key.${idx}.label=${key.label}\n`;
-      config += `expansion_module.1.key.${idx}.type=16\n`; // or 13 for SpeedDial
-      config += `expansion_module.1.key.${idx}.value=${key.value}${key.ip ? '@' + key.ip : ''}\n`;
-      config += `expansion_module.1.key.${idx}.line=1\n`;
+      config += `expansion_module.${page}.key.${idx}.label=${key.label}\n`;
+      config += `expansion_module.${page}.key.${idx}.type=16\n`; // or 13 for SpeedDial
+      config += `expansion_module.${page}.key.${idx}.value=${key.value}${key.ip ? '@' + key.ip : ''}\n`;
+      config += `expansion_module.${page}.key.${idx}.line=1\n`;
     });
     setYealinkOutput(config);
   }
@@ -202,6 +212,12 @@ function App() {
     linekeyIndex: '',
   });
   const [polycomOutput, setPolycomOutput] = useState('');
+
+  type PolycomExpansionKey = { address: string; label: string };
+  const polycomKeys: PolycomExpansionKey[] = Array.from({ length: 28 }, () => ({
+    address: polycomSection.address,
+    label: polycomSection.label,
+  }));
   const generatePolycomExpansion = () => {
     const { address, label, type, linekeyCategory, linekeyIndex } = polycomSection;
     let config = '';
@@ -382,58 +398,7 @@ function App() {
   // State for feature key template section (advanced programmable keys)
   // ...existing code...
 
-  // Yealink record templates for quick config (voicemail, busy, etc)
-  const yealinkRecordTemplates = [
-    { label: 'Record Unavailable', value: '*97$Cwc$$Cp1$01$Tdtmf$' },
-    { label: 'Record Busy', value: '*97$Cwc$$Cp1$02$Tdtmf$' },
-    { label: 'Record Name', value: '*97$Cwc$$Cp1$03$Tdtmf$' },
-    { label: 'Record Unreachable/DND', value: '*97$Cwc$$Cp1$04$Tdtmf$' },
-  ];
-
-  // Polycom record templates for quick config (voicemail, busy, etc)
-  const polycomRecordTemplates = [
-    { label: 'Record Unavailable', value: '*97$Tinvite$$Cpause2$01$Tdtmf$' },
-    { label: 'Record Busy', value: '*97$Tinvite$$Cpause2$02$Tdtmf$' },
-    { label: 'Record Name', value: '*97$Tinvite$$Cpause2$03$Tdtmf$' },
-    { label: 'Record DND', value: '*97$Tinvite$$Cpause2$04$Tdtmf$' },
-  ];
-
-  // State for record template section (quick record macros)
-  // ...existing code...
-
-  // Helper: Generate Yealink transfer-to-VM config (special feature)
-  function generateYealinkTransferToVM(lineNum: string, extNum: string, pbxIp: string) {
-    return (
-      `linekey.${lineNum}.extension=${extNum}\n` +
-      `linekey.${lineNum}.label=Transfer-2-VM\n` +
-      `linekey.${lineNum}.line=1\n` +
-      `linekey.${lineNum}.type=3\n` +
-      `linekey.${lineNum}.value=*${extNum}@${pbxIp}\n`
-    );
-  }
-
-  // Helper: Generate Yealink speed dial config (special feature)
-  function generateYealinkSpeedDial(lineNum: string, label: string, value: string) {
-    return (
-      `linekey.${lineNum}.line=1\n` +
-      `linekey.${lineNum}.label=${label}\n` +
-      `linekey.${lineNum}.type=13\n` +
-      `linekey.${lineNum}.value=${value}\n`
-    );
-  }
-
-  // Helper: Generate Polycom external number config (special feature)
-  function generatePolycomExternal(lineNum: string, efkIndex: string, label: string, externalNum: string) {
-    return (
-      'feature.enhancedFeatureKeys.enabled=1\n' +
-      'feature.EFKLineKey.enabled=1\n' +
-      `efk.efklist.${efkIndex}.mname=${label}\n` +
-      `efk.efklist.${efkIndex}.status=1\n` +
-      `efk.efklist.${efkIndex}.action.string=${externalNum}$Tinvite$\n` +
-      `linekey.${lineNum}.category=EFK\n` +
-      `linekey.${lineNum}.index=${efkIndex}\n`
-    );
-  }
+  // (Unused quick-macro templates removed to keep tsc build clean)
 
   // Generate main config for Polycom or Yealink park lines (main output)
   const generateConfig = () => {
@@ -543,15 +508,6 @@ function App() {
   const [fpbxRows, setFpbxRows] = useState<FpbxFormType[]>(Array(10).fill(0).map(createEmptyFpbxRow));
   const fpbxDownloadRef = useRef<HTMLAnchorElement>(null);
 
-  // FBPX dynamic fields (columns)
-  function handleFpbxDeleteField(field: string) {
-    setFpbxRows(rows => rows.map(row => {
-      const newRow = { ...row };
-      delete newRow[field];
-      return newRow;
-    }));
-  }
-
   function handleFpbxChange(rowIdx: number, e: React.ChangeEvent<HTMLInputElement>) {
     setFpbxRows(rows => {
       const updated = [...rows];
@@ -597,15 +553,6 @@ function App() {
   const [vpbxRows, setVpbxRows] = useState<VpbxFormType[]>(Array(10).fill(0).map(createEmptyVpbxRow));
   const vpbxDownloadRef = useRef<HTMLAnchorElement>(null);
 
-  // VPBX dynamic fields (columns)
-  function handleVpbxDeleteField(field: string) {
-    setVpbxRows(rows => rows.map(row => {
-      const newRow = { ...row };
-      delete newRow[field];
-      return newRow;
-    }));
-  }
-
   function handleVpbxChange(rowIdx: number, e: React.ChangeEvent<HTMLInputElement>) {
     setVpbxRows(rows => {
       const updated = [...rows];
@@ -648,7 +595,7 @@ function App() {
   }
 
   // New state for time offset and admin password
-  const [timeOffset, setTimeOffset] = useState('-5');
+  const [timeOffset, setTimeOffset] = useState(DEFAULT_TIME_OFFSET);
   const [adminPassword, setAdminPassword] = useState(DEFAULT_ADMIN_PASSWORD);
 
   // New state for external number speed dial
@@ -1655,6 +1602,9 @@ function App() {
           <h2>Stretto Import</h2>
           <StrettoImportExportTab />
         </div>
+      )}
+      {activeTab === 'diagnostics' && (
+        <DiagnosticsTab />
       )}
     </div>
   );

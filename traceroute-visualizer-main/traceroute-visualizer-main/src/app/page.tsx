@@ -19,6 +19,15 @@ type Hop = {
   };
 };
 
+function hasHopsArray(value: unknown): value is { hops: unknown[] } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "hops" in value &&
+    Array.isArray((value as { hops: unknown }).hops)
+  );
+}
+
 export default function Page() {
   const [target, setTarget] = useState("");
   const [probe, setProbe] = useState("icmp"); // icmp or tcp
@@ -47,15 +56,16 @@ export default function Page() {
         } catch {}
         throw new Error(msg);
       }
-      const data = await res.json();
-      const hopsData = Array.isArray(data)
+      const data: unknown = await res.json();
+
+      const hopsData: unknown[] | null = Array.isArray(data)
         ? data
-        : (data && typeof data === "object" && Array.isArray((data as any).hops))
-          ? (data as any).hops
+        : hasHopsArray(data)
+          ? data.hops
           : null;
 
       if (hopsData !== null) {
-        setHops(hopsData);
+        setHops(hopsData as Hop[]);
       } else {
         setError("Invalid response from traceroute server.");
         setHops([]);
