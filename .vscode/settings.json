@@ -50,5 +50,29 @@
             "/d",
             "/c"
         ]
+    },
+    "files.exclude": {
+        "**/*.log": true,
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/dist": true,
+        "**/build": true
+    },
+    "search.exclude": {
+        "**/*.log": true,
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/dist": true,
+        "**/build": true
+    },
+    "files.watcherExclude": {
+        "**/*.log": true,
+        "**/node_modules/**": true,
+        "**/.next/**": true,
+        "**/.turbo/**": true,
+        "**/dist/**": true,
+        "**/build/**": true
     }
 }

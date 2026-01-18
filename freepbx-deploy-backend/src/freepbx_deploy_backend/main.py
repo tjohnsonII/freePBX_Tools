@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Set
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -344,6 +345,38 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
         str(req.timeout_seconds),
     ]
 
+    def _diagnostics_hint(msg: str) -> str | None:
+        if not msg:
+            return None
+        m = msg.lower()
+
+        # Heuristic: the helper times out while waiting for its marker but the remote is
+        # spewing a login banner/MOTD (FreePBX commonly prints ASCII art + network tables).
+        if "timed out waiting for remote output" in m:
+            banner_signals = [
+                "current network configuration",
+                "notice! you have",
+                "freepbx",
+                "pbx",
+                "__freepbx_diag_marker__",
+                "__freepbxtools_sync__",
+            ]
+            if any(s in m for s in banner_signals):
+                return (
+                    "Hint: the remote SSH session is printing a large login banner/MOTD (ASCII art / network table), "
+                    "which can interfere with interactive marker detection. If possible, disable MOTD/banner output on the PBX "
+                    "(e.g. `/etc/motd`, `/etc/issue`, or sshd `PrintMotd no` / `PrintLastLog no`), or increase Timeout."
+                )
+            return "Hint: increase Timeout (the helper runs multiple remote commands), and ensure the SSH account can run `su - root` non-interactively."
+
+        if "failed to become root" in m or "root password" in m:
+            return "Hint: verify the root password and that `su - root` is allowed for this user on the PBX."
+
+        if "authentication failed" in m or "permission denied" in m:
+            return "Hint: verify SSH username/password and that the server allows password auth from this machine."
+
+        return None
+
     def _run() -> Dict[str, Any]:
         p = subprocess.run(
             args,
@@ -358,7 +391,10 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
             text=True,
             errors="replace",
             universal_newlines=True,
-            timeout=max(2.0, float(req.timeout_seconds) + 5.0),
+            # req.timeout_seconds is the SSH/connect + per-command read timeout used by the
+            # diagnostics helper. The helper runs multiple remote commands, so total runtime
+            # can exceed timeout_seconds + 5.
+            timeout=max(30.0, float(req.timeout_seconds) * 4.0 + 10.0),
         )
 
         stdout = (p.stdout or "").strip()
@@ -371,17 +407,48 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
         except Exception as e:
             raise RuntimeError("Failed to parse diagnostics JSON: {}".format(e))
 
+        payload["_returncode"] = int(p.returncode)
         if stderr:
             payload.setdefault("_stderr", stderr)
 
         return payload
 
     try:
-        return await asyncio.to_thread(_run)
+        payload = await asyncio.to_thread(_run)
+
+        # If the helper failed, surface a proper error payload so the frontend
+        # can show something actionable.
+        if not bool(payload.get("ok", True)) or int(payload.get("_returncode", 0) or 0) != 0:
+            msg = payload.get("error") or payload.get("_stderr") or "Diagnostics failed"
+            hint = _diagnostics_hint(str(msg))
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "ok": False,
+                    "server": req.server,
+                    "error": str(msg),
+                    "_hint": hint,
+                    "_stderr": payload.get("_stderr"),
+                },
+            )
+
+        return payload
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Diagnostics timed out")
+        return JSONResponse(
+            status_code=504,
+            content={
+                "ok": False,
+                "server": req.server,
+                "error": "Diagnostics timed out",
+                "_hint": "Hint: increase Timeout. The helper runs multiple SSH commands; total runtime can exceed the per-command timeout.",
+            },
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Diagnostics failed: {}".format(e))
+        msg = "Diagnostics failed: {}".format(e)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "server": req.server, "error": msg, "_hint": _diagnostics_hint(msg)},
+        )
 
 
 @app.get("/api/jobs", response_model=List[JobInfo])

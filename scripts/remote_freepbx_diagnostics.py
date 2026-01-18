@@ -23,6 +23,7 @@ import re
 import socket
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -34,7 +35,48 @@ except Exception as e:  # pragma: no cover
     sys.exit(2)
 
 
-_MARKER_RE = re.compile(r"__FREEPBX_DIAG_MARKER__:(?P<rc>\d+)")
+_PROMPTS = ("__FREEPBXTOOLS_USER__$ ", "__FREEPBXTOOLS_ROOT__# ")
+
+# Generic prompt patterns (best-effort). We avoid relying on these for control flow,
+# but use them to clean output when remote shells don't honor our PS1.
+_PROMPT_ONLY_RE = re.compile(r"^\s*\[[^\]]+\][#$]\s*$")
+_PROMPT_PREFIX_RE = re.compile(r"^\s*(\[[^\]]+\][#$]|[^\n]*[#$])\s+")
+
+# Match ANSI CSI escape sequences (color, cursor movement, etc.).
+_ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+# Cap interactive-shell captured output to avoid unbounded memory growth while
+# still being large enough that a marker cannot be pushed out by a single burst
+# of banner/MOTD output.
+_MAX_SHELL_BUF_CHARS = 600_000
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_CSI_RE.sub("", s)
+
+
+def _normalize_text(s: str) -> str:
+    """Normalize interactive shell output for reliable matching.
+
+    - Strip ANSI CSI escape sequences (colors)
+    - Normalize CRLF/CR to LF
+    - Drop other control characters that can split tokens
+    """
+
+    if not s:
+        return ""
+    s = _strip_ansi(s)
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    out_chars: List[str] = []
+    for ch in s:
+        o = ord(ch)
+        if ch in ("\n", "\t"):
+            out_chars.append(ch)
+            continue
+        # Keep printable ASCII/Unicode, drop control chars.
+        if o >= 32 and o != 127:
+            out_chars.append(ch)
+    return "".join(out_chars)
 
 
 @dataclass
@@ -47,13 +89,10 @@ def _now_utc_ts() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _read_until(chan: "paramiko.Channel", predicate, timeout: float) -> str:
+def _read_until(chan: "paramiko.Channel", predicate, timeout: float, stage: str = "") -> str:
     buf = ""
     start = time.time()
     while True:
-        if time.time() - start > timeout:
-            raise TimeoutError("Timed out waiting for remote output")
-
         if chan.recv_ready():
             chunk = chan.recv(65535)
             try:
@@ -61,10 +100,24 @@ def _read_until(chan: "paramiko.Channel", predicate, timeout: float) -> str:
             except Exception:
                 text = str(chunk)
             buf += text
+
+            # Keep a rolling window to avoid pathological MOTDs filling memory.
+            if len(buf) > _MAX_SHELL_BUF_CHARS:
+                buf = buf[-_MAX_SHELL_BUF_CHARS:]
+
             if predicate(buf):
                 return buf
         else:
             time.sleep(0.05)
+
+        if time.time() - start > timeout:
+            tail = _normalize_text(buf[-8000:] if buf else "")
+            msg = "Timed out waiting for remote output"
+            if stage:
+                msg += " (stage={})".format(stage)
+            if tail:
+                msg += "\n--- last output ---\n{}".format(tail)
+            raise TimeoutError(msg)
 
 
 def _shell_send(chan: "paramiko.Channel", s: str) -> None:
@@ -72,36 +125,90 @@ def _shell_send(chan: "paramiko.Channel", s: str) -> None:
     chan.send(s.encode("utf-8", errors="replace"))
 
 
-def _set_known_prompt(chan: "paramiko.Channel", prompt: str, timeout: float) -> None:
-    # Ensure prompt is set and visible.
-    _shell_send(chan, "export PS1='{}'\n".format(prompt.replace("'", "")))
+def _sync_shell(chan: "paramiko.Channel", timeout: float) -> None:
+    """Synchronize with an interactive shell without relying on prompts.
+
+    Prompts differ across shells (bash/sh/csh) and across OSes (Linux vs FreeBSD).
+    We only need a reliable way to know the remote has processed our input.
+    """
+
+    token = uuid.uuid4().hex[:12]
+    marker = "__FREEPBXTOOLS_SYNC__:{}".format(token)
+    _shell_send(chan, "echo {}\n".format(marker))
 
     def _pred(buf: str) -> bool:
-        return prompt in buf
+        # Search the rolling buffer. Looking only at a small tail can miss the
+        # marker if a large banner arrives after it in the same recv burst.
+        return marker in _normalize_text(buf)
 
-    _read_until(chan, _pred, timeout=timeout)
+    _read_until(chan, _pred, timeout=timeout, stage="sync")
+
+
+def _sh_single_quote(s: str) -> str:
+    # Wrap in single-quotes and escape embedded single-quotes.
+    # Example: abc'def -> 'abc'"'"'def'
+    return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
 def _run_shell_cmd(chan: "paramiko.Channel", cmd: str, timeout: float) -> CmdResult:
+    # Run via `sh -c` so we get consistent POSIX semantics regardless of the
+    # user's/root's login shell (bash/sh/csh).
     marker = "__FREEPBX_DIAG_MARKER__"
-    full = "{}\n".format(cmd)
-    full += "echo {}:$?\n".format(marker)
+    token = uuid.uuid4().hex[:12]
+    marker_re = re.compile(r"{}:{}:(?P<rc>\d+)".format(re.escape(marker), re.escape(token)))
+
+    # IMPORTANT: use `sh -c '<cmd>'` with safe single-quote escaping.
+    # This keeps pipelines/redirects and `$?` behavior consistent.
+    sh_cmd = "sh -c {}".format(_sh_single_quote(cmd))
+
+    full = "{}\n".format(sh_cmd)
+    full += "echo {}:{}:$?\n".format(marker, token)
     _shell_send(chan, full)
 
     def _pred(buf: str) -> bool:
-        return marker in buf
+        # Search the rolling buffer. Looking only at a tail can miss markers when
+        # the server prints a large login banner/MOTD after the marker.
+        return marker_re.search(_normalize_text(buf)) is not None
 
-    out = _read_until(chan, _pred, timeout=timeout)
+    raw = _read_until(chan, _pred, timeout=timeout, stage="cmd")
 
     # Extract rc from the last marker occurrence.
     m = None
-    for mm in _MARKER_RE.finditer(out):
+    raw_no_ansi = _normalize_text(raw)
+    for mm in marker_re.finditer(raw_no_ansi):
         m = mm
     rc = int(m.group("rc")) if m else 1
 
-    # Remove everything up to first command echo-ish prompt artifacts is messy; keep as-is,
-    # but strip marker line.
-    out_clean = _MARKER_RE.sub("", out)
+    # Clean interactive shell artifacts: strip our prompts, drop echoed input lines, and
+    # remove any marker lines (both echoed input and the marker output).
+    cleaned_lines: List[str] = []
+    cmd_stripped = cmd.strip()
+    sh_cmd_stripped = sh_cmd.strip()
+    for line in raw_no_ansi.splitlines():
+        # Drop marker lines completely.
+        if marker in line:
+            continue
+
+        # Strip known prompts (if present).
+        for p in _PROMPTS:
+            if line.startswith(p):
+                line = line[len(p) :]
+                break
+
+        # Drop prompt-only lines from unknown PS1 formats.
+        if _PROMPT_ONLY_RE.match(line.strip()):
+            continue
+
+        # If a prompt was included at the start of a line, strip it.
+        line = _PROMPT_PREFIX_RE.sub("", line)
+
+        # Drop echoed input lines (either the raw command or our sh wrapper).
+        if line.strip() == cmd_stripped or line.strip() == sh_cmd_stripped:
+            continue
+
+        cleaned_lines.append(line)
+
+    out_clean = "\n".join(cleaned_lines).strip("\n")
     return CmdResult(rc=rc, out=out_clean)
 
 
@@ -133,17 +240,36 @@ def _become_root(chan: "paramiko.Channel", root_password: str, timeout: float) -
 
     def _pred(buf: str) -> bool:
         b = buf.lower()
-        return ("password" in b) or ("#" in buf)
+        # Detect a password prompt, a failure, or an apparent root prompt.
+        return (
+            ("password" in b)
+            or ("authentication" in b)
+            or ("sorry" in b)
+            or ("incorrect" in b)
+            or re.search(r"\n[^\n]*#\s*$", buf) is not None
+        )
 
-    out = _read_until(chan, _pred, timeout=timeout)
+    out = _read_until(chan, _pred, timeout=timeout, stage="su")
 
     if "password" in out.lower():
         if not root_password:
             raise RuntimeError("Root password required for su - root")
         _shell_send(chan, root_password + "\n")
 
-    # Force a known prompt and wait for it.
-    _set_known_prompt(chan, "__FREEPBXTOOLS_ROOT__# ", timeout=timeout)
+    # Sync and validate we are actually root.
+    _sync_shell(chan, timeout=timeout)
+
+    # Validate root via return code to avoid prompt/banner contamination.
+    # (Some systems print the prompt as a standalone line, which can confuse
+    # output-based checks.)
+    chk = _run_shell_cmd(chan, 'test "$(id -u)" = "0"', timeout=timeout)
+    if chk.rc != 0:
+        # Preserve any cleaned output for debugging.
+        raise RuntimeError("Failed to become root" + (" (details={!r})".format(chk.out) if chk.out else ""))
+
+    # Best-effort: set a deterministic prompt after becoming root.
+    _shell_send(chan, "export PS1='__FREEPBXTOOLS_ROOT__# '; export PROMPT_COMMAND='';\n")
+    _sync_shell(chan, timeout=timeout)
 
 
 def _parse_active_calls(text: str) -> Optional[int]:
@@ -177,9 +303,15 @@ def collect_one(host: str, username: str, password: str, root_password: str, tim
         chan = client.invoke_shell(width=200, height=60)
         chan.settimeout(timeout)
 
-        # Sync and get to a known prompt first.
-        _set_known_prompt(chan, "__FREEPBXTOOLS_USER__$ ", timeout=timeout)
-        _become_root(chan, root_password=root_password, timeout=timeout)
+        # FreePBX often prints a large banner (MOTD/network info) on login and/or `su -`.
+        # Give the initial handshake/escalation a bit more time than per-command timeouts.
+        boot_timeout = max(timeout, 45.0)
+
+        # Sync with the remote interactive shell.
+        # Best-effort: set deterministic user prompt for cleaner output.
+        _shell_send(chan, "export PS1='__FREEPBXTOOLS_USER__$ '; export PROMPT_COMMAND='';\n")
+        _sync_shell(chan, timeout=boot_timeout)
+        _become_root(chan, root_password=root_password, timeout=boot_timeout)
 
         # Meta
         hostname = _run_shell_cmd(chan, "hostname", timeout=timeout).out.strip().splitlines()[-1].strip()

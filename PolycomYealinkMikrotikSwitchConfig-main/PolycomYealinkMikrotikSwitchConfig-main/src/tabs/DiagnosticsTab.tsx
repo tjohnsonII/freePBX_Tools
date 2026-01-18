@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type DiagnosticsPayload = {
+  ok?: boolean;
   generated_at_utc?: string;
   meta?: {
     hostname?: string;
@@ -20,6 +21,8 @@ type DiagnosticsPayload = {
   snapshot?: { path?: string; exists?: boolean; age_seconds?: number; mtime_utc?: string };
   error?: string;
   stderr?: string;
+  _stderr?: string;
+  _hint?: string;
 };
 
 type ServiceRow = {
@@ -115,7 +118,8 @@ export default function DiagnosticsTab() {
 
       if (!res.ok) {
         const msg = data?.error || `Request failed (${res.status})`;
-        throw new Error(msg);
+        const hint = data?._hint ? `\n\n${data._hint}` : '';
+        throw new Error(`${msg}${hint}`);
       }
 
       setPayload(data);
@@ -212,6 +216,22 @@ export default function DiagnosticsTab() {
 
       {payload && (
         <div style={{ marginTop: 18 }}>
+          {(payload.error || payload.stderr || payload._stderr || payload.ok === false) && (
+            <div style={{ marginBottom: 14, background: '#ffecec', border: '1px solid #ffb3b3', borderRadius: 8, padding: 12 }}>
+              <b>Diagnostics error:</b> {payload.error || 'Unknown error'}
+              {payload._hint && (
+                <div style={{ marginTop: 8 }}>
+                  <b>Hint:</b> {payload._hint}
+                </div>
+              )}
+              {(payload.stderr || payload._stderr) && (
+                <div style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                  {String(payload.stderr || payload._stderr)}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#666' }}>Host</div>

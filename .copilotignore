@@ -1,0 +1,39 @@
+# Exclude large / noisy / generated artifacts from Copilot Chat context & indexing
+# (Helps avoid oversized context payloads and slow indexing.)
+
+# Logs / dumps
+**/*.log
+**/*.out
+**/*.trace
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+
+# Node/Next.js artifacts
+**/node_modules/
+**/.next/
+**/.turbo/
+**/dist/
+**/build/
+
+# Large or sensitive data folders
+data/
+scraped_tickets/
+knowledge_base/
+PhoneConfigs/
+CAGE_INFO/cage_output_*.log
+
+# Virtual envs
+.venv/
+**/.venv/
+venv/
+
+# Archives
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.7z
+
+# Databases
+**/*.db
