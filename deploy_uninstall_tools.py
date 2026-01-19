@@ -18,7 +18,19 @@ import argparse
 import time
 import re
 
-import paramiko
+from typing import Any
+
+paramiko: Any
+try:
+    import paramiko  # type: ignore
+except ImportError:
+    # Defer failure until a network operation is requested.
+    paramiko = None
+
+
+def _ensure_paramiko() -> None:
+    if paramiko is None:
+        raise RuntimeError("paramiko library not installed (required for SSH). Install with: pip install paramiko")
 
 
 def _configure_stdio_errors_replace() -> None:
@@ -48,8 +60,8 @@ def _safe_print(text: str) -> None:
 
 def load_credentials():
     env_user = os.getenv("FREEPBX_USER", "").strip()
-    env_pass = os.getenv("FREEPBX_PASSWORD", "")
-    env_root = os.getenv("FREEPBX_ROOT_PASSWORD", "")
+    env_pass = (os.getenv("FREEPBX_PASSWORD", "") or "").rstrip("\r\n")
+    env_root = (os.getenv("FREEPBX_ROOT_PASSWORD", "") or "").rstrip("\r\n")
     if env_user or env_pass or env_root:
         return env_user or "123net", env_pass, env_root
 
@@ -61,6 +73,7 @@ def load_credentials():
 
 def uninstall_from_server(host, user, password, root_password):
     """Connect to server and run uninstall script"""
+    _ensure_paramiko()
     print(f"[{host}] Starting uninstall...")
     
     ssh = paramiko.SSHClient()

@@ -166,9 +166,11 @@ def _build_env(job: Job) -> Dict[str, str]:
     if job.username:
         env["FREEPBX_USER"] = job.username
     if job.password:
-        env["FREEPBX_PASSWORD"] = job.password
+        # Avoid accidental CRLF/newline characters from UI copy/paste.
+        env["FREEPBX_PASSWORD"] = job.password.rstrip("\r\n")
     if job.root_password:
-        env["FREEPBX_ROOT_PASSWORD"] = job.root_password
+        # Avoid accidental CRLF/newline characters from UI copy/paste.
+        env["FREEPBX_ROOT_PASSWORD"] = job.root_password.rstrip("\r\n")
 
     # Make Python output deterministic for decode.
     env.setdefault("PYTHONIOENCODING", "utf-8")

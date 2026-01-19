@@ -94,8 +94,10 @@ def load_credentials():
     Note: If password is blank, SSH key/agent auth may still work.
     """
     env_user = os.getenv("FREEPBX_USER", "").strip()
-    env_pass = os.getenv("FREEPBX_PASSWORD", "")
-    env_root = os.getenv("FREEPBX_ROOT_PASSWORD", "")
+    # Passwords should not be fully stripped (spaces can be real), but it is
+    # safe to remove accidental CRLF/newlines from UI copy/paste.
+    env_pass = (os.getenv("FREEPBX_PASSWORD", "") or "").rstrip("\r\n")
+    env_root = (os.getenv("FREEPBX_ROOT_PASSWORD", "") or "").rstrip("\r\n")
 
     if env_user or env_pass or env_root:
         return {
@@ -620,8 +622,13 @@ def deploy_to_server(
             try:
                 with open(local_path, 'rb') as f:
                     sftp.putfo(f, remote_path)
-                # Make shell scripts executable
-                if local_path.endswith('.sh'):
+                # Make common entrypoints executable so they can be run even
+                # before/without the root install.sh step.
+                if (
+                    local_path.endswith('.sh')
+                    or (rel_path.startswith('bin/') and local_path.endswith('.py'))
+                    or rel_path in {'bootstrap.sh', 'install.sh', 'uninstall.sh'}
+                ):
                     sftp.chmod(remote_path, 0o755)
                 files_uploaded += 1
             except Exception as e:
@@ -723,7 +730,16 @@ def deploy_to_server(
             print(f"[{server_ip}] Installation output (captured, markers stripped):\n{_strip_internal_markers(install_output)}")
         
         result['files_deployed'] = files_uploaded
-        result['message'] = f'Deployed {files_uploaded} files'
+        # Preserve the more specific install success/failure message.
+        if result.get('success'):
+            result['message'] = f'Installed successfully (deployed {files_uploaded} files)'
+        else:
+            base_msg = (result.get('message') or 'Install incomplete').strip()
+            # Avoid double-appending if another path already added the count.
+            if f"deployed {files_uploaded} files" not in base_msg:
+                result['message'] = f"{base_msg} (deployed {files_uploaded} files)"
+            else:
+                result['message'] = base_msg
         
     except paramiko.AuthenticationException:
         result['message'] = 'Authentication failed'
