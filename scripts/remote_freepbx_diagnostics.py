@@ -385,7 +385,25 @@ def collect_one(host: str, username: str, password: str, root_password: str, tim
                 # Some systems return empty; fall back to service
                 cmd2 = "service {svc} status >/dev/null 2>&1 && echo active || echo inactive".format(svc=s)
                 state = _run_shell_cmd(chan, cmd2, timeout=timeout).out.strip().splitlines()[-1].strip()
-            svc_rows.append({"name": s, "state": state})
+
+            # Enabled at boot (systemd + chkconfig fallback)
+            en_cmd = "(systemctl is-enabled {svc} 2>/dev/null || true)".format(svc=s)
+            en_lines = _run_shell_cmd(chan, en_cmd, timeout=timeout).out.strip().splitlines()
+            enabled = (en_lines[-1].strip() if en_lines else "").lower()
+            if enabled not in ("enabled", "disabled", "static", "masked", "indirect", "generated", "unknown"):
+                enabled = ""
+            if not enabled:
+                # SysV: treat any runlevel ':on' as enabled.
+                en_cmd2 = (
+                    "(chkconfig --list {svc} 2>/dev/null | grep -q ':on' && echo enabled) || "
+                    "(chkconfig --list {svc} 2>/dev/null | grep -q ':off' && echo disabled) || "
+                    "echo unknown"
+                ).format(svc=s)
+                enabled = _run_shell_cmd(chan, en_cmd2, timeout=timeout).out.strip().splitlines()[-1].strip().lower()
+                if enabled not in ("enabled", "disabled", "static", "masked", "unknown"):
+                    enabled = "unknown"
+
+            svc_rows.append({"name": s, "state": state, "enabled": enabled})
 
         # Snapshot file (if tool installed)
         snap_path = "/home/123net/callflows/freepbx_dump.json"

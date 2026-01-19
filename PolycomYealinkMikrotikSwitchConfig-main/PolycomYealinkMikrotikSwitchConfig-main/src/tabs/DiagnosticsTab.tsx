@@ -65,6 +65,40 @@ function formatAge(seconds: number | undefined): string {
   return `${h}h ${m % 60}m`;
 }
 
+function pillStyle(kind: 'ok' | 'warn' | 'bad' | 'neutral'): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: '16px',
+  };
+  if (kind === 'ok') return { ...base, background: '#e8f7ee', color: '#16794a', border: '1px solid #bfe9cf' };
+  if (kind === 'warn') return { ...base, background: '#fff6e5', color: '#8a5a00', border: '1px solid #ffd59a' };
+  if (kind === 'bad') return { ...base, background: '#ffecec', color: '#b42318', border: '1px solid #ffb3b3' };
+  return { ...base, background: '#f2f4f7', color: '#475467', border: '1px solid #e4e7ec' };
+}
+
+function svcStateKind(state?: string): 'ok' | 'warn' | 'bad' | 'neutral' {
+  const s = (state || '').toLowerCase();
+  if (s === 'active') return 'ok';
+  if (s === 'failed') return 'bad';
+  if (s === 'inactive') return 'neutral';
+  if (s) return 'warn';
+  return 'neutral';
+}
+
+function svcEnabledKind(enabled?: string): 'ok' | 'warn' | 'bad' | 'neutral' {
+  const s = (enabled || '').toLowerCase();
+  if (s === 'enabled') return 'ok';
+  if (s === 'masked') return 'bad';
+  if (s === 'disabled') return 'neutral';
+  if (s === 'static' || s === 'indirect') return 'warn';
+  if (s) return 'warn';
+  return 'neutral';
+}
+
 export default function DiagnosticsTab() {
   const [server, setServer] = useState('69.39.69.102');
   const [username, setUsername] = useState('123net');
@@ -290,8 +324,12 @@ export default function DiagnosticsTab() {
                     return (
                       <tr key={idx}>
                         <td style={{ padding: '6px 10px', borderBottom: '1px solid #eee' }}>{s?.name ?? '—'}</td>
-                        <td style={{ padding: '6px 10px', borderBottom: '1px solid #eee' }}>{s?.state ?? '—'}</td>
-                        <td style={{ padding: '6px 10px', borderBottom: '1px solid #eee' }}>{s?.enabled ?? '—'}</td>
+                        <td style={{ padding: '6px 10px', borderBottom: '1px solid #eee' }}>
+                          <span style={pillStyle(svcStateKind(s?.state))}>{s?.state || 'unknown'}</span>
+                        </td>
+                        <td style={{ padding: '6px 10px', borderBottom: '1px solid #eee' }}>
+                          <span style={pillStyle(svcEnabledKind(s?.enabled))}>{s?.enabled || 'unknown'}</span>
+                        </td>
                       </tr>
                     );
                   })}
