@@ -33,6 +33,14 @@ __pycache__/
 env/
 venv/
 *.egg-info/
+.venv-web-manager/
+# Python virtual environments (all variants)
+.venv-web-manager/
+**/.venv-web-manager/
+**/.venv/
+**/venv/
+**/env/
+
 
 # VS Code settings (commit workspace settings)
 # .vscode/
@@ -144,6 +152,11 @@ cookies_header_string.txt
 **/node_modules/
 **/.next/
 **/.turbo/
+**/dist/
+**/build/
+**/out/
+**/coverage/
+
 
 # Allowlist essential project JSON (kept even though *.json is ignored above)
 !**/package.json
