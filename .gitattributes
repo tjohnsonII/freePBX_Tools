@@ -1,0 +1,2 @@
+# Force LF line endings for gitignore files
+*.gitignore text eol=lf
