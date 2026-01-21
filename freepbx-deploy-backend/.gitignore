@@ -6,3 +6,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .env
+
+# --- Guardrail: ignore Python venv + caches ---
+.venv*/
+.venv*
+venv*/
+venv*
+env*/
+env*
+__pycache__/
+*.py[cod]

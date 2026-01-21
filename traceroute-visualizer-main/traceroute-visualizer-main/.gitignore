@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Guardrail: ignore Python venv + caches ---
+.venv*/
+.venv*
+venv*/
+venv*
+env*/
+env*
+__pycache__/
+*.py[cod]
