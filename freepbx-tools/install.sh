@@ -387,6 +387,57 @@ EOF
 }
 
 
+# Ensure UTF-8 locale data exists on the system.
+ensure_utf8_locale_pkg() {
+  echo ">>> Ensuring UTF-8 locale packages are installed..."
+
+  if is_el; then
+    (dnf -y install glibc-langpack-en glibc-common || yum -y install glibc-langpack-en glibc-common) >/dev/null 2>&1 || true
+  elif is_deb; then
+    apt-get update -y || true
+    apt-get install -y locales || true
+  fi
+
+  if ! locale -a 2>/dev/null | grep -qiE 'en_US\.utf8|en_US\.UTF-8'; then
+    echo ">>> Generating en_US.UTF-8 locale..."
+    if have localedef; then
+      localedef -i en_US -f UTF-8 en_US.UTF-8 || true
+    elif have locale-gen; then
+      locale-gen en_US.UTF-8 || true
+    fi
+  fi
+}
+
+
+# Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
+ensure_utf8_locale() {
+  echo ">>> Forcing UTF-8 locale exports for interactive shells..."
+
+  local pf="/etc/profile.d/123net-freepbx-tools-locale.sh"
+  if [[ -d /etc/profile.d ]]; then
+    cat > "$pf" <<'EOF'
+# Added by 123NET FreePBX Tools installer
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export PYTHONIOENCODING=utf-8
+EOF
+    chmod 0644 "$pf" || true
+    echo "  [OK] Wrote locale helper: $pf"
+  else
+    warn "/etc/profile.d not found; locale helper not written."
+  fi
+
+  if [[ -f /etc/locale.conf ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/locale.conf || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/locale.conf
+    echo "  [OK] Ensured locale defaults in /etc/locale.conf"
+  elif [[ -f /etc/default/locale ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/default/locale || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/default/locale
+    echo "  [OK] Ensured locale defaults in /etc/default/locale"
+  else
+    warn "No locale defaults file found; system locale defaults not updated."
+  fi
 # Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
 ensure_utf8_locale() {
   echo ">>> Ensuring UTF-8 locale exports in shell profiles..."
@@ -527,6 +578,7 @@ main() {
   install_symlinks       # Create all CLI symlinks
   verify_symlinks         # Validate symlinks/PATH
   ensure_path_profile      # Persist PATH fix on hosts missing /usr/local/bin
+  ensure_utf8_locale_pkg   # Install locale packages/generate UTF-8 locale
   ensure_utf8_locale       # Persist UTF-8 locale exports for FreePBX shells
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
