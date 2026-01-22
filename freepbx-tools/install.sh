@@ -54,6 +54,12 @@ if grep -q $'\r' "$0" 2>/dev/null; then
   exec /usr/bin/env bash "$tmp" "$@"
 fi
 
+# Block execution if a merge conflict was committed into this script.
+if grep -qE '^(<<<<<<< |=======|>>>>>>> )' "$0" 2>/dev/null; then
+  echo "ERROR: install.sh contains unresolved git conflict markers." >&2
+  exit 2
+fi
+
 # Validate script syntax before proceeding.
 if ! /usr/bin/env bash -n "$0" >/dev/null 2>&1; then
   echo "ERROR: install.sh has a syntax error. Recopy the file and rerun." >&2
