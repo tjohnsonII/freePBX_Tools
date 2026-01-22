@@ -46,6 +46,20 @@
 # ============================================================================
 
 
+# Self-heal CRLF line endings if a Windows transfer left \r characters.
+if grep -q $'\r' "$0" 2>/dev/null; then
+  tmp="$(mktemp /tmp/freepbx-tools-install.XXXXXX.sh)"
+  tr -d '\r' < "$0" > "$tmp"
+  chmod +x "$tmp" || true
+  exec /usr/bin/env bash "$tmp" "$@"
+fi
+
+# Validate script syntax before proceeding.
+if ! /usr/bin/env bash -n "$0" >/dev/null 2>&1; then
+  echo "ERROR: install.sh has a syntax error. Recopy the file and rerun." >&2
+  exit 2
+fi
+
 # Exit on error, error on unset variables, error on failed pipeline
 set -Eeuo pipefail
 
@@ -74,7 +88,7 @@ is_deb() { [[ -f /etc/debian_version ]] || have apt-get; } # True if Debian/Ubun
 # Ensure script is run as root
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    echo "This installer needs root. Try: sudo $0" >&2
+    echo "This installer needs root. Try: su - root (then run $0)" >&2
     exit 1
   fi
 }
@@ -387,6 +401,60 @@ EOF
 }
 
 
+# Ensure UTF-8 locale data exists on the system.
+ensure_utf8_locale_pkg() {
+  echo ">>> Ensuring UTF-8 locale packages are installed..."
+
+  if is_el; then
+    (dnf -y install glibc-langpack-en glibc-common || yum -y install glibc-langpack-en glibc-common) >/dev/null 2>&1 || true
+  elif is_deb; then
+    apt-get update -y || true
+    apt-get install -y locales || true
+  fi
+
+  if ! locale -a 2>/dev/null | grep -qiE 'en_US\.utf8|en_US\.UTF-8'; then
+    echo ">>> Generating en_US.UTF-8 locale..."
+    if have localedef; then
+      localedef -i en_US -f UTF-8 en_US.UTF-8 || true
+    elif have locale-gen; then
+      locale-gen en_US.UTF-8 || true
+    fi
+  fi
+}
+
+
+# Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
+ensure_utf8_locale() {
+  echo ">>> Forcing UTF-8 locale exports for interactive shells..."
+
+  local pf="/etc/profile.d/123net-freepbx-tools-locale.sh"
+  if [[ -d /etc/profile.d ]]; then
+    cat > "$pf" <<'EOF'
+# Added by 123NET FreePBX Tools installer
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export PYTHONIOENCODING=utf-8
+EOF
+    chmod 0644 "$pf" || true
+    echo "  [OK] Wrote locale helper: $pf"
+  else
+    warn "/etc/profile.d not found; locale helper not written."
+  fi
+
+  if [[ -f /etc/locale.conf ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/locale.conf || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/locale.conf
+    echo "  [OK] Ensured locale defaults in /etc/locale.conf"
+  elif [[ -f /etc/default/locale ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/default/locale || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/default/locale
+    echo "  [OK] Ensured locale defaults in /etc/default/locale"
+  else
+    warn "No locale defaults file found; system locale defaults not updated."
+  fi
+}
+
+
 # Print version policy banner and create version_policy.json if missing
 print_policy_banner() {
   local policy_file="$INSTALL_DIR/version_policy.json"
@@ -494,6 +562,8 @@ main() {
   install_symlinks       # Create all CLI symlinks
   verify_symlinks         # Validate symlinks/PATH
   ensure_path_profile      # Persist PATH fix on hosts missing /usr/local/bin
+  ensure_utf8_locale_pkg   # Install locale packages/generate UTF-8 locale
+  ensure_utf8_locale       # Persist UTF-8 locale exports for FreePBX shells
 
   log "Installed 123NET FreePBX Tools to $INSTALL_DIR"
   log "Symlinks created in $BIN_DIR:"

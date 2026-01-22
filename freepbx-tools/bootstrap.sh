@@ -13,6 +13,12 @@
 # - Prints a success message and a reminder to run the main installer.
 # ============================================================================
 
+# Normalize line endings for shell scripts to avoid CRLF parsing issues
+for s in *.sh bin/*.sh; do
+  [ -f "$s" ] || continue
+  sed -i 's/\r$//' "$s" 2>/dev/null || true
+done
+
 # Add execute permission to all .sh and .py scripts in current and bin/ directory
 chmod +x *.sh bin/*.sh *.py bin/*.py 2>/dev/null  # Ignore errors if files don't exist
 
@@ -20,4 +26,4 @@ chmod +x *.sh bin/*.sh *.py bin/*.py 2>/dev/null  # Ignore errors if files don't
 echo "All scripts are now executable."
 
 # Suggest the next step to the user
-echo "Next: sudo ./install.sh"
+echo "Next: su - root (then run ./install.sh)"
