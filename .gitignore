@@ -182,3 +182,21 @@ data/staging-output/
 E:/DevTools/Graphviz/
 E:/DevTools/WebDriver/
 E:/DevTools/Chromium/
+
+# Local environment snapshots (generated)
+ENV_VARS.txt
+env_versions.txt
+env_git.txt
+PYTHON_VERSION.txt
+PIP_PACKAGES.txt
+NODE_VERSION.txt
+NPM_VERSION.txt
+TREE_FULL.txt
+TREE_L4.txt
+REOP_TREE.txt
+TREE_*.txt
+
+# Large generated data (prefer not tracked)
+*.db
+all_tickets.json
+tickets.json

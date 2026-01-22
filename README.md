@@ -1,3 +1,59 @@
+## Start Here (Required Reading)
+
+⚠ This repository spans multiple runtimes and operating systems.
+Do not assume a single Python, Node, or shell environment.
+
+
+If you are new to this repository or returning after time away, read these in order:
+
+1. **RUNBOOK** – How to run, debug, and test everything  
+   → [RUNBOOK.md](RUNBOOK.md)
+
+2. **Repo Map** – What each folder and application does  
+   → [REPO_MAP.md](REPO_MAP.md)
+
+3. **Environment** – Windows vs WSL vs FreePBX hosts, Python/Node versions, paths  
+   → [ENVIRONMENT.md](ENVIRONMENT.md)
+
+4. **Known Issues** – Common break/fix patterns and system constraints  
+   → [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+
+5. **Dependencies** – Python, Node, OS-level dependencies by project  
+   → [DEPENDENCIES.md](DEPENDENCIES.md)
+
+6. **Coding Rules** – Guardrails for safe changes (humans + Codex)  
+   → [CODING_RULES.md](CODING_RULES.md)
+
+7. **Agent Guidance** – Rules for Codex / Copilot-style automation  
+   → [AGENTS.md](AGENTS.md)
+
+
+
+## Projects (Monorepo Layout)
+
+- **freepbx-tools** – Core FreePBX server-side CLI tools  
+  Path: `freepbx-tools/bin/`
+
+- **FreePBX Deploy UI** – Frontend (Vite / React)  
+  Path: `freepbx-deploy-ui/`
+
+- **FreePBX Deploy Backend** – Backend API (FastAPI)  
+  Path: `freepbx-deploy-backend/`
+
+- **Webscraper / Knowledge Base** – Selenium + data processing tools  
+  Path: `webscraper/`
+
+- **Mikrotik Config Generator** – Template-based router config generator  
+  Path: `mikrotik/`
+
+- **Traceroute Visualizer** – Next.js UI + remote backend  
+  Path: `traceroute-visualizer-main/`
+
+- **Polycom / Yealink / Mikrotik Config UI** – Vite-based config generator UI  
+  Path: `PolycomYealinkMikrotikSwitchConfig-main/`
+
+
+
 # FreePBX Tools - Diagnostic & Call Simulation Suite
 
 A comprehensive suite of diagnostic and call simulation tools for FreePBX/Asterisk phone systems. This project includes both core diagnostic tools and an advanced call simulation system for validating call flow behavior.
@@ -93,6 +149,9 @@ The call simulation is fully integrated into the main FreePBX menu (`freepbx-cal
 ```
 
 ## 🚀 Installation & Deployment
+
+> Before running anything locally, read ENVIRONMENT.md.
+
 
 ### Prerequisites
 - **Windows machine** for deployment (PowerShell)
