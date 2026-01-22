@@ -428,37 +428,6 @@ ensure_utf8_locale_pkg() {
   fi
 }
 
-
-# Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
-ensure_utf8_locale() {
-  echo ">>> Forcing UTF-8 locale exports for interactive shells..."
-
-  local pf="/etc/profile.d/123net-freepbx-tools-locale.sh"
-  if [[ -d /etc/profile.d ]]; then
-    cat > "$pf" <<'EOF'
-# Added by 123NET FreePBX Tools installer
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-export PYTHONIOENCODING=utf-8
-EOF
-    chmod 0644 "$pf" || true
-    echo "  [OK] Wrote locale helper: $pf"
-  else
-    warn "/etc/profile.d not found; locale helper not written."
-  fi
-
-  if [[ -f /etc/locale.conf ]]; then
-    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/locale.conf || true
-    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/locale.conf
-    echo "  [OK] Ensured locale defaults in /etc/locale.conf"
-  elif [[ -f /etc/default/locale ]]; then
-    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/default/locale || true
-    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/default/locale
-    echo "  [OK] Ensured locale defaults in /etc/default/locale"
-  else
-    warn "No locale defaults file found; system locale defaults not updated."
-  fi
-
 # Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
 ensure_utf8_locale() {
   echo ">>> Forcing UTF-8 locale exports for interactive shells..."
