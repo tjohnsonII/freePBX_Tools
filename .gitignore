@@ -75,3 +75,11 @@ webscraper/ticket-discovery-output/
 freepbx-tools/bin/123net_internal_docs/
 tools/
 scripts/secure_push.ps1
+gitleaks-report.json
+
+# local configs (do not commit)
+config.py
+scraper_config.py
+freepbx-deploy-backend/.env
+freepbx-deploy-backend/.env.*
+freepbx-deploy-frontend/.env
