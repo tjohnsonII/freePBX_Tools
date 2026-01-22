@@ -438,6 +438,36 @@ EOF
   else
     warn "No locale defaults file found; system locale defaults not updated."
   fi
+# Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
+ensure_utf8_locale() {
+  echo ">>> Ensuring UTF-8 locale exports in shell profiles..."
+
+  local profiles=()
+  profiles+=(/root/.bashrc)
+  if id 123net >/dev/null 2>&1; then
+    profiles+=(/home/123net/.bashrc)
+  fi
+
+  for profile in "${profiles[@]}"; do
+    if [[ ! -f "$profile" ]]; then
+      warn "Profile not found: $profile (skipping)"
+      continue
+    fi
+
+    if grep -qE '^\s*export\s+LANG=' "$profile"; then
+      :
+    else
+      printf '\nexport LANG=en_US.UTF-8\n' >> "$profile"
+    fi
+
+    if grep -qE '^\s*export\s+LC_ALL=' "$profile"; then
+      :
+    else
+      printf 'export LC_ALL=en_US.UTF-8\n' >> "$profile"
+    fi
+
+    echo "  [OK] Locale exports ensured in $profile"
+  done
 }
 
 
