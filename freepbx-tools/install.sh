@@ -458,38 +458,39 @@ EOF
   else
     warn "No locale defaults file found; system locale defaults not updated."
   fi
+
 # Ensure UTF-8 locale exports for FreePBX hosts (prevents UnicodeEncodeError)
 ensure_utf8_locale() {
-  echo ">>> Ensuring UTF-8 locale exports in shell profiles..."
+  echo ">>> Forcing UTF-8 locale exports for interactive shells..."
 
-  local profiles=()
-  profiles+=(/root/.bashrc)
-  if id 123net >/dev/null 2>&1; then
-    profiles+=(/home/123net/.bashrc)
+  # System-wide exports for login shells
+  local pf="/etc/profile.d/123net-freepbx-tools-locale.sh"
+  if [[ -d /etc/profile.d ]]; then
+    cat > "$pf" <<'EOF'
+# Added by 123NET FreePBX Tools installer
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export PYTHONIOENCODING=utf-8
+EOF
+    chmod 0644 "$pf" || true
+    echo "  [OK] Wrote locale helper: $pf"
+  else
+    warn "/etc/profile.d not found; locale helper not written."
   fi
 
-  for profile in "${profiles[@]}"; do
-    if [[ ! -f "$profile" ]]; then
-      warn "Profile not found: $profile (skipping)"
-      continue
-    fi
-
-    if grep -qE '^\s*export\s+LANG=' "$profile"; then
-      :
-    else
-      printf '\nexport LANG=en_US.UTF-8\n' >> "$profile"
-    fi
-
-    if grep -qE '^\s*export\s+LC_ALL=' "$profile"; then
-      :
-    else
-      printf 'export LC_ALL=en_US.UTF-8\n' >> "$profile"
-    fi
-
-    echo "  [OK] Locale exports ensured in $profile"
-  done
+  # Set system locale defaults (best effort; varies by distro)
+  if [[ -f /etc/locale.conf ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/locale.conf || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/locale.conf
+    echo "  [OK] Ensured locale defaults in /etc/locale.conf"
+  elif [[ -f /etc/default/locale ]]; then
+    sed -i -e '/^\s*LANG=/d' -e '/^\s*LC_ALL=/d' /etc/default/locale || true
+    printf '\nLANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8\n' >> /etc/default/locale
+    echo "  [OK] Ensured locale defaults in /etc/default/locale"
+  else
+    warn "No locale defaults file found; system locale defaults not updated."
+  fi
 }
-
 
 # Print version policy banner and create version_policy.json if missing
 print_policy_banner() {
