@@ -1,202 +1,77 @@
-# Prevent saving cookies and sensitive credentials
-webscraper/cookies_netscape_format.txt
-webscraper/cookies.json
-webscraper/cookies.txt
-webscraper/*_cookies.txt
-webscraper/*_cookies.json
-webscraper/*_cookies.csv
-webscraper/*_credentials.txt
-webscraper/*_passwords.txt
-# Root-level cookie artifacts (exclude from repo)
-cookies.json
-cookies.txt
-cookies_header_string.txt
-123NET Admin.csv
-ProductionServers.txt
+# =========================
+# Python / Virtual Envs
+# =========================
+.venv/
+.venv-*/
+.venv-wsl/
+.venv-web-manager/
+venv/
+env/
+ENV/
 
-# System files
-*.log
-*.tmp
-*.bak
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
+# =========================
 # Python artifacts
+# =========================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
-.venv/
-env/
-venv/
 *.egg-info/
-.venv-web-manager/
-# Python virtual environments (all variants)
-.venv-web-manager/
-**/.venv-web-manager/
-**/.venv/
-**/venv/
-**/env/
 
+# =========================
+# Node / frontend
+# =========================
+node_modules/
+.next/
+.turbo/
+dist/
+build/
 
-# VS Code settings (commit workspace settings)
-# .vscode/
+# =========================
+# Logs / local output
+# =========================
+*.log
+*.tmp
+*.bak
+CAGE_INFO/*.log
+ultimate_scraper.log
+webscraper.log
 
-# SSH/keys
-*.pem
-*.key
-
-# Output files
-env_check_*.txt
-freepbx_host_profile.conf
-
-# Sensitve Files
-ProductionServers.txt
-server_ips.txt
-
-# Configuration files with potential secrets
-*config.conf
-scraper_config.py
-webscraper/webscraper_config.py
-*secret*
-*password*
-.env.*
-deploy_config.ps1
-deploy_config.sh
-setup_ssh_auth.sh
-config.py
-credentials.py
-
-# Test credentials and sensitive test files
-test_password_file.txt
-
-# VPBX Analysis - Sensitive Data Files
-vpbx_ultimate_analysis/
-*SENSITIVE*
-*CREDENTIALS*
-*credentials*
+# =========================
+# Local secrets / data
+# =========================
+.secrets.baseline
+*.csv
 *.db
-vpbx_data.db
+cookies*.txt
+cookies*.json
 
-# Analysis output files that may contain IPs/company data
-yealink_companies_full.csv
-yealink_companies_full.json
-yealink_companies_with_names.csv
-yealink_sites_report.csv
-yealink_sites_report.json
-analysis_output.json
-*_analysis.json
-*_analysis.csv
-site_company_mapping.txt
-LES_summary.csv
-analysis_summary.csv
-cookies.json
-data/
-vpbx_ultimate_analysis/
+# =========================
+# OS / editor noise
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/settings.json
 
-# Scraped data
-test_scrape_output/
-test_info.txt
-*test_info*
-test_password_file.txt
-test_password_file.txt
-MANUAL_TEST_CREDENTIALS.txt
 
-# Internal documentation (not for public repo)
-# Exclude entire directory and all subdirectories/files
-123net_internal_docs/
-**/123net_internal_docs/
-123net_internal_docs/**
-**/123net_internal_docs/**
-freepbx-tools/bin/123net_internal_docs/
-freepbx-tools/bin/123net_internal_docs/**
-
-# Test scrape outputs
-test_scrape_output/
-**/test_scrape_output/
-
-# Backup files that might contain sensitive data
-*.backup
-*_backup.*
-tickets.json
-customers_raw.html
-freepbx-tools/bin/123net_internal_docs/scraped/tickets.json
-freepbx-tools/bin/123net_internal_docs/scraped/customers_raw.html
-
-# Sensitive data and output files
-customer_handles.txt
-tickets.json
-customers_raw.html
-freepbx-tools/bin/123net_internal_docs/scraped/tickets.json
-freepbx-tools/bin/123net_internal_docs/scraped/customers_raw.html
-backups/
-data/
-config.py
-credentials.py
-test_password_file.txt
-123NET Admin.csv
-cookies.json
-cookies.txt
-cookies_header_string.txt
-*.db
-*.backup
-*_backup.*
+# generated scrape/test outputs (do not track)
+data/test-data/test_scrape_output/
+webscraper/test-output/
+scraped_tickets/
+*.html
+*.txt
 *.json
-!.vscode/settings.json
 *.csv
 
-# Node/Next.js artifacts
-**/node_modules/
-**/.next/
-**/.turbo/
-**/dist/
-**/build/
-**/out/
-**/coverage/
-
-
-# Allowlist essential project JSON (kept even though *.json is ignored above)
-!**/package.json
-!**/package-lock.json
-!**/components.json
-!**/tsconfig.json
-!**/version_policy.json
-# End sensitive files
-# Large/local binaries and environment-specific folders (do not commit)
-webscraper/chromedriver-win64/
-webscraper/chromedriver-win64.zip
+# scraper outputs
 webscraper/output/
 webscraper/ticket-discovery-output/
-gitleaks-report.json
-tools/gitleaks/
+
+
+# data dumps (optional — only if you don’t want them in git)
+data/
+webscraper/output/
+webscraper/ticket-discovery-output/
+freepbx-tools/bin/123net_internal_docs/
+tools/
 scripts/secure_push.ps1
-cookies.txt
-cookies.json
-cookies_header_string.txt
-scraper.log
-data/analysis-output/
-data/staging-output/
-E:/DevTools/Graphviz/
-E:/DevTools/WebDriver/
-E:/DevTools/Chromium/
-
-# Local environment snapshots (generated)
-ENV_VARS.txt
-env_versions.txt
-env_git.txt
-PYTHON_VERSION.txt
-PIP_PACKAGES.txt
-NODE_VERSION.txt
-NPM_VERSION.txt
-TREE_FULL.txt
-TREE_L4.txt
-REOP_TREE.txt
-TREE_*.txt
-
-# Large generated data (prefer not tracked)
-*.db
-all_tickets.json
-tickets.json
