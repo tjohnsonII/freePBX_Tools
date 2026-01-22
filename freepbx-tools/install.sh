@@ -46,6 +46,26 @@
 # ============================================================================
 
 
+# Self-heal CRLF line endings if a Windows transfer left \r characters.
+if grep -q $'\r' "$0" 2>/dev/null; then
+  tmp="$(mktemp /tmp/freepbx-tools-install.XXXXXX.sh)"
+  tr -d '\r' < "$0" > "$tmp"
+  chmod +x "$tmp" || true
+  exec /usr/bin/env bash "$tmp" "$@"
+fi
+
+# Block execution if a merge conflict was committed into this script.
+if grep -qE '^(<<<<<<< |=======|>>>>>>> )' "$0" 2>/dev/null; then
+  echo "ERROR: install.sh contains unresolved git conflict markers." >&2
+  exit 2
+fi
+
+# Validate script syntax before proceeding.
+if ! /usr/bin/env bash -n "$0" >/dev/null 2>&1; then
+  echo "ERROR: install.sh has a syntax error. Recopy the file and rerun." >&2
+  exit 2
+fi
+
 # Exit on error, error on unset variables, error on failed pipeline
 set -Eeuo pipefail
 
@@ -74,7 +94,7 @@ is_deb() { [[ -f /etc/debian_version ]] || have apt-get; } # True if Debian/Ubun
 # Ensure script is run as root
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    echo "This installer needs root. Try: sudo $0" >&2
+    echo "This installer needs root. Try: su - root (then run $0)" >&2
     exit 1
   fi
 }
