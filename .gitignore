@@ -62,6 +62,7 @@ scraped_tickets/
 *.txt
 *.json
 *.csv
+!traceroute-visualizer-main/backend/ip_aliases.json
 
 # scraper outputs
 webscraper/output/

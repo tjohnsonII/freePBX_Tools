@@ -3,11 +3,30 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
+from pathlib import Path
 import socket
 import subprocess
 import json
 import re
 import httpx
+
+ALIASES_PATH = Path(__file__).resolve().parents[3] / "backend" / "ip_aliases.json"
+IP_ALIASES: Dict[str, str] = {}
+
+
+def load_aliases() -> None:
+    global IP_ALIASES
+    try:
+        IP_ALIASES = json.loads(ALIASES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        IP_ALIASES = {}
+
+
+def label_for_ip(ip: str) -> str | None:
+    return IP_ALIASES.get(ip)
+
+
+load_aliases()
 
 app = FastAPI()
 
@@ -80,6 +99,7 @@ async def traceroute(request: Request):
                 "hostname": hostname,
                 "latency": latency,
                 "geo": geo,
+                "label": label_for_ip(ip),
             })
 
             hop_counter += 1
