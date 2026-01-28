@@ -63,6 +63,7 @@ scraped_tickets/
 *.json
 *.csv
 !traceroute-visualizer-main/backend/ip_aliases.json
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/ipOwnership.json
 
 # scraper outputs
 webscraper/output/
@@ -71,6 +72,7 @@ webscraper/ticket-discovery-output/
 
 # data dumps (optional — only if you don’t want them in git)
 data/
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
 webscraper/output/
 webscraper/ticket-discovery-output/
 freepbx-tools/bin/123net_internal_docs/
