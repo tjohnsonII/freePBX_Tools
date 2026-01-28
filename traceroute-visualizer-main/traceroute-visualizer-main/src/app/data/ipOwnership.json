@@ -10842,9 +10842,12 @@
     "owner": "customer_lan",
     "label": "Customer LAN",
     "source": "fallback"
+  },
+  {
+  "cidr": "10.120.0.0/16",
+  "owner": "123net_pop",
+  "label": "123NET POP",
+  "source": "fallback"
   }
-  { "cidr": "10.255.0.0/16", "owner": "mpls_core", "label": "MPLS Core" },
-  { "cidr": "10.120.0.0/16", "owner": "123net_pop", "label": "123NET POP" },
-  { "cidr": "192.168.0.0/16", "owner": "customer_lan", "label": "Customer LAN" },
-  { "cidr": "10.0.0.0/8", "owner": "customer_lan", "label": "Customer LAN" }
+
 ]

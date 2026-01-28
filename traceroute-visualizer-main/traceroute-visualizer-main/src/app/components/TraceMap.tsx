@@ -45,13 +45,13 @@ export default function TraceMap({ hops, target }: { hops: Hop[]; target: string
               <strong>Hop {hop.hop}</strong><br />
               {hop.hostname} ({hop.ip})<br />
              {classification.ownership && (
-                <>
-                  📍 {classification.ownership.label}
-                  {classification.ownership.city ? ` (${classification.ownership.city})` : ""}
-                  <br />
-                </>
-              )}
-
+                  <>
+                    📍 {classification.ownership.label}
+                    {classification.ownership.city ? ` (${classification.ownership.city})` : ""}
+                    <br />
+                 </>
+              )}     
+         
               {hop.latency}<br />
               {classification.explanation || "Hop details available."}
             </Popup>

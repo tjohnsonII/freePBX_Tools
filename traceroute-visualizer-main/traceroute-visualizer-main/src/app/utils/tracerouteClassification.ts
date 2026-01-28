@@ -126,7 +126,6 @@ export function classifyHop(hop: Hop, target: string): HopClassification {
     );
     ownership = matched
       ? { owner: matched.owner, label: matched.label, city: matched.city }
-      ? { owner: matched.owner, label: matched.label }
       : { owner: "unknown", label: "Unknown network" };
   }
 
