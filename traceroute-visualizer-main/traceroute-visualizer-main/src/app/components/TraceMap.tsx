@@ -2,6 +2,7 @@
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { classifyHop, Hop } from "../utils/tracerouteClassification";
 
 // Optional: fix missing marker icons in Leaflet
 const iconUrl = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
@@ -13,20 +14,7 @@ const DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-type Hop = {
-  hop: number;
-  ip: string;
-  hostname: string;
-  latency: string;
-  geo: {
-    city: string;
-    country: string;
-    lat?: number;
-    lon?: number;
-  };
-};
-
-export default function TraceMap({ hops }: { hops: Hop[] }) {
+export default function TraceMap({ hops, target }: { hops: Hop[]; target: string }) {
   const validHops = hops.filter(h => h.geo && h.geo.lat != null && h.geo.lon != null);
   const positions = validHops.map(h => [h.geo.lat!, h.geo.lon!] as [number, number]);
 
@@ -50,12 +38,14 @@ export default function TraceMap({ hops }: { hops: Hop[] }) {
         const lat = hop.geo?.lat;
         const lon = hop.geo?.lon;
         if (lat == null || lon == null) return null;
+        const classification = classifyHop(hop, target);
         return (
           <Marker key={idx} position={[lat, lon]} icon={DefaultIcon}>
             <Popup>
               <strong>Hop {hop.hop}</strong><br />
               {hop.hostname} ({hop.ip})<br />
-              {hop.latency}
+              {hop.latency}<br />
+              {classification.explanation || "Hop details available."}
             </Popup>
           </Marker>
         );

@@ -5,19 +5,7 @@ import dynamic from 'next/dynamic';
 // Dynamically import TraceMap to avoid SSR issues with Leaflet
 const TraceMap = dynamic(() => import('./components/TraceMap'), { ssr: false });
 import { useState } from "react";
-
-type Hop = {
-  hop: number;
-  ip: string;
-  hostname: string;
-  latency: string;
-  geo: {
-    city: string;
-    country: string;
-    lat?: number;
-    lon?: number;
-  };
-};
+import { classifyHop, Hop } from "./utils/tracerouteClassification";
 
 function hasHopsArray(value: unknown): value is { hops: unknown[] } {
   return (
@@ -116,8 +104,20 @@ export default function Page() {
         <>
           <div className="mt-6">
             <h2 className="text-lg font-semibold mb-4">Route:</h2>
+            <div className="mb-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <div className="font-semibold mb-1">Legend / What this means</div>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Responded hops = we got TTL-expired reply</li>
+                <li>No response hops = filtered/silent hop, path may still be fine</li>
+                <li>Only worry if the destination never responds AND there’s no evidence of reachability</li>
+              </ul>
+            </div>
             <div className="flex overflow-x-auto space-x-4 pb-4">
-              {hops.map((hop, idx) => (
+              {hops.map((hop, idx) => {
+                const classification = classifyHop(hop, target);
+                const isNoResponse = classification.flags.no_response;
+                const latencyLabel = isNoResponse ? classification.explanation : hop.latency;
+                return (
                 <div key={idx} className="flex items-center space-x-2">
                   <div className="flex flex-col items-center">
                     <div className="relative group">
@@ -132,8 +132,8 @@ export default function Page() {
                       <div className="text-gray-500 text-xs">{hop.ip}</div>
                       <div
                         className={`font-medium ${
-                          hop.latency === '---' || hop.latency === '—'
-                            ? 'text-red-500'
+                          isNoResponse
+                            ? 'text-gray-500'
                             : !isNaN(parseFloat(hop.latency)) && parseFloat(hop.latency) > 100
                             ? 'text-red-600'
                             : !isNaN(parseFloat(hop.latency)) && parseFloat(hop.latency) > 20
@@ -143,24 +143,36 @@ export default function Page() {
                             : 'text-blue-600'
                         }`}
                       >
-                        {hop.latency}
+                        {latencyLabel}
+                        {isNoResponse && (
+                          <span
+                            className="ml-1 inline-block cursor-help text-gray-400"
+                            title="Routers/firewalls often drop TTL-expired TCP/ICMP replies. This does not automatically mean the path is down."
+                          >
+                            ⓘ
+                          </span>
+                        )}
                       </div>
+                      {!isNoResponse && classification.explanation && (
+                        <div className="text-xs text-gray-500">{classification.explanation}</div>
+                      )}
                       <div className="text-xs text-gray-500">{hop.geo.city}{hop.geo.city && hop.geo.country ? ', ' : ''}{hop.geo.country}</div>
                     </div>
                   </div>
                   {idx < hops.length - 1 && (
-                    hops[idx + 1].latency === '---' || hops[idx + 1].latency === '—' ? (
+                    classifyHop(hops[idx + 1], target).flags.no_response ? (
                       <div className="w-10 border-t border-dashed border-gray-400 opacity-50 h-1 flex-shrink-0" />
                     ) : (
                       <div className="w-10 h-1 bg-gray-400 flex-shrink-0" />
                     )
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div className="mt-8 h-[500px]">
-            <TraceMap hops={hops} />
+            <TraceMap hops={hops} target={target} />
           </div>
         </>
       ) : (
