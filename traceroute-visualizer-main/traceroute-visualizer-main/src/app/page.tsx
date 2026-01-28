@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 const TraceMap = dynamic(() => import('./components/TraceMap'), { ssr: false });
 import { useState } from "react";
 import { classifyHop, Hop } from "./utils/tracerouteClassification";
+import { analyzeTrace } from "./utils/tracerouteInsights";
 
 function hasHopsArray(value: unknown): value is { hops: unknown[] } {
   return (
@@ -22,6 +23,14 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [hops, setHops] = useState<Hop[]>([]);
   const [error, setError] = useState("");
+  const analysis = analyzeTrace(hops, target, probe);
+  const filteringInsightTitles = new Set([
+    "Likely filtered after edge",
+    "Upstream filtering near ISP boundary",
+  ]);
+  const hasFilteringInsight = analysis.insights.some(insight =>
+    filteringInsightTitles.has(insight.title),
+  );
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -112,11 +121,42 @@ export default function Page() {
                 <li>Only worry if the destination never responds AND there’s no evidence of reachability</li>
               </ul>
             </div>
+            <div className="mb-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">
+              <div className="font-semibold mb-2">Insights</div>
+              {analysis.insights.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {analysis.insights.map((insight, index) => {
+                    const badgeStyle =
+                      insight.severity === "bad"
+                        ? "border-red-200 bg-red-100 text-red-900"
+                        : insight.severity === "warn"
+                        ? "border-amber-200 bg-amber-100 text-amber-900"
+                        : "border-blue-200 bg-blue-100 text-blue-900";
+                    return (
+                      <div
+                        key={`${insight.title}-${index}`}
+                        className={`rounded-lg border px-3 py-2 text-xs shadow-sm ${badgeStyle}`}
+                        title={insight.detail}
+                      >
+                        <div className="font-semibold">{insight.title}</div>
+                        <div className="opacity-80">{insight.detail}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">No notable patterns detected yet.</div>
+              )}
+            </div>
             <div className="flex overflow-x-auto space-x-4 pb-4">
               {hops.map((hop, idx) => {
                 const classification = classifyHop(hop, target);
                 const isNoResponse = classification.flags.no_response;
-                const latencyLabel = isNoResponse ? classification.explanation : hop.latency;
+                const latencyLabel = isNoResponse
+                  ? hasFilteringInsight
+                    ? "⚠ Likely filtered"
+                    : "No reply"
+                  : hop.latency;
                 return (
                 <div key={idx} className="flex items-center space-x-2">
                   <div className="flex flex-col items-center">
@@ -147,7 +187,11 @@ export default function Page() {
                         {isNoResponse && (
                           <span
                             className="ml-1 inline-block cursor-help text-gray-400"
-                            title="Routers/firewalls often drop TTL-expired TCP/ICMP replies. This does not automatically mean the path is down."
+                            title={
+                              hasFilteringInsight
+                                ? "Silence after the edge hop looks like filtering, but the path can still be reachable."
+                                : "Routers/firewalls often drop TTL-expired TCP/ICMP replies. This does not automatically mean the path is unreachable."
+                            }
                           >
                             ⓘ
                           </span>
