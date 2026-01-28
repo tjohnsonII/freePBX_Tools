@@ -476,6 +476,9 @@ export default function Page() {
                           {classification.ownership && (
                             <div className="text-gray-500 text-xs">
                               📍 {classification.ownership.label}
+                              {classification.ownership.city
+                                ? ` (${classification.ownership.city})`
+                                : ""}
                             </div>
                           )}
                           <div

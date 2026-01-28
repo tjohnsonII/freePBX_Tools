@@ -24,6 +24,7 @@ export type HopClassification = {
   ownership?: {
     owner: "customer_lan" | "123net_pop" | "mpls_core" | "transit" | "unknown";
     label: string;
+    city?: string;
   };
   explanation: string;
 };
@@ -32,6 +33,7 @@ type OwnershipEntry = {
   cidr: string;
   owner: "customer_lan" | "123net_pop" | "mpls_core" | "transit";
   label: string;
+  city?: string;
 };
 
 const NO_RESPONSE_IP_VALUES = new Set(["no response", "---", "*"]);
@@ -123,6 +125,7 @@ export function classifyHop(hop: Hop, target: string): HopClassification {
       cidrContains(entry.cidr, normalizedIp),
     );
     ownership = matched
+      ? { owner: matched.owner, label: matched.label, city: matched.city }
       ? { owner: matched.owner, label: matched.label }
       : { owner: "unknown", label: "Unknown network" };
   }
@@ -149,6 +152,10 @@ export function classifyHop(hop: Hop, target: string): HopClassification {
   }
   if (destination) {
     explanationParts.push("Destination hop");
+  }
+  if (ownership?.label && ownership.label !== "Unknown network") {
+    const location = ownership.city ? ` (${ownership.city})` : "";
+    explanationParts.push(`Site: ${ownership.label}${location}`);
   }
 
   return {
