@@ -165,3 +165,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+.policy-compact .policy-controls {
+  display: none;
+}
+
+@media print {
+  .policy-controls {
+    display: none !important;
+  }
+
+  .policy-print {
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+}

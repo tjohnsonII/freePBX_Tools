@@ -13,6 +13,18 @@ import {
   runTracerouteProbe,
   TracerouteResult,
 } from "./utils/tracerouteComparison";
+import ScenarioPicker from "./components/ScenarioPicker";
+import FindingsPanel from "./components/FindingsPanel";
+import EvidenceActions from "./components/EvidenceActions";
+import {
+  deriveFindings,
+  formatTicketSummary,
+  getScenarioDefinition,
+  getScenarioDefinitions,
+  runScenario,
+  ScenarioId,
+  summarizeResults,
+} from "./utils/policyDetection";
 
 function hasHopsArray(value: unknown): value is { hops: unknown[] } {
   return (
@@ -44,6 +56,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [hops, setHops] = useState<Hop[]>([]);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState<"traceroute" | "policy">("traceroute");
   const [multiProbeEnabled, setMultiProbeEnabled] = useState(false);
   const [multiProbeSelections, setMultiProbeSelections] = useState<Record<string, boolean>>(() => {
     return Object.fromEntries(
@@ -55,7 +68,14 @@ export default function Page() {
   });
   const [multiProbeRunning, setMultiProbeRunning] = useState(false);
   const [multiProbeProgress, setMultiProbeProgress] = useState("");
-  const [resultsByProbe, setResultsByProbe] = useState<Record<string, TracerouteResult>>({});
+  const [multiProbeResults, setMultiProbeResults] = useState<Record<string, TracerouteResult>>({});
+  const [policyScenarioId, setPolicyScenarioId] = useState<ScenarioId>("sip-blocked");
+  const [policyResults, setPolicyResults] = useState<Record<string, TracerouteResult>>({});
+  const [policyRunning, setPolicyRunning] = useState(false);
+  const [policyTimestamp, setPolicyTimestamp] = useState<string | null>(null);
+  const [policyCompact, setPolicyCompact] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [rtpPortsInput, setRtpPortsInput] = useState("10000, 12000, 20000");
   const analysis = analyzeTrace(hops, target, probe);
   const filteringInsightTitles = new Set([
     "Likely filtered after edge",
@@ -64,10 +84,31 @@ export default function Page() {
   const hasFilteringInsight = analysis.insights.some(insight =>
     filteringInsightTitles.has(insight.title),
   );
-  const comparison = useMemo(() => compareProbes(resultsByProbe), [resultsByProbe]);
+  const comparison = useMemo(() => compareProbes(multiProbeResults), [multiProbeResults]);
   const probeLabelMap = useMemo(() => {
     return Object.fromEntries(probePresets.map(probePreset => [probePreset.key, probePreset.label]));
   }, []);
+  const parsedRtpPorts = useMemo(() => {
+    const ports = rtpPortsInput
+      .split(",")
+      .map(part => Number(part.trim()))
+      .filter(port => Number.isFinite(port) && port > 0 && port <= 65535);
+    return Array.from(new Set(ports));
+  }, [rtpPortsInput]);
+  const rtpPortsError =
+    policyScenarioId === "rtp-range" && parsedRtpPorts.length === 0
+      ? "Enter at least one valid UDP port (1-65535)."
+      : "";
+  const scenarioDefinitions = useMemo(
+    () => getScenarioDefinitions({ rtpPorts: parsedRtpPorts }),
+    [parsedRtpPorts],
+  );
+  const activeScenario = useMemo(
+    () => getScenarioDefinition(policyScenarioId, { rtpPorts: parsedRtpPorts }),
+    [policyScenarioId, parsedRtpPorts],
+  );
+  const policySummaries = useMemo(() => summarizeResults(policyResults), [policyResults]);
+  const policyFindings = useMemo(() => deriveFindings(policyResults), [policyResults]);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -128,7 +169,7 @@ export default function Page() {
 
     setError("");
     setHops([]);
-    setResultsByProbe({});
+    setMultiProbeResults({});
     setMultiProbeRunning(true);
     setMultiProbeProgress("");
 
@@ -141,58 +182,154 @@ export default function Page() {
       // eslint-disable-next-line no-await-in-loop
       const result = await runTracerouteProbe(target, probePreset);
       nextResults[probePreset.key] = result;
-      setResultsByProbe({ ...nextResults });
+      setMultiProbeResults({ ...nextResults });
     }
 
     setMultiProbeRunning(false);
     setMultiProbeProgress("Multi-probe run complete.");
   };
 
+  const handlePolicyRun = async () => {
+    if (!target.trim()) {
+      setError("Please enter a hostname or IP before running policy detection.");
+      return;
+    }
+    if (rtpPortsError) {
+      setError(rtpPortsError);
+      return;
+    }
+
+    setError("");
+    setPolicyResults({});
+    setPolicyRunning(true);
+    setCopyStatus("idle");
+
+    try {
+      const results = await runScenario(target, policyScenarioId, { rtpPorts: parsedRtpPorts });
+      setPolicyResults(results);
+      setPolicyTimestamp(new Date().toISOString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPolicyRunning(false);
+    }
+  };
+
+  const handleCopySummary = async () => {
+    try {
+      const summary = formatTicketSummary(policyFindings.findings, policyResults);
+      await navigator.clipboard.writeText(summary);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
+  };
+
+  const handleExportJson = () => {
+    const payload = {
+      target,
+      scenarioId: policyScenarioId,
+      scenarioTitle: activeScenario.title,
+      timestamp: policyTimestamp,
+      resultsByProbe: policyResults,
+      summaries: policySummaries,
+      findings: policyFindings.findings,
+      suggestedNextSteps: policyFindings.suggestedNextSteps,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `policy-detection-${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleToggleCompact = () => {
+    setPolicyCompact(prev => !prev);
+  };
+
   const comparisonProbeKeys = probePresets
     .map(probePreset => probePreset.key)
-    .filter(probeKey => resultsByProbe[probeKey]);
+    .filter(probeKey => multiProbeResults[probeKey]);
 
   return (
-    <div className="p-4">
+    <div className={`p-4 ${policyCompact ? "policy-compact" : ""}`}>
       <h1 className="text-2xl font-bold mb-4">Traceroute Visualizer</h1>
-      <div className="mb-2 flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <input
-            id="multi-probe-toggle"
-            type="checkbox"
-            className="h-4 w-4"
-            checked={multiProbeEnabled}
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              setMultiProbeEnabled(enabled);
+      <div className="mb-4 flex flex-wrap items-center gap-3 policy-controls">
+        <div className="flex rounded border border-slate-200 bg-white text-sm shadow-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("traceroute");
               setError("");
-              setMultiProbeProgress("");
-              if (enabled) {
-                setHops([]);
-              }
+              setPolicyCompact(false);
             }}
-          />
-          <label htmlFor="multi-probe-toggle" className="font-medium">
-            Run multi-probe
-          </label>
+            className={`px-4 py-2 font-semibold ${
+              viewMode === "traceroute" ? "bg-blue-600 text-white" : "text-slate-700"
+            }`}
+          >
+            Traceroute
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("policy");
+              setError("");
+            }}
+            className={`px-4 py-2 font-semibold ${
+              viewMode === "policy" ? "bg-blue-600 text-white" : "text-slate-700"
+            }`}
+          >
+            Policy Detection
+          </button>
         </div>
         <div className="text-xs text-gray-600">Backend: configured via BACKEND_URL (.env.local)</div>
       </div>
-      {!multiProbeEnabled && (
-        <div className="mb-2 flex items-center space-x-4">
-          <div>
-            <label htmlFor="probe-select" className="mr-2 font-medium">Probe:</label>
-            <select
-              id="probe-select"
-              value={probe}
-              onChange={(e) => setProbe(e.target.value)}
-              className="border p-1 rounded"
-            >
-              <option value="icmp">ICMP (recommended)</option>
-              <option value="tcp">TCP (port 80)</option>
-            </select>
+
+      {viewMode === "traceroute" && (
+        <>
+          <div className="mb-2 flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <input
+                id="multi-probe-toggle"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={multiProbeEnabled}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  setMultiProbeEnabled(enabled);
+                  setError("");
+                  setMultiProbeProgress("");
+                  if (enabled) {
+                    setHops([]);
+                  }
+                }}
+              />
+              <label htmlFor="multi-probe-toggle" className="font-medium">
+                Run multi-probe
+              </label>
+            </div>
           </div>
-        </div>
+          {!multiProbeEnabled && (
+            <div className="mb-2 flex items-center space-x-4">
+              <div>
+                <label htmlFor="probe-select" className="mr-2 font-medium">Probe:</label>
+                <select
+                  id="probe-select"
+                  value={probe}
+                  onChange={(e) => setProbe(e.target.value)}
+                  className="border p-1 rounded"
+                >
+                  <option value="icmp">ICMP (recommended)</option>
+                  <option value="tcp">TCP (port 80)</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </>
       )}
       <textarea
         className="border w-full p-2 mb-2"
@@ -201,7 +338,7 @@ export default function Page() {
         onChange={(e) => setTarget(e.target.value)}
         placeholder="Enter a hostname or IP (e.g. google.com)"
       />
-      {!multiProbeEnabled ? (
+      {viewMode === "traceroute" && !multiProbeEnabled ? (
         <button
           onClick={handleSubmit}
           className="bg-blue-600 text-white px-4 py-2 rounded"
@@ -209,7 +346,7 @@ export default function Page() {
         >
           {loading ? "Running traceroute..." : "Visualize"}
         </button>
-      ) : (
+      ) : viewMode === "traceroute" ? (
         <div className="mb-2">
           <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900 sm:grid-cols-2 lg:grid-cols-3">
             {probePresets.map(probePreset => (
@@ -241,11 +378,39 @@ export default function Page() {
             <div className="mt-2 text-sm text-slate-600">{multiProbeProgress}</div>
           )}
         </div>
+      ) : (
+        <div className="space-y-3 policy-print">
+          <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 policy-controls">
+            Policy Detection runs multiple probes and interprets filtering patterns for VoIP/NOC
+            tickets. UDP findings are directional only (traceroute cannot prove RTP is open).
+          </div>
+          <ScenarioPicker
+            scenarios={scenarioDefinitions}
+            selectedScenarioId={policyScenarioId}
+            onSelect={setPolicyScenarioId}
+            disabled={policyRunning}
+            rtpPortsInput={rtpPortsInput}
+            onRtpPortsInputChange={setRtpPortsInput}
+            rtpPortsError={rtpPortsError}
+          />
+          <div className="flex flex-wrap items-center gap-3 policy-controls">
+            <button
+              onClick={handlePolicyRun}
+              className="bg-blue-600 text-white px-4 py-2 rounded"
+              disabled={policyRunning}
+            >
+              {policyRunning ? "Running policy detection..." : "Run scenario"}
+            </button>
+            {policyRunning && (
+              <span className="text-xs text-slate-500">Running {activeScenario.title}...</span>
+            )}
+          </div>
+        </div>
       )}
 
       {error && <p className="text-red-600 mt-4">{error}</p>}
 
-      {!multiProbeEnabled && (
+      {viewMode === "traceroute" && !multiProbeEnabled && (
         <>
           {hops.length > 0 ? (
             <>
@@ -365,14 +530,14 @@ export default function Page() {
         </>
       )}
 
-      {multiProbeEnabled && comparisonProbeKeys.length > 0 && (
+      {viewMode === "traceroute" && multiProbeEnabled && comparisonProbeKeys.length > 0 && (
         <div className="mt-8 space-y-4">
           <h2 className="text-lg font-semibold">Comparison</h2>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {comparisonProbeKeys.map(probeKey => {
-              const summary = comparison.perProbeSummary[probeKey];
-              const label = probeLabelMap[probeKey] ?? probeKey;
-              const status = summary?.reachedDestination ? "Reached" : "Not reached";
+                      const summary = comparison.perProbeSummary[probeKey];
+                      const label = probeLabelMap[probeKey] ?? probeKey;
+                      const status = summary?.reachedDestination ? "Reached" : "Not reached";
               return (
                 <div
                   key={probeKey}
@@ -434,7 +599,7 @@ export default function Page() {
                     {comparisonProbeKeys.map(probeKey => {
                       const cell = row.cells[probeKey];
                       const summary = comparison.perProbeSummary[probeKey];
-                      const targetForProbe = resultsByProbe[probeKey]?.target ?? "";
+                      const targetForProbe = multiProbeResults[probeKey]?.target ?? "";
                       const isFirstSilentHop =
                         summary?.firstSilentHop != null && summary.firstSilentHop === row.hop;
                       if (!cell) {
@@ -470,6 +635,61 @@ export default function Page() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {viewMode === "policy" && Object.keys(policyResults).length > 0 && (
+        <div className="mt-8 space-y-4 policy-print">
+          <h2 className="text-lg font-semibold">Results Summary</h2>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {activeScenario.probes.map(probe => {
+              const summary = policySummaries[probe.key];
+              return (
+                <div
+                  key={probe.key}
+                  className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"
+                >
+                  <div className="font-semibold">{probe.label}</div>
+                  {summary?.error ? (
+                    <div className="mt-1 text-xs text-red-600">Error: {summary.error}</div>
+                  ) : (
+                    <>
+                      <div className="mt-1 text-xs text-slate-600">
+                        Destination: {summary?.reachedDestination ? "Reached" : "Not reached"}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        First silent hop: {summary?.firstSilentHop ?? "None"}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        Last responding hop: {summary?.lastRespondingHop ?? "None"}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        Elapsed: {summary?.elapsedSec != null ? `${summary.elapsedSec}s` : "—"}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <FindingsPanel
+            findings={policyFindings.findings}
+            confidence={policyFindings.confidence}
+            suggestedNextSteps={policyFindings.suggestedNextSteps}
+          />
+
+          <div className="rounded border border-slate-200 bg-white p-3">
+            <div className="text-sm font-semibold mb-2">Evidence actions</div>
+            <EvidenceActions
+              onCopySummary={handleCopySummary}
+              onExportJson={handleExportJson}
+              onToggleCompact={handleToggleCompact}
+              compactEnabled={policyCompact}
+              copyStatus={copyStatus}
+              disabled={policyRunning}
+            />
           </div>
         </div>
       )}
