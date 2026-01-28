@@ -125,15 +125,8 @@ export function classifyHop(hop: Hop, target: string): HopClassification {
       cidrContains(entry.cidr, normalizedIp),
     );
     ownership = matched
-      ? {
-          owner: matched.owner,
-          label: matched.label,
-          city: matched.city,
-        }
-      : {
-          owner: "unknown",
-          label: "Unknown network",
-        };
+      ? { owner: matched.owner, label: matched.label, city: matched.city }
+      : { owner: "unknown", label: "Unknown network" };
   }
 
   const explanationParts: string[] = [];
