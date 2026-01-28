@@ -1,6 +1,6 @@
 export async function POST(req: Request) {
   try {
-    const { target, mode } = await req.json();
+    const { target, mode, port } = await req.json();
 
     if (!target || typeof target !== "string") {
       return new Response(JSON.stringify({ error: "Missing or invalid 'target'" }), {
@@ -14,8 +14,11 @@ export async function POST(req: Request) {
     // Build query for the remote server
     if (url.pathname === "/") url.pathname = ""; // avoid trailing slash issues
     url.searchParams.set("target", target);
-    if (mode && (mode === "icmp" || mode === "tcp")) {
+    if (mode && (mode === "icmp" || mode === "tcp" || mode === "udp")) {
       url.searchParams.set("mode", mode);
+    }
+    if (typeof port === "number" && Number.isFinite(port)) {
+      url.searchParams.set("port", String(port));
     }
 
     const response = await fetch(url.toString(), {
