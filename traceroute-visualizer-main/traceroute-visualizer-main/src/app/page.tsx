@@ -473,6 +473,14 @@ export default function Page() {
                           <div className="font-bold text-sm">Hop {hop.hop}</div>
                           <div className="text-gray-700 text-xs">{hop.hostname}</div>
                           <div className="text-gray-500 text-xs">{hop.ip}</div>
+                          {classification.ownership && (
+                            <div className="text-gray-500 text-xs">
+                              📍 {classification.ownership.label}
+                              {classification.ownership.city
+                                ? ` (${classification.ownership.city})`
+                                : ""}
+                            </div>
+                          )}
                           <div
                             className={`font-medium ${
                               isNoResponse
