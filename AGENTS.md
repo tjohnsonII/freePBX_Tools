@@ -208,7 +208,7 @@ Run/Test:
 - TODO/VERIFY the intended runner (plain `python`, `pytest`, or other) from `README.md` / `QUICK_TEST.md` / `TEST_KNOWLEDGE_BASE.md`.
 
 Config:
-- Use `config.example.py` and `scraper_config.example.py` as templates only. Do not commit real `config.py` / `scraper_config.py`.
+- Use `config.example.py` and `webscraper/scraper_config.example.py` as templates only. Do not commit real `config.py` / `scraper_config.py`.
 
 ---
 

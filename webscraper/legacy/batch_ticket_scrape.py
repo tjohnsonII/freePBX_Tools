@@ -64,7 +64,11 @@ def resolve_credentials(args_username: str, args_password: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Run ticket_scraper.py for a list of handles")
-    ap.add_argument("--handles-file", default="customer_handles.txt", help="Path to file with handles (one per line)")
+    ap.add_argument(
+        "--handles-file",
+        default=str(Path("webscraper") / "data" / "customer_handles.txt"),
+        help="Path to file with handles (one per line)",
+    )
     ap.add_argument("--output-dir", default="knowledge_base", help="Directory to write per-customer *_tickets.db")
     ap.add_argument("--username", help="Portal username (fallback: KB_USERNAME env)")
     ap.add_argument("--password", help="Portal password (fallback: KB_PASSWORD env)")

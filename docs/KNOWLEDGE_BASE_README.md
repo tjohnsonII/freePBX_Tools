@@ -4,6 +4,17 @@
 
 A comprehensive system for scraping, storing, and querying customer support tickets from 123.NET admin interface. Build a searchable knowledge base to identify patterns, find solutions faster, and improve customer support.
 
+## How to run webscraper
+
+Prefer module execution from the repo root:
+
+```powershell
+python -m webscraper.ultimate_scraper --help
+python -m webscraper.run_discovery --help
+```
+
+Legacy scripts remain under `webscraper/legacy/`, and cookies belong in `.local/`.
+
 ## What It Does
 
 1. **Scrapes tickets** from 123.NET admin interface for each customer

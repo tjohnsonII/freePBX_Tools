@@ -14,7 +14,7 @@ Key Features:
 - Analyzes recurring issues and generates reports
 
 Usage:
-    python ticket_scraper.py --customer <handle> --username <user> --password <pass> [--export-md]
+    python webscraper/legacy/ticket_scraper.py --customer <handle> --username <user> --password <pass> [--export-md]
 
 Dependencies:
     - requests

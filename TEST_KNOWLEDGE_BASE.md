@@ -1,5 +1,22 @@
 # Testing the Knowledge Base Scraper
 
+## How to run webscraper
+
+Prefer module execution from the repo root:
+
+```powershell
+python -m webscraper.ultimate_scraper --help
+python -m webscraper.run_discovery --help
+```
+
+Legacy scripts remain under `webscraper/legacy/`:
+
+```powershell
+python webscraper/legacy/ticket_scraper.py --help
+```
+
+Store cookies and local outputs in `.local/` (gitignored), e.g. `.local/cookies.json`.
+
 ## Prerequisites
 
 Before testing, ensure you have:

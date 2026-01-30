@@ -2,7 +2,7 @@ import csv
 import os
 
 CSV_PATH = os.path.join('freepbx-tools', 'bin', '123net_internal_docs', 'vpbx_comprehensive', 'table_data.csv')
-OUT_PATH = 'customer_handles.txt'
+OUT_PATH = os.path.join('webscraper', 'data', 'customer_handles.txt')
 
 def extract_handles(csv_path, out_path):
     handles = set()
@@ -12,6 +12,7 @@ def extract_handles(csv_path, out_path):
             handle = row.get('Handle')
             if handle and handle.strip():
                 handles.add(handle.strip())
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, 'w', encoding='utf-8') as f:
         for handle in sorted(handles):
             f.write(handle + '\n')

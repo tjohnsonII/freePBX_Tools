@@ -11,10 +11,11 @@ function Pass($message) {
 
 try {
   $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+  Push-Location $repoRoot
 
   Write-Host "Running argparse help checks..."
+  python -m webscraper.ultimate_scraper --help | Out-Null
   python (Join-Path $repoRoot "webscraper\\legacy\\ticket_scraper.py") --help | Out-Null
-  python (Join-Path $repoRoot "webscraper\\legacy\\scrape_vpbx_tables.py") --help | Out-Null
   Pass "Argparse help checks"
 
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
@@ -60,8 +61,10 @@ try {
   }
   Pass "Selenium-to-KB parse-only test"
 
+  Pop-Location
   Pass "All regression checks"
   exit 0
 } catch {
+  Pop-Location
   Fail $_.Exception.Message
 }

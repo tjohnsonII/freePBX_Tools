@@ -15,6 +15,12 @@ This checks:
 
 **Expected Output**: `🎉 All tests passed! System is ready to use.`
 
+Optional webscraper sanity check (module form):
+
+```powershell
+python -m webscraper.ultimate_scraper --help
+```
+
 ---
 
 ## Step 2: Test with Real Customer (5 minutes)

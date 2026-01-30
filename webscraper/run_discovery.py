@@ -1,7 +1,10 @@
+import argparse
 import os
-from webscraper.tickets_discovery import run_discovery
+from .tickets_discovery import run_discovery
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the webscraper discovery crawler.")
+    parser.parse_args()
     # Target URLs provided by user
     urls = [
         "https://noc-tickets.123.net/view_all",
@@ -18,9 +21,13 @@ def main():
     allowed = {"noc-tickets.123.net", "10.123.203.1", "secure.123.net"}
 
     # Use cookies if available to access authenticated content
-    cookie_path = os.path.join(os.getcwd(), "cookies.json")
-    if not os.path.exists(cookie_path):
-        cookie_path = None
+    cookie_candidates = [
+        os.path.join(os.getcwd(), ".local", "cookies.json"),
+        os.path.join(os.getcwd(), ".local", "cookies.txt"),
+        os.path.join(os.getcwd(), "cookies.json"),
+        os.path.join(os.getcwd(), "cookies.txt"),
+    ]
+    cookie_path = next((path for path in cookie_candidates if os.path.exists(path)), None)
 
     run_discovery(
         start_urls=urls,

@@ -347,7 +347,7 @@ def main():
     
     print(f"\n✅ Saved {len(detailed_tickets)} tickets to: {output_file}")
     print(f"\n💡 Next step: Import into knowledge base")
-    print(f"   python ticket_scraper.py --customer {args.customer} ...")
+    print(f"   python webscraper/legacy/ticket_scraper.py --customer {args.customer} ...")
     
     return 0
 

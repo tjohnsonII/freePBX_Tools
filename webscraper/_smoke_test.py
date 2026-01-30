@@ -1,5 +1,5 @@
 import os
-from webscraper.ultimate_scraper import selenium_scrape_tickets
+from .ultimate_scraper import selenium_scrape_tickets
 
 def main():
     out = os.path.join('webscraper', 'test-output')

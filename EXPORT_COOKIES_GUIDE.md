@@ -1,12 +1,15 @@
 # Quick Browser Cookie Export Guide
 
+Store cookie files under `.local/` (gitignored) to keep them out of version control.
+Create it if needed: `mkdir .local`
+
 ## Method 1: Use EditThisCookie Extension (Easiest)
 
 1. Install "EditThisCookie" extension for Chrome/Edge
 2. Go to https://secure.123.net (while logged in)
 3. Click the EditThisCookie icon
 4. Click "Export" (bottom of popup)
-5. Paste the output into a file called `cookies.json`
+5. Paste the output into a file called `.local/cookies.json`
 
 ## Method 2: Manual Cookie Export from DevTools
 
@@ -26,11 +29,11 @@ copy(JSON.stringify(
 ```
 
 4. The cookies are now in your clipboard
-5. Create a file called `cookies.json` and paste:
+5. Create a file called `.local/cookies.json` and paste:
 
 ```powershell
 # In PowerShell
-notepad cookies.json
+notepad .local\\cookies.json
 # Then paste and save
 ```
 
@@ -40,7 +43,7 @@ notepad cookies.json
 2. Look for these cookies and copy their values:
    - `session_id` or `PHPSESSID`
    - Any cookie with "auth" or "token" in the name
-3. Create `cookies.json`:
+3. Create `.local/cookies.json`:
 
 ```json
 {
@@ -54,7 +57,7 @@ notepad cookies.json
 ```powershell
 python webscraper/legacy/ticket_scraper_session.py `
   --customer CUSTOMER_HANDLE `
-  --cookie-file cookies.json
+  --cookie-file .local/cookies.json
 ```
 
 ## Note About Cookie Expiration

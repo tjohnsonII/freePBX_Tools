@@ -45,6 +45,7 @@ webscraper.log
 *.db
 cookies*.txt
 cookies*.json
+.local/
 
 # =========================
 # OS / editor noise

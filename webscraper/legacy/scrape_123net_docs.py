@@ -1,14 +1,18 @@
-# SENSITIVE: do not commit real tokens or credentials.
-import requests
-from requests_ntlm import HttpNtlmAuth
-from bs4 import BeautifulSoup
-import os
-import sys
-import re
-from urllib.parse import urljoin, urlparse
-import json
-from datetime import datetime
+"""DO NOT COMMIT REAL TOKENS/COOKIES."""
+from __future__ import annotations
+
+import base64
 import getpass
+import json
+import os
+import re
+import sys
+from datetime import datetime
+from urllib.parse import urljoin, urlparse
+
+import requests
+from bs4 import BeautifulSoup
+from requests_ntlm import HttpNtlmAuth
 
 class Colors:
     """
@@ -23,18 +27,38 @@ class Colors:
     BLUE = '\033[94m'
     CYAN = '\033[96m'
 
-import requests
-from requests_ntlm import HttpNtlmAuth
-from bs4 import BeautifulSoup
-import os
-import sys
-import re
-from urllib.parse import urljoin, urlparse
-import json
-from datetime import datetime
-import getpass
-
 class DocScraper:
+    def _build_basic_auth_header(self) -> str | None:
+        basic = os.getenv("WEBSCRAPER_BASIC_AUTH")
+        if basic:
+            return basic.strip()
+        user = os.getenv("WEBSCRAPER_USER")
+        password = os.getenv("WEBSCRAPER_PASS")
+        if user and password:
+            token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+            return f"Basic {token}"
+        return None
+
+    def _load_cookie_file(self) -> None:
+        env_path = os.getenv("WEBSCRAPER_COOKIE_FILE")
+        search_paths = [
+            env_path,
+            os.path.join(os.getcwd(), ".local", "cookies.json"),
+            os.path.join(os.getcwd(), ".local", "cookies.txt"),
+            os.path.join(os.getcwd(), "cookies.json"),
+            os.path.join(os.getcwd(), "cookies.txt"),
+        ]
+        for path in filter(None, search_paths):
+            if os.path.exists(path):
+                self.load_cookies(path)
+                return
+
+    def load_cookies(self, cookie_file: str) -> None:
+        if cookie_file.endswith(".json"):
+            self.load_json_cookies(cookie_file)
+        else:
+            self.load_netscape_cookies(cookie_file)
+
     def extract_tickets_for_customers(self, customer_handles, output_json="all_tickets.json"):
         """
         For each customer handle, submit a search and extract ticket data.
@@ -71,6 +95,33 @@ class DocScraper:
                     cookies[name] = value
         self.session.cookies.update(cookies)
         print(f"{Colors.GREEN}✓ Loaded {len(cookies)} cookies from {cookie_file}{Colors.RESET}")
+    def load_json_cookies(self, cookie_file):
+        """
+        Load cookies from a JSON file (dict or list of cookie objects).
+        """
+        if not os.path.exists(cookie_file):
+            print(f"{Colors.RED}Cookie file not found: {cookie_file}{Colors.RESET}")
+            return
+        try:
+            with open(cookie_file, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except json.JSONDecodeError as exc:
+            print(f"{Colors.RED}Invalid JSON cookies file: {exc}{Colors.RESET}")
+            return
+        cookies = {}
+        if isinstance(payload, dict):
+            cookies = payload
+        elif isinstance(payload, list):
+            for entry in payload:
+                name = entry.get("name")
+                value = entry.get("value")
+                if name and value is not None:
+                    cookies[name] = value
+        if cookies:
+            self.session.cookies.update(cookies)
+            print(f"{Colors.GREEN}✓ Loaded {len(cookies)} cookies from {cookie_file}{Colors.RESET}")
+        else:
+            print(f"{Colors.YELLOW}No cookies found in {cookie_file}{Colors.RESET}")
     def save_post_html(self, html, filename="customers_raw.html"):
         """
         Save the full HTML response from the POST request for inspection.
@@ -89,8 +140,7 @@ class DocScraper:
         """
         url = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
         # SENSITIVE: do not hardcode tokens/cookies; use env vars/cookies file.
-        auth_basic = os.getenv("SCRAPER_AUTH_BASIC")
-        cookie_header = os.getenv("SCRAPER_COOKIE")
+        auth_basic = self._build_basic_auth_header()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -113,8 +163,6 @@ class DocScraper:
         }
         if auth_basic:
             headers["Authorization"] = auth_basic
-        if cookie_header:
-            headers["Cookie"] = cookie_header
         if post_data is None:
             post_data = {"test": "value"}  # Replace with actual POST data as needed
         try:
@@ -193,9 +241,7 @@ class DocScraper:
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
         # Load cookies if cookie file exists
-        cookie_file = os.path.join(os.getcwd(), 'cookies.txt')
-        if os.path.exists(cookie_file):
-            self.load_netscape_cookies(cookie_file)
+        self._load_cookie_file()
 
     def get_page(self, url):
         """

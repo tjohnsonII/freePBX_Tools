@@ -298,7 +298,7 @@ def show_next_steps():
     print("\n1. Get your 123.NET admin credentials")
     print("2. Choose a customer to test with")
     print("3. Run the scraper:")
-    print("\n   python ticket_scraper.py \\")
+    print("\n   python webscraper/legacy/ticket_scraper.py \\")
     print("     --customer CUSTOMER_HANDLE \\")
     print("     --username admin \\")
     print("     --password your_password \\")

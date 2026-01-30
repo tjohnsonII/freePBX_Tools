@@ -226,7 +226,7 @@ def main():
     if not Path('unified_knowledge_base.db').exists():
         print("\n❌ unified_knowledge_base.db not found!")
         print("\nPlease run these commands first:")
-        print("  1. python ticket_scraper.py --customer CUSTOMER_NAME --username admin --password pass")
+        print("  1. python webscraper/legacy/ticket_scraper.py --customer CUSTOMER_NAME --username admin --password pass")
         print("  2. python build_unified_kb.py --input-dir knowledge_base --stats")
         print("\nThen run this example script again.")
         return

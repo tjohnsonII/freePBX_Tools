@@ -52,6 +52,30 @@ If you are new to this repository or returning after time away, read these in or
 - **Polycom / Yealink / Mikrotik Config UI** – Vite-based config generator UI  
   Path: `PolycomYealinkMikrotikSwitchConfig-main/`
 
+## How to run webscraper
+
+Prefer module execution from the repo root:
+
+```powershell
+python -m webscraper.ultimate_scraper --help
+python -m webscraper.run_discovery --help
+python -m webscraper._smoke_test
+```
+
+Legacy scripts remain under `webscraper/legacy/` (run directly):
+
+```powershell
+python webscraper/legacy/ticket_scraper.py --help
+```
+
+You can also use the single root-level entrypoint:
+
+```powershell
+python scraper.py ticket_scraper --help
+```
+
+Store local cookies/logs in `.local/` (gitignored), e.g. `.local/cookies.json`.
+
 
 
 # FreePBX Tools - Diagnostic & Call Simulation Suite

@@ -27,7 +27,7 @@ Notes:
 Supply many handles from a file (one per line; `#` comments allowed):
 
 ```powershell
-python -m webscraper.ultimate_scraper --show --handles-file customer_handles.txt --out webscraper/output
+python -m webscraper.ultimate_scraper --show --handles-file webscraper/data/customer_handles.txt --out webscraper/output
 ```
 
 ## Outputs
@@ -39,6 +39,13 @@ The `--out` directory will include:
 - `scrape_results_<HANDLE>.json`: aggregated results (matching rows, ticket links, ticket details)
 - `ticket_<HANDLE>_<ID>.html`: raw ticket pages
 - `selenium_cookies.json`: cookies captured after initial navigation/login
+
+## Local-only artifacts (.local)
+Store cookies and local outputs in `.local/` at the repo root. This folder is gitignored.
+
+Suggested paths:
+- `.local/cookies.json` or `.local/cookies.txt` for authenticated sessions
+- `.local/all_tickets.json`, `.local/tickets.json`, `.local/*.log`, `.local/*.db` for local output
 
 ## Troubleshooting
 - If no search input is found, the script dumps all form inputs to the debug log to help selector tuning.

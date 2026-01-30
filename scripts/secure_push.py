@@ -148,7 +148,7 @@ def ensure_allowlist_pragmas():
             edits.append(str(vpath))
 
     # scraper_config.example.py: ensure single pragma on password lines
-    scpath = REPO_ROOT / "scraper_config.example.py"
+    scpath = REPO_ROOT / "webscraper" / "scraper_config.example.py"
     if scpath.exists():
         lines = scpath.read_text(encoding="utf-8").splitlines()
         changed = False

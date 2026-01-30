@@ -1,7 +1,7 @@
 # Legacy scraper scripts
 
 These scripts were moved from the repo root to keep legacy tooling organized under `webscraper/legacy/`.
-Each legacy script still has a root-level stub for backward compatibility.
+Use the module-style entrypoints or `python scraper.py <command>` for a single root-level launcher.
 
 > ⚠️ SENSITIVE DATA WARNING
 > Some scripts interact with authenticated systems, cookies, or internal docs.
@@ -18,14 +18,14 @@ Each legacy script still has a root-level stub for backward compatibility.
 
 ### `ticket_scraper_session.py`
 - **Purpose:** Session-cookie based ticket scraper that exports ticket JSON.
-- **Run:** `python webscraper/legacy/ticket_scraper_session.py --customer <HANDLE> --cookie-file cookies.json`
+- **Run:** `python webscraper/legacy/ticket_scraper_session.py --customer <HANDLE> --cookie-file .local/cookies.json`
 - **Auth:** Cookies required (`--cookie-file` or `--interactive`).
 - **Outputs:** `knowledge_base/<HANDLE>_tickets_session.json`.
 - **Safe test:** `python webscraper/legacy/ticket_scraper_session.py --help`
 
 ### `batch_ticket_scrape.py`
 - **Purpose:** Batch wrapper that runs `ticket_scraper.py` for a list of handles.
-- **Run:** `python webscraper/legacy/batch_ticket_scrape.py --handles-file customer_handles.txt --output-dir knowledge_base`
+- **Run:** `python webscraper/legacy/batch_ticket_scrape.py --handles-file webscraper/data/customer_handles.txt --output-dir knowledge_base`
 - **Auth:** `--username/--password`, or `KB_USERNAME`/`KB_PASSWORD` env vars; fallback to `webscraper.ultimate_scraper_config`.
 - **Outputs:** `knowledge_base/<HANDLE>_tickets.db` per handle; optional unified DB when `--build` is used.
 - **Safe test:** `python webscraper/legacy/batch_ticket_scrape.py --help`
@@ -33,7 +33,7 @@ Each legacy script still has a root-level stub for backward compatibility.
 ### `scrape_123net_docs.py`
 - **Purpose:** Requests/NTLM-based internal doc scraper for secure.123.net.
 - **Run:** `python webscraper/legacy/scrape_123net_docs.py --url <URL> --output <DIR> [--depth N] [--post] [--batch <handles.txt>]`
-- **Auth:** NTLM by default; may use existing cookies in `cookies.txt` if present.
+- **Auth:** NTLM by default; may use existing cookies in `.local/cookies.txt` or `.local/cookies.json` if present.
 - **Outputs:** HTML/text files in output directory; optionally `tickets.json` / `all_tickets.json` for batch/post modes.
 - **Safe test:** `python webscraper/legacy/scrape_123net_docs.py --help`
 
@@ -76,7 +76,7 @@ Each legacy script still has a root-level stub for backward compatibility.
 - **Purpose:** Windows-only helper to extract cookies from Chrome/Edge into `cookies.json`.
 - **Run:** `python webscraper/legacy/extract_browser_cookies.py`
 - **Auth:** Requires local browser login to secure.123.net.
-- **Outputs:** `cookies.json` in current directory.
+- **Outputs:** `cookies.json` in current directory (move to `.local/` if desired).
 - **Safe test:** `python webscraper/legacy/extract_browser_cookies.py` (manual/interactive).
 
 ### `convert_cookies.py`
@@ -88,8 +88,12 @@ Each legacy script still has a root-level stub for backward compatibility.
 
 ## Regression runner
 
-Use the PowerShell regression script (no network/auth required):
+Use the PowerShell or Python regression script (no network/auth required):
 
 ```
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& .\\scripts\\run_webscraper_regression.ps1"
+```
+
+```powershell
+python scripts/run_webscraper_regression.py
 ```
