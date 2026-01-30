@@ -5,6 +5,11 @@ export type Hop = {
   ip: string;
   hostname: string;
   latency: string;
+  reply?: string;
+  icmpType?: string | number;
+  type?: string | number;
+  message?: string;
+  status?: string;
   geo: {
     city: string;
     country: string;

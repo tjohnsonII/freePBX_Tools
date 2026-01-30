@@ -8,12 +8,14 @@ import { useMemo, useState } from "react";
 import { classifyHop, Hop } from "./utils/tracerouteClassification";
 import { analyzeTrace } from "./utils/tracerouteInsights";
 import { getTargetValidationError } from "./utils/targetValidation";
+import { TracerouteResult } from "./utils/tracerouteComparison";
 import {
-  compareProbes,
-  ProbeSpec,
-  runTracerouteProbe,
-  TracerouteResult,
-} from "./utils/tracerouteComparison";
+  buildMergedHopViews,
+  MultiProbeResult,
+  probeLabels,
+  runAllProbes,
+  summarizeProbeErrors,
+} from "./utils/multiProbe";
 import ScenarioPicker from "./components/ScenarioPicker";
 import FindingsPanel from "./components/FindingsPanel";
 import EvidenceActions from "./components/EvidenceActions";
@@ -36,20 +38,7 @@ function hasHopsArray(value: unknown): value is { hops: unknown[] } {
   );
 }
 
-const probePresets: ProbeSpec[] = [
-  { key: "icmp", label: "ICMP", mode: "icmp" },
-  { key: "udp:33434", label: "UDP 33434", mode: "udp", port: 33434 },
-  { key: "tcp:80", label: "TCP 80", mode: "tcp", port: 80 },
-  { key: "tcp:443", label: "TCP 443", mode: "tcp", port: 443 },
-  { key: "tcp:5060", label: "TCP 5060 (SIP)", mode: "tcp", port: 5060 },
-];
-
-const defaultMultiProbeSelection = new Set([
-  "icmp",
-  "tcp:80",
-  "tcp:443",
-  "tcp:5060",
-]);
+const multiProbeKeys = ["icmp", "tcp", "udp"] as const;
 
 export default function Page() {
   const [target, setTarget] = useState("");
@@ -59,17 +48,9 @@ export default function Page() {
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState<"traceroute" | "policy">("traceroute");
   const [multiProbeEnabled, setMultiProbeEnabled] = useState(false);
-  const [multiProbeSelections, setMultiProbeSelections] = useState<Record<string, boolean>>(() => {
-    return Object.fromEntries(
-      probePresets.map(probePreset => [
-        probePreset.key,
-        defaultMultiProbeSelection.has(probePreset.key),
-      ]),
-    );
-  });
   const [multiProbeRunning, setMultiProbeRunning] = useState(false);
   const [multiProbeProgress, setMultiProbeProgress] = useState("");
-  const [multiProbeResults, setMultiProbeResults] = useState<Record<string, TracerouteResult>>({});
+  const [multiProbeResults, setMultiProbeResults] = useState<MultiProbeResult | null>(null);
   const [policyScenarioId, setPolicyScenarioId] = useState<ScenarioId>("sip-blocked");
   const [policyResults, setPolicyResults] = useState<Record<string, TracerouteResult>>({});
   const [policyRunning, setPolicyRunning] = useState(false);
@@ -85,10 +66,14 @@ export default function Page() {
   const hasFilteringInsight = analysis.insights.some(insight =>
     filteringInsightTitles.has(insight.title),
   );
-  const comparison = useMemo(() => compareProbes(multiProbeResults), [multiProbeResults]);
-  const probeLabelMap = useMemo(() => {
-    return Object.fromEntries(probePresets.map(probePreset => [probePreset.key, probePreset.label]));
-  }, []);
+  const mergedMultiProbe = useMemo(() => {
+    if (!multiProbeResults) return null;
+    return buildMergedHopViews(multiProbeResults, target);
+  }, [multiProbeResults, target]);
+  const multiProbeErrors = useMemo(() => {
+    if (!multiProbeResults) return [];
+    return summarizeProbeErrors(multiProbeResults);
+  }, [multiProbeResults]);
   const parsedRtpPorts = useMemo(() => {
     const ports = rtpPortsInput
       .split(",")
@@ -110,6 +95,26 @@ export default function Page() {
   );
   const policySummaries = useMemo(() => summarizeResults(policyResults), [policyResults]);
   const policyFindings = useMemo(() => deriveFindings(policyResults), [policyResults]);
+  const hopStateStyles: Record<
+    "responsive" | "filtered" | "unreachable",
+    { border: string; badge: string; label: string }
+  > = {
+    responsive: {
+      border: "border-emerald-500",
+      badge: "bg-emerald-100 text-emerald-800 border-emerald-200",
+      label: "🟢 Responsive",
+    },
+    filtered: {
+      border: "border-amber-500",
+      badge: "bg-amber-100 text-amber-800 border-amber-200",
+      label: "🟡 Filtered",
+    },
+    unreachable: {
+      border: "border-red-500",
+      badge: "bg-red-100 text-red-800 border-red-200",
+      label: "🔴 Unreachable",
+    },
+  };
 
   const handleSubmit = async () => {
     const validationError = getTargetValidationError(target);
@@ -159,39 +164,20 @@ export default function Page() {
   };
 
   const handleMultiProbeRun = async () => {
-    const selectedProbes = probePresets.filter(
-      probePreset => multiProbeSelections[probePreset.key],
-    );
-
     const validationError = getTargetValidationError(target);
     if (validationError) {
       setError(validationError);
       return;
     }
 
-    if (selectedProbes.length === 0) {
-      setError("Select at least one probe preset to run.");
-      return;
-    }
-
     setError("");
     setHops([]);
-    setMultiProbeResults({});
+    setMultiProbeResults(null);
     setMultiProbeRunning(true);
-    setMultiProbeProgress("");
+    setMultiProbeProgress("Running multi-probe (ICMP/TCP/UDP)...");
 
-    const nextResults: Record<string, TracerouteResult> = {};
-    for (let index = 0; index < selectedProbes.length; index += 1) {
-      const probePreset = selectedProbes[index];
-      setMultiProbeProgress(
-        `Running ${probePreset.label} (${index + 1}/${selectedProbes.length})...`,
-      );
-      // eslint-disable-next-line no-await-in-loop
-      const result = await runTracerouteProbe(target, probePreset);
-      nextResults[probePreset.key] = result;
-      setMultiProbeResults({ ...nextResults });
-    }
-
+    const results = await runAllProbes(target);
+    setMultiProbeResults(results);
     setMultiProbeRunning(false);
     setMultiProbeProgress("Multi-probe run complete.");
   };
@@ -259,10 +245,6 @@ export default function Page() {
     setPolicyCompact(prev => !prev);
   };
 
-  const comparisonProbeKeys = probePresets
-    .map(probePreset => probePreset.key)
-    .filter(probeKey => multiProbeResults[probeKey]);
-
   return (
     <div className={`p-4 ${policyCompact ? "policy-compact" : ""}`}>
       <h1 className="text-2xl font-bold mb-4">Traceroute Visualizer</h1>
@@ -313,11 +295,14 @@ export default function Page() {
                   setMultiProbeProgress("");
                   if (enabled) {
                     setHops([]);
+                    setMultiProbeResults(null);
+                  } else {
+                    setMultiProbeResults(null);
                   }
                 }}
               />
               <label htmlFor="multi-probe-toggle" className="font-medium">
-                Run multi-probe
+                Run multi-probe (icmp/tcp/udp)
               </label>
             </div>
           </div>
@@ -356,25 +341,6 @@ export default function Page() {
         </button>
       ) : viewMode === "traceroute" ? (
         <div className="mb-2">
-          <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900 sm:grid-cols-2 lg:grid-cols-3">
-            {probePresets.map(probePreset => (
-              <label key={probePreset.key} className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={!!multiProbeSelections[probePreset.key]}
-                  onChange={(event) =>
-                    setMultiProbeSelections(prev => ({
-                      ...prev,
-                      [probePreset.key]: event.target.checked,
-                    }))
-                  }
-                  disabled={multiProbeRunning}
-                />
-                <span>{probePreset.label}</span>
-              </label>
-            ))}
-          </div>
           <button
             onClick={handleMultiProbeRun}
             className="mt-3 bg-blue-600 text-white px-4 py-2 rounded"
@@ -546,111 +512,97 @@ export default function Page() {
         </>
       )}
 
-      {viewMode === "traceroute" && multiProbeEnabled && comparisonProbeKeys.length > 0 && (
+      {viewMode === "traceroute" && multiProbeEnabled && mergedMultiProbe && (
         <div className="mt-8 space-y-4">
-          <h2 className="text-lg font-semibold">Comparison</h2>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {comparisonProbeKeys.map(probeKey => {
-                      const summary = comparison.perProbeSummary[probeKey];
-                      const label = probeLabelMap[probeKey] ?? probeKey;
-                      const status = summary?.reachedDestination ? "Reached" : "Not reached";
+          <h2 className="text-lg font-semibold">Multi-probe view</h2>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <div className="font-semibold">Bottom line</div>
+            <div className="text-base font-semibold text-slate-900">
+              {mergedMultiProbe.bottomLine}
+            </div>
+          </div>
+          {multiProbeErrors.length > 0 && (
+            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold">Probe errors</div>
+              <ul className="list-disc pl-5">
+                {multiProbeErrors.map(errorLine => (
+                  <li key={errorLine}>{errorLine}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex overflow-x-auto space-x-4 pb-4">
+            {mergedMultiProbe.mergedHops.map(hopView => {
+              const style = hopStateStyles[hopView.state];
+              const bestLabel = hopView.bestIp ? `${hopView.bestIp}` : "No reply";
+              const bestLatency = hopView.bestLatency ?? "";
+              const tooltip = hopView.reasonParts.join(" ");
+              const bestHop = hopView.bestHop;
               return (
-                <div
-                  key={probeKey}
-                  className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"
-                >
-                  <div className="font-semibold">{label}</div>
-                  {summary?.error ? (
-                    <div className="text-xs text-red-600 mt-1">Error: {summary.error}</div>
-                  ) : (
-                    <>
-                      <div className="text-xs text-slate-600 mt-1">Destination: {status}</div>
-                      <div className="text-xs text-slate-600">
-                        First silent hop: {summary?.firstSilentHop ?? "None"}
+                <div key={hopView.hopNumber} className="flex items-center space-x-2">
+                  <div className="flex flex-col items-center">
+                    <div className="relative group">
+                      <Server className="text-blue-600 w-6 h-6 mb-1 cursor-pointer" />
+                      {bestHop && (
+                        <div className="absolute z-10 hidden group-hover:block bg-black text-white text-xs rounded px-2 py-1 bottom-full mb-1 whitespace-nowrap shadow-md transition-opacity duration-200 opacity-90">
+                          {bestHop.hop.hostname} ({bestHop.hop.ip})
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      className={`bg-white border border-gray-200 shadow-md rounded-lg px-4 py-2 text-center min-w-[200px] border-l-4 ${style.border}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-bold text-sm">Hop {hopView.hopNumber}</div>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${style.badge}`}
+                          title={tooltip}
+                        >
+                          {style.label}
+                        </span>
                       </div>
-                      <div className="text-xs text-slate-600">
-                        Last responding hop: {summary?.lastRespondingHop ?? "None"}
+                      <div className="text-gray-700 text-xs">{hopView.bestHostname || "—"}</div>
+                      <div className="text-gray-500 text-xs">{bestLabel}</div>
+                      {bestHop?.classification.ownership && (
+                        <div className="text-gray-500 text-xs">
+                          📍 {bestHop.classification.ownership.label}
+                          {bestHop.classification.ownership.city
+                            ? ` (${bestHop.classification.ownership.city})`
+                            : ""}
+                        </div>
+                      )}
+                      <div className="mt-1 text-xs text-slate-600">
+                        {multiProbeKeys.map(key => {
+                          const match = hopView.perProbe[key];
+                          const label = probeLabels[key];
+                          const summary = match?.classification.flags.responded
+                            ? `${match.hop.ip} (${match.hop.latency})`
+                            : "No reply";
+                          return (
+                            <div key={`${hopView.hopNumber}-${key}`}>
+                              <span className="font-semibold">{label}:</span> {summary}
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="text-xs text-slate-600">
-                        Responded: {summary?.respondedCount ?? 0}/{summary?.totalHops ?? 0}
-                      </div>
-                    </>
+                      {bestLatency && (
+                        <div className="mt-1 text-xs text-gray-500">Best RTT: {bestLatency}</div>
+                      )}
+                    </div>
+                  </div>
+                  {hopView.hopNumber < mergedMultiProbe.mergedHops.length && (
+                    hopView.state === "responsive" ? (
+                      <div className="w-10 h-1 bg-gray-400 flex-shrink-0" />
+                    ) : (
+                      <div className="w-10 border-t border-dashed border-gray-400 opacity-50 h-1 flex-shrink-0" />
+                    )
                   )}
                 </div>
               );
             })}
           </div>
-
-          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <div className="font-semibold mb-2 text-sm">Insights</div>
-            {comparison.insights.length > 0 ? (
-              <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-                {comparison.insights.map((insight, index) => (
-                  <li key={`${insight.title}-${index}`}>
-                    <span className="font-semibold">{insight.title}:</span> {insight.detail}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-xs text-slate-500">No multi-probe insights yet.</div>
-            )}
-          </div>
-
-          <div className="overflow-x-auto rounded border border-slate-200 bg-white">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-100 text-slate-700">
-                <tr>
-                  <th className="px-3 py-2 text-left">Hop</th>
-                  {comparisonProbeKeys.map(probeKey => (
-                    <th key={probeKey} className="px-3 py-2 text-left">
-                      {probeLabelMap[probeKey] ?? probeKey}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {comparison.hopMatrix.map(row => (
-                  <tr key={row.hop} className="border-t border-slate-200">
-                    <td className="px-3 py-2 font-medium">{row.hop}</td>
-                    {comparisonProbeKeys.map(probeKey => {
-                      const cell = row.cells[probeKey];
-                      const summary = comparison.perProbeSummary[probeKey];
-                      const targetForProbe = multiProbeResults[probeKey]?.target ?? "";
-                      const isFirstSilentHop =
-                        summary?.firstSilentHop != null && summary.firstSilentHop === row.hop;
-                      if (!cell) {
-                        return (
-                          <td
-                            key={`${probeKey}-${row.hop}`}
-                            className="px-3 py-2 text-slate-400"
-                          >
-                            —
-                          </td>
-                        );
-                      }
-                      const classification = classifyHop(cell, targetForProbe);
-                      const responded = classification.flags.responded;
-                      const cellLabel = responded ? `${cell.ip} (${cell.latency})` : "—";
-                      return (
-                        <td
-                          key={`${probeKey}-${row.hop}`}
-                          className={`px-3 py-2 ${isFirstSilentHop ? "bg-amber-50" : ""}`}
-                        >
-                          <div className={responded ? "text-slate-900" : "text-slate-400"}>
-                            {cellLabel}
-                          </div>
-                          {isFirstSilentHop && (
-                            <div className="text-[10px] uppercase text-amber-600">
-                              Silence starts
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-8 h-[500px]">
+            <TraceMap hops={[]} target={target} hopViews={mergedMultiProbe.mergedHops} />
           </div>
         </div>
       )}
