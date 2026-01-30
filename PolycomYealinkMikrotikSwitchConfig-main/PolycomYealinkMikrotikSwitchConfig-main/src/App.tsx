@@ -1348,8 +1348,8 @@ function App() {
           <div style={{ display: 'flex', gap: 40, justifyContent: 'center', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {/* Yealink Section */}
             <div style={{ flex: 1, minWidth: 350 }}>
-              <img src="/expansion/yealink-expansion.jpg" alt="Yealink Expansion Module" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
-              <img src="/expansion/yealink-expansion2.jpg" alt="Yealink Expansion Module Alt" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
+              <img src="/expansion/yealinkexp40.jpeg" alt="Yealink EXP40" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
+              <img src="/expansion/yealinkexp50.jpeg" alt="Yealink EXP50" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
               <div style={{ background: '#eef6fb', border: '1px solid #cce1fa', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 }}>
                 <b>Instructions:</b> Fill out the form below to generate a config for a Yealink expansion key. Use the page &amp; line to preview the key visually. Hover over any icon for field details.
               </div>
@@ -1429,7 +1429,7 @@ function App() {
             </div>
             {/* Polycom Section */}
             <div style={{ flex: 1, minWidth: 350 }}>
-              <img src="/expansion/polycom-expansion.jpg" alt="Polycom VVX Color Expansion Module" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
+              <img src="/expansion/polycomVVX_Color_Exp_Module_2201.jpeg" alt="Polycom VVX Color Expansion Module" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
               <div style={{ background: '#eef6fb', border: '1px solid #cce1fa', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 }}>
                 <b>Instructions:</b> Fill out the form below to generate a config for a Polycom expansion key. The preview grid below shows the button layout. Hover over any key for details.
               </div>
