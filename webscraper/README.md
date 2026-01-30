@@ -16,7 +16,7 @@ pip install selenium beautifulsoup4 lxml
 Run with a visible browser so you can log in if needed:
 
 ```powershell
-python webscraper/ultimate_scraper.py --show --handles KPM --out webscraper/output
+python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output
 ```
 
 Notes:
@@ -27,7 +27,7 @@ Notes:
 Supply many handles from a file (one per line; `#` comments allowed):
 
 ```powershell
-python webscraper/ultimate_scraper.py --show --handles-file customer_handles.txt --out webscraper/output
+python -m webscraper.ultimate_scraper --show --handles-file customer_handles.txt --out webscraper/output
 ```
 
 ## Outputs
@@ -55,7 +55,16 @@ Environment overrides:
 If your environment does not require interactive login, run without `--show`:
 
 ```powershell
-python webscraper/ultimate_scraper.py --handles KPM --out webscraper/output
+python -m webscraper.ultimate_scraper --handles KPM --out webscraper/output
+```
+
+## Module-based entrypoints
+Run these from the repo root to avoid import errors:
+
+```powershell
+python -m webscraper.run_discovery --help
+python -m webscraper._smoke_test
+python -m webscraper.ultimate_scraper --help
 ```
 
 If headless navigation fails due to auth, switch back to `--show` and complete login manually.
