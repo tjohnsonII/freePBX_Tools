@@ -4,6 +4,7 @@ import React, { useState } from "react";
 // import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Router } from "lucide-react";
+import { getTargetValidationError } from "./utils/targetValidation";
 
 export default function TracerouteVisualizer() {
   const [input, setInput] = useState("");
@@ -13,7 +14,11 @@ export default function TracerouteVisualizer() {
 
   const handleVisualize = async () => {
     const target = input.trim();
-    if (!target) return;
+    const validationError = getTargetValidationError(target);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setLoading(true);
     setError("");
     try {

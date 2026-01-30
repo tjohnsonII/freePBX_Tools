@@ -1,3 +1,5 @@
+import { getTargetValidationError } from "../../utils/targetValidation";
+
 export async function POST(req: Request) {
   try {
     const { target, mode, port } = await req.json();
@@ -8,12 +10,20 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    const validationError = getTargetValidationError(target);
+    if (validationError) {
+      return new Response(JSON.stringify({ error: validationError }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const normalizedTarget = target.trim();
 
     const backendUrl = process.env.BACKEND_URL || "http://192.168.50.1:8000";
     const url = new URL(backendUrl);
     // Build query for the remote server
     if (url.pathname === "/") url.pathname = ""; // avoid trailing slash issues
-    url.searchParams.set("target", target);
+    url.searchParams.set("target", normalizedTarget);
     if (mode && (mode === "icmp" || mode === "tcp" || mode === "udp")) {
       url.searchParams.set("mode", mode);
     }
