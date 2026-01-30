@@ -27,11 +27,11 @@ Scripts that deploy/manage the freepbx-tools package to servers:
 - `install_phone_config_analyzer.sh` - Installation script
 
 #### 4. **Data Extraction & Scraping Tools**
-- `scrape_vpbx_tables.py` - Web scraping
-- `scrape_vpbx_tables_comprehensive.py` - Comprehensive scraping
-- `scrape_123net_docs.py` - Documentation scraping
-- `scrape_123net_docs_selenium.py` - Selenium-based scraping
-- `run_comprehensive_scrape.py` - Orchestration
+- `webscraper/legacy/scrape_vpbx_tables.py` - Web scraping
+- `webscraper/legacy/scrape_vpbx_tables_comprehensive.py` - Comprehensive scraping
+- `webscraper/legacy/scrape_123net_docs.py` - Documentation scraping
+- `webscraper/legacy/scrape_123net_docs_selenium.py` - Selenium-based scraping
+- `webscraper/legacy/run_comprehensive_scrape.py` - Orchestration
 - `extract_credentials.py` - Extract credentials
 - `extract_ips.py` - Extract IPs
 - `extract_site_companies.py` - Extract site data
@@ -141,7 +141,7 @@ freepbx-tools/
 ├── bin/                          # All executable scripts (flat)
 │   ├── deploy_freepbx_tools.py
 │   ├── phone_config_analyzer.py
-│   ├── scrape_vpbx_tables.py
+│   ├── webscraper/legacy/scrape_vpbx_tables.py
 │   ├── ultimate_vpbx_analyzer.py
 │   └── ... (all Python scripts)
 │
@@ -198,11 +198,11 @@ freepbx-tools/
 │   ├── match_yealink_companies.py
 │   ├── phone_config_analyzer.py
 │   ├── phone_config_analyzer_demo.py
-│   ├── run_comprehensive_scrape.py
-│   ├── scrape_123net_docs.py
-│   ├── scrape_123net_docs_selenium.py
-│   ├── scrape_vpbx_tables.py
-│   ├── scrape_vpbx_tables_comprehensive.py
+│   ├── webscraper/legacy/run_comprehensive_scrape.py
+│   ├── webscraper/legacy/scrape_123net_docs.py
+│   ├── webscraper/legacy/scrape_123net_docs_selenium.py
+│   ├── webscraper/legacy/scrape_vpbx_tables.py
+│   ├── webscraper/legacy/scrape_vpbx_tables_comprehensive.py
 │   ├── test_comprehensive_scrape.py
 │   ├── test_dashboard.py
 │   ├── test_phone_analyzer_integration.py
@@ -252,7 +252,7 @@ freepbx-tools/
 │   │   ├── vpbx_ultimate_analysis/
 │   │   └── test_password_file.txt
 │   ├── backups/
-│   │   ├── scrape_vpbx_tables.py.backup
+│   │   ├── webscraper/legacy/scrape_vpbx_tables.py.backup
 │   │   └── freepbx-tools.tar
 │   └── site_company_mapping.txt
 │

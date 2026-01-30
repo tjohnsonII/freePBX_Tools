@@ -61,7 +61,7 @@ knowledge_base/
                               │
                               ▼
         ┌──────────────────────────────────────────┐
-        │    ticket_scraper.py                     │
+        │    webscraper/legacy/ticket_scraper.py                     │
         │    Scrapes tickets from 123.NET admin    │
         └──────────────────────────────────────────┘
                               │
@@ -218,7 +218,7 @@ CREATE TABLE knowledge_articles (
 ### Scraping Single Customer
 
 ```bash
-python ticket_scraper.py \
+python webscraper/legacy/ticket_scraper.py \
   --customer ARBOR_NETWORKS \
   --username admin \
   --password your_password \
@@ -372,7 +372,7 @@ python unified_knowledge_base.py \
 ```bash
 # 1. Scrape all customers
 for customer in ARBOR_NETWORKS CUSTOMER2 CUSTOMER3; do
-    python ticket_scraper.py --customer $customer ...
+    python webscraper/legacy/ticket_scraper.py --customer $customer ...
 done
 
 # 2. Build unified database
@@ -386,7 +386,7 @@ python unified_knowledge_base.py --db unified_knowledge_base.db --stats
 
 ```bash
 # Scrape latest tickets
-python ticket_scraper.py --customer ARBOR_NETWORKS ...
+python webscraper/legacy/ticket_scraper.py --customer ARBOR_NETWORKS ...
 
 # Re-import (REPLACE existing data for this customer)
 python unified_knowledge_base.py \

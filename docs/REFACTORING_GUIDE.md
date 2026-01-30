@@ -25,11 +25,11 @@ phone_config_analyzer.py
 phone_config_analyzer_demo.py
 query_vpbx.py
 query_w60.py
-run_comprehensive_scrape.py
-scrape_123net_docs.py
-scrape_123net_docs_selenium.py
-scrape_vpbx_tables.py
-scrape_vpbx_tables_comprehensive.py
+webscraper/legacy/run_comprehensive_scrape.py
+webscraper/legacy/scrape_123net_docs.py
+webscraper/legacy/scrape_123net_docs_selenium.py
+webscraper/legacy/scrape_vpbx_tables.py
+webscraper/legacy/scrape_vpbx_tables_comprehensive.py
 test_comprehensive_scrape.py
 test_dashboard.py
 test_phone_analyzer_integration.py
