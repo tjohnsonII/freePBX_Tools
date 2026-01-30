@@ -1,13 +1,38 @@
-import requests
-from requests_ntlm import HttpNtlmAuth
-from bs4 import BeautifulSoup
+
+
 import os
 import sys
 import re
-from urllib.parse import urljoin, urlparse
 import json
+import requests
+from requests_ntlm import HttpNtlmAuth
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from datetime import datetime
 import getpass
+import base64
+def _build_auth_headers():
+    """
+    Build auth headers without hardcoding secrets.
+    Supported:
+      - SCRAPER_AUTHORIZATION="Basic ..."/"Bearer ..."
+      - SCRAPER_BASIC_USER + SCRAPER_BASIC_PASS
+      - SCRAPER_COOKIE (raw Cookie header string)
+    """
+    headers = {}
+    auth = os.getenv("SCRAPER_AUTHORIZATION", "").strip()
+    if auth:
+        headers["Authorization"] = auth
+    else:
+        user = os.getenv("SCRAPER_BASIC_USER", "").strip()
+        pwd = os.getenv("SCRAPER_BASIC_PASS", "").strip()
+        if user and pwd:
+            token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {token}"
+    cookie = os.getenv("SCRAPER_COOKIE", "").strip()
+    if cookie:
+        headers["Cookie"] = cookie
+    return headers
 
 class Colors:
     """
@@ -22,16 +47,7 @@ class Colors:
     BLUE = '\033[94m'
     CYAN = '\033[96m'
 
-import requests
-from requests_ntlm import HttpNtlmAuth
-from bs4 import BeautifulSoup
-import os
-import sys
-import re
-from urllib.parse import urljoin, urlparse
-import json
-from datetime import datetime
-import getpass
+
 
 class DocScraper:
     def extract_tickets_for_customers(self, customer_handles, output_json="all_tickets.json"):
@@ -91,11 +107,9 @@ class DocScraper:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "en-US,en;q=0.9",
-            "Authorization": "Basic dGpvaG5zb246R3JlZW5iaXJkNjQq",
             "Cache-Control": "max-age=0",
             "Connection": "keep-alive",
             "Content-Type": "application/x-www-form-urlencoded",
-            "Cookie": "_ga_65BVXK7F61=GS2.2.s1763664211$o1$g1$t1763664245$j26$l0$h0; handl_landing_page=https%3A%2F%2Fwww.123.net%2F; _gid=GA1.2.1536540736.1764015953; handl_original_ref=https%3A%2F%2Fwww.123.net%2F; handl_ip=2607%3Af790%3Affff%3Aff6e%3Ac4ac%3A24e3%3Ae4d1%3A15a8; handl_url=https%3A%2F%2Fwww.123.net%2F; _ga=GA1.1.1788329368.1763664211; _ga_4070Q1HLDS=GS2.1.s1764031466$o3$g0$t1764031468$j58$l0$h0; noc-tickets=eyJleHBpcmVzIjoxNzY0MDM3MDM4LCJzZXNzaW9uX2lkIjoiYjRiYTU4OTYtYzk1OS0xMWYwLThjNjItYmQyOTg4MGI5YWEyIn0---571a7294229a5f405a1900e3453b5a9a89ee5c356c2e093d2fcb45536dffd710",
             "Host": "secure.123.net",
             "Origin": "https://secure.123.net",
             "Referer": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
@@ -109,6 +123,11 @@ class DocScraper:
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"'
         }
+        # Add Authorization/Cookie from environment if set
+        headers.update(_build_auth_headers())
+        if "Authorization" not in headers and "Cookie" not in headers:
+            print(f"{Colors.YELLOW}⚠ No SCRAPER_AUTHORIZATION/SCRAPER_BASIC_USER+PASS/SCRAPER_COOKIE set. "
+                  f"POST may fail if auth is required.{Colors.RESET}")
         if post_data is None:
             post_data = {"test": "value"}  # Replace with actual POST data as needed
         try:
