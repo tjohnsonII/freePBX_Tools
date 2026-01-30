@@ -7,6 +7,7 @@ const TraceMap = dynamic(() => import('./components/TraceMap'), { ssr: false });
 import { useMemo, useState } from "react";
 import { classifyHop, Hop } from "./utils/tracerouteClassification";
 import { analyzeTrace } from "./utils/tracerouteInsights";
+import { getTargetValidationError } from "./utils/targetValidation";
 import {
   compareProbes,
   ProbeSpec,
@@ -111,6 +112,11 @@ export default function Page() {
   const policyFindings = useMemo(() => deriveFindings(policyResults), [policyResults]);
 
   const handleSubmit = async () => {
+    const validationError = getTargetValidationError(target);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setLoading(true);
     setError("");
     setHops([]);
@@ -157,8 +163,9 @@ export default function Page() {
       probePreset => multiProbeSelections[probePreset.key],
     );
 
-    if (!target.trim()) {
-      setError("Please enter a hostname or IP before running probes.");
+    const validationError = getTargetValidationError(target);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -190,8 +197,9 @@ export default function Page() {
   };
 
   const handlePolicyRun = async () => {
-    if (!target.trim()) {
-      setError("Please enter a hostname or IP before running policy detection.");
+    const validationError = getTargetValidationError(target);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     if (rtpPortsError) {
