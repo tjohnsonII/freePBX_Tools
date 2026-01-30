@@ -36,7 +36,7 @@ This will:
 
 ### Run Full Comprehensive Scrape (All 556 Entries)
 ```bash
-python run_comprehensive_scrape.py
+python webscraper/legacy/run_comprehensive_scrape.py
 ```
 
 This will:
@@ -48,13 +48,13 @@ This will:
 ### Manual Usage
 ```bash
 # Test on 2 entries
-python scrape_vpbx_tables.py --comprehensive --max-details 2 --output test_output
+python webscraper/legacy/scrape_vpbx_tables.py --comprehensive --max-details 2 --output test_output
 
 # Run on all entries
-python scrape_vpbx_tables.py --comprehensive --output full_output
+python webscraper/legacy/scrape_vpbx_tables.py --comprehensive --output full_output
 
 # Skip detail pages entirely (table only)
-python scrape_vpbx_tables.py --no-details
+python webscraper/legacy/scrape_vpbx_tables.py --no-details
 ```
 
 ## Output Structure

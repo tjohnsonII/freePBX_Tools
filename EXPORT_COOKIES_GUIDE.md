@@ -52,7 +52,7 @@ notepad cookies.json
 ## Then Run the Session Scraper
 
 ```powershell
-python ticket_scraper_session.py `
+python webscraper/legacy/ticket_scraper_session.py `
   --customer CUSTOMER_HANDLE `
   --cookie-file cookies.json
 ```

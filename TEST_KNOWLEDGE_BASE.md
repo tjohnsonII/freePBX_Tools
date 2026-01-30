@@ -23,7 +23,7 @@ pip install requests beautifulsoup4
 
 ```powershell
 # Basic scrape (minimal output)
-python ticket_scraper.py `
+python webscraper/legacy/ticket_scraper.py `
   --customer ARBOR_NETWORKS `
   --username admin `
   --password your_password `
@@ -58,7 +58,7 @@ dir knowledge_base\ARBOR_NETWORKS*
 
 ```powershell
 # Scrape with markdown report
-python ticket_scraper.py `
+python webscraper/legacy/ticket_scraper.py `
   --customer ARBOR_NETWORKS `
   --username admin `
   --password your_password `
@@ -145,13 +145,13 @@ Top Keywords:
 
 ```powershell
 # Scrape additional customers
-python ticket_scraper.py `
+python webscraper/legacy/ticket_scraper.py `
   --customer CUSTOMER2 `
   --username admin `
   --password your_password `
   --output knowledge_base
 
-python ticket_scraper.py `
+python webscraper/legacy/ticket_scraper.py `
   --customer CUSTOMER3 `
   --username admin `
   --password your_password `
@@ -300,7 +300,7 @@ python kb_quickstart.py --full `
 ============================================================
 📋 Scraping tickets for TEST_CUSTOMER
 ============================================================
-Command: python ticket_scraper.py --customer TEST_CUSTOMER ...
+Command: python webscraper/legacy/ticket_scraper.py --customer TEST_CUSTOMER ...
 
 ✅ Scraping tickets for TEST_CUSTOMER completed successfully!
 
@@ -342,7 +342,7 @@ Command: python unified_knowledge_base.py --db unified_knowledge_base.db --stats
 
 **Debug**:
 ```powershell
-# Test with verbose output (add to ticket_scraper.py temporarily)
+# Test with verbose output (add to webscraper/legacy/ticket_scraper.py temporarily)
 # Or check if URL is accessible
 curl https://secure.123.net/cgi-bin/web_interface/admin/login.cgi
 ```
@@ -375,13 +375,13 @@ AttributeError: 'NoneType' object has no attribute 'text'
 
 **Solutions**:
 1. 123.NET may have changed their HTML structure
-2. Check the HTML selectors in `ticket_scraper.py`
+2. Check the HTML selectors in `webscraper/legacy/ticket_scraper.py`
 3. Compare with actual page structure in browser DevTools
 4. Update selectors if needed
 
 **Debug**:
 ```python
-# Add debug output to ticket_scraper.py
+# Add debug output to webscraper/legacy/ticket_scraper.py
 print(f"HTML: {soup.prettify()}")
 ```
 
@@ -396,7 +396,7 @@ sqlite3.IntegrityError: UNIQUE constraint failed
 ```powershell
 # Delete existing database and re-scrape
 rm knowledge_base\CUSTOMER_tickets.db
-python ticket_scraper.py --customer CUSTOMER ...
+python webscraper/legacy/ticket_scraper.py --customer CUSTOMER ...
 ```
 
 ### Issue 5: Import Errors
@@ -481,7 +481,7 @@ Once testing is successful:
 
 ```powershell
 # Scrape single customer
-python ticket_scraper.py --customer CUSTOMER --username admin --password pass --output knowledge_base
+python webscraper/legacy/ticket_scraper.py --customer CUSTOMER --username admin --password pass --output knowledge_base
 
 # Build unified database
 python build_unified_kb.py --input-dir knowledge_base --stats

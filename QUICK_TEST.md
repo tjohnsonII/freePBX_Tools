@@ -38,7 +38,7 @@ This does everything:
 
 ```powershell
 # Step 1: Scrape tickets
-python ticket_scraper.py `
+python webscraper/legacy/ticket_scraper.py `
   --customer ARBOR_NETWORKS `
   --username admin `
   --password your_password `
@@ -141,7 +141,7 @@ pip install requests beautifulsoup4
 ### ❌ "No customer databases found"
 ```powershell
 # Run scraper first
-python ticket_scraper.py --customer CUSTOMER --username admin --password pass
+python webscraper/legacy/ticket_scraper.py --customer CUSTOMER --username admin --password pass
 ```
 
 ### ❌ "Database not found"
@@ -178,7 +178,7 @@ You should see:
 | Test | Command | Expected Result |
 |------|---------|-----------------|
 | **Self-test** | `python test_kb_system.py` | All tests pass |
-| **Scrape** | `python ticket_scraper.py ...` | Database created |
+| **Scrape** | `python webscraper/legacy/ticket_scraper.py ...` | Database created |
 | **Build** | `python build_unified_kb.py ...` | Unified DB created |
 | **Search** | `python unified_knowledge_base.py --search` | Tickets found |
 | **Stats** | `python unified_knowledge_base.py --stats` | Statistics shown |
@@ -201,7 +201,7 @@ You should see:
 python test_kb_system.py
 
 # Scrape one customer
-python ticket_scraper.py --customer CUSTOMER --username admin --password pass --output knowledge_base
+python webscraper/legacy/ticket_scraper.py --customer CUSTOMER --username admin --password pass --output knowledge_base
 
 # Build unified DB
 python build_unified_kb.py --input-dir knowledge_base --stats
