@@ -10,12 +10,13 @@ function Pass($message) {
 }
 
 try {
+  $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+
   Write-Host "Running argparse help checks..."
-  python .\webscraper\legacy\ticket_scraper.py --help | Out-Null
-  python .\webscraper\legacy\scrape_vpbx_tables.py --help | Out-Null
+  python (Join-Path $repoRoot "webscraper\\legacy\\ticket_scraper.py") --help | Out-Null
+  python (Join-Path $repoRoot "webscraper\\legacy\\scrape_vpbx_tables.py") --help | Out-Null
   Pass "Argparse help checks"
 
-  $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
   $cookieDir = Join-Path $tempRoot "cookies"
   New-Item -ItemType Directory -Path $cookieDir | Out-Null
@@ -47,7 +48,7 @@ try {
 {"ticket_details":[{"id":"123","subject":"Test","status":"Open","priority":"Low","created_date":"2024-01-01","messages":[]}]} 
 '@ | Set-Content -Path $fixturePath -Encoding UTF8
 
-  python .\webscraper\legacy\selenium_to_kb.py --input-dir $inputDir --out-dir $outputDir | Out-Null
+  python (Join-Path $repoRoot "webscraper\\legacy\\selenium_to_kb.py") --input-dir $inputDir --out-dir $outputDir | Out-Null
 
   $dbPath = Join-Path $outputDir "TEST_tickets.db"
   $jsonPath = Join-Path $outputDir "TEST_tickets.json"

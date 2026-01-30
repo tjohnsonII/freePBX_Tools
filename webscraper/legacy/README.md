@@ -91,5 +91,5 @@ Each legacy script still has a root-level stub for backward compatibility.
 Use the PowerShell regression script (no network/auth required):
 
 ```
-powershell -ExecutionPolicy Bypass -File .\scripts\run_webscraper_regression.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& .\\scripts\\run_webscraper_regression.ps1"
 ```
