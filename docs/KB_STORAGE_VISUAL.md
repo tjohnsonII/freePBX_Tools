@@ -5,7 +5,7 @@
 ```
 freepbx-tools/
 │
-├── 📄 ticket_scraper.py                  ← Scrapes tickets from 123.NET
+├── 📄 webscraper/legacy/ticket_scraper.py                  ← Scrapes tickets from 123.NET
 ├── 📄 build_unified_kb.py                ← Builds unified database
 ├── 📄 unified_knowledge_base.py          ← Query tool for unified DB
 ├── 📄 query_ticket_kb.py                 ← Query tool for per-customer DB
@@ -45,7 +45,7 @@ freepbx-tools/
                                  │ (BeautifulSoup scraping)
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        ticket_scraper.py                             │
+│                        webscraper/legacy/ticket_scraper.py                             │
 │  • Logs in with admin credentials                                   │
 │  • Fetches ticket list for customer                                 │
 │  • Scrapes individual ticket details                                │
@@ -325,7 +325,7 @@ MORNING:
 ┌──────────────────────────────────────────┐
 │ 1. Scrape new tickets                    │
 │    for customer in $(cat customers.txt)  │
-│      python ticket_scraper.py ...        │
+│      python webscraper/legacy/ticket_scraper.py ...        │
 └──────────────────────────────────────────┘
                 │
                 ▼

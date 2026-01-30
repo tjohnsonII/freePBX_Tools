@@ -11,7 +11,7 @@ The ticket scraping system now has **two database strategies**:
 
 ```
 freepbx-tools/
-├── ticket_scraper.py           # Scrapes tickets from 123.NET admin
+├── webscraper/legacy/ticket_scraper.py           # Scrapes tickets from 123.NET admin
 ├── query_ticket_kb.py          # Query individual customer databases
 ├── unified_knowledge_base.py   # Manage unified database
 ├── build_unified_kb.py         # Build unified DB from all customers
@@ -30,7 +30,7 @@ freepbx-tools/
 
 ```bash
 # Scrape tickets for one customer
-python ticket_scraper.py \
+python webscraper/legacy/ticket_scraper.py \
   --customer ARBOR_NETWORKS \
   --username admin \
   --password your_password \
@@ -210,7 +210,7 @@ kb.create_knowledge_article(
 
 # Scrape all customers (assuming credentials file)
 for customer in $(cat customer_list.txt); do
-    python ticket_scraper.py \
+    python webscraper/legacy/ticket_scraper.py \
       --customer "$customer" \
       --username admin \
       --password "$(cat admin_password.txt)" \
@@ -353,7 +353,7 @@ sqlite3 unified_knowledge_base.db "
 
 ## Tips & Best Practices
 
-1. **Regular Scraping**: Run `ticket_scraper.py` daily to keep data fresh
+1. **Regular Scraping**: Run `webscraper/legacy/ticket_scraper.py` daily to keep data fresh
 2. **Rebuild Unified DB**: Run `build_unified_kb.py` after scraping new customers
 3. **Use Keywords**: The `--similar` search is more powerful than `--search`
 4. **Category Analysis**: Focus on top 3 categories to identify training opportunities
@@ -364,7 +364,7 @@ sqlite3 unified_knowledge_base.db "
 ## Troubleshooting
 
 **Problem**: `No customer databases found`
-- **Solution**: Run `ticket_scraper.py` first for at least one customer
+- **Solution**: Run `webscraper/legacy/ticket_scraper.py` first for at least one customer
 
 **Problem**: `Database not initialized`
 - **Solution**: Check file permissions, ensure directory exists
@@ -379,7 +379,7 @@ sqlite3 unified_knowledge_base.db "
 
 1. **Test the system**:
    ```bash
-   python ticket_scraper.py --customer TEST_CUSTOMER --username admin --password pass
+   python webscraper/legacy/ticket_scraper.py --customer TEST_CUSTOMER --username admin --password pass
    python build_unified_kb.py --input-dir knowledge_base --stats
    ```
 

@@ -33,7 +33,7 @@ python kb_quickstart.py --full \
 
 ```bash
 # Step 1: Scrape tickets for a customer
-python ticket_scraper.py \
+python webscraper/legacy/ticket_scraper.py \
   --customer ARBOR_NETWORKS \
   --username admin \
   --password your_password \
@@ -115,7 +115,7 @@ See which customers have most open issues and average resolution times.
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
-| `ticket_scraper.py` | Scrape tickets from 123.NET | Per-customer scraping |
+| `webscraper/legacy/ticket_scraper.py` | Scrape tickets from 123.NET | Per-customer scraping |
 | `build_unified_kb.py` | Build unified database | Combine all customers |
 | `unified_knowledge_base.py` | Query unified database | Search & analyze |
 | `query_ticket_kb.py` | Query per-customer database | Single customer focus |
@@ -199,7 +199,7 @@ python kb_quickstart.py --scrape-all \
 
 # Scrape all customers
 for customer in $(cat customer_list.txt); do
-    python ticket_scraper.py --customer "$customer" \
+    python webscraper/legacy/ticket_scraper.py --customer "$customer" \
       --username admin --password "$(cat password.txt)" \
       --output knowledge_base
 done
@@ -251,7 +251,7 @@ Required packages:
 ## Troubleshooting
 
 ### "No customer databases found"
-**Solution**: Run `ticket_scraper.py` first to create customer databases.
+**Solution**: Run `webscraper/legacy/ticket_scraper.py` first to create customer databases.
 
 ### "Database not found"
 **Solution**: Run `build_unified_kb.py` to create unified database.

@@ -28,7 +28,7 @@ knowledge_base/
 
 **Size**: 1-4 MB per customer (for ~100 tickets)
 
-**Created by**: `python ticket_scraper.py --customer CUSTOMER_NAME ...`
+**Created by**: `python webscraper/legacy/ticket_scraper.py --customer CUSTOMER_NAME ...`
 
 #### Storage Location #2: Unified (Cross-Customer Search)
 ```
@@ -193,7 +193,7 @@ python unified_knowledge_base.py \
 
 ```bash
 # Scrape one customer
-python ticket_scraper.py \
+python webscraper/legacy/ticket_scraper.py \
   --customer ARBOR_NETWORKS \
   --username admin \
   --password your_password \
