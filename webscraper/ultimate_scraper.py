@@ -207,14 +207,11 @@ def selenium_scrape_tickets(
         return None
 
     # Use E:\-aware paths if provided via config/env
-    try:
-        from .ultimate_scraper_config import EDGE_BINARY_PATH, EDGEDRIVER_PATH
-    except Exception:
-        EDGE_BINARY_PATH = None
-        EDGEDRIVER_PATH = None
+    EDGE_BINARY = os.environ.get("EDGE_BINARY_PATH")
+    EDGEDRIVER = os.environ.get("EDGEDRIVER_PATH")
     edge_binary_env = os.environ.get("EDGE_PATH")
-    edge_driver_env = os.environ.get("EDGEDRIVER_PATH")
-    edge_binary_path = _validate_path("Edge binary", edge_binary_env or EDGE_BINARY_PATH)
+    edge_driver_env = EDGEDRIVER
+    edge_binary_path = _validate_path("Edge binary", edge_binary_env or EDGE_BINARY)
     if edge_binary_path:
         print(f"[INFO] Using Edge binary: {edge_binary_path}")
     else:
@@ -315,7 +312,7 @@ def selenium_scrape_tickets(
             plan.append(("ATTACH_AUTO", 9222))
         plan.append(("LAUNCH_FALLBACK", None))
 
-        edgedriver_path = _validate_path("EdgeDriver", edge_driver_env or EDGEDRIVER_PATH)
+        edgedriver_path = _validate_path("EdgeDriver", edge_driver_env or EDGEDRIVER)
         last_error: Optional[Exception] = None
 
         for mode, port in plan:
