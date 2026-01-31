@@ -24,6 +24,8 @@ except Exception as exc:
 else:
     _BS4_IMPORT_ERROR = None
 
+PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile"))
+
 
 def as_str(v: Any) -> str:
     if v is None:
@@ -41,7 +43,7 @@ def classes_to_str(v: Any) -> str:
     return str(v).strip()
 
 
-def chrome_debug_is_up(host: str, port: int, timeout: float) -> bool:
+def edge_debug_is_up(host: str, port: int, timeout: float) -> bool:
     try:
         url = f"http://{host}:{port}/json"
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -50,7 +52,7 @@ def chrome_debug_is_up(host: str, port: int, timeout: float) -> bool:
         return False
 
 
-def chrome_debug_targets(host: str, port: int, timeout: float) -> List[dict]:
+def edge_debug_targets(host: str, port: int, timeout: float) -> List[dict]:
     try:
         url = f"http://{host}:{port}/json"
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -118,6 +120,19 @@ def load_cookies_json(driver: Any, path: str) -> bool:
         return False
 
 
+def smoke_test_edge_driver() -> None:
+    from selenium import webdriver
+    from selenium.webdriver.edge.options import Options as EdgeOptions
+
+    edge_options = EdgeOptions()
+    driver = webdriver.Edge(options=edge_options)
+    try:
+        driver.get("https://example.com")
+        print("[INFO] EDGE OK")
+    finally:
+        driver.quit()
+
+
 def selenium_scrape_tickets(
     url: str,
     output_dir: str,
@@ -130,11 +145,11 @@ def selenium_scrape_tickets(
     auto_attach: bool = False,
     attach_host: str = "127.0.0.1",
     attach_timeout: float = 2.0,
-    fallback_profile_dir: str = "webscraper/chrome_profile_fallback",
+    fallback_profile_dir: str = "webscraper/edge_profile_fallback",
     target_url: Optional[str] = None,
 ) -> None:
     """Minimal Selenium workflow that:
-    - launches Chrome (headless optional)
+    - launches Edge (headless optional)
     - opens the target URL
     - for each handle: saves current HTML and a debug log
 
@@ -146,8 +161,8 @@ def selenium_scrape_tickets(
     """
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.edge.options import Options as EdgeOptions
+    from selenium.webdriver.edge.service import Service as EdgeService
     from selenium.webdriver.common.by import By
     from selenium.common.exceptions import (
         InvalidSessionIdException,
@@ -193,17 +208,20 @@ def selenium_scrape_tickets(
 
     # Use E:\-aware paths if provided via config/env
     try:
-        from .ultimate_scraper_config import CHROME_BINARY_PATH, CHROMEDRIVER_PATH
+        from .ultimate_scraper_config import EDGE_BINARY_PATH, EDGEDRIVER_PATH
     except Exception:
-        CHROME_BINARY_PATH = None
-        CHROMEDRIVER_PATH = None
-    chrome_binary_path = _validate_path("Chrome binary", CHROME_BINARY_PATH)
-    if chrome_binary_path:
-        print(f"[INFO] Using Chrome binary: {chrome_binary_path}")
+        EDGE_BINARY_PATH = None
+        EDGEDRIVER_PATH = None
+    edge_binary_env = os.environ.get("EDGE_PATH")
+    edge_driver_env = os.environ.get("EDGEDRIVER_PATH")
+    edge_binary_path = _validate_path("Edge binary", edge_binary_env or EDGE_BINARY_PATH)
+    if edge_binary_path:
+        print(f"[INFO] Using Edge binary: {edge_binary_path}")
     else:
-        print("[INFO] Using system-installed Chrome (auto-detect).")
+        print("[INFO] Using system-installed Edge (auto-detect).")
     profile_env = os.environ.get("SCRAPER_USER_DATA_DIR")
-    default_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
+    default_profile = PROFILE_DIR
+    legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
     user_data_dir = None
     profile_source = "temporary"
     if profile_env:
@@ -212,16 +230,18 @@ def selenium_scrape_tickets(
     else:
         user_data_dir = default_profile
         profile_source = "default"
+    if os.path.exists(legacy_profile):
+        print("[WARN] legacy chrome_profile detected; using edge_profile instead")
     if user_data_dir:
         try:
             os.makedirs(user_data_dir, exist_ok=True)
         except Exception as e:
-            print(f"[WARN] Could not create Chrome profile directory '{user_data_dir}': {e}")
-        print(f"[INFO] Chrome profile ({profile_source}): {user_data_dir}")
+            print(f"[WARN] Could not create Edge profile directory '{user_data_dir}': {e}")
+        print(f"[INFO] Edge profile ({profile_source}): {user_data_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
     if debugger_address and not attach:
-        print(f"[INFO] Attaching to existing Chrome at {debugger_address}")
+        print(f"[INFO] Attaching to existing Edge at {debugger_address}")
         if user_data_dir:
             print("[INFO] Attach mode ignores SCRAPER_USER_DATA_DIR.")
         try:
@@ -254,7 +274,7 @@ def selenium_scrape_tickets(
                         "wmic",
                         "process",
                         "where",
-                        "name='chrome.exe' or name='msedge.exe'",
+                        "name='msedge.exe'",
                         "get",
                         "CommandLine",
                     ]
@@ -282,12 +302,12 @@ def selenium_scrape_tickets(
             try:
                 os.remove(lock_path)
                 removed_any = True
-                print(f"[INFO] Removed stale Chrome lock file: {lock_path}")
+                print(f"[INFO] Removed stale Edge lock file: {lock_path}")
             except Exception as e:
                 print(f"[WARN] Could not remove lock file {lock_path}: {e}")
         return removed_any
 
-    def create_driver() -> tuple["webdriver.Chrome", bool, bool]:
+    def create_driver() -> tuple["webdriver.Edge", bool, bool]:
         plan = []
         if attach:
             plan.append(("ATTACH_EXPLICIT", attach))
@@ -295,41 +315,41 @@ def selenium_scrape_tickets(
             plan.append(("ATTACH_AUTO", 9222))
         plan.append(("LAUNCH_FALLBACK", None))
 
-        chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
+        edgedriver_path = _validate_path("EdgeDriver", edge_driver_env or EDGEDRIVER_PATH)
         last_error: Optional[Exception] = None
 
         for mode, port in plan:
-            chrome_options = Options()
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option("useAutomationExtension", False)
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            edge_options = EdgeOptions()
+            edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            edge_options.add_experimental_option("useAutomationExtension", False)
+            edge_options.add_argument("--disable-blink-features=AutomationControlled")
             # Allow navigating IP/under-secured endpoints without blocking
-            chrome_options.add_argument("--ignore-certificate-errors")
-            chrome_options.add_argument("--allow-insecure-localhost")
-            chrome_options.add_argument("--start-maximized")
+            edge_options.add_argument("--ignore-certificate-errors")
+            edge_options.add_argument("--allow-insecure-localhost")
+            edge_options.add_argument("--start-maximized")
             # Capture browser console logs for troubleshooting
             try:
-                chrome_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
+                edge_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
             except Exception:
                 pass
-            if chrome_binary_path:
-                chrome_options.binary_location = chrome_binary_path
+            if edge_binary_path:
+                edge_options.binary_location = edge_binary_path
 
             if mode in ("ATTACH_EXPLICIT", "ATTACH_AUTO"):
                 attach_port = cast(int, port)
-                if not chrome_debug_is_up(attach_host, attach_port, attach_timeout):
-                    last_error = RuntimeError(f"Chrome debug endpoint not reachable at {attach_host}:{attach_port}")
+                if not edge_debug_is_up(attach_host, attach_port, attach_timeout):
+                    last_error = RuntimeError(f"Edge debug endpoint not reachable at {attach_host}:{attach_port}")
                     print(f"[WARN] {mode} failed: {last_error}")
                     continue
-                chrome_options.add_experimental_option("debuggerAddress", f"{attach_host}:{attach_port}")
+                edge_options.add_experimental_option("debuggerAddress", f"{attach_host}:{attach_port}")
                 try:
-                    new_driver = webdriver.Chrome(options=chrome_options)
+                    new_driver = webdriver.Edge(options=edge_options)
                 except Exception as exc:
                     last_error = exc
                     print(f"[WARN] {mode} failed: {exc}")
                     continue
                 print(f"[INFO] Driver init mode: {mode}")
-                print(f"[INFO] Chrome attached. Session id: {new_driver.session_id}")
+                print(f"[INFO] Edge attached. Session id: {new_driver.session_id}")
                 found = switch_to_target_tab(
                     new_driver,
                     effective_target_url,
@@ -347,26 +367,26 @@ def selenium_scrape_tickets(
                 try:
                     os.makedirs(fallback_dir, exist_ok=True)
                 except Exception as e:
-                    print(f"[WARN] Could not create fallback Chrome profile directory '{fallback_dir}': {e}")
-                chrome_options.add_argument(f"--user-data-dir={fallback_dir}")
-                chrome_options.add_argument("--profile-directory=Default")
+                    print(f"[WARN] Could not create fallback Edge profile directory '{fallback_dir}': {e}")
+                edge_options.add_argument(f"--user-data-dir={fallback_dir}")
+                edge_options.add_argument("--profile-directory=Default")
                 # Keep classic flag for wider compatibility
                 if headless:
-                    chrome_options.add_argument("--headless=new")
-                    chrome_options.add_argument("--disable-gpu")
-                    chrome_options.add_argument("--no-sandbox")
+                    edge_options.add_argument("--headless=new")
+                    edge_options.add_argument("--disable-gpu")
+                    edge_options.add_argument("--no-sandbox")
                 attempted_lock_cleanup = False
                 while True:
                     try:
-                        if chromedriver_path:
-                            print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
-                            service = Service(chromedriver_path)
-                            new_driver = webdriver.Chrome(service=service, options=chrome_options)
+                        if edgedriver_path:
+                            print(f"[INFO] Using custom EdgeDriver path: {edgedriver_path}")
+                            service = EdgeService(edgedriver_path)
+                            new_driver = webdriver.Edge(service=service, options=edge_options)
                         else:
-                            print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
-                            new_driver = webdriver.Chrome(options=chrome_options)
+                            print("[INFO] Using Selenium Manager for EdgeDriver resolution.")
+                            new_driver = webdriver.Edge(options=edge_options)
                         print(f"[INFO] Driver init mode: {mode}")
-                        print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
+                        print(f"[INFO] Edge started. Session id: {new_driver.session_id}")
                         try:
                             new_driver.get(effective_target_url)
                         except Exception:
@@ -377,19 +397,19 @@ def selenium_scrape_tickets(
                         if fallback_dir and not attempted_lock_cleanup:
                             attempted_lock_cleanup = True
                             if _cleanup_stale_profile_locks(fallback_dir):
-                                print("[WARN] Retrying Chrome launch after clearing stale profile locks.")
+                                print("[WARN] Retrying Edge launch after clearing stale profile locks.")
                                 continue
                         print(
-                            "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
-                            "ChromeDriver version mismatch, profile lock, or enterprise policy restrictions."
+                            "[ERROR] Edge session could not be created. This may be due to an Edge/"
+                            "EdgeDriver version mismatch, profile lock, or enterprise policy restrictions."
                         )
                         break
 
         if last_error:
             raise last_error
-        raise RuntimeError("Chrome driver could not be initialized.")
+        raise RuntimeError("Edge driver could not be initialized.")
 
-    driver = cast("webdriver.Chrome", None)
+    driver = cast("webdriver.Edge", None)
     created_browser = False
     attach_mode = False
     cookies_path: Optional[str] = None
@@ -447,7 +467,7 @@ def selenium_scrape_tickets(
                     except Exception as e2:
                         print(f"[WARN] Alternative URL navigation failed: {e2}")
                 if not alt:
-                    print("[ACTION REQUIRED] In Chrome, open the customers page (use IP if hostname fails), complete VPN/SSO/MFA, then return here.")
+                    print("[ACTION REQUIRED] In Edge, open the customers page (use IP if hostname fails), complete VPN/SSO/MFA, then return here.")
                     print("[PROMPT] Press Enter ONLY after you see real page content (menus/search). I'll verify the DOM before proceeding.")
                     try:
                         input()
@@ -605,7 +625,7 @@ def selenium_scrape_tickets(
             except Exception as e:
                 print(f"[WARN] Initial page scrape failed: {e}")
         except Exception as e:
-            print(f"[WARN] Chrome setup encountered an error: {e}")
+            print(f"[WARN] Edge setup encountered an error: {e}")
 
     try:
         initialize_driver()
@@ -615,7 +635,7 @@ def selenium_scrape_tickets(
             if attach_mode:
                 print(f"[WARN] Attach mode active; not restarting driver for {reason}.")
                 return
-            print(f"[WARN] Restarting Chrome driver due to {reason}.")
+            print(f"[WARN] Restarting Edge driver due to {reason}.")
             if created_browser:
                 try:
                     driver.quit()
@@ -1648,6 +1668,7 @@ if __name__ == "__main__":
                 cfg = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(cfg)
     import argparse
+    import sys
 
     default_url = getattr(cfg, "DEFAULT_URL", "https://noc.123.net/customers")
     default_target_url = getattr(
@@ -1668,13 +1689,18 @@ if __name__ == "__main__":
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
-    parser.add_argument("--attach", type=int, help="Attach to existing Chrome debugger port (e.g. 9222)")
+    parser.add_argument("--attach", type=int, help="Attach to existing Edge debugger port (e.g. 9222)")
     parser.add_argument("--auto-attach", action="store_true", help="If attach not provided, try to attach to 127.0.0.1:9222")
-    parser.add_argument("--attach-host", default="127.0.0.1", help="Chrome debugger host (default 127.0.0.1)")
-    parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Chrome debugger probe (seconds)")
-    parser.add_argument("--fallback-profile-dir", default="webscraper/chrome_profile_fallback", help="Profile dir for fallback Chrome launch")
+    parser.add_argument("--attach-host", default="127.0.0.1", help="Edge debugger host (default 127.0.0.1)")
+    parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Edge debugger probe (seconds)")
+    parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile_fallback", help="Profile dir for fallback Edge launch")
+    parser.add_argument("--edge-smoke-test", action="store_true", help="Run a basic Edge driver smoke test and exit")
     parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
     args = parser.parse_args()
+
+    if args.edge_smoke_test:
+        smoke_test_edge_driver()
+        sys.exit(0)
 
     # Env overrides last
     url = os.environ.get("SCRAPER_URL") or args.url
