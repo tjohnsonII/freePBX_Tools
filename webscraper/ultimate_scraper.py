@@ -80,7 +80,12 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.common.by import By
-    from selenium.common.exceptions import NoSuchElementException
+    from selenium.common.exceptions import (
+        InvalidSessionIdException,
+        NoSuchElementException,
+        SessionNotCreatedException,
+        WebDriverException,
+    )
 
     os.makedirs(output_dir, exist_ok=True)
     # Prune legacy noisy files to keep output readable
@@ -102,26 +107,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     except Exception:
         pass
 
-    chrome_options = Options()
-    # Keep classic flag for wider compatibility
-    if headless:
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-sandbox")
-    # Allow navigating IP/under-secured endpoints without blocking
-    chrome_options.add_argument("--ignore-certificate-errors")
-    chrome_options.add_argument("--allow-insecure-localhost")
-    chrome_options.add_argument("--start-maximized")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--profile-directory=Default")
-    # Capture browser console logs for troubleshooting
-    try:
-        chrome_options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
-    except Exception:
-        pass
-
     def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
         if not path:
             return None
@@ -139,32 +124,63 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     chrome_binary_path = _validate_path("Chrome binary", CHROME_BINARY_PATH)
     if chrome_binary_path:
         print(f"[INFO] Using Chrome binary: {chrome_binary_path}")
-        chrome_options.binary_location = chrome_binary_path
     else:
         print("[INFO] Using system-installed Chrome (auto-detect).")
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    default_profile_dir = os.path.join(repo_root, "webscraper", "chrome_profile")
     profile_env = os.environ.get("SCRAPER_USER_DATA_DIR")
-    user_data_dir = profile_env.strip() if profile_env else default_profile_dir
-    profile_preexisting = os.path.isdir(user_data_dir)
-    try:
-        os.makedirs(user_data_dir, exist_ok=True)
-    except Exception as e:
-        print(f"[WARN] Could not create Chrome profile directory '{user_data_dir}': {e}")
-    print(f"[INFO] Chrome profile path: {user_data_dir}")
-    if profile_preexisting:
-        print("[INFO] Reusing existing persistent Chrome profile directory.")
+    user_data_dir = None
+    if profile_env:
+        user_data_dir = os.path.abspath(profile_env.strip())
+        try:
+            os.makedirs(user_data_dir, exist_ok=True)
+        except Exception as e:
+            print(f"[WARN] Could not create Chrome profile directory '{user_data_dir}': {e}")
+        print(f"[INFO] Chrome profile path: {user_data_dir}")
     else:
-        print("[INFO] Using new persistent Chrome profile directory.")
-    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
-    chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
-    if chromedriver_path:
-        print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
-        service = Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-    else:
-        print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
-        driver = webdriver.Chrome(options=chrome_options)
+        print("[INFO] Chrome profile: (temporary)")
+
+    def create_driver() -> "webdriver.Chrome":
+        chrome_options = Options()
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option("useAutomationExtension", False)
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        # Keep classic flag for wider compatibility
+        if headless:
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--no-sandbox")
+        # Allow navigating IP/under-secured endpoints without blocking
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--allow-insecure-localhost")
+        chrome_options.add_argument("--start-maximized")
+        # Capture browser console logs for troubleshooting
+        try:
+            chrome_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
+        except Exception:
+            pass
+        if chrome_binary_path:
+            chrome_options.binary_location = chrome_binary_path
+        if user_data_dir:
+            chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+
+        chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
+        try:
+            if chromedriver_path:
+                print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
+                service = Service(chromedriver_path)
+                new_driver = webdriver.Chrome(service=service, options=chrome_options)
+            else:
+                print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
+                new_driver = webdriver.Chrome(options=chrome_options)
+            print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
+            return new_driver
+        except SessionNotCreatedException as e:
+            print(
+                "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
+                "ChromeDriver version mismatch or enterprise policy restrictions."
+            )
+            raise
+
+    driver = create_driver()
 
     def dump_browser_console(prefix: str) -> None:
         try:
@@ -1305,6 +1321,18 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                     print(f"[WARN] CSV export failed: {e}")
                         except Exception as e:
                             print(f"[ERROR] Dropdown/search flow failed: {e}")
+            except (InvalidSessionIdException, WebDriverException) as e:
+                print("[WARN] Chrome session died; recreating driver...")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                driver = create_driver()
+                try:
+                    driver.get(url)
+                except Exception as nav_error:
+                    print(f"[WARN] Could not navigate to '{url}' after recovery: {nav_error}")
+                continue
             except Exception as e:
                 # Also print to console for immediate visibility
                 print(f"[ERROR] Exception for handle {handle}: {e}")
