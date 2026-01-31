@@ -68,6 +68,11 @@ scraped_tickets/
 # scraper outputs
 webscraper/output/
 webscraper/ticket-discovery-output/
+webscraper/chrome_profile/
+webscraper/**/DevToolsActivePort
+webscraper/**/*.pma
+webscraper/**/CrashpadMetrics-*
+webscraper/**/first_party_sets.db-journal
 
 
 # data dumps (optional — only if you don’t want them in git)
