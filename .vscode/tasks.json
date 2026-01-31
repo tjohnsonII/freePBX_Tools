@@ -3,12 +3,25 @@
   "tasks": [
     {
       "label": "Start Everything + CLI",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Write-Host 'Start Everything + CLI: running webscraper prereqs...'"
+      ],
       "dependsOn": [
         "webscraper:venv+deps",
         "webscraper:smoke",
         "webscraper:legacy --help"
       ],
-      "dependsOrder": "sequence"
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     },
     {
       "label": "webscraper:venv+deps",
