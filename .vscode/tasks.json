@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Everything + CLI",
+      "dependsOn": [
+        "webscraper:venv+deps",
+        "webscraper:smoke",
+        "webscraper:legacy --help"
+      ],
+      "dependsOrder": "sequence"
+    },
+    {
+      "label": "webscraper:venv+deps",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "if (!(Test-Path '.venv-webscraper')) { py -3.12 -m venv .venv-webscraper }; . .\\.venv-webscraper\\Scripts\\Activate.ps1; python -m pip install -U pip; pip install -r .\\webscraper\\requirements.txt"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "webscraper:smoke",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ". .\\.venv-webscraper\\Scripts\\Activate.ps1; python .\\webscraper\\_smoke_test.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "webscraper:legacy --help",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ". .\\.venv-webscraper\\Scripts\\Activate.ps1; python .\\webscraper\\legacy\\ticket_scraper.py --help; python .\\webscraper\\legacy\\scrape_vpbx_tables.py --help; python .\\webscraper\\legacy\\extract_browser_cookies.py --help"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    }
+  ]
+}
