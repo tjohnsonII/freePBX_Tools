@@ -40,14 +40,7 @@ DEFAULT_COOKIE_FILE = "webscraper/output/kb-run/selenium_cookies.json"
 
 # Preferred browser/driver defaults (override via env if needed)
 CHROME_BINARY_PATH = os.environ.get("CHROME_PATH") or None
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_CHROMEDRIVER = os.path.join(
-    _BASE_DIR,
-    "chromedriver-win64",
-    "chromedriver-win64",
-    "chromedriver.exe",
-)
-CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH") or _DEFAULT_CHROMEDRIVER
+CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH") or None
 
 # Search input selectors (ordered by priority)
 # Tuned: prefer explicit customer handle inputs seen in summaries

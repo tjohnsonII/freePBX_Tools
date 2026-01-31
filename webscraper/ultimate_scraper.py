@@ -122,7 +122,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         if not path:
             return None
         if os.path.exists(path):
-            print(f"[INFO] Using {label}: {path}")
             return path
         print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
         return None
@@ -135,11 +134,13 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         CHROMEDRIVER_PATH = None
     chrome_binary_path = _validate_path("Chrome binary", CHROME_BINARY_PATH)
     if chrome_binary_path:
+        print(f"[INFO] Using Chrome binary: {chrome_binary_path}")
         chrome_options.binary_location = chrome_binary_path
     else:
         print("[INFO] Using system-installed Chrome (auto-detect).")
     chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
     if chromedriver_path:
+        print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
     else:
