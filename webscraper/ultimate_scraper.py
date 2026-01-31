@@ -55,7 +55,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 		pass
 
 	chrome_options = Options()
-		# Keep classic flag for wider compatibility
+	# Keep classic flag for wider compatibility
 	if headless:
 		chrome_options.add_argument("--headless=new")
 		chrome_options.add_argument("--disable-gpu")
@@ -70,18 +70,32 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 	except Exception:
 		pass
 
+	def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
+		if not path:
+			return None
+		if os.path.exists(path):
+			print(f"[INFO] Using {label}: {path}")
+			return path
+		print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
+		return None
+
 	# Use E:\-aware paths if provided via config/env
 	try:
 		from .ultimate_scraper_config import CHROME_BINARY_PATH, CHROMEDRIVER_PATH
 	except Exception:
 		CHROME_BINARY_PATH = None
 		CHROMEDRIVER_PATH = None
-	if CHROME_BINARY_PATH:
-		chrome_options.binary_location = CHROME_BINARY_PATH
-	if CHROMEDRIVER_PATH:
-		service = Service(CHROMEDRIVER_PATH)
+	chrome_binary_path = _validate_path("Chrome binary", CHROME_BINARY_PATH)
+	if chrome_binary_path:
+		chrome_options.binary_location = chrome_binary_path
+	else:
+		print("[INFO] Using system-installed Chrome (auto-detect).")
+	chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
+	if chromedriver_path:
+		service = Service(chromedriver_path)
 		driver = webdriver.Chrome(service=service, options=chrome_options)
 	else:
+		print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
 		driver = webdriver.Chrome(options=chrome_options)
 
 	# Attempt to load and inject cookies before main navigation
