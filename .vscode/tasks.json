@@ -21,6 +21,94 @@
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:test all (cmd) (live cookies)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "set WEBSCRAPER_LIVE_COOKIES=1 && call scripts\\test_webscraper_cmd.bat"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:venv+deps",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "if not exist .venv-webscraper (py -3.12 -m venv .venv-webscraper) && .venv-webscraper\\Scripts\\python.exe -m pip install -U pip && .venv-webscraper\\Scripts\\pip.exe install -r webscraper\\requirements.txt"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:smoke",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe -m webscraper._smoke_test"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:ultimate --help",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\ultimate_scraper.py --help"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:legacy --help",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\ticket_scraper.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\scrape_vpbx_tables.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\extract_browser_cookies.py --help"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:chrome debug setup",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call webscraper\\chrome_debug_setup.bat"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:cookies live",
+      "type": "shell",
+      "command": "cmd.exe",
+      "dependsOn": [
+        "webscraper:chrome debug setup"
+      ],
+      "dependsOrder": "sequence",
+      "args": [
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\chrome_cookies_live.py"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     }
   ]
 }

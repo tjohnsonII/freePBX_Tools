@@ -11,13 +11,15 @@ if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\pip.exe install -r webscraper\requirements.txt
 if errorlevel 1 exit /b 1
 
-.venv-webscraper\Scripts\python.exe webscraper\_smoke_test.py
+.venv-webscraper\Scripts\python.exe -m webscraper._smoke_test
 if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\python.exe webscraper\ultimate_scraper.py --help
 if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\python.exe webscraper\legacy\ticket_scraper.py --help
 if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\python.exe webscraper\legacy\scrape_vpbx_tables.py --help
+if errorlevel 1 exit /b 1
+.venv-webscraper\Scripts\python.exe webscraper\legacy\extract_browser_cookies.py --help
 if errorlevel 1 exit /b 1
 
 if "%WEBSCRAPER_LIVE_COOKIES%"=="1" (
