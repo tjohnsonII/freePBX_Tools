@@ -12,7 +12,55 @@ import os
 import io
 import contextlib
 import glob
-from typing import List, Optional
+from typing import Any, List, Optional
+
+
+def as_str(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return " ".join(str(x) for x in v if x).strip()
+    return str(v).strip()
+
+
+def classes_to_str(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return " ".join(str(x) for x in v if x).strip()
+    return str(v).strip()
+
+
+def save_cookies(driver: Any, path: str) -> None:
+    try:
+        import json
+        cookies = driver.get_cookies()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cookies, f, indent=2)
+        print(f"[INFO] Saved cookies to {path}")
+    except Exception as e:
+        print(f"[WARN] Could not save cookies: {e}")
+
+
+def load_and_inject_cookies(driver: Any, path: str, domain_url: str) -> bool:
+    """Navigate to the domain_url and inject cookies from file. Returns True if injected."""
+    try:
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            cookies = json.load(f)
+        # Navigate to base domain to allow cookie setting
+        driver.get(domain_url)
+        for c in cookies:
+            try:
+                cookie = {k: c[k] for k in c if k in ("name","value","path","domain","secure","httpOnly","expiry","sameSite")}
+                driver.add_cookie(cookie)
+            except Exception:
+                continue
+        print(f"[INFO] Injected {len(cookies)} cookies into {domain_url}")
+        return True
+    except Exception as e:
+        print(f"[WARN] Cookie injection skipped: {e}")
+        return False
 
 
 def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headless: bool = True, vacuum: bool = False, aggressive: bool = False, cookie_file: Optional[str] = None) -> None:
@@ -116,37 +164,6 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         driver.set_page_load_timeout(30)
     except Exception:
         pass
-
-    # Helpers for cookie capture/injection
-    def save_cookies(driver, path: str) -> None:
-        try:
-            import json
-            cookies = driver.get_cookies()
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(cookies, f, indent=2)
-            print(f"[INFO] Saved cookies to {path}")
-        except Exception as e:
-            print(f"[WARN] Could not save cookies: {e}")
-
-    def load_and_inject_cookies(driver, path: str, domain_url: str) -> bool:
-        """Navigate to the domain_url and inject cookies from file. Returns True if injected."""
-        try:
-            import json
-            with open(path, "r", encoding="utf-8") as f:
-                cookies = json.load(f)
-            # Navigate to base domain to allow cookie setting
-            driver.get(domain_url)
-            for c in cookies:
-                try:
-                    cookie = {k: c[k] for k in c if k in ("name","value","path","domain","secure","httpOnly","expiry","sameSite")}
-                    driver.add_cookie(cookie)
-                except Exception:
-                    continue
-            print(f"[INFO] Injected {len(cookies)} cookies into {domain_url}")
-            return True
-        except Exception as e:
-            print(f"[WARN] Cookie injection skipped: {e}")
-            return False
 
     # Attempt to load and inject cookies before main navigation
     if cookie_file and os.path.exists(cookie_file):
@@ -750,13 +767,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                     page_html = driver.page_source
                                     vsoup = BeautifulSoup(page_html, "html.parser")
                                     for a in vsoup.find_all("a", href=True):
-                                        href_raw = a.get("href")
-                                        if href_raw is None:
-                                            continue
-                                        if isinstance(href_raw, (list, tuple)):
-                                            href = " ".join(str(item) for item in href_raw if item).strip()
-                                        else:
-                                            href = str(href_raw).strip()
+                                        href = as_str(a.get("href"))
                                         if not href:
                                             continue
                                         abs_href = urljoin(base_url, href)
@@ -903,13 +914,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                             if any(handle in c for c in cells):
                                                 matching_rows_local.append(cells)
                                             for a in tr.find_all("a", href=True):
-                                                href_raw = a.get("href")
-                                                if href_raw is None:
-                                                    continue
-                                                if isinstance(href_raw, (list, tuple)):
-                                                    href = " ".join(str(item) for item in href_raw if item).strip()
-                                                else:
-                                                    href = str(href_raw).strip()
+                                                href = as_str(a.get("href"))
                                                 if not href:
                                                     continue
                                                 text = a.get_text(strip=True)
@@ -1043,13 +1048,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 
                                     req_session = build_requests_session_from_driver(ticket_base_url or driver.current_url)
                                     for t in tickets:
-                                        href_raw = t.get("href")
-                                        if href_raw is None:
-                                            continue
-                                        if isinstance(href_raw, (list, tuple)):
-                                            href = " ".join(str(item) for item in href_raw if item).strip()
-                                        else:
-                                            href = str(href_raw).strip()
+                                        href = as_str(t.get("href"))
                                         if not href:
                                             continue
                                         # Skip creation endpoints like new_ticket
@@ -1156,13 +1155,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                                 ATTACHMENT_PATTERNS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".zip", "attachment", "download"]
                                             from urllib.parse import urljoin
                                             for a in tsoup.find_all('a', href=True):
-                                                href_raw = a.get('href')
-                                                if href_raw is None:
-                                                    continue
-                                                if isinstance(href_raw, (list, tuple)):
-                                                    href = " ".join(str(item) for item in href_raw if item).strip()
-                                                else:
-                                                    href = str(href_raw).strip()
+                                                href = as_str(a.get("href"))
                                                 if not href:
                                                     continue
                                                 text = a.get_text(strip=True)
@@ -1252,44 +1245,44 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                 except Exception as e:
                                     print(f"[ERROR] Could not write aggregated results: {e}")
 
-                                    # Also append CSV exports (aggregated and per-handle)
-                                    try:
-                                        import csv
-                                        csv_fields = [
-                                            "handle","id","href","title","subject","status","type","external_id","born_updated","resolved_timestamp","address","attachments_count","comments_count"
-                                        ]
-                                        agg_csv = os.path.join(output_dir, "tickets_aggregated.csv")
-                                        per_csv = os.path.join(output_dir, f"tickets_{handle}.csv")
-                                        def write_rows(path, rows, header):
-                                            exists = os.path.exists(path)
-                                            with open(path, "a", newline="", encoding="utf-8") as cf:
-                                                w = csv.DictWriter(cf, fieldnames=header)
-                                                if not exists:
-                                                    w.writeheader()
-                                                for r in rows:
-                                                    w.writerow(r)
-                                        rows = []
-                                        for td in ticket_details:
-                                            rows.append({
-                                                "handle": handle,
-                                                "id": td.get("id"),
-                                                "href": td.get("href"),
-                                                "title": td.get("title"),
-                                                "subject": td.get("subject"),
-                                                "status": td.get("status"),
-                                                "type": td.get("type"),
-                                                "external_id": td.get("external_id"),
-                                                "born_updated": td.get("born_updated"),
-                                                "resolved_timestamp": td.get("resolved_timestamp"),
-                                                "address": td.get("address"),
-                                                "attachments_count": len(td.get("attachments", [])),
-                                                "comments_count": len(td.get("comments", [])),
-                                            })
-                                        write_rows(agg_csv, rows, csv_fields)
-                                        write_rows(per_csv, rows, csv_fields)
-                                        print(f"[INFO] Appended {len(rows)} rows to CSV exports")
-                                    except Exception as e:
-                                        print(f"[WARN] CSV export failed: {e}")
+                                # Also append CSV exports (aggregated and per-handle)
+                                try:
+                                    import csv
+                                    csv_fields = [
+                                        "handle","id","href","title","subject","status","type","external_id","born_updated","resolved_timestamp","address","attachments_count","comments_count"
+                                    ]
+                                    agg_csv = os.path.join(output_dir, "tickets_aggregated.csv")
+                                    per_csv = os.path.join(output_dir, f"tickets_{handle}.csv")
+                                    def write_rows(path, rows, header):
+                                        exists = os.path.exists(path)
+                                        with open(path, "a", newline="", encoding="utf-8") as cf:
+                                            w = csv.DictWriter(cf, fieldnames=header)
+                                            if not exists:
+                                                w.writeheader()
+                                            for r in rows:
+                                                w.writerow(r)
+                                    rows = []
+                                    for td in ticket_details:
+                                        rows.append({
+                                            "handle": handle,
+                                            "id": td.get("id"),
+                                            "href": td.get("href"),
+                                            "title": td.get("title"),
+                                            "subject": td.get("subject"),
+                                            "status": td.get("status"),
+                                            "type": td.get("type"),
+                                            "external_id": td.get("external_id"),
+                                            "born_updated": td.get("born_updated"),
+                                            "resolved_timestamp": td.get("resolved_timestamp"),
+                                            "address": td.get("address"),
+                                            "attachments_count": len(td.get("attachments", [])),
+                                            "comments_count": len(td.get("comments", [])),
+                                        })
+                                    write_rows(agg_csv, rows, csv_fields)
+                                    write_rows(per_csv, rows, csv_fields)
+                                    print(f"[INFO] Appended {len(rows)} rows to CSV exports")
+                                except Exception as e:
+                                    print(f"[WARN] CSV export failed: {e}")
                         except Exception as e:
                             print(f"[ERROR] Dropdown/search flow failed: {e}")
             except Exception as e:
@@ -1325,7 +1318,8 @@ if __name__ == "__main__":
                 # Final fallback: load config directly by file path
                 config_path = os.path.join(os.path.dirname(__file__), "ultimate_scraper_config.py")
                 spec = importlib.util.spec_from_file_location("ultimate_scraper_config", config_path)
-                assert spec and spec.loader, "Could not load ultimate_scraper_config.py"
+                if spec is None or spec.loader is None:
+                    raise RuntimeError("Could not load ultimate_scraper_config.py")
                 cfg = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(cfg)
     import argparse
