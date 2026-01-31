@@ -9,9 +9,18 @@ from pathlib import Path
 
 def main() -> None:
     legacy_path = Path(__file__).resolve().parent / "webscraper" / "legacy" / "scrape_vpbx_tables.py"
-    print(f"Moved to webscraper/legacy/{legacy_path.name}. Running forwarded script.")
-    sys.path.insert(0, str(legacy_path.parent))
-    runpy.run_path(str(legacy_path), run_name="__main__")
+    if legacy_path.exists():
+        print(f"Moved to webscraper/legacy/{legacy_path.name}. Running forwarded script.")
+        sys.path.insert(0, str(legacy_path.parent))
+        runpy.run_path(str(legacy_path), run_name="__main__")
+        return
+    if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+        print("Legacy implementation missing for scrape_vpbx_tables.py.")
+        print("TODO/VERIFY: restore the legacy script under webscraper/legacy/ and update this stub.")
+        return
+    print("Legacy implementation missing for scrape_vpbx_tables.py.")
+    print("TODO/VERIFY: restore the legacy script under webscraper/legacy/ and update this stub.")
+    sys.exit(1)
 
 
 if __name__ == "__main__":

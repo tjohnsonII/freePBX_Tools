@@ -8,14 +8,25 @@ This scraper drives Chrome via Selenium to search customer handles, capture page
 
 Install packages:
 
-```powershell
+```cmd
 pip install selenium beautifulsoup4 lxml
+```
+
+## Quick Start (cmd-only, domain-locked Windows)
+From repo root (no PowerShell), use direct venv executables:
+
+```cmd
+py -3 -m venv .venv-webscraper
+.venv-webscraper\Scripts\python.exe -m pip install -U pip
+.venv-webscraper\Scripts\pip.exe install -r webscraper\requirements.txt
+.venv-webscraper\Scripts\python.exe webscraper\_smoke_test.py
+.venv-webscraper\Scripts\python.exe webscraper\ultimate_scraper.py --help
 ```
 
 ## Run (interactive)
 Run with a visible browser so you can log in if needed:
 
-```powershell
+```cmd
 python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output
 ```
 
@@ -26,7 +37,7 @@ Notes:
 ## Using a handles file
 Supply many handles from a file (one per line; `#` comments allowed):
 
-```powershell
+```cmd
 python -m webscraper.ultimate_scraper --show --handles-file customer_handles.txt --out webscraper/output
 ```
 
@@ -54,14 +65,14 @@ Environment overrides:
 ## Non-interactive (headless)
 If your environment does not require interactive login, run without `--show`:
 
-```powershell
+```cmd
 python -m webscraper.ultimate_scraper --handles KPM --out webscraper/output
 ```
 
 ## Module-based entrypoints
 Run these from the repo root to avoid import errors:
 
-```powershell
+```cmd
 python -m webscraper.run_discovery --help
 python -m webscraper._smoke_test
 python -m webscraper.ultimate_scraper --help
