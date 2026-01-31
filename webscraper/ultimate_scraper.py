@@ -127,16 +127,21 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     else:
         print("[INFO] Using system-installed Chrome (auto-detect).")
     profile_env = os.environ.get("SCRAPER_USER_DATA_DIR")
+    default_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
     user_data_dir = None
+    profile_source = "temporary"
     if profile_env:
         user_data_dir = os.path.abspath(profile_env.strip())
+        profile_source = "env"
+    else:
+        user_data_dir = default_profile
+        profile_source = "default"
+    if user_data_dir:
         try:
             os.makedirs(user_data_dir, exist_ok=True)
         except Exception as e:
             print(f"[WARN] Could not create Chrome profile directory '{user_data_dir}': {e}")
-        print(f"[INFO] Chrome profile path: {user_data_dir}")
-    else:
-        print("[INFO] Chrome profile: (temporary)")
+        print(f"[INFO] Chrome profile ({profile_source}): {user_data_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
     if debugger_address:
@@ -195,7 +200,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 print(f"[WARN] Could not remove lock file {lock_path}: {e}")
         return removed_any
 
-    def create_driver() -> "webdriver.Chrome":
+    def create_driver() -> tuple["webdriver.Chrome", bool]:
         chrome_options = Options()
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
@@ -220,6 +225,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
             chrome_options.binary_location = chrome_binary_path
         if user_data_dir and not debugger_address:
             chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+            chrome_options.add_argument("--profile-directory=Default")
 
         chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
         attempted_lock_cleanup = False
@@ -235,7 +241,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                     print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
                     new_driver = webdriver.Chrome(options=chrome_options)
                 print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
-                return new_driver
+                return new_driver, not debugger_address
             except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException):
                 if user_data_dir and not debugger_address and not attempted_lock_cleanup:
                     attempted_lock_cleanup = True
@@ -248,7 +254,9 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 )
                 raise
 
-    driver = create_driver()
+    driver: Optional["webdriver.Chrome"] = None
+    created_browser = False
+    cookies_path: Optional[str] = None
 
     def dump_browser_console(prefix: str) -> None:
         try:
@@ -263,203 +271,219 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         except Exception:
             pass
 
-    # Avoid indefinite page-load waits
-    try:
-        driver.set_page_load_timeout(30)
-    except Exception:
-        pass
+    def initialize_driver() -> None:
+        nonlocal driver, created_browser, cookies_path
+        driver, created_browser = create_driver()
 
-    # Attempt to load and inject cookies before main navigation
-    if cookie_file and os.path.exists(cookie_file):
+        # Avoid indefinite page-load waits
         try:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            base = f"{parsed.scheme}://{parsed.netloc}"
-            injected = load_and_inject_cookies(driver, cookie_file, base)
-            if injected:
-                # Revisit target URL with injected session
-                try:
-                    driver.get(url)
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"[WARN] Cookie injection failed: {e}")
-    try:
-        # Try to navigate; if DNS fails, prompt for manual navigation
+            driver.set_page_load_timeout(30)
+        except Exception:
+            pass
+
+        # Attempt to load and inject cookies before main navigation
+        if cookie_file and os.path.exists(cookie_file):
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                base = f"{parsed.scheme}://{parsed.netloc}"
+                injected = load_and_inject_cookies(driver, cookie_file, base)
+                if injected:
+                    # Revisit target URL with injected session
+                    try:
+                        driver.get(url)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[WARN] Cookie injection failed: {e}")
         try:
-            driver.get(url)
-        except Exception as e:
-            print(f"[WARN] Could not navigate to '{url}': {e}")
-            # Offer alternative: prompt for a reachable URL (e.g., IP-based)
-            print("[PROMPT] Enter a reachable URL (e.g., http://<IP>/customers.cgi), or press Enter to skip manual navigation:")
+            # Try to navigate; if DNS fails, prompt for manual navigation
             try:
-                alt = input().strip()
-            except Exception:
-                alt = ""
-            if alt:
+                driver.get(url)
+            except Exception as e:
+                print(f"[WARN] Could not navigate to '{url}': {e}")
+                # Offer alternative: prompt for a reachable URL (e.g., IP-based)
+                print("[PROMPT] Enter a reachable URL (e.g., http://<IP>/customers.cgi), or press Enter to skip manual navigation:")
                 try:
-                    driver.get(alt)
-                    print(f"[INFO] Navigated to alternative URL: {alt}")
-                except Exception as e2:
-                    print(f"[WARN] Alternative URL navigation failed: {e2}")
-            if not alt:
-                print("[ACTION REQUIRED] In Chrome, open the customers page (use IP if hostname fails), complete VPN/SSO/MFA, then return here.")
-                print("[PROMPT] Press Enter ONLY after you see real page content (menus/search). I'll verify the DOM before proceeding.")
-                try:
-                    input()
+                    alt = input().strip()
                 except Exception:
-                    pass
-            # Verify DOM has content (tables/links/inputs) before proceeding
+                    alt = ""
+                if alt:
+                    try:
+                        driver.get(alt)
+                        print(f"[INFO] Navigated to alternative URL: {alt}")
+                    except Exception as e2:
+                        print(f"[WARN] Alternative URL navigation failed: {e2}")
+                if not alt:
+                    print("[ACTION REQUIRED] In Chrome, open the customers page (use IP if hostname fails), complete VPN/SSO/MFA, then return here.")
+                    print("[PROMPT] Press Enter ONLY after you see real page content (menus/search). I'll verify the DOM before proceeding.")
+                    try:
+                        input()
+                    except Exception:
+                        pass
+                # Verify DOM has content (tables/links/inputs) before proceeding
+                try:
+                    from selenium.webdriver.support.ui import WebDriverWait
+                    from selenium.webdriver.support import expected_conditions as EC
+                    def dom_has_content(d):
+                        try:
+                            tables = d.find_elements(By.TAG_NAME, "table")
+                            links = d.find_elements(By.TAG_NAME, "a")
+                            inputs = d.find_elements(By.TAG_NAME, "input")
+                            return (len(tables) + len(links) + len(inputs)) > 5
+                        except Exception:
+                            return False
+                    WebDriverWait(driver, 25).until(dom_has_content)
+                    print("[INFO] Detected page content; continuing scrape.")
+                except Exception:
+                    print("[WARN] Page still looks empty; proceeding but results may be blank.")
+            # Persist current authenticated session cookies
+            cookies_path = os.path.join(output_dir, "selenium_cookies.json")
+            save_cookies(driver, cookies_path)
+
+            # Quick readiness check: ensure we can see a search input or Search button
             try:
-                from selenium.webdriver.common.by import By
                 from selenium.webdriver.support.ui import WebDriverWait
                 from selenium.webdriver.support import expected_conditions as EC
-                def dom_has_content(d):
-                    try:
-                        tables = d.find_elements(By.TAG_NAME, "table")
-                        links = d.find_elements(By.TAG_NAME, "a")
-                        inputs = d.find_elements(By.TAG_NAME, "input")
-                        return (len(tables) + len(links) + len(inputs)) > 5
-                    except Exception:
-                        return False
-                WebDriverWait(driver, 25).until(dom_has_content)
-                print("[INFO] Detected page content; continuing scrape.")
-            except Exception:
-                print("[WARN] Page still looks empty; proceeding but results may be blank.")
-        # Persist current authenticated session cookies
-        cookies_path = os.path.join(output_dir, "selenium_cookies.json")
-        save_cookies(driver, cookies_path)
-
-        # Quick readiness check: ensure we can see a search input or Search button
-        try:
-            from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.support import expected_conditions as EC
-            WebDriverWait(driver, 20).until(
-                lambda d: (
-                    len(d.find_elements(By.CSS_SELECTOR, "input[type='text'], input#customers, input[name='customer'], input[name='customer_handle']")) > 0 or
-                    len(d.find_elements(By.XPATH, "//button[contains(.,'Search')] | //input[@type='submit' and contains(@value,'Search')]")) > 0
+                WebDriverWait(driver, 20).until(
+                    lambda d: (
+                        len(d.find_elements(By.CSS_SELECTOR, "input[type='text'], input#customers, input[name='customer'], input[name='customer_handle']")) > 0 or
+                        len(d.find_elements(By.XPATH, "//button[contains(.,'Search')] | //input[@type='submit' and contains(@value,'Search')]")) > 0
+                    )
                 )
-            )
-            print("[INFO] Landing page looks ready (search input/button present)")
-        except Exception:
-            print("[WARN] Could not confirm search input yet; proceeding to scrape artifacts")
-
-        # --- FIRST PAGE SCRAPE: save and parse before any interaction ---
-        try:
-            # Save HTML and screenshot
-            first_html = driver.page_source
-            first_html_path = os.path.join(output_dir, "first_page.html")
-            with open(first_html_path, "w", encoding="utf-8") as f:
-                f.write(first_html)
-            screenshot_path = os.path.join(output_dir, "first_page.png")
-            try:
-                driver.get_screenshot_as_file(screenshot_path)
-                print(f"[INFO] Saved initial page HTML and screenshot to {first_html_path}, {screenshot_path}")
+                print("[INFO] Landing page looks ready (search input/button present)")
             except Exception:
-                print(f"[INFO] Saved initial page HTML to {first_html_path}")
-            dump_browser_console("first_page")
+                print("[WARN] Could not confirm search input yet; proceeding to scrape artifacts")
 
-            # Parse DOM summary: tables, links, inputs, selects, buttons
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(first_html, "html.parser")
-            # Tables
-            tables = []
-            for t in soup.find_all("table"):
-                rows = []
-                headers = [th.get_text(strip=True) for th in t.find_all("th")]
-                for tr in t.find_all("tr"):
-                    cells = [c.get_text(strip=True) for c in tr.find_all(["td","th"])]
-                    if cells:
-                        rows.append(cells)
-                tables.append({"headers": headers, "rows": rows})
-            # Links
-            links = []
-            for a in soup.find_all("a", href=True):
-                links.append({"text": a.get_text(strip=True), "href": a.get("href")})
-            # Inputs
-            inputs = []
-            for inp in soup.find_all("input"):
-                inputs.append({
-                    "id": inp.get("id"),
-                    "name": inp.get("name"),
-                    "type": inp.get("type"),
-                    "class": inp.get("class"),
-                    "placeholder": inp.get("placeholder"),
-                    "value": inp.get("value"),
-                })
-            # Selects
-            selects = []
-            for sel in soup.find_all("select"):
-                options = [opt.get_text(strip=True) for opt in sel.find_all("option")]
-                selected = None
-                for opt in sel.find_all("option"):
-                    if opt.has_attr("selected"):
-                        selected = opt.get_text(strip=True)
-                        break
-                selects.append({
-                    "id": sel.get("id"),
-                    "name": sel.get("name"),
-                    "class": sel.get("class"),
-                    "options": options,
-                    "selected": selected,
-                })
-            # Buttons
-            buttons = []
-            for btn in soup.find_all(["button"]):
-                buttons.append({
-                    "id": btn.get("id"),
-                    "name": btn.get("name"),
-                    "type": btn.get("type"),
-                    "class": btn.get("class"),
-                    "text": btn.get_text(strip=True),
-                })
-            # Try to expand and capture Toggle Help content
-            help_text = None
+            # --- FIRST PAGE SCRAPE: save and parse before any interaction ---
             try:
-                th = driver.find_element(By.XPATH, "//button[contains(.,'Toggle Help')] | //a[contains(.,'Toggle Help')]")
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", th)
-                driver.execute_script("arguments[0].click();", th)
-                import time
-                time.sleep(0.4)
-                # Refresh soup and extract help container text (heuristic)
+                # Save HTML and screenshot
                 first_html = driver.page_source
-                soup = BeautifulSoup(first_html, "html.parser")
-                cand = soup.find_all(text=lambda s: isinstance(s, str) and ("Wildcard Searches" in s or "Fields" in s or "A query is broken up" in s))
-                if cand:
-                    helps = []
-                    for c in cand:
-                        try:
-                            blk = c.parent
-                            if blk:
-                                helps.append(blk.get_text("\n", strip=True))
-                        except Exception:
-                            pass
-                    help_text = "\n\n".join(helps) if helps else None
-            except Exception:
-                pass
+                first_html_path = os.path.join(output_dir, "first_page.html")
+                with open(first_html_path, "w", encoding="utf-8") as f:
+                    f.write(first_html)
+                screenshot_path = os.path.join(output_dir, "first_page.png")
+                try:
+                    driver.get_screenshot_as_file(screenshot_path)
+                    print(f"[INFO] Saved initial page HTML and screenshot to {first_html_path}, {screenshot_path}")
+                except Exception:
+                    print(f"[INFO] Saved initial page HTML to {first_html_path}")
+                dump_browser_console("first_page")
 
-            # Build summary
-            first_summary = {
-                "url": driver.current_url,
-                "title": soup.title.string if soup.title else None,
-                "tables": tables,
-                "links": links,
-                "inputs": inputs,
-                "selects": selects,
-                "buttons": buttons,
-                "help_text": help_text,
-                "raw_html_path": first_html_path,
-                "screenshot_path": screenshot_path,
-            }
-            import json
-            first_json_path = os.path.join(output_dir, "first_page_summary.json")
-            with open(first_json_path, "w", encoding="utf-8") as f:
-                json.dump(first_summary, f, indent=2)
-            print(f"[INFO] Saved initial page summary to {first_json_path}")
+                # Parse DOM summary: tables, links, inputs, selects, buttons
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(first_html, "html.parser")
+                # Tables
+                tables = []
+                for t in soup.find_all("table"):
+                    rows = []
+                    headers = [th.get_text(strip=True) for th in t.find_all("th")]
+                    for tr in t.find_all("tr"):
+                        cells = [c.get_text(strip=True) for c in tr.find_all(["td","th"])]
+                        if cells:
+                            rows.append(cells)
+                    tables.append({"headers": headers, "rows": rows})
+                # Links
+                links = []
+                for a in soup.find_all("a", href=True):
+                    links.append({"text": a.get_text(strip=True), "href": a.get("href")})
+                # Inputs
+                inputs = []
+                for inp in soup.find_all("input"):
+                    inputs.append({
+                        "id": inp.get("id"),
+                        "name": inp.get("name"),
+                        "type": inp.get("type"),
+                        "class": inp.get("class"),
+                        "placeholder": inp.get("placeholder"),
+                        "value": inp.get("value"),
+                    })
+                # Selects
+                selects = []
+                for sel in soup.find_all("select"):
+                    options = [opt.get_text(strip=True) for opt in sel.find_all("option")]
+                    selected = None
+                    for opt in sel.find_all("option"):
+                        if opt.has_attr("selected"):
+                            selected = opt.get_text(strip=True)
+                            break
+                    selects.append({
+                        "id": sel.get("id"),
+                        "name": sel.get("name"),
+                        "class": sel.get("class"),
+                        "options": options,
+                        "selected": selected,
+                    })
+                # Buttons
+                buttons = []
+                for btn in soup.find_all(["button"]):
+                    buttons.append({
+                        "id": btn.get("id"),
+                        "name": btn.get("name"),
+                        "type": btn.get("type"),
+                        "class": btn.get("class"),
+                        "text": btn.get_text(strip=True),
+                    })
+                # Try to expand and capture Toggle Help content
+                help_text = None
+                try:
+                    th = driver.find_element(By.XPATH, "//button[contains(.,'Toggle Help')] | //a[contains(.,'Toggle Help')]")
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", th)
+                    driver.execute_script("arguments[0].click();", th)
+                    import time
+                    time.sleep(0.4)
+                    # Refresh soup and extract help container text (heuristic)
+                    first_html = driver.page_source
+                    soup = BeautifulSoup(first_html, "html.parser")
+                    cand = soup.find_all(text=lambda s: isinstance(s, str) and ("Wildcard Searches" in s or "Fields" in s or "A query is broken up" in s))
+                    if cand:
+                        helps = []
+                        for c in cand:
+                            try:
+                                blk = c.parent
+                                if blk:
+                                    helps.append(blk.get_text("\n", strip=True))
+                            except Exception:
+                                pass
+                        help_text = "\n\n".join(helps) if helps else None
+                except Exception:
+                    pass
+
+                # Build summary
+                first_summary = {
+                    "url": driver.current_url,
+                    "title": soup.title.string if soup.title else None,
+                    "tables": tables,
+                    "links": links,
+                    "inputs": inputs,
+                    "selects": selects,
+                    "buttons": buttons,
+                    "help_text": help_text,
+                    "raw_html_path": first_html_path,
+                    "screenshot_path": screenshot_path,
+                }
+                import json
+                first_json_path = os.path.join(output_dir, "first_page_summary.json")
+                with open(first_json_path, "w", encoding="utf-8") as f:
+                    json.dump(first_summary, f, indent=2)
+                print(f"[INFO] Saved initial page summary to {first_json_path}")
+            except Exception as e:
+                print(f"[WARN] Initial page scrape failed: {e}")
         except Exception as e:
-            print(f"[WARN] Initial page scrape failed: {e}")
-        abort_run = False
-        for handle in handles:
+            print(f"[WARN] Chrome setup encountered an error: {e}")
+
+    initialize_driver()
+        def restart_driver(reason: str) -> None:
+            nonlocal driver, created_browser
+            print(f"[WARN] Restarting Chrome driver due to {reason}.")
+            if driver and created_browser:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            initialize_driver()
+
+        def process_handle(handle: str) -> None:
             print(f"[HANDLE] Starting {handle}")
             debug_log_path = os.path.join(output_dir, f"debug_log_{handle}.txt")
             html_path = os.path.join(output_dir, f"debug_html_{handle}.html")
@@ -581,9 +605,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                     with open(html_path, "w", encoding="utf-8") as f:
                         f.write(driver.page_source)
                     print(f"[DEBUG] Saved HTML to {html_path}")
-
-
-                                        # If we have a search box, perform dropdown + search flow
+                    # If we have a search box, perform dropdown + search flow
                     if search_box is not None:
                         print("[STEP] Typing query and capturing dropdown suggestions...")
                         try:
@@ -1127,7 +1149,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                                 break
                                             except Exception:
                                                 pass
-                                    if ticket_base_url:
+                                    if ticket_base_url and cookies_path:
                                         load_and_inject_cookies(driver, cookies_path, ticket_base_url)
 
                                     # Helper: requests session from Selenium cookies for attachment downloads
@@ -1390,10 +1412,9 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                     print(f"[WARN] CSV export failed: {e}")
                         except Exception as e:
                             print(f"[ERROR] Dropdown/search flow failed: {e}")
-            except InvalidSessionIdException:
-                print("[WARN] Chrome session invalid; cannot continue this run.")
-                print("[HINT] Use attach mode (SCRAPER_DEBUGGER_ADDRESS) or use a fresh profile directory.")
-                abort_run = True
+            except InvalidSessionIdException as e:
+                print(f"[ERROR] Invalid session id while processing {handle}: {e}")
+                raise
             except Exception as e:
                 # Also print to console for immediate visibility
                 print(f"[ERROR] Exception for handle {handle}: {e}")
@@ -1401,10 +1422,44 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 with open(debug_log_path, "w", encoding="utf-8") as dbg:
                     dbg.write(debug_buffer.getvalue())
                 print(f"[HANDLE] Finished {handle}. Log: {debug_log_path}")
+
+        def is_invalid_session_error(err: Exception) -> bool:
+            return "invalid session id" in str(err).lower()
+
+        abort_run = False
+        for handle in handles:
+            retries = 0
+            while True:
+                try:
+                    process_handle(handle)
+                    break
+                except InvalidSessionIdException as e:
+                    print(f"[WARN] Invalid session id detected for {handle}.")
+                    if retries >= 1:
+                        print("[ERROR] Already restarted once; aborting remaining handles.")
+                        abort_run = True
+                        break
+                    retries += 1
+                    restart_driver("invalid session id")
+                except WebDriverException as e:
+                    if is_invalid_session_error(e):
+                        print(f"[WARN] Invalid session id detected for {handle}: {e}")
+                        if retries >= 1:
+                            print("[ERROR] Already restarted once; aborting remaining handles.")
+                            abort_run = True
+                            break
+                        retries += 1
+                        restart_driver("invalid session id")
+                        continue
+                    raise
             if abort_run:
                 break
     finally:
-        driver.quit()
+        if driver and created_browser:
+            try:
+                driver.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
