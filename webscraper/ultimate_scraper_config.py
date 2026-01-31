@@ -1,9 +1,7 @@
 import os
 
-# E:\-aware paths loaded from VS Code terminal env
-# If unset, leave as None to allow Selenium Manager defaults.
-CHROME_BINARY_PATH = os.environ.get("CHROME_PATH") or None
-CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH") or None
+# NOTE: On managed/domain-joined Windows machines, keep CHROME_BINARY_PATH unset
+# so Chrome can be auto-detected (IT policies often vary install locations).
 
 # Optional selector/config knobs used by ultimate_scraper.py. Leave undefined
 # unless you need to override defaults. Examples below for future tuning.
@@ -40,15 +38,16 @@ DEFAULT_HEADLESS = True
 DEFAULT_HANDLES = ["KPM"]
 DEFAULT_COOKIE_FILE = "webscraper/output/kb-run/selenium_cookies.json"
 
-# Preferred E:\ installs for browser and driver (override via env if needed)
-CHROME_BINARY_PATH = None  # e.g., "E:\\DevTools\\Chromium\\chrome.exe"
-CHROMEDRIVER_PATH = None   # e.g., "E:\\DevTools\\WebDriver\\chromedriver.exe"
-CHROME_BINARY_PATH = CHROME_BINARY_PATH or (
-    __import__('os').environ.get('CHROME_PATH')
+# Preferred browser/driver defaults (override via env if needed)
+CHROME_BINARY_PATH = os.environ.get("CHROME_PATH") or None
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_CHROMEDRIVER = os.path.join(
+    _BASE_DIR,
+    "chromedriver-win64",
+    "chromedriver-win64",
+    "chromedriver.exe",
 )
-CHROMEDRIVER_PATH = CHROMEDRIVER_PATH or (
-    __import__('os').environ.get('CHROMEDRIVER_PATH')
-)
+CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH") or _DEFAULT_CHROMEDRIVER
 
 # Search input selectors (ordered by priority)
 # Tuned: prefer explicit customer handle inputs seen in summaries
