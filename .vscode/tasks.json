@@ -4,9 +4,163 @@
     {
       "label": "Start Everything + CLI",
       "dependsOn": [
-        "webscraper:test all (cmd)"
+        "traceroute-visualizer:dev",
+        "polycom-yealink-mikrotik:dev",
+        "freepbx-deploy-backend:dev",
+        "freepbx-deploy-ui:dev",
+        "freepbx-tools-manager:cli"
       ],
-      "dependsOrder": "sequence",
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "traceroute-visualizer:dev",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npm run dev"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "▲ Next\\.js",
+            "endsPattern": "Ready in"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
+      }
+    },
+    {
+      "label": "polycom-yealink-mikrotik:dev",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npm run dev -- --port 5173"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE v",
+            "endsPattern": "Local:\\s+http://"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
+      }
+    },
+    {
+      "label": "freepbx-deploy-backend:dev",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "py -3 -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "INFO:\\s+Started server process",
+            "endsPattern": "INFO:\\s+Uvicorn running on"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}/freepbx-deploy-backend"
+      }
+    },
+    {
+      "label": "freepbx-deploy-ui:dev",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npm run dev -- --port 5174"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE v",
+            "endsPattern": "Local:\\s+http://"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}/freepbx-deploy-ui"
+      }
+    },
+    {
+      "label": "freepbx-tools-manager:cli",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "py -3 freepbx_tools_manager.py"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "M A N A G E R",
+            "endsPattern": "Main Menu:"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Stop Everything",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "for %%P in (3000 5173 5174 8002) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
+      ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" }
     },
