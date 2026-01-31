@@ -1,3 +1,0 @@
-[DEBUG] Navigated to: https://example.com/
-[DEBUG] Processing handle: demo
-[STEP] Probing search box selectors...

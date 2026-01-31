@@ -2,6 +2,7 @@
 # Python / Virtual Envs
 # =========================
 .venv/
+.venv*/
 .venv-*/
 .venv-wsl/
 .venv-web-manager/
@@ -13,7 +14,9 @@ ENV/
 # Python artifacts
 # =========================
 __pycache__/
+**/__pycache__/
 *.pyc
+**/*.pyc
 *.pyo
 *.pyd
 *.egg-info/
@@ -69,6 +72,8 @@ scraped_tickets/
 webscraper/output/
 webscraper/ticket-discovery-output/
 webscraper/chrome_profile/
+webscraper/chrome_profile*/
+webscraper/edge_profile*/
 webscraper/**/DevToolsActivePort
 webscraper/**/*.pma
 webscraper/**/CrashpadMetrics-*

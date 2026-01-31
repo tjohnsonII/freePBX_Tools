@@ -51,6 +51,10 @@ The `--out` directory will include:
 - `ticket_<HANDLE>_<ID>.html`: raw ticket pages
 - `selenium_cookies.json`: cookies captured after initial navigation/login
 
+## Security note (profiles & cookies)
+- Browser profile folders and cookies are sensitive and must never be committed.
+- The scraper expects local browser profiles for authentication.
+
 ## Live cookie export (Chrome remote debugging)
 Use Chrome DevTools Protocol to grab authenticated cookies from an already logged-in Chrome session.
 
