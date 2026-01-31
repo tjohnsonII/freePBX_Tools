@@ -3,83 +3,77 @@
   "tasks": [
     {
       "label": "Start Everything + CLI",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "Write-Host 'Start Everything + CLI: running webscraper prereqs...'"
-      ],
       "dependsOn": [
-        "webscraper:test all"
+        "webscraper:test all (cmd)"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "options": { "cwd": "${workspaceFolder}" }
     },
+
     {
-      "label": "webscraper:test all",
+      "label": "webscraper:test all (cmd)",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        ".\\webscraper\\test_all.ps1"
+        "/d",
+        "/c",
+        "call scripts\\test_webscraper_cmd.bat"
       ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     },
+
     {
-      "label": "webscraper:venv+deps",
+      "label": "webscraper:venv+deps (cmd)",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "if (!(Test-Path '.venv-webscraper')) { py -3.12 -m venv .venv-webscraper }; . .\\.venv-webscraper\\Scripts\\Activate.ps1; python -m pip install -U pip; pip install -r .\\webscraper\\requirements.txt"
+        "/d",
+        "/c",
+        "if not exist .venv-webscraper\\Scripts\\python.exe (py -3.12 -m venv .venv-webscraper) && .venv-webscraper\\Scripts\\python.exe -m pip install -U pip && .venv-webscraper\\Scripts\\pip.exe install -r webscraper\\requirements.txt"
       ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     },
+
     {
-      "label": "webscraper:smoke",
+      "label": "webscraper:smoke (cmd)",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ". .\\.venv-webscraper\\Scripts\\Activate.ps1; python .\\webscraper\\_smoke_test.py"
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\_smoke_test.py"
       ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     },
+
     {
-      "label": "webscraper:legacy --help",
+      "label": "webscraper:ultimate --help (cmd)",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ". .\\.venv-webscraper\\Scripts\\Activate.ps1; python .\\webscraper\\legacy\\ticket_scraper.py --help; python .\\webscraper\\legacy\\scrape_vpbx_tables.py --help; python .\\webscraper\\legacy\\extract_browser_cookies.py --help"
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\ultimate_scraper.py --help"
       ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+
+    {
+      "label": "webscraper:legacy --help (cmd)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\ticket_scraper.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\scrape_vpbx_tables.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\extract_browser_cookies.py --help"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     }
   ]
 }
