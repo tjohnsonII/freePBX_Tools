@@ -138,13 +138,72 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     else:
         print("[INFO] Chrome profile: (temporary)")
 
+    debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
+    if debugger_address:
+        print(f"[INFO] Attaching to existing Chrome at {debugger_address}")
+        if user_data_dir:
+            print("[INFO] Attach mode ignores SCRAPER_USER_DATA_DIR.")
+
+    def _profile_lock_paths(profile_root: str) -> List[str]:
+        return [
+            os.path.join(profile_root, "SingletonLock"),
+            os.path.join(profile_root, "SingletonCookie"),
+            os.path.join(profile_root, "SingletonSocket"),
+        ]
+
+    def _profile_in_use(profile_root: str) -> bool:
+        if not profile_root:
+            return False
+        try:
+            import subprocess
+            if os.name == "nt":
+                try:
+                    cmd = [
+                        "wmic",
+                        "process",
+                        "where",
+                        "name='chrome.exe' or name='msedge.exe'",
+                        "get",
+                        "CommandLine",
+                    ]
+                    output = subprocess.check_output(cmd, text=True, errors="ignore")
+                except Exception:
+                    output = ""
+            else:
+                output = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
+            return profile_root in output
+        except Exception:
+            return False
+
+    def _cleanup_stale_profile_locks(profile_root: str) -> bool:
+        if not profile_root:
+            return False
+        lock_paths = _profile_lock_paths(profile_root)
+        existing = [p for p in lock_paths if os.path.exists(p)]
+        if not existing:
+            return False
+        if _profile_in_use(profile_root):
+            print(f"[WARN] Profile appears in use; skipping lock cleanup for {profile_root}")
+            return False
+        removed_any = False
+        for lock_path in existing:
+            try:
+                os.remove(lock_path)
+                removed_any = True
+                print(f"[INFO] Removed stale Chrome lock file: {lock_path}")
+            except Exception as e:
+                print(f"[WARN] Could not remove lock file {lock_path}: {e}")
+        return removed_any
+
     def create_driver() -> "webdriver.Chrome":
         chrome_options = Options()
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        if debugger_address:
+            chrome_options.add_experimental_option("debuggerAddress", debugger_address)
         # Keep classic flag for wider compatibility
-        if headless:
+        if headless and not debugger_address:
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--no-sandbox")
@@ -159,26 +218,35 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
             pass
         if chrome_binary_path:
             chrome_options.binary_location = chrome_binary_path
-        if user_data_dir:
+        if user_data_dir and not debugger_address:
             chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
         chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
-        try:
-            if chromedriver_path:
-                print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
-                service = Service(chromedriver_path)
-                new_driver = webdriver.Chrome(service=service, options=chrome_options)
-            else:
-                print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
-                new_driver = webdriver.Chrome(options=chrome_options)
-            print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
-            return new_driver
-        except SessionNotCreatedException as e:
-            print(
-                "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
-                "ChromeDriver version mismatch or enterprise policy restrictions."
-            )
-            raise
+        attempted_lock_cleanup = False
+        while True:
+            try:
+                if debugger_address:
+                    new_driver = webdriver.Chrome(options=chrome_options)
+                elif chromedriver_path:
+                    print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
+                    service = Service(chromedriver_path)
+                    new_driver = webdriver.Chrome(service=service, options=chrome_options)
+                else:
+                    print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
+                    new_driver = webdriver.Chrome(options=chrome_options)
+                print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
+                return new_driver
+            except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException):
+                if user_data_dir and not debugger_address and not attempted_lock_cleanup:
+                    attempted_lock_cleanup = True
+                    if _cleanup_stale_profile_locks(user_data_dir):
+                        print("[WARN] Retrying Chrome launch after clearing stale profile locks.")
+                        continue
+                print(
+                    "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
+                    "ChromeDriver version mismatch, profile lock, or enterprise policy restrictions."
+                )
+                raise
 
     driver = create_driver()
 
@@ -390,6 +458,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
             print(f"[INFO] Saved initial page summary to {first_json_path}")
         except Exception as e:
             print(f"[WARN] Initial page scrape failed: {e}")
+        abort_run = False
         for handle in handles:
             print(f"[HANDLE] Starting {handle}")
             debug_log_path = os.path.join(output_dir, f"debug_log_{handle}.txt")
@@ -1321,18 +1390,10 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                     print(f"[WARN] CSV export failed: {e}")
                         except Exception as e:
                             print(f"[ERROR] Dropdown/search flow failed: {e}")
-            except (InvalidSessionIdException, WebDriverException) as e:
-                print("[WARN] Chrome session died; recreating driver...")
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-                driver = create_driver()
-                try:
-                    driver.get(url)
-                except Exception as nav_error:
-                    print(f"[WARN] Could not navigate to '{url}' after recovery: {nav_error}")
-                continue
+            except InvalidSessionIdException:
+                print("[WARN] Chrome session invalid; cannot continue this run.")
+                print("[HINT] Use attach mode (SCRAPER_DEBUGGER_ADDRESS) or use a fresh profile directory.")
+                abort_run = True
             except Exception as e:
                 # Also print to console for immediate visibility
                 print(f"[ERROR] Exception for handle {handle}: {e}")
@@ -1340,6 +1401,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 with open(debug_log_path, "w", encoding="utf-8") as dbg:
                     dbg.write(debug_buffer.getvalue())
                 print(f"[HANDLE] Finished {handle}. Log: {debug_log_path}")
+            if abort_run:
+                break
     finally:
         driver.quit()
 
