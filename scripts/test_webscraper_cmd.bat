@@ -20,4 +20,11 @@ if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\python.exe webscraper\legacy\scrape_vpbx_tables.py --help
 if errorlevel 1 exit /b 1
 
+if "%WEBSCRAPER_LIVE_COOKIES%"=="1" (
+  call webscraper\chrome_debug_setup.bat
+  if errorlevel 1 exit /b 1
+  .venv-webscraper\Scripts\python.exe webscraper\chrome_cookies_live.py
+  if errorlevel 1 exit /b 1
+)
+
 echo Webscraper cmd smoke checks completed.
