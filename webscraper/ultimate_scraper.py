@@ -12,7 +12,15 @@ import os
 import io
 import contextlib
 import glob
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
+
+try:
+    from bs4 import BeautifulSoup
+except Exception as exc:
+    BeautifulSoup = None
+    _BS4_IMPORT_ERROR = exc
+else:
+    _BS4_IMPORT_ERROR = None
 
 
 def as_str(v: Any) -> str:
@@ -86,6 +94,13 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         SessionNotCreatedException,
         WebDriverException,
     )
+
+    def require_beautifulsoup():
+        if BeautifulSoup is None:
+            raise RuntimeError(
+                "BeautifulSoup (bs4) is required for HTML parsing. Install with `pip install beautifulsoup4`."
+            ) from _BS4_IMPORT_ERROR
+        return BeautifulSoup
 
     os.makedirs(output_dir, exist_ok=True)
     # Prune legacy noisy files to keep output readable
@@ -254,7 +269,7 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 )
                 raise
 
-    driver: Optional["webdriver.Chrome"] = None
+    driver = cast("webdriver.Chrome", None)
     created_browser = False
     cookies_path: Optional[str] = None
 
@@ -371,8 +386,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 dump_browser_console("first_page")
 
                 # Parse DOM summary: tables, links, inputs, selects, buttons
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(first_html, "html.parser")
+                bs4 = require_beautifulsoup()
+                soup = bs4(first_html, "html.parser")
                 # Tables
                 tables = []
                 for t in soup.find_all("table"):
@@ -434,7 +449,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                     time.sleep(0.4)
                     # Refresh soup and extract help container text (heuristic)
                     first_html = driver.page_source
-                    soup = BeautifulSoup(first_html, "html.parser")
+                    bs4 = require_beautifulsoup()
+                    soup = bs4(first_html, "html.parser")
                     cand = soup.find_all(text=lambda s: isinstance(s, str) and ("Wildcard Searches" in s or "Fields" in s or "A query is broken up" in s))
                     if cand:
                         helps = []
@@ -472,11 +488,13 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         except Exception as e:
             print(f"[WARN] Chrome setup encountered an error: {e}")
 
-    initialize_driver()
+    try:
+        initialize_driver()
+
         def restart_driver(reason: str) -> None:
             nonlocal driver, created_browser
             print(f"[WARN] Restarting Chrome driver due to {reason}.")
-            if driver and created_browser:
+            if created_browser:
                 try:
                     driver.quit()
                 except Exception:
@@ -892,7 +910,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                 vacuum_links = set()
                                 try:
                                     page_html = driver.page_source
-                                    vsoup = BeautifulSoup(page_html, "html.parser")
+                                    bs4 = require_beautifulsoup()
+                                    vsoup = bs4(page_html, "html.parser")
                                     for a in vsoup.find_all("a", href=True):
                                         href = as_str(a.get("href"))
                                         if not href:
@@ -1030,8 +1049,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                     with open(post_path_local, "w", encoding="utf-8") as f:
                                         f.write(html)
                                     print(f"[DEBUG] Saved post-search HTML to {post_path_local}")
-                                    from bs4 import BeautifulSoup
-                                    soup_local = BeautifulSoup(html, "html.parser")
+                                    bs4 = require_beautifulsoup()
+                                    soup_local = bs4(html, "html.parser")
                                     tables_local = soup_local.find_all("table")
                                     matching_rows_local = []
                                     tickets_local = []
@@ -1215,8 +1234,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                             with open(ticket_path, "w", encoding="utf-8") as f:
                                                 f.write(ticket_html)
                                             # Parse structured fields commonly present
-                                            from bs4 import BeautifulSoup
-                                            tsoup = BeautifulSoup(ticket_html, 'html.parser')
+                                            bs4 = require_beautifulsoup()
+                                            tsoup = bs4(ticket_html, 'html.parser')
                                             title = tsoup.title.string if tsoup.title else None
                                             # Extract header block "Company: ... Id: ... Subj: ..."
                                             header_text = None
