@@ -13,12 +13,25 @@
         "Write-Host 'Start Everything + CLI: running webscraper prereqs...'"
       ],
       "dependsOn": [
-        "webscraper:venv+deps",
-        "webscraper:smoke",
-        "webscraper:legacy --help"
+        "webscraper:test all"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "webscraper:test all",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".\\webscraper\\test_all.ps1"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       }
