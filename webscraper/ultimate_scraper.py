@@ -145,7 +145,7 @@ def selenium_scrape_tickets(
     auto_attach: bool = False,
     attach_host: str = "127.0.0.1",
     attach_timeout: float = 2.0,
-    fallback_profile_dir: str = "webscraper/edge_profile_fallback",
+    fallback_profile_dir: str = "webscraper/edge_profile",
     target_url: Optional[str] = None,
 ) -> None:
     """Minimal Selenium workflow that:
@@ -216,31 +216,29 @@ def selenium_scrape_tickets(
         print(f"[INFO] Using Edge binary: {edge_binary_path}")
     else:
         print("[INFO] Using system-installed Edge (auto-detect).")
-    profile_env = os.environ.get("SCRAPER_USER_DATA_DIR")
+    edge_profile_env = os.environ.get("EDGE_PROFILE_DIR")
     default_profile = PROFILE_DIR
     legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
-    user_data_dir = None
-    profile_source = "temporary"
-    if profile_env:
-        user_data_dir = os.path.abspath(profile_env.strip())
-        profile_source = "env"
-    else:
-        user_data_dir = default_profile
-        profile_source = "default"
-    if os.path.exists(legacy_profile):
+    edge_profile_dir = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
+    resolved_fallback_profile_dir = os.path.abspath(fallback_profile_dir) if fallback_profile_dir else edge_profile_dir
+    resolved_edge_profile_dir = edge_profile_dir if edge_profile_env else resolved_fallback_profile_dir
+    if os.path.exists(legacy_profile) and not os.path.exists(default_profile):
         print("[WARN] legacy chrome_profile detected; using edge_profile instead")
-    if user_data_dir:
+    if resolved_edge_profile_dir:
         try:
-            os.makedirs(user_data_dir, exist_ok=True)
+            os.makedirs(resolved_edge_profile_dir, exist_ok=True)
         except Exception as e:
-            print(f"[WARN] Could not create Edge profile directory '{user_data_dir}': {e}")
-        print(f"[INFO] Edge profile ({profile_source}): {user_data_dir}")
+            print(f"[WARN] Could not create Edge profile directory '{resolved_edge_profile_dir}': {e}")
+        print(f"[INFO] Edge profile dir (resolved): {resolved_edge_profile_dir}")
+    chrome_profile_env = os.environ.get("CHROME_PROFILE_DIR")
+    chrome_profile_dir = os.path.abspath(chrome_profile_env.strip()) if chrome_profile_env else legacy_profile
+    print(f"[INFO] Chrome profile dir (resolved): {chrome_profile_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
     if debugger_address and not attach:
         print(f"[INFO] Attaching to existing Edge at {debugger_address}")
-        if user_data_dir:
-            print("[INFO] Attach mode ignores SCRAPER_USER_DATA_DIR.")
+        if resolved_edge_profile_dir:
+            print("[INFO] Attach mode ignores EDGE_PROFILE_DIR.")
         try:
             if ":" in debugger_address:
                 host_part, port_part = debugger_address.split(":", 1)
@@ -360,7 +358,7 @@ def selenium_scrape_tickets(
                 return new_driver, False, True
 
             if mode == "LAUNCH_FALLBACK":
-                fallback_dir = os.path.abspath(fallback_profile_dir)
+                fallback_dir = resolved_edge_profile_dir
                 try:
                     os.makedirs(fallback_dir, exist_ok=True)
                 except Exception as e:
@@ -1630,10 +1628,12 @@ def selenium_scrape_tickets(
                     raise
             if abort_run:
                 break
+    except KeyboardInterrupt:
+        print("[WARN] Interrupted by user (Ctrl+C). Shutting down.")
     finally:
         if driver and created_browser:
             try:
-                driver.close()
+                driver.quit()
             except Exception:
                 pass
 
@@ -1690,7 +1690,7 @@ if __name__ == "__main__":
     parser.add_argument("--auto-attach", action="store_true", help="If attach not provided, try to attach to 127.0.0.1:9222")
     parser.add_argument("--attach-host", default="127.0.0.1", help="Edge debugger host (default 127.0.0.1)")
     parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Edge debugger probe (seconds)")
-    parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile_fallback", help="Profile dir for fallback Edge launch")
+    parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile", help="Profile dir for fallback Edge launch")
     parser.add_argument("--edge-smoke-test", action="store_true", help="Run a basic Edge driver smoke test and exit")
     parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
     args = parser.parse_args()
