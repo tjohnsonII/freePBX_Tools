@@ -3,24 +3,24 @@
   "tasks": [
     {
       "label": "Start Everything + CLI",
-      "type": "shell",
-      "command": "cmd",
-      "args": [
-        "/c",
-        "echo Start Everything + CLI: running webscraper tasks..."
-      ],
       "dependsOn": [
-        "webscraper:venv+deps",
-        "webscraper:smoke",
-        "webscraper:ultimate --help",
-        "webscraper:legacy --help",
-        "webscraper:cookies live"
+        "webscraper:test all (cmd)"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "webscraper:test all (cmd)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call scripts\\test_webscraper_cmd.bat"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     },
     {
       "label": "webscraper:venv+deps",
