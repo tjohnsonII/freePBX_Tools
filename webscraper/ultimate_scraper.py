@@ -12,6 +12,8 @@ import os
 import io
 import contextlib
 import glob
+import json
+import urllib.request
 from typing import Any, List, Optional, cast
 
 try:
@@ -39,39 +41,98 @@ def classes_to_str(v: Any) -> str:
     return str(v).strip()
 
 
-def save_cookies(driver: Any, path: str) -> None:
+def chrome_debug_is_up(host: str, port: int, timeout: float) -> bool:
     try:
-        import json
+        url = f"http://{host}:{port}/json"
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def chrome_debug_targets(host: str, port: int, timeout: float) -> List[dict]:
+    try:
+        url = f"http://{host}:{port}/json"
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        if isinstance(payload, list):
+            return payload
+    except Exception:
+        return []
+    return []
+
+
+def switch_to_target_tab(driver: Any, target_url: str, url_contains: Optional[str] = None) -> bool:
+    if not driver:
+        return False
+    try:
+        original = driver.current_window_handle
+    except Exception:
+        original = None
+    for handle in driver.window_handles:
+        try:
+            driver.switch_to.window(handle)
+            current = driver.current_url or ""
+            if current == target_url or (url_contains and url_contains in current):
+                return True
+        except Exception:
+            continue
+    if original:
+        try:
+            driver.switch_to.window(original)
+        except Exception:
+            pass
+    return False
+
+
+def save_cookies_json(driver: Any, path: str) -> None:
+    try:
         cookies = driver.get_cookies()
+        allowed_keys = {"name", "value", "path", "domain", "secure", "httpOnly", "expiry"}
+        sanitized = [{k: c[k] for k in c if k in allowed_keys} for c in cookies]
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(cookies, f, indent=2)
-        print(f"[INFO] Saved cookies to {path}")
+            json.dump(sanitized, f, indent=2)
+        print(f"[INFO] Saved {len(sanitized)} cookies to {path}")
     except Exception as e:
         print(f"[WARN] Could not save cookies: {e}")
 
 
-def load_and_inject_cookies(driver: Any, path: str, domain_url: str) -> bool:
-    """Navigate to the domain_url and inject cookies from file. Returns True if injected."""
+def load_cookies_json(driver: Any, path: str) -> bool:
+    if not path or not os.path.exists(path):
+        return False
     try:
-        import json
         with open(path, "r", encoding="utf-8") as f:
             cookies = json.load(f)
-        # Navigate to base domain to allow cookie setting
-        driver.get(domain_url)
+        added = 0
         for c in cookies:
             try:
-                cookie = {k: c[k] for k in c if k in ("name","value","path","domain","secure","httpOnly","expiry","sameSite")}
+                cookie = {k: c[k] for k in c if k in ("name", "value", "path", "domain", "secure", "httpOnly", "expiry")}
                 driver.add_cookie(cookie)
+                added += 1
             except Exception:
                 continue
-        print(f"[INFO] Injected {len(cookies)} cookies into {domain_url}")
-        return True
+        print(f"[INFO] Loaded {added}/{len(cookies)} cookies from {path}")
+        return added > 0
     except Exception as e:
         print(f"[WARN] Cookie injection skipped: {e}")
         return False
 
 
-def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headless: bool = True, vacuum: bool = False, aggressive: bool = False, cookie_file: Optional[str] = None) -> None:
+def selenium_scrape_tickets(
+    url: str,
+    output_dir: str,
+    handles: List[str],
+    headless: bool = True,
+    vacuum: bool = False,
+    aggressive: bool = False,
+    cookie_file: Optional[str] = None,
+    attach: Optional[int] = None,
+    auto_attach: bool = False,
+    attach_host: str = "127.0.0.1",
+    attach_timeout: float = 2.0,
+    fallback_profile_dir: str = "webscraper/chrome_profile_fallback",
+    target_url: Optional[str] = None,
+) -> None:
     """Minimal Selenium workflow that:
     - launches Chrome (headless optional)
     - opens the target URL
@@ -159,10 +220,21 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         print(f"[INFO] Chrome profile ({profile_source}): {user_data_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
-    if debugger_address:
+    if debugger_address and not attach:
         print(f"[INFO] Attaching to existing Chrome at {debugger_address}")
         if user_data_dir:
             print("[INFO] Attach mode ignores SCRAPER_USER_DATA_DIR.")
+        try:
+            if ":" in debugger_address:
+                host_part, port_part = debugger_address.split(":", 1)
+                attach_host = host_part.strip() or attach_host
+                attach = int(port_part.strip())
+            else:
+                attach = int(debugger_address.strip())
+        except Exception as e:
+            print(f"[WARN] Could not parse SCRAPER_DEBUGGER_ADDRESS='{debugger_address}': {e}")
+
+    effective_target_url = target_url or url
 
     def _profile_lock_paths(profile_root: str) -> List[str]:
         return [
@@ -215,62 +287,111 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 print(f"[WARN] Could not remove lock file {lock_path}: {e}")
         return removed_any
 
-    def create_driver() -> tuple["webdriver.Chrome", bool]:
-        chrome_options = Options()
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option("useAutomationExtension", False)
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        if debugger_address:
-            chrome_options.add_experimental_option("debuggerAddress", debugger_address)
-        # Keep classic flag for wider compatibility
-        if headless and not debugger_address:
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--no-sandbox")
-        # Allow navigating IP/under-secured endpoints without blocking
-        chrome_options.add_argument("--ignore-certificate-errors")
-        chrome_options.add_argument("--allow-insecure-localhost")
-        chrome_options.add_argument("--start-maximized")
-        # Capture browser console logs for troubleshooting
-        try:
-            chrome_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
-        except Exception:
-            pass
-        if chrome_binary_path:
-            chrome_options.binary_location = chrome_binary_path
-        if user_data_dir and not debugger_address:
-            chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
-            chrome_options.add_argument("--profile-directory=Default")
+    def create_driver() -> tuple["webdriver.Chrome", bool, bool]:
+        plan = []
+        if attach:
+            plan.append(("ATTACH_EXPLICIT", attach))
+        if auto_attach and not attach:
+            plan.append(("ATTACH_AUTO", 9222))
+        plan.append(("LAUNCH_FALLBACK", None))
 
         chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
-        attempted_lock_cleanup = False
-        while True:
+        last_error: Optional[Exception] = None
+
+        for mode, port in plan:
+            chrome_options = Options()
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_experimental_option("useAutomationExtension", False)
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            # Allow navigating IP/under-secured endpoints without blocking
+            chrome_options.add_argument("--ignore-certificate-errors")
+            chrome_options.add_argument("--allow-insecure-localhost")
+            chrome_options.add_argument("--start-maximized")
+            # Capture browser console logs for troubleshooting
             try:
-                if debugger_address:
+                chrome_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
+            except Exception:
+                pass
+            if chrome_binary_path:
+                chrome_options.binary_location = chrome_binary_path
+
+            if mode in ("ATTACH_EXPLICIT", "ATTACH_AUTO"):
+                attach_port = cast(int, port)
+                if not chrome_debug_is_up(attach_host, attach_port, attach_timeout):
+                    last_error = RuntimeError(f"Chrome debug endpoint not reachable at {attach_host}:{attach_port}")
+                    print(f"[WARN] {mode} failed: {last_error}")
+                    continue
+                chrome_options.add_experimental_option("debuggerAddress", f"{attach_host}:{attach_port}")
+                try:
                     new_driver = webdriver.Chrome(options=chrome_options)
-                elif chromedriver_path:
-                    print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
-                    service = Service(chromedriver_path)
-                    new_driver = webdriver.Chrome(service=service, options=chrome_options)
-                else:
-                    print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
-                    new_driver = webdriver.Chrome(options=chrome_options)
-                print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
-                return new_driver, not debugger_address
-            except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException):
-                if user_data_dir and not debugger_address and not attempted_lock_cleanup:
-                    attempted_lock_cleanup = True
-                    if _cleanup_stale_profile_locks(user_data_dir):
-                        print("[WARN] Retrying Chrome launch after clearing stale profile locks.")
-                        continue
-                print(
-                    "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
-                    "ChromeDriver version mismatch, profile lock, or enterprise policy restrictions."
+                except Exception as exc:
+                    last_error = exc
+                    print(f"[WARN] {mode} failed: {exc}")
+                    continue
+                print(f"[INFO] Driver init mode: {mode}")
+                print(f"[INFO] Chrome attached. Session id: {new_driver.session_id}")
+                found = switch_to_target_tab(
+                    new_driver,
+                    effective_target_url,
+                    url_contains="secure.123.net/cgi-bin/web_interface/admin/",
                 )
-                raise
+                if not found:
+                    try:
+                        new_driver.get(effective_target_url)
+                    except Exception:
+                        pass
+                return new_driver, False, True
+
+            if mode == "LAUNCH_FALLBACK":
+                fallback_dir = os.path.abspath(fallback_profile_dir)
+                try:
+                    os.makedirs(fallback_dir, exist_ok=True)
+                except Exception as e:
+                    print(f"[WARN] Could not create fallback Chrome profile directory '{fallback_dir}': {e}")
+                chrome_options.add_argument(f"--user-data-dir={fallback_dir}")
+                chrome_options.add_argument("--profile-directory=Default")
+                # Keep classic flag for wider compatibility
+                if headless:
+                    chrome_options.add_argument("--headless=new")
+                    chrome_options.add_argument("--disable-gpu")
+                    chrome_options.add_argument("--no-sandbox")
+                attempted_lock_cleanup = False
+                while True:
+                    try:
+                        if chromedriver_path:
+                            print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
+                            service = Service(chromedriver_path)
+                            new_driver = webdriver.Chrome(service=service, options=chrome_options)
+                        else:
+                            print("[INFO] Using Selenium Manager for ChromeDriver resolution.")
+                            new_driver = webdriver.Chrome(options=chrome_options)
+                        print(f"[INFO] Driver init mode: {mode}")
+                        print(f"[INFO] Chrome started. Session id: {new_driver.session_id}")
+                        try:
+                            new_driver.get(effective_target_url)
+                        except Exception:
+                            pass
+                        return new_driver, True, False
+                    except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException) as exc:
+                        last_error = exc
+                        if fallback_dir and not attempted_lock_cleanup:
+                            attempted_lock_cleanup = True
+                            if _cleanup_stale_profile_locks(fallback_dir):
+                                print("[WARN] Retrying Chrome launch after clearing stale profile locks.")
+                                continue
+                        print(
+                            "[ERROR] Chrome session could not be created. This may be due to a Chrome/"
+                            "ChromeDriver version mismatch, profile lock, or enterprise policy restrictions."
+                        )
+                        break
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("Chrome driver could not be initialized.")
 
     driver = cast("webdriver.Chrome", None)
     created_browser = False
+    attach_mode = False
     cookies_path: Optional[str] = None
 
     def dump_browser_console(prefix: str) -> None:
@@ -287,8 +408,8 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
             pass
 
     def initialize_driver() -> None:
-        nonlocal driver, created_browser, cookies_path
-        driver, created_browser = create_driver()
+        nonlocal driver, created_browser, attach_mode, cookies_path
+        driver, created_browser, attach_mode = create_driver()
 
         # Avoid indefinite page-load waits
         try:
@@ -296,17 +417,13 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         except Exception:
             pass
 
-        # Attempt to load and inject cookies before main navigation
-        if cookie_file and os.path.exists(cookie_file):
+        # Attempt to load and inject cookies after navigation to target
+        if cookie_file:
             try:
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                base = f"{parsed.scheme}://{parsed.netloc}"
-                injected = load_and_inject_cookies(driver, cookie_file, base)
+                injected = load_cookies_json(driver, cookie_file)
                 if injected:
-                    # Revisit target URL with injected session
                     try:
-                        driver.get(url)
+                        driver.get(effective_target_url)
                     except Exception:
                         pass
             except Exception as e:
@@ -314,9 +431,9 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         try:
             # Try to navigate; if DNS fails, prompt for manual navigation
             try:
-                driver.get(url)
+                driver.get(effective_target_url)
             except Exception as e:
-                print(f"[WARN] Could not navigate to '{url}': {e}")
+                print(f"[WARN] Could not navigate to '{effective_target_url}': {e}")
                 # Offer alternative: prompt for a reachable URL (e.g., IP-based)
                 print("[PROMPT] Enter a reachable URL (e.g., http://<IP>/customers.cgi), or press Enter to skip manual navigation:")
                 try:
@@ -354,7 +471,9 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                     print("[WARN] Page still looks empty; proceeding but results may be blank.")
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
-            save_cookies(driver, cookies_path)
+            save_cookies_json(driver, cookies_path)
+            if cookie_file:
+                save_cookies_json(driver, cookie_file)
 
             # Quick readiness check: ensure we can see a search input or Search button
             try:
@@ -493,6 +612,9 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
 
         def restart_driver(reason: str) -> None:
             nonlocal driver, created_browser
+            if attach_mode:
+                print(f"[WARN] Attach mode active; not restarting driver for {reason}.")
+                return
             print(f"[WARN] Restarting Chrome driver due to {reason}.")
             if created_browser:
                 try:
@@ -1169,7 +1291,17 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                                             except Exception:
                                                 pass
                                     if ticket_base_url and cookies_path:
-                                        load_and_inject_cookies(driver, cookies_path, ticket_base_url)
+                                        try:
+                                            base_url = driver.current_url
+                                            driver.get(ticket_base_url)
+                                        except Exception:
+                                            base_url = None
+                                        load_cookies_json(driver, cookies_path)
+                                        if base_url:
+                                            try:
+                                                driver.get(base_url)
+                                            except Exception:
+                                                pass
 
                                     # Helper: requests session from Selenium cookies for attachment downloads
                                     def build_requests_session_from_driver(base_url: str):
@@ -1454,6 +1586,10 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                     break
                 except InvalidSessionIdException as e:
                     print(f"[WARN] Invalid session id detected for {handle}.")
+                    if attach_mode:
+                        print("[WARN] Attach mode active; skipping driver restart and aborting remaining handles.")
+                        abort_run = True
+                        break
                     if retries >= 1:
                         print("[ERROR] Already restarted once; aborting remaining handles.")
                         abort_run = True
@@ -1463,6 +1599,10 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
                 except WebDriverException as e:
                     if is_invalid_session_error(e):
                         print(f"[WARN] Invalid session id detected for {handle}: {e}")
+                        if attach_mode:
+                            print("[WARN] Attach mode active; skipping driver restart and aborting remaining handles.")
+                            abort_run = True
+                            break
                         if retries >= 1:
                             print("[ERROR] Already restarted once; aborting remaining handles.")
                             abort_run = True
@@ -1510,6 +1650,11 @@ if __name__ == "__main__":
     import argparse
 
     default_url = getattr(cfg, "DEFAULT_URL", "https://noc.123.net/customers")
+    default_target_url = getattr(
+        cfg,
+        "DEFAULT_TARGET_URL",
+        "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+    )
     default_out = getattr(cfg, "DEFAULT_OUTPUT_DIR", os.path.join("webscraper", "output"))
     default_handles = getattr(cfg, "DEFAULT_HANDLES", ["123NET"])  # list
     default_headless = getattr(cfg, "DEFAULT_HEADLESS", True)
@@ -1523,6 +1668,12 @@ if __name__ == "__main__":
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
+    parser.add_argument("--attach", type=int, help="Attach to existing Chrome debugger port (e.g. 9222)")
+    parser.add_argument("--auto-attach", action="store_true", help="If attach not provided, try to attach to 127.0.0.1:9222")
+    parser.add_argument("--attach-host", default="127.0.0.1", help="Chrome debugger host (default 127.0.0.1)")
+    parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Chrome debugger probe (seconds)")
+    parser.add_argument("--fallback-profile-dir", default="webscraper/chrome_profile_fallback", help="Profile dir for fallback Chrome launch")
+    parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
     args = parser.parse_args()
 
     # Env overrides last
@@ -1556,4 +1707,10 @@ if __name__ == "__main__":
         vacuum=args.vacuum,
         aggressive=args.aggressive,
         cookie_file=cookie_file,
+        attach=args.attach,
+        auto_attach=args.auto_attach,
+        attach_host=args.attach_host,
+        attach_timeout=args.attach_timeout,
+        fallback_profile_dir=args.fallback_profile_dir,
+        target_url=args.target_url,
     )
