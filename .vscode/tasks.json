@@ -203,14 +203,10 @@
     {
       "label": "webscraper:smoke",
       "type": "shell",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        ".venv-webscraper\\Scripts\\python.exe -m webscraper._smoke_test"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "command": "${workspaceFolder}\\.venv-webscraper\\Scripts\\python.exe",
+      "args": ["-m", "webscraper._smoke_test"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
     },
     {
       "label": "webscraper:ultimate --help",
