@@ -73,6 +73,10 @@ webscraper/**/DevToolsActivePort
 webscraper/**/*.pma
 webscraper/**/CrashpadMetrics-*
 webscraper/**/first_party_sets.db-journal
+webscraper/output/**/selenium_cookies.json
+webscraper/output/live_cookies.json
+webscraper/output/**/cookies*.json
+webscraper/output/**/cookies*.txt
 
 
 # data dumps (optional — only if you don’t want them in git)

@@ -51,6 +51,29 @@ The `--out` directory will include:
 - `ticket_<HANDLE>_<ID>.html`: raw ticket pages
 - `selenium_cookies.json`: cookies captured after initial navigation/login
 
+## Live cookie export (Chrome remote debugging)
+Use Chrome DevTools Protocol to grab authenticated cookies from an already logged-in Chrome session.
+
+1) Start Chrome with remote debugging and a dedicated profile:
+
+```cmd
+chrome.exe --remote-debugging-port=9222 --user-data-dir=webscraper\\chrome_profile
+```
+
+2) Log in manually to `https://secure.123.net` in the opened Chrome window.
+
+3) Export cookies:
+
+```cmd
+python -m webscraper.chrome_cookies_live --out webscraper/output/live_cookies.json
+```
+
+4) Run the scraper using those cookies:
+
+```cmd
+python -m webscraper.ultimate_scraper --cookie-file webscraper/output/live_cookies.json --out webscraper/output
+```
+
 ## Troubleshooting
 - If no search input is found, the script dumps all form inputs to the debug log to help selector tuning.
 - If Search click is blocked by an alert or auth step, you’ll be prompted to complete it once and continue.
