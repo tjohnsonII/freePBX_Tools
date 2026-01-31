@@ -1,23 +1,18 @@
-import json
+#!/usr/bin/env python3
+"""Legacy entrypoint stub. See webscraper/legacy for real implementation."""
+from __future__ import annotations
 
-input_file = "cookies.txt"
-output_file = "cookies.json"
-target_domains = {".123.net", "secure.123.net"}
+import runpy
+import sys
+from pathlib import Path
 
-cookies = {}
 
-with open(input_file, "r") as f:
-    for line in f:
-        if line.startswith("#") or not line.strip():
-            continue
-        parts = line.strip().split("\t")
-        if len(parts) < 7:
-            continue
-        domain, _, _, _, _, name, value = parts
-        if domain in target_domains:
-            cookies[name] = value
+def main() -> None:
+    legacy_path = Path(__file__).resolve().parent / "webscraper" / "legacy" / "convert_cookies.py"
+    print(f"Moved to webscraper/legacy/{legacy_path.name}. Running forwarded script.")
+    sys.path.insert(0, str(legacy_path.parent))
+    runpy.run_path(str(legacy_path), run_name="__main__")
 
-with open(output_file, "w") as f:
-    json.dump(cookies, f, indent=2)
 
-print(f"Extracted {len(cookies)} cookies to {output_file}")
+if __name__ == "__main__":
+    main()
