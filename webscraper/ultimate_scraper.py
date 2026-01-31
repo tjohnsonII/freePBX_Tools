@@ -112,6 +112,10 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
     chrome_options.add_argument("--ignore-certificate-errors")
     chrome_options.add_argument("--allow-insecure-localhost")
     chrome_options.add_argument("--start-maximized")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--profile-directory=Default")
     # Capture browser console logs for troubleshooting
     try:
         chrome_options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
@@ -138,6 +142,21 @@ def selenium_scrape_tickets(url: str, output_dir: str, handles: List[str], headl
         chrome_options.binary_location = chrome_binary_path
     else:
         print("[INFO] Using system-installed Chrome (auto-detect).")
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    default_profile_dir = os.path.join(repo_root, "webscraper", "chrome_profile")
+    profile_env = os.environ.get("SCRAPER_USER_DATA_DIR")
+    user_data_dir = profile_env.strip() if profile_env else default_profile_dir
+    profile_preexisting = os.path.isdir(user_data_dir)
+    try:
+        os.makedirs(user_data_dir, exist_ok=True)
+    except Exception as e:
+        print(f"[WARN] Could not create Chrome profile directory '{user_data_dir}': {e}")
+    print(f"[INFO] Chrome profile path: {user_data_dir}")
+    if profile_preexisting:
+        print("[INFO] Reusing existing persistent Chrome profile directory.")
+    else:
+        print("[INFO] Using new persistent Chrome profile directory.")
+    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
     chromedriver_path = _validate_path("ChromeDriver", CHROMEDRIVER_PATH)
     if chromedriver_path:
         print(f"[INFO] Using custom ChromeDriver path: {chromedriver_path}")
