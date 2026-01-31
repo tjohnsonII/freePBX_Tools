@@ -4,7 +4,7 @@
     {
       "label": "Start Everything + CLI",
       "dependsOn": [
-        "traceroute-visualizer:dev",
+        "traceroute-visualizer:open",
         "polycom-yealink-mikrotik:dev",
         "freepbx-deploy-backend:dev",
         "freepbx-deploy-ui:dev",
@@ -41,6 +41,22 @@
       "options": {
         "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
       }
+    },
+    {
+      "label": "traceroute-visualizer:open",
+      "type": "shell",
+      "command": "cmd.exe",
+      "dependsOn": [
+        "traceroute-visualizer:dev"
+      ],
+      "dependsOrder": "sequence",
+      "args": [
+        "/d",
+        "/c",
+        "start \"\" \"http://localhost:3000\""
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
     },
     {
       "label": "polycom-yealink-mikrotik:dev",
