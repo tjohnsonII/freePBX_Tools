@@ -147,6 +147,14 @@ def selenium_scrape_tickets(
     attach_timeout: float = 2.0,
     fallback_profile_dir: str = "webscraper/edge_profile",
     target_url: Optional[str] = None,
+    auth_dump: bool = False,
+    auth_pause: bool = False,
+    auth_timeout: int = 180,
+    auth_url: Optional[str] = None,
+    profile_dir: Optional[str] = None,
+    profile_name: Optional[str] = None,
+    no_quit: bool = False,
+    edge_only: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -216,7 +224,8 @@ def selenium_scrape_tickets(
         print(f"[INFO] Using Edge binary: {edge_binary_path}")
     else:
         print("[INFO] Using system-installed Edge (auto-detect).")
-    edge_profile_env = os.environ.get("EDGE_PROFILE_DIR")
+    profile_dir_override = os.path.abspath(profile_dir) if profile_dir else None
+    edge_profile_env = profile_dir_override or os.environ.get("EDGE_PROFILE_DIR")
     default_profile = PROFILE_DIR
     legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
     edge_profile_dir = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
@@ -230,7 +239,7 @@ def selenium_scrape_tickets(
         except Exception as e:
             print(f"[WARN] Could not create Edge profile directory '{resolved_edge_profile_dir}': {e}")
         print(f"[INFO] Edge profile dir (resolved): {resolved_edge_profile_dir}")
-    chrome_profile_env = os.environ.get("CHROME_PROFILE_DIR")
+    chrome_profile_env = profile_dir_override or os.environ.get("CHROME_PROFILE_DIR")
     chrome_profile_dir = os.path.abspath(chrome_profile_env.strip()) if chrome_profile_env else legacy_profile
     print(f"[INFO] Chrome profile dir (resolved): {chrome_profile_dir}")
 
@@ -250,6 +259,8 @@ def selenium_scrape_tickets(
             print(f"[WARN] Could not parse SCRAPER_DEBUGGER_ADDRESS='{debugger_address}': {e}")
 
     effective_target_url = target_url or url
+    effective_auth_url = auth_url or effective_target_url
+    resolved_profile_name = profile_name or "Default"
 
     def _profile_lock_paths(profile_root: str) -> List[str]:
         return [
@@ -364,7 +375,7 @@ def selenium_scrape_tickets(
                 except Exception as e:
                     print(f"[WARN] Could not create fallback Edge profile directory '{fallback_dir}': {e}")
                 edge_options.add_argument(f"--user-data-dir={fallback_dir}")
-                edge_options.add_argument("--profile-directory=Default")
+                edge_options.add_argument(f"--profile-directory={resolved_profile_name}")
                 # Keep classic flag for wider compatibility
                 if headless:
                     edge_options.add_argument("--headless=new")
@@ -408,6 +419,111 @@ def selenium_scrape_tickets(
     created_browser = False
     attach_mode = False
     cookies_path: Optional[str] = None
+
+    def run_auth_diagnostics() -> None:
+        nonlocal driver, created_browser, attach_mode
+        from webscraper import auth_diagnostics
+        import threading
+        import time
+
+        os.makedirs(output_dir, exist_ok=True)
+        print("[AUTH] Diagnostics mode enabled.")
+        print(
+            "[AUTH] Example commands:\n"
+            "  .\\.venv-webscraper\\Scripts\\python.exe -m webscraper.ultimate_scraper --auth-dump --auth-pause "
+            "--edge-only --out webscraper/output/auth_test\n"
+            "  python -m webscraper.ultimate_scraper --auth-dump --no-quit --auth-url "
+            "\"https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi\" --out webscraper/output/auth_test"
+        )
+
+        driver, created_browser, attach_mode = create_driver()
+        try:
+            driver.set_page_load_timeout(30)
+        except Exception:
+            pass
+
+        navigation_error = None
+        for attempt in range(2):
+            try:
+                driver.get(effective_auth_url)
+                navigation_error = None
+                break
+            except Exception as exc:
+                navigation_error = str(exc)
+                if attempt == 0:
+                    time.sleep(1.0)
+
+        if auth_pause:
+            print("Login in browser, then press ENTER in this terminal to continue")
+            done_state = {"done": False}
+
+            def _wait_for_enter() -> None:
+                try:
+                    input()
+                except Exception:
+                    pass
+                done_state["done"] = True
+
+            waiter = threading.Thread(target=_wait_for_enter, daemon=True)
+            waiter.start()
+            waiter.join(max(auth_timeout, 0))
+            if not done_state["done"]:
+                print(f"[WARN] Auth pause timed out after {auth_timeout} seconds; continuing.")
+
+        report = auth_diagnostics.collect_auth_signals(driver)
+        report.update(
+            {
+                "auth_url": effective_auth_url,
+                "navigation_error": navigation_error,
+                "attach_mode": attach_mode,
+                "edge_only": edge_only,
+                "profile_dir": resolved_edge_profile_dir,
+                "profile_name": resolved_profile_name,
+                "auth_pause": auth_pause,
+            }
+        )
+
+        page_html_path = os.path.join(output_dir, "auth_page.html")
+        page_html_error = None
+        for attempt in range(2):
+            try:
+                page_html = driver.page_source or ""
+                with open(page_html_path, "w", encoding="utf-8") as f:
+                    f.write(page_html)
+                page_html_error = None
+                break
+            except Exception as exc:
+                page_html_error = str(exc)
+                if attempt == 0:
+                    time.sleep(0.5)
+        if page_html_error:
+            report.setdefault("errors", {})["page_html_error"] = page_html_error
+
+        screenshot_path = os.path.join(output_dir, "auth_screenshot.png")
+        screenshot_error = None
+        for attempt in range(2):
+            try:
+                driver.get_screenshot_as_file(screenshot_path)
+                screenshot_error = None
+                break
+            except Exception as exc:
+                screenshot_error = str(exc)
+                if attempt == 0:
+                    time.sleep(0.5)
+        if screenshot_error:
+            report.setdefault("errors", {})["screenshot_error"] = screenshot_error
+
+        auth_diagnostics.write_auth_report(output_dir, report)
+
+        if no_quit:
+            print("[WARN] --no-quit set; leaving browser open for manual inspection.")
+        else:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+        return
 
     def dump_browser_console(prefix: str) -> None:
         try:
@@ -623,6 +739,9 @@ def selenium_scrape_tickets(
             print(f"[WARN] Edge setup encountered an error: {e}")
 
     try:
+        if auth_dump:
+            run_auth_diagnostics()
+            return
         initialize_driver()
 
         def restart_driver(reason: str) -> None:
@@ -1693,6 +1812,14 @@ if __name__ == "__main__":
     parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile", help="Profile dir for fallback Edge launch")
     parser.add_argument("--edge-smoke-test", action="store_true", help="Run a basic Edge driver smoke test and exit")
     parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
+    parser.add_argument("--auth-dump", action="store_true", help="Run auth diagnostics and dump safe cookie/storage signals")
+    parser.add_argument("--auth-pause", action="store_true", help="Pause for manual login before dumping auth signals")
+    parser.add_argument("--auth-timeout", type=int, default=180, help="Timeout (seconds) for auth pause")
+    parser.add_argument("--auth-url", default=default_target_url, help="URL to open for auth diagnostics")
+    parser.add_argument("--profile-dir", help="Override profile directory for Edge/Chrome (no venv activation required)")
+    parser.add_argument("--profile-name", help="Chromium profile name (e.g., Default, Profile 1)")
+    parser.add_argument("--no-quit", action="store_true", help="Do not quit the driver after auth diagnostics")
+    parser.add_argument("--edge-only", action="store_true", help="Force Edge path for this run")
     args = parser.parse_args()
 
     if args.edge_smoke_test:
@@ -1736,4 +1863,12 @@ if __name__ == "__main__":
         attach_timeout=args.attach_timeout,
         fallback_profile_dir=args.fallback_profile_dir,
         target_url=args.target_url,
+        auth_dump=args.auth_dump,
+        auth_pause=args.auth_pause,
+        auth_timeout=args.auth_timeout,
+        auth_url=args.auth_url,
+        profile_dir=args.profile_dir,
+        profile_name=args.profile_name,
+        no_quit=args.no_quit,
+        edge_only=args.edge_only,
     )
