@@ -13,7 +13,9 @@ import io
 import contextlib
 import glob
 import json
+import time
 import urllib.request
+from datetime import datetime
 from typing import Any, List, Optional, cast
 
 try:
@@ -24,7 +26,71 @@ except Exception as exc:
 else:
     _BS4_IMPORT_ERROR = None
 
-PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile"))
+PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile_tmp"))
+
+
+class EdgeStartupError(RuntimeError):
+    def __init__(self, message: str, edge_args: List[str], profile_dir: str, edge_binary: Optional[str]) -> None:
+        details = [
+            message,
+            f"Edge args: {edge_args}",
+            f"Profile dir: {profile_dir}",
+            f"Edge binary: {edge_binary or 'Selenium Manager auto-detect'}",
+            "Advice: profile may be locked or invalid; try --edge-temp-profile",
+        ]
+        super().__init__("\n".join(details))
+        self.edge_args = edge_args
+        self.profile_dir = profile_dir
+        self.edge_binary = edge_binary
+
+
+def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    if os.path.exists(path):
+        return path
+    print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
+    return None
+
+
+def edge_binary_path() -> Optional[str]:
+    edge_binary_env = os.environ.get("EDGE_PATH") or os.environ.get("EDGE_BINARY_PATH")
+    if edge_binary_env:
+        resolved = _validate_path("Edge binary (env)", edge_binary_env)
+        if resolved:
+            print(f"[INFO] Using Edge binary from env: {resolved}")
+            return resolved
+    pf86 = os.environ.get("ProgramFiles(x86)")
+    pf = os.environ.get("ProgramFiles")
+    preferred = []
+    if pf86:
+        preferred.append(os.path.join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"))
+    if pf:
+        preferred.append(os.path.join(pf, "Microsoft", "Edge", "Application", "msedge.exe"))
+    for candidate in preferred:
+        resolved = _validate_path("Edge binary", candidate)
+        if resolved:
+            print(f"[INFO] Using Edge binary: {resolved}")
+            return resolved
+    print("[INFO] Using Selenium Manager to locate Edge binary.")
+    return None
+
+
+def edge_profile_dir(args: Any) -> str:
+    auth_mode = getattr(args, "auth_dump", False) or getattr(args, "auth_pause", False)
+    use_temp = getattr(args, "edge_temp_profile", False)
+    if auth_mode and use_temp:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{run_id}_{os.getpid()}"
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", run_id))
+        return os.path.join(base, "edge_tmp_profile")
+    profile_dir_override = os.path.abspath(args.profile_dir) if getattr(args, "profile_dir", None) else None
+    if profile_dir_override:
+        return profile_dir_override
+    env_dir = os.environ.get("EDGE_PROFILE_DIR")
+    if env_dir:
+        return os.path.abspath(env_dir)
+    return PROFILE_DIR
 
 
 def as_str(v: Any) -> str:
@@ -145,7 +211,7 @@ def selenium_scrape_tickets(
     auto_attach: bool = False,
     attach_host: str = "127.0.0.1",
     attach_timeout: float = 2.0,
-    fallback_profile_dir: str = "webscraper/edge_profile",
+    fallback_profile_dir: str = "webscraper/edge_profile_tmp",
     target_url: Optional[str] = None,
     auth_dump: bool = False,
     auth_pause: bool = False,
@@ -155,6 +221,10 @@ def selenium_scrape_tickets(
     profile_name: Optional[str] = None,
     no_quit: bool = False,
     edge_only: bool = False,
+    edge_profile_dir_override: Optional[str] = None,
+    edge_temp_profile: bool = False,
+    edge_kill_before: bool = False,
+    show_browser: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -206,33 +276,19 @@ def selenium_scrape_tickets(
     except Exception:
         pass
 
-    def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
-        if not path:
-            return None
-        if os.path.exists(path):
-            return path
-        print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
-        return None
-
     # Use E:\-aware paths if provided via config/env
-    EDGE_BINARY = os.environ.get("EDGE_BINARY_PATH")
     EDGEDRIVER = os.environ.get("EDGEDRIVER_PATH")
-    edge_binary_env = os.environ.get("EDGE_PATH")
     edge_driver_env = EDGEDRIVER
-    edge_binary_path = _validate_path("Edge binary", edge_binary_env or EDGE_BINARY)
-    if edge_binary_path:
-        print(f"[INFO] Using Edge binary: {edge_binary_path}")
-    else:
-        print("[INFO] Using system-installed Edge (auto-detect).")
+    edge_binary_path_resolved = edge_binary_path()
     profile_dir_override = os.path.abspath(profile_dir) if profile_dir else None
-    edge_profile_env = profile_dir_override or os.environ.get("EDGE_PROFILE_DIR")
+    edge_profile_env = edge_profile_dir_override or os.environ.get("EDGE_PROFILE_DIR")
     default_profile = PROFILE_DIR
     legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
-    edge_profile_dir = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
-    resolved_fallback_profile_dir = os.path.abspath(fallback_profile_dir) if fallback_profile_dir else edge_profile_dir
-    resolved_edge_profile_dir = edge_profile_dir if edge_profile_env else resolved_fallback_profile_dir
+    edge_profile_dir_resolved = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
+    resolved_fallback_profile_dir = os.path.abspath(fallback_profile_dir) if fallback_profile_dir else edge_profile_dir_resolved
+    resolved_edge_profile_dir = edge_profile_dir_resolved if edge_profile_env else resolved_fallback_profile_dir
     if os.path.exists(legacy_profile) and not os.path.exists(default_profile):
-        print("[WARN] legacy chrome_profile detected; using edge_profile instead")
+        print("[WARN] legacy chrome_profile detected; using edge_profile_tmp instead")
     if resolved_edge_profile_dir:
         try:
             os.makedirs(resolved_edge_profile_dir, exist_ok=True)
@@ -261,6 +317,11 @@ def selenium_scrape_tickets(
     effective_target_url = target_url or url
     effective_auth_url = auth_url or effective_target_url
     resolved_profile_name = profile_name or "Default"
+    auth_mode = auth_dump or auth_pause
+    if auth_mode or show_browser:
+        headless = False
+    if edge_temp_profile and not auth_mode:
+        print("[INFO] --edge-temp-profile is only applied in auth mode; ignoring for this run.")
 
     def _profile_lock_paths(profile_root: str) -> List[str]:
         return [
@@ -313,6 +374,108 @@ def selenium_scrape_tickets(
                 print(f"[WARN] Could not remove lock file {lock_path}: {e}")
         return removed_any
 
+    def _kill_edge_processes() -> None:
+        if not edge_kill_before:
+            return
+        if os.name != "nt":
+            print("[INFO] --edge-kill-before ignored on non-Windows platform.")
+            return
+        import subprocess
+        for proc in ("msedge.exe", "msedgedriver.exe"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", proc],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print(f"[INFO] taskkill issued for {proc}")
+            except Exception as exc:
+                print(f"[WARN] Failed to taskkill {proc}: {exc}")
+
+    def _edge_processes_exist() -> bool:
+        try:
+            import psutil  # type: ignore
+        except Exception:
+            psutil = None
+        if psutil:
+            names = set()
+            for proc in psutil.process_iter(["name"]):
+                try:
+                    name = proc.info.get("name") or ""
+                    names.add(name.lower())
+                except Exception:
+                    continue
+            return "msedge.exe" in names and "msedgedriver.exe" in names
+        if os.name == "nt":
+            import subprocess
+            try:
+                output = subprocess.check_output(["tasklist"], text=True, errors="ignore").lower()
+            except Exception:
+                return False
+            return "msedge.exe" in output and "msedgedriver.exe" in output
+        print("[WARN] Process check skipped (no psutil, non-Windows).")
+        return True
+
+    def _confirm_edge_processes(edge_args: List[str], profile_dir: str) -> None:
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if _edge_processes_exist():
+                return
+            time.sleep(0.2)
+        raise EdgeStartupError(
+            "Edge appears to have exited immediately after startup.",
+            edge_args=edge_args,
+            profile_dir=profile_dir,
+            edge_binary=edge_binary_path_resolved,
+        )
+
+    def _make_temp_profile_dir() -> str:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{run_id}_{os.getpid()}"
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", run_id))
+        temp_dir = os.path.join(base, "edge_tmp_profile")
+        os.makedirs(temp_dir, exist_ok=True)
+        return temp_dir
+
+    def _build_edge_options(profile_dir: Optional[str]) -> tuple["EdgeOptions", List[str]]:
+        edge_options = EdgeOptions()
+        edge_args: List[str] = []
+        edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        edge_options.add_experimental_option("useAutomationExtension", False)
+        edge_options.add_argument("--disable-blink-features=AutomationControlled")
+        edge_args.append("--disable-blink-features=AutomationControlled")
+        # Allow navigating IP/under-secured endpoints without blocking
+        edge_options.add_argument("--ignore-certificate-errors")
+        edge_args.append("--ignore-certificate-errors")
+        edge_options.add_argument("--allow-insecure-localhost")
+        edge_args.append("--allow-insecure-localhost")
+        # Capture browser console logs for troubleshooting
+        try:
+            edge_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
+        except Exception:
+            pass
+        if edge_binary_path_resolved:
+            edge_options.binary_location = edge_binary_path_resolved
+        auth_mode = auth_dump or auth_pause
+        if auth_mode:
+            for arg in ("--window-position=0,0", "--window-size=1400,900", "--start-maximized"):
+                edge_options.add_argument(arg)
+                edge_args.append(arg)
+        if profile_dir:
+            edge_options.add_argument(f"--user-data-dir={profile_dir}")
+            edge_args.append(f"--user-data-dir={profile_dir}")
+            edge_options.add_argument(f"--profile-directory={resolved_profile_name}")
+            edge_args.append(f"--profile-directory={resolved_profile_name}")
+        if headless:
+            edge_options.add_argument("--headless=new")
+            edge_args.append("--headless=new")
+            edge_options.add_argument("--disable-gpu")
+            edge_args.append("--disable-gpu")
+            edge_options.add_argument("--no-sandbox")
+            edge_args.append("--no-sandbox")
+        return edge_options, edge_args
+
     def create_driver() -> tuple["webdriver.Edge", bool, bool]:
         plan = []
         if attach:
@@ -325,21 +488,7 @@ def selenium_scrape_tickets(
         last_error: Optional[Exception] = None
 
         for mode, port in plan:
-            edge_options = EdgeOptions()
-            edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            edge_options.add_experimental_option("useAutomationExtension", False)
-            edge_options.add_argument("--disable-blink-features=AutomationControlled")
-            # Allow navigating IP/under-secured endpoints without blocking
-            edge_options.add_argument("--ignore-certificate-errors")
-            edge_options.add_argument("--allow-insecure-localhost")
-            edge_options.add_argument("--start-maximized")
-            # Capture browser console logs for troubleshooting
-            try:
-                edge_options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
-            except Exception:
-                pass
-            if edge_binary_path:
-                edge_options.binary_location = edge_binary_path
+            edge_options, edge_args = _build_edge_options(None)
 
             if mode in ("ATTACH_EXPLICIT", "ATTACH_AUTO"):
                 attach_port = cast(int, port)
@@ -348,8 +497,11 @@ def selenium_scrape_tickets(
                     print(f"[WARN] {mode} failed: {last_error}")
                     continue
                 edge_options.add_experimental_option("debuggerAddress", f"{attach_host}:{attach_port}")
+                print(f"[INFO] Edge args: {edge_args}")
                 try:
-                    new_driver = webdriver.Edge(options=edge_options)
+                    service = EdgeService(log_output=os.path.join(output_dir, "msedgedriver.log"))
+                    new_driver = webdriver.Edge(service=service, options=edge_options)
+                    _confirm_edge_processes(edge_args, resolved_edge_profile_dir)
                 except Exception as exc:
                     last_error = exc
                     print(f"[WARN] {mode} failed: {exc}")
@@ -369,28 +521,27 @@ def selenium_scrape_tickets(
                 return new_driver, False, True
 
             if mode == "LAUNCH_FALLBACK":
+                _kill_edge_processes()
                 fallback_dir = resolved_edge_profile_dir
                 try:
                     os.makedirs(fallback_dir, exist_ok=True)
                 except Exception as e:
                     print(f"[WARN] Could not create fallback Edge profile directory '{fallback_dir}': {e}")
-                edge_options.add_argument(f"--user-data-dir={fallback_dir}")
-                edge_options.add_argument(f"--profile-directory={resolved_profile_name}")
-                # Keep classic flag for wider compatibility
-                if headless:
-                    edge_options.add_argument("--headless=new")
-                    edge_options.add_argument("--disable-gpu")
-                    edge_options.add_argument("--no-sandbox")
+                edge_options, edge_args = _build_edge_options(fallback_dir)
+                print(f"[INFO] Edge args: {edge_args}")
                 attempted_lock_cleanup = False
+                temp_profile_used = False
                 while True:
                     try:
                         if edgedriver_path:
                             print(f"[INFO] Using custom EdgeDriver path: {edgedriver_path}")
-                            service = EdgeService(edgedriver_path)
+                            service = EdgeService(edgedriver_path, log_output=os.path.join(output_dir, "msedgedriver.log"))
                             new_driver = webdriver.Edge(service=service, options=edge_options)
                         else:
                             print("[INFO] Using Selenium Manager for EdgeDriver resolution.")
-                            new_driver = webdriver.Edge(options=edge_options)
+                            service = EdgeService(log_output=os.path.join(output_dir, "msedgedriver.log"))
+                            new_driver = webdriver.Edge(service=service, options=edge_options)
+                        _confirm_edge_processes(edge_args, fallback_dir)
                         print(f"[INFO] Driver init mode: {mode}")
                         print(f"[INFO] Edge started. Session id: {new_driver.session_id}")
                         try:
@@ -398,13 +549,24 @@ def selenium_scrape_tickets(
                         except Exception:
                             pass
                         return new_driver, True, False
-                    except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException) as exc:
+                    except (InvalidSessionIdException, SessionNotCreatedException, WebDriverException, EdgeStartupError) as exc:
                         last_error = exc
                         if fallback_dir and not attempted_lock_cleanup:
                             attempted_lock_cleanup = True
                             if _cleanup_stale_profile_locks(fallback_dir):
                                 print("[WARN] Retrying Edge launch after clearing stale profile locks.")
                                 continue
+                        if not temp_profile_used:
+                            temp_profile_used = True
+                            temp_dir = _make_temp_profile_dir()
+                            edge_options, edge_args = _build_edge_options(temp_dir)
+                            print(f"[INFO] Edge args: {edge_args}")
+                            print(
+                                "[WARN] Edge failed to start with current profile. Retrying once with a fresh temp profile: "
+                                f"{temp_dir}"
+                            )
+                            fallback_dir = temp_dir
+                            continue
                         print(
                             "[ERROR] Edge session could not be created. This may be due to an Edge/"
                             "EdgeDriver version mismatch, profile lock, or enterprise policy restrictions."
@@ -1809,7 +1971,7 @@ if __name__ == "__main__":
     parser.add_argument("--auto-attach", action="store_true", help="If attach not provided, try to attach to 127.0.0.1:9222")
     parser.add_argument("--attach-host", default="127.0.0.1", help="Edge debugger host (default 127.0.0.1)")
     parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Edge debugger probe (seconds)")
-    parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile", help="Profile dir for fallback Edge launch")
+    parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile_tmp", help="Profile dir for fallback Edge launch")
     parser.add_argument("--edge-smoke-test", action="store_true", help="Run a basic Edge driver smoke test and exit")
     parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
     parser.add_argument("--auth-dump", action="store_true", help="Run auth diagnostics and dump safe cookie/storage signals")
@@ -1820,6 +1982,16 @@ if __name__ == "__main__":
     parser.add_argument("--profile-name", help="Chromium profile name (e.g., Default, Profile 1)")
     parser.add_argument("--no-quit", action="store_true", help="Do not quit the driver after auth diagnostics")
     parser.add_argument("--edge-only", action="store_true", help="Force Edge path for this run")
+    parser.add_argument(
+        "--edge-temp-profile",
+        action="store_true",
+        help="In auth mode, use a fresh temporary Edge profile under webscraper/output/<run_id>/edge_tmp_profile",
+    )
+    parser.add_argument(
+        "--edge-kill-before",
+        action="store_true",
+        help="Kill msedge.exe and msedgedriver.exe before launching Edge (Windows only)",
+    )
     args = parser.parse_args()
 
     if args.edge_smoke_test:
@@ -1849,6 +2021,10 @@ if __name__ == "__main__":
     if args.show:
         headless = False
 
+    edge_profile_override = None
+    if (args.auth_dump or args.auth_pause) and args.edge_temp_profile:
+        edge_profile_override = edge_profile_dir(args)
+
     selenium_scrape_tickets(
         url=url,
         output_dir=out_dir,
@@ -1871,4 +2047,8 @@ if __name__ == "__main__":
         profile_name=args.profile_name,
         no_quit=args.no_quit,
         edge_only=args.edge_only,
+        edge_profile_dir_override=edge_profile_override,
+        edge_temp_profile=args.edge_temp_profile,
+        edge_kill_before=args.edge_kill_before,
+        show_browser=args.show,
     )
