@@ -1,5 +1,5 @@
-from .profile import attempt_profile
-from .programmatic import attempt_programmatic
-from .manual import attempt_manual
+from .profile import try_profile
+from .programmatic import try_programmatic
+from .manual import try_manual
 
-__all__ = ["attempt_profile", "attempt_programmatic", "attempt_manual"]
+__all__ = ["try_profile", "try_programmatic", "try_manual"]

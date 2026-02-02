@@ -232,6 +232,7 @@ def selenium_scrape_tickets(
     auth_password: Optional[str] = None,
     auth_check_url: Optional[str] = None,
     auth_user_agent: Optional[str] = None,
+    auth_mode: Optional[str] = None,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -590,12 +591,8 @@ def selenium_scrape_tickets(
     created_browser = False
     attach_mode = False
     cookies_path: Optional[str] = None
-    resolved_auth_profiles = [
-        os.path.abspath(p) for p in (auth_profile_dirs or []) if p
-    ]
-    resolved_auth_cookies = [
-        os.path.abspath(p) for p in (auth_cookie_files or []) if p
-    ]
+    resolved_auth_profiles = [os.path.abspath(p) for p in (auth_profile_dirs or []) if p]
+    resolved_auth_cookies = [os.path.abspath(p) for p in (auth_cookie_files or []) if p]
 
     def run_auth_diagnostics() -> None:
         nonlocal driver, created_browser, attach_mode
@@ -715,41 +712,11 @@ def selenium_scrape_tickets(
         except Exception:
             pass
 
-    def initialize_driver() -> None:
+    def _post_auth_setup() -> None:
         nonlocal driver, created_browser, attach_mode, cookies_path
-        if enable_auth_orchestration:
-            from webscraper.auth import AuthContext, authenticate
 
-            auth_profile_dir = profile_dir_override or edge_profile_env
-            auth_profile_dir = os.path.abspath(auth_profile_dir) if auth_profile_dir else None
-            auth_profile_fallbacks = [p for p in resolved_auth_profiles if p != auth_profile_dir]
-            auth_cookie_candidates = []
-            if cookie_file:
-                auth_cookie_candidates.append(cookie_file)
-            auth_cookie_candidates.extend(resolved_auth_cookies)
-            auth_ctx = AuthContext(
-                base_url=effective_target_url,
-                preferred_browser="edge",
-                profile_dir=auth_profile_dir,
-                profile_fallback_dirs=auth_profile_fallbacks,
-                cookie_files=auth_cookie_candidates,
-                username=auth_username,
-                password=auth_password,
-                user_agent=auth_user_agent,
-                headless=headless,
-                timeout_sec=30,
-                auth_check_url=auth_check_url or effective_auth_url,
-            )
-            auth_result = authenticate(auth_ctx)
-            if not auth_result.ok or not auth_result.driver:
-                if auth_result.need_user_input:
-                    print(auth_result.need_user_input.get("message", "Authentication failed."))
-                raise SystemExit(2)
-            driver = auth_result.driver
-            created_browser = True
-            attach_mode = False
-        else:
-            driver, created_browser, attach_mode = create_driver()
+        if not driver:
+            raise RuntimeError("Driver not initialized.")
 
         # Avoid indefinite page-load waits
         try:
@@ -808,7 +775,7 @@ def selenium_scrape_tickets(
                 # Verify DOM has content (tables/links/inputs) before proceeding
                 try:
                     from selenium.webdriver.support.ui import WebDriverWait
-                    from selenium.webdriver.support import expected_conditions as EC
+
                     def dom_has_content(d):
                         try:
                             tables = d.find_elements(By.TAG_NAME, "table")
@@ -817,6 +784,7 @@ def selenium_scrape_tickets(
                             return (len(tables) + len(links) + len(inputs)) > 5
                         except Exception:
                             return False
+
                     WebDriverWait(driver, 25).until(dom_has_content)
                     print("[INFO] Detected page content; continuing scrape.")
                 except Exception:
@@ -830,7 +798,6 @@ def selenium_scrape_tickets(
             # Quick readiness check: ensure we can see a search input or Search button
             try:
                 from selenium.webdriver.support.ui import WebDriverWait
-                from selenium.webdriver.support import expected_conditions as EC
                 WebDriverWait(driver, 20).until(
                     lambda d: (
                         len(d.find_elements(By.CSS_SELECTOR, "input[type='text'], input#customers, input[name='customer'], input[name='customer_handle']")) > 0 or
@@ -865,7 +832,7 @@ def selenium_scrape_tickets(
                     rows = []
                     headers = [th.get_text(strip=True) for th in t.find_all("th")]
                     for tr in t.find_all("tr"):
-                        cells = [c.get_text(strip=True) for c in tr.find_all(["td","th"])]
+                        cells = [c.get_text(strip=True) for c in tr.find_all(["td", "th"])]
                         if cells:
                             rows.append(cells)
                     tables.append({"headers": headers, "rows": rows})
@@ -959,11 +926,64 @@ def selenium_scrape_tickets(
         except Exception as e:
             print(f"[WARN] Edge setup encountered an error: {e}")
 
+    def initialize_driver() -> None:
+        nonlocal driver, created_browser, attach_mode, cookies_path
+        driver, created_browser, attach_mode = create_driver()
+        _post_auth_setup()
+
     try:
         if auth_dump:
             run_auth_diagnostics()
             return
-        initialize_driver()
+        if enable_auth_orchestration:
+            from webscraper.auth import AuthContext, AuthMode, authenticate
+
+            auth_modes: Optional[List[AuthMode]] = None
+            if auth_mode:
+                normalized = auth_mode.strip().upper()
+                if normalized and normalized != "AUTO":
+                    try:
+                        auth_modes = [AuthMode[normalized]]
+                    except KeyError:
+                        print(f"[WARN] Unknown SCRAPER_AUTH_MODE '{auth_mode}'. Falling back to AUTO.")
+
+            auth_profile_candidates: List[str] = []
+            if profile_dir_override:
+                auth_profile_candidates.append(profile_dir_override)
+            for candidate in resolved_auth_profiles:
+                if candidate and candidate not in auth_profile_candidates:
+                    auth_profile_candidates.append(candidate)
+            auth_cookie_candidates = [p for p in resolved_auth_cookies if p]
+            if cookie_file:
+                auth_cookie_candidates.insert(0, os.path.abspath(cookie_file))
+            auth_ctx = AuthContext(
+                base_url=effective_target_url,
+                auth_check_url=auth_check_url or effective_auth_url,
+                preferred_browser="edge",
+                profile_dirs=auth_profile_candidates,
+                profile_name=resolved_profile_name,
+                cookie_files=auth_cookie_candidates,
+                username=auth_username,
+                password=auth_password,
+                headless=headless,
+                timeout_sec=30,
+                output_dir=output_dir,
+                edge_binary=edge_binary_path_resolved,
+                edgedriver_path=edge_driver_env,
+            )
+            auth_result = authenticate(auth_ctx, modes=auth_modes)
+            if not auth_result.ok or not auth_result.driver:
+                if auth_result.need_user_input:
+                    print(auth_result.need_user_input.get("message", "Authentication failed."))
+                if auth_result.reason:
+                    print(f"[AUTH] {auth_result.reason}")
+                return
+            driver = cast("webdriver.Edge", auth_result.driver)
+            created_browser = True
+            attach_mode = False
+            _post_auth_setup()
+        else:
+            initialize_driver()
 
         def restart_driver(reason: str) -> None:
             nonlocal driver, created_browser
@@ -1710,13 +1730,18 @@ def selenium_scrape_tickets(
                                                 ]) or ('login' in curr_url or 'sign' in curr_url)
                                                 if needs_login:
                                                     print(f"[AUTH] Ticket page requires authentication: {driver.current_url}")
-                                                    print("[ACTION REQUIRED] Complete sign-in in the visible tab, then press Enter here to continue.")
-                                                    try:
-                                                        input()
-                                                    except Exception:
-                                                        pass
-                                                    # Wait again for content post-auth
-                                                    WebDriverWait(driver, 20).until(lambda d: d.execute_script('return document.readyState') == 'complete')
+                                                    if allow_manual_prompts:
+                                                        print("[ACTION REQUIRED] Complete sign-in in the visible tab, then press Enter here to continue.")
+                                                        try:
+                                                            input()
+                                                        except Exception:
+                                                            pass
+                                                        # Wait again for content post-auth
+                                                        WebDriverWait(driver, 20).until(
+                                                            lambda d: d.execute_script('return document.readyState') == 'complete'
+                                                        )
+                                                    else:
+                                                        print("[WARN] Manual auth prompts disabled; skipping pause for ticket auth.")
                                             except Exception:
                                                 pass
                                             ticket_html = driver.page_source
@@ -2066,6 +2091,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable auth orchestration and use legacy auth flow",
     )
+    parser.add_argument(
+        "--auth-orchestrate",
+        action="store_true",
+        help="Enable auth orchestration (default on unless disabled)",
+    )
     args = parser.parse_args()
 
     if args.edge_smoke_test:
@@ -2121,6 +2151,7 @@ if __name__ == "__main__":
     auth_password = os.environ.get("SCRAPER_PASSWORD") or os.environ.get("SCRAPER_AUTH_PASSWORD") or config_password
     auth_user_agent = os.environ.get("SCRAPER_AUTH_USER_AGENT") or os.environ.get("SCRAPER_USER_AGENT")
     auth_check_url = os.environ.get("SCRAPER_AUTH_CHECK_URL") or args.auth_check_url or args.auth_url
+    auth_mode = os.environ.get("SCRAPER_AUTH_MODE")
 
     auth_orchestration_cfg = getattr(cfg, "AUTH_ORCHESTRATION", True)
     auth_orchestration_env = os.environ.get("SCRAPER_AUTH_ORCHESTRATION")
@@ -2129,16 +2160,41 @@ if __name__ == "__main__":
         auth_orchestration = auth_orchestration_env == "1"
     if args.no_auth_orchestrator:
         auth_orchestration = False
+    if args.auth_orchestrate:
+        auth_orchestration = True
 
     auth_profile_dirs = getattr(cfg, "AUTH_PROFILE_DIRS", [])
-    auth_profile_env = os.environ.get("SCRAPER_AUTH_PROFILE_DIRS")
+    auth_profile_env = os.environ.get("SCRAPER_PROFILE_DIRS") or os.environ.get("SCRAPER_AUTH_PROFILE_DIRS")
     if auth_profile_env:
         auth_profile_dirs = [item.strip() for item in auth_profile_env.split(",") if item.strip()]
+    if not auth_profile_dirs:
+        base_dir = os.path.dirname(__file__)
+        auth_profile_dirs = [
+            os.path.join(base_dir, "edge_profile"),
+            os.path.join(base_dir, "edge_profile_fallback"),
+            os.path.join(base_dir, "edge_profile_selenium"),
+            os.path.join(base_dir, "edge_profile_tmp"),
+            os.path.join(base_dir, "edge_profile_tmp_test"),
+            os.path.join(base_dir, "chrome_profile"),
+            os.path.join(base_dir, "chrome_profile_live"),
+        ]
 
     auth_cookie_files = getattr(cfg, "AUTH_COOKIE_FILES", [])
     auth_cookie_env = os.environ.get("SCRAPER_COOKIE_FILES") or os.environ.get("SCRAPER_AUTH_COOKIE_FILES")
     if auth_cookie_env:
         auth_cookie_files = [item.strip() for item in auth_cookie_env.split(",") if item.strip()]
+    if not auth_cookie_files:
+        default_cookie_file = getattr(cfg, "DEFAULT_COOKIE_FILE", None)
+        auth_cookie_files = [
+            p for p in [
+                cookie_file,
+                default_cookie_file,
+                "cookies.json",
+                "live_cookies.json",
+                "cookies_netscape_format.txt",
+            ]
+            if p
+        ]
 
     edge_profile_override = None
     if (args.auth_dump or args.auth_pause) and args.edge_temp_profile:
@@ -2177,4 +2233,5 @@ if __name__ == "__main__":
         auth_password=auth_password,
         auth_check_url=auth_check_url,
         auth_user_agent=auth_user_agent,
+        auth_mode=auth_mode,
     )
