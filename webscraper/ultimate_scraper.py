@@ -325,7 +325,7 @@ def selenium_scrape_tickets(
     effective_target_url = target_url or url
     effective_auth_url = auth_url or effective_target_url
     resolved_profile_name = profile_name or "Default"
-    auth_mode = auth_dump or auth_pause
+    auth_mode = "AUTO" if (auth_dump or auth_pause) else None
     enable_auth_orchestration = auth_orchestration and not auth_mode
     allow_manual_prompts = not enable_auth_orchestration
     if auth_mode or show_browser:
