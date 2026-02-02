@@ -37,6 +37,21 @@ DEFAULT_OUTPUT_DIR = "webscraper/output"
 DEFAULT_HEADLESS = True
 DEFAULT_HANDLES = ["KPM"]
 DEFAULT_COOKIE_FILE = "webscraper/output/kb-run/selenium_cookies.json"
+AUTH_ORCHESTRATION = True
+
+# Auth orchestrator defaults (paths only; no secrets)
+AUTH_PROFILE_DIRS = [
+    "webscraper/edge_profile",
+    "webscraper/edge_profile_selenium",
+    "webscraper/edge_profile_fallback",
+    "webscraper/edge_profile_tmp_test",
+    "webscraper/edge_profile_tmp",
+]
+AUTH_COOKIE_FILES = [
+    "webscraper/cookies.json",
+    "webscraper/live_cookies.json",
+    "webscraper/cookies_netscape_format.txt",
+]
 
 # Preferred browser/driver defaults (override via env if needed)
 CHROME_BINARY_PATH = os.environ.get("CHROME_PATH") or None
