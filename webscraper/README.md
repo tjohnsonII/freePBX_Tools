@@ -30,6 +30,31 @@ Run with a visible browser so you can log in if needed:
 python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output
 ```
 
+## Auth orchestration (PowerShell examples)
+The scraper now tries profile auth first, then programmatic login, then cookie injection.
+
+Profile auth (Edge profile directory):
+```powershell
+$env:SCRAPER_AUTH_ORCHESTRATION = "1"
+$env:EDGE_PROFILE_DIR = "E:\\DevTools\\freepbx-tools\\webscraper\\edge_profile"
+python -m webscraper.ultimate_scraper --handles KPM --out webscraper/output
+```
+
+Programmatic creds (env vars only):
+```powershell
+$env:SCRAPER_AUTH_ORCHESTRATION = "1"
+$env:SCRAPER_USERNAME = "<username>"
+$env:SCRAPER_PASSWORD = "<password>"
+python -m webscraper.ultimate_scraper --handles KPM --out webscraper/output
+```
+
+Manual cookies (JSON or Netscape format):
+```powershell
+$env:SCRAPER_AUTH_ORCHESTRATION = "1"
+$env:SCRAPER_COOKIE_FILES = "webscraper\\cookies.json,webscraper\\cookies_netscape_format.txt"
+python -m webscraper.ultimate_scraper --handles KPM --out webscraper/output
+```
+
 Notes:
 - Default URL is `https://noc.123.net/customers`. If navigation fails, the script will prompt for an alternate URL (e.g., IP-based). You can also navigate manually in the opened Chrome window, then press Enter to continue.
 - After completing any login/MFA, the script verifies the page has content and proceeds.
