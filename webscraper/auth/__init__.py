@@ -1,4 +1,4 @@
-from .types import AuthAttempt, AuthContext, AuthMode, AuthResult, StrategyOutcome
+from .types import AuthAttempt, AuthContext, AuthMode, AuthResult
 from .orchestrator import authenticate
 
 __all__ = [
@@ -6,6 +6,5 @@ __all__ = [
     "AuthContext",
     "AuthMode",
     "AuthResult",
-    "StrategyOutcome",
     "authenticate",
 ]

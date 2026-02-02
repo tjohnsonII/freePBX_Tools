@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -12,18 +12,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webscraper import site_selectors
 
 from ..healthcheck import is_authenticated
-from ..types import AuthContext, StrategyOutcome
+from ..types import AuthContext
 
 
-def _resolve_edge_binary() -> Optional[str]:
-    for env_key in ("EDGE_PATH", "EDGE_BINARY_PATH"):
-        candidate = os.environ.get(env_key)
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return None
-
-
-def _build_edge_driver(ctx: AuthContext) -> webdriver.Edge:
+def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
     edge_options = EdgeOptions()
     edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     edge_options.add_experimental_option("useAutomationExtension", False)
@@ -31,21 +23,18 @@ def _build_edge_driver(ctx: AuthContext) -> webdriver.Edge:
     edge_options.add_argument("--ignore-certificate-errors")
     edge_options.add_argument("--allow-insecure-localhost")
 
-    if ctx.user_agent:
-        edge_options.add_argument(f"--user-agent={ctx.user_agent}")
-    binary_path = _resolve_edge_binary()
-    if binary_path:
-        edge_options.binary_location = binary_path
+    if ctx.edge_binary:
+        edge_options.binary_location = ctx.edge_binary
+    edge_options.add_argument(f"--user-data-dir={profile_dir}")
     if ctx.headless:
         edge_options.add_argument("--headless=new")
         edge_options.add_argument("--disable-gpu")
         edge_options.add_argument("--no-sandbox")
 
-    driver_path = os.environ.get("EDGEDRIVER_PATH")
-    if driver_path and os.path.exists(driver_path):
-        service = EdgeService(driver_path)
-        return webdriver.Edge(service=service, options=edge_options)
-    service = EdgeService()
+    if ctx.edgedriver_path and os.path.exists(ctx.edgedriver_path):
+        service = EdgeService(ctx.edgedriver_path)
+    else:
+        service = EdgeService()
     return webdriver.Edge(service=service, options=edge_options)
 
 
@@ -114,17 +103,25 @@ def _find_submit_button(driver):
     return None
 
 
-def attempt_programmatic(ctx: AuthContext) -> StrategyOutcome:
+def _temp_profile_dir(ctx: AuthContext) -> str:
+    run_id = f"{os.getpid()}"
+    temp_dir = os.path.join(ctx.output_dir, f"auth_tmp_profile_{run_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+
+def try_programmatic(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     if not (ctx.username and ctx.password):
-        return StrategyOutcome(ok=False, reason="missing_credentials", driver=None)
+        return False, None, "missing_credentials"
 
+    profile_dir = _temp_profile_dir(ctx)
     try:
-        driver = _build_edge_driver(ctx)
+        driver = _build_edge_driver(ctx, profile_dir)
     except Exception as exc:
-        return StrategyOutcome(ok=False, reason=f"driver_start_failed:{type(exc).__name__}", driver=None)
+        return False, None, f"driver_start_failed:{type(exc).__name__}"
 
     try:
-        driver.get(ctx.auth_check_url or ctx.base_url)
+        driver.get(ctx.base_url)
     except Exception:
         pass
 
@@ -155,7 +152,7 @@ def attempt_programmatic(ctx: AuthContext) -> StrategyOutcome:
             driver.quit()
         except Exception:
             pass
-        return StrategyOutcome(ok=False, reason="login_form_not_detected", driver=None)
+        return False, None, "login_form_not_detected"
 
     try:
         username_input.clear()
@@ -168,7 +165,7 @@ def attempt_programmatic(ctx: AuthContext) -> StrategyOutcome:
             driver.quit()
         except Exception:
             pass
-        return StrategyOutcome(ok=False, reason=f"login_interaction_failed:{type(exc).__name__}", driver=None)
+        return False, None, f"login_interaction_failed:{type(exc).__name__}"
 
     try:
         if wait:
@@ -183,10 +180,10 @@ def attempt_programmatic(ctx: AuthContext) -> StrategyOutcome:
         reason = f"healthcheck_error:{type(exc).__name__}"
 
     if ok:
-        return StrategyOutcome(ok=True, reason=reason, driver=driver)
+        return True, driver, reason
 
     try:
         driver.quit()
     except Exception:
         pass
-    return StrategyOutcome(ok=False, reason=reason, driver=None)
+    return False, None, reason

@@ -2,23 +2,14 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.edge.service import Service as EdgeService
 
 from ..healthcheck import is_authenticated
-from ..types import AuthContext, StrategyOutcome
-
-
-def _resolve_edge_binary() -> Optional[str]:
-    for env_key in ("EDGE_PATH", "EDGE_BINARY_PATH"):
-        candidate = os.environ.get(env_key)
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return None
+from ..types import AuthContext
 
 
 def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
@@ -29,11 +20,8 @@ def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
     edge_options.add_argument("--ignore-certificate-errors")
     edge_options.add_argument("--allow-insecure-localhost")
 
-    if ctx.user_agent:
-        edge_options.add_argument(f"--user-agent={ctx.user_agent}")
-    binary_path = _resolve_edge_binary()
-    if binary_path:
-        edge_options.binary_location = binary_path
+    if ctx.edge_binary:
+        edge_options.binary_location = ctx.edge_binary
     if profile_dir:
         edge_options.add_argument(f"--user-data-dir={profile_dir}")
     if ctx.headless:
@@ -41,11 +29,10 @@ def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
         edge_options.add_argument("--disable-gpu")
         edge_options.add_argument("--no-sandbox")
 
-    driver_path = os.environ.get("EDGEDRIVER_PATH")
-    if driver_path and os.path.exists(driver_path):
-        service = EdgeService(driver_path)
-        return webdriver.Edge(service=service, options=edge_options)
-    service = EdgeService()
+    if ctx.edgedriver_path and os.path.exists(ctx.edgedriver_path):
+        service = EdgeService(ctx.edgedriver_path)
+    else:
+        service = EdgeService()
     return webdriver.Edge(service=service, options=edge_options)
 
 
@@ -111,16 +98,23 @@ def _sanitize_cookie(cookie: dict) -> dict:
     return {k: v for k, v in cookie.items() if k in allowed and v is not None}
 
 
-def attempt_manual(ctx: AuthContext) -> StrategyOutcome:
+def _temp_profile_dir(ctx: AuthContext) -> str:
+    run_id = f"{os.getpid()}"
+    temp_dir = os.path.join(ctx.output_dir, f"auth_tmp_profile_{run_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+
+def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     cookie_path = _first_cookie_file(ctx.cookie_files)
     if not cookie_path:
-        return StrategyOutcome(ok=False, reason="no_cookie_files_found", driver=None)
+        return False, None, "no_cookie_files_found"
 
-    profile_dir = tempfile.mkdtemp(prefix="ws_auth_profile_")
+    profile_dir = _temp_profile_dir(ctx)
     try:
         driver = _build_edge_driver(ctx, profile_dir)
     except Exception as exc:
-        return StrategyOutcome(ok=False, reason=f"driver_start_failed:{type(exc).__name__}", driver=None)
+        return False, None, f"driver_start_failed:{type(exc).__name__}"
 
     try:
         driver.get(ctx.base_url)
@@ -133,7 +127,7 @@ def attempt_manual(ctx: AuthContext) -> StrategyOutcome:
             driver.quit()
         except Exception:
             pass
-        return StrategyOutcome(ok=False, reason="cookie_file_empty_or_unreadable", driver=None)
+        return False, None, "cookie_file_empty_or_unreadable"
 
     added = 0
     for cookie in cookies:
@@ -151,7 +145,7 @@ def attempt_manual(ctx: AuthContext) -> StrategyOutcome:
             driver.quit()
         except Exception:
             pass
-        return StrategyOutcome(ok=False, reason="cookie_injection_failed", driver=None)
+        return False, None, "cookie_injection_failed"
 
     try:
         driver.refresh()
@@ -165,10 +159,10 @@ def attempt_manual(ctx: AuthContext) -> StrategyOutcome:
         reason = f"healthcheck_error:{type(exc).__name__}"
 
     if ok:
-        return StrategyOutcome(ok=True, reason=reason, driver=driver)
+        return True, driver, reason
 
     try:
         driver.quit()
     except Exception:
         pass
-    return StrategyOutcome(ok=False, reason=reason, driver=None)
+    return False, None, reason
