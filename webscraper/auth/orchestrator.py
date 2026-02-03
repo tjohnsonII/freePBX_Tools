@@ -12,7 +12,7 @@ def _existing_paths(paths: List[str]) -> List[str]:
     return [p for p in paths if p and os.path.exists(p)]
 
 
-def _build_need_user_input(ctx: AuthContext) -> dict:
+def _build_need_user_input(ctx: AuthContext, modes: Iterable[AuthMode]) -> dict:
     fields: List[str] = []
     if not _existing_paths(ctx.profile_dirs):
         fields.append("profile_dir")
@@ -30,7 +30,12 @@ def _build_need_user_input(ctx: AuthContext) -> dict:
     if "username/password" in fields:
         message_lines.append("- Provide programmatic credentials via env vars (SCRAPER_USERNAME/SCRAPER_PASSWORD).")
     if "cookie_file" in fields:
-        message_lines.append("- Provide cookie files (cookies.json or cookies_netscape_format.txt).")
+        if AuthMode.MANUAL in modes:
+            message_lines.append(
+                "- No cookie files found. Re-run with SCRAPER_AUTH_MODE=MANUAL and paste cookies when prompted, or pass --cookie-file <path>."
+            )
+        else:
+            message_lines.append("- Provide cookie files (cookies.json or cookies_netscape_format.txt).")
     if not fields:
         message_lines.append("- Review login heuristics or update selectors for this site.")
 
@@ -131,5 +136,5 @@ def authenticate(ctx: AuthContext, modes: Optional[List[AuthMode]] = None) -> Au
         reason=reasons or "authentication_failed",
         attempts=attempts,
         driver=None,
-        need_user_input=_build_need_user_input(ctx),
+        need_user_input=_build_need_user_input(ctx, modes),
     )
