@@ -16,7 +16,10 @@ import json
 import time
 import urllib.request
 from datetime import datetime
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from selenium import webdriver
 
 try:
     from bs4 import BeautifulSoup
@@ -580,7 +583,9 @@ def selenium_scrape_tickets(
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.common.exceptions import (
+        InvalidSessionIdException,
         NoSuchElementException,
+        WebDriverException,
     )
 
     def require_beautifulsoup():
@@ -649,7 +654,7 @@ def selenium_scrape_tickets(
             "\"https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi\" --out webscraper/output/auth_test"
         )
 
-        driver, created_browser, attach_mode, _ = create_edge_driver(
+        driver, created_browser, attach_mode, resolved_edge_profile_dir = create_edge_driver(
             output_dir=output_dir,
             headless=headless,
             attach=attach,
