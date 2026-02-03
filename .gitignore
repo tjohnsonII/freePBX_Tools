@@ -80,14 +80,26 @@ data/test-data/test_scrape_output/
 # =========================
 webscraper/cookies*.txt
 webscraper/cookies*.json
+webscraper/live_cookies.json
 webscraper/output/**/selenium_cookies.json
 webscraper/output/**/cookies*.json
 webscraper/output/**/cookies*.txt
 webscraper/output/live_cookies.json
 
+# Root-level cookies/credentials artifacts
+cookies.json
+cookies.txt
+cookies_header_string.txt
+*_cookies.*
+*_credentials.*
+
 # =========================
 # Webscraper browser profiles (credential-bearing state)
 # =========================
+webscraper/webscraper/edge_profile_tmp/
+webscraper/**/edge_profile_tmp/
+webscraper/**/edge_profile/
+webscraper/**/chrome_profile/
 webscraper/edge_profile*
 webscraper/chrome_profile*
 webscraper/**/edge_profile*
