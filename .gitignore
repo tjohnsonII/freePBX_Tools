@@ -74,6 +74,20 @@ webscraper/ticket-discovery-output/
 webscraper/chrome_profile/
 webscraper/chrome_profile*/
 webscraper/edge_profile*/
+# Browser profiles and credential-bearing state (NEVER commit)
+webscraper/edge_profile*
+webscraper/chrome_profile*
+webscraper/**/edge_profile*
+webscraper/**/chrome_profile*
+webscraper/**/User Data/
+webscraper/**/Default/
+webscraper/**/Secure Preferences
+webscraper/**/Cookies
+webscraper/**/Login Data
+webscraper/**/Web Data
+webscraper/**/Local State
+webscraper/**/Network/
+webscraper/**/Singleton*
 webscraper/**/DevToolsActivePort
 webscraper/**/*.pma
 webscraper/**/CrashpadMetrics-*
