@@ -31,7 +31,7 @@ dist/
 build/
 
 # =========================
-# Logs / local output
+# Logs / temp files
 # =========================
 *.log
 *.tmp
@@ -41,40 +41,53 @@ ultimate_scraper.log
 webscraper.log
 
 # =========================
-# Local secrets / data
-# =========================
-.secrets.baseline
-*.csv
-*.db
-cookies*.txt
-cookies*.json
-
-# =========================
 # OS / editor noise
 # =========================
 .DS_Store
 Thumbs.db
 .vscode/settings.json
 
+# =========================
+# Local secrets / configs (do not commit)
+# =========================
+.secrets.baseline
+config.py
+scraper_config.py
+freepbx-deploy-backend/.env
+freepbx-deploy-backend/.env.*
+freepbx-deploy-frontend/.env
 
-# generated scrape/test outputs (do not track)
-data/test-data/test_scrape_output/
+# =========================
+# Generated outputs / data (do not track)
+# =========================
+# Scraper outputs
+webscraper/output/
 webscraper/test-output/
+webscraper/ticket-discovery-output/
 scraped_tickets/
-*.html
-*.txt
-*.json
-*.csv
+
+# Other local data/output folders
+data/
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
+data/test-data/test_scrape_output/
+
+# Traceroute visualizer data allowlist (keep these tracked)
 !traceroute-visualizer-main/backend/ip_aliases.json
 !traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/ipOwnership.json
 
-# scraper outputs
-webscraper/output/
-webscraper/ticket-discovery-output/
-webscraper/chrome_profile/
-webscraper/chrome_profile*/
-webscraper/edge_profile*/
-# Browser profiles and credential-bearing state (NEVER commit)
+# =========================
+# Webscraper cookie/secret files (scoped)
+# =========================
+webscraper/cookies*.txt
+webscraper/cookies*.json
+webscraper/output/**/selenium_cookies.json
+webscraper/output/**/cookies*.json
+webscraper/output/**/cookies*.txt
+webscraper/output/live_cookies.json
+
+# =========================
+# Webscraper browser profiles (credential-bearing state)
+# =========================
 webscraper/edge_profile*
 webscraper/chrome_profile*
 webscraper/**/edge_profile*
@@ -92,25 +105,11 @@ webscraper/**/DevToolsActivePort
 webscraper/**/*.pma
 webscraper/**/CrashpadMetrics-*
 webscraper/**/first_party_sets.db-journal
-webscraper/output/**/selenium_cookies.json
-webscraper/output/live_cookies.json
-webscraper/output/**/cookies*.json
-webscraper/output/**/cookies*.txt
 
-
-# data dumps (optional — only if you don’t want them in git)
-data/
-!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
-webscraper/output/
-webscraper/ticket-discovery-output/
+# =========================
+# Sensitive/internal docs and tools
+# =========================
 freepbx-tools/bin/123net_internal_docs/
 tools/
 scripts/secure_push.ps1
 gitleaks-report.json
-
-# local configs (do not commit)
-config.py
-scraper_config.py
-freepbx-deploy-backend/.env
-freepbx-deploy-backend/.env.*
-freepbx-deploy-frontend/.env
