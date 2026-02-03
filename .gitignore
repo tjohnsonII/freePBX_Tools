@@ -117,10 +117,17 @@ webscraper/**/DevToolsActivePort
 webscraper/**/*.pma
 webscraper/**/CrashpadMetrics-*
 webscraper/**/first_party_sets.db-journal
+webscraper/output/**/selenium_cookies.json
+webscraper/output/live_cookies.json
+webscraper/output/**/cookies*.json
+webscraper/output/**/cookies*.txt
 
-# =========================
-# Sensitive/internal docs and tools
-# =========================
+
+# data dumps (optional — only if you don’t want them in git)
+data/
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
+webscraper/output/
+webscraper/ticket-discovery-output/
 freepbx-tools/bin/123net_internal_docs/
 tools/
 scripts/secure_push.ps1
