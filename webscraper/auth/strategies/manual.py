@@ -2,38 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from selenium.webdriver.edge.service import Service as EdgeService
 
 from ..healthcheck import is_authenticated
 from ..types import AuthContext
-
-
-def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
-    edge_options = EdgeOptions()
-    edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    edge_options.add_experimental_option("useAutomationExtension", False)
-    edge_options.add_argument("--disable-blink-features=AutomationControlled")
-    edge_options.add_argument("--ignore-certificate-errors")
-    edge_options.add_argument("--allow-insecure-localhost")
-
-    if ctx.edge_binary:
-        edge_options.binary_location = ctx.edge_binary
-    if profile_dir:
-        edge_options.add_argument(f"--user-data-dir={profile_dir}")
-    if ctx.headless:
-        edge_options.add_argument("--headless=new")
-        edge_options.add_argument("--disable-gpu")
-        edge_options.add_argument("--no-sandbox")
-
-    if ctx.edgedriver_path and os.path.exists(ctx.edgedriver_path):
-        service = EdgeService(ctx.edgedriver_path)
-    else:
-        service = EdgeService()
-    return webdriver.Edge(service=service, options=edge_options)
+from ..driver_factory import create_edge_driver_for_auth
 
 
 def _first_cookie_file(paths: Iterable[str]) -> Optional[str]:
@@ -98,21 +74,15 @@ def _sanitize_cookie(cookie: dict) -> dict:
     return {k: v for k, v in cookie.items() if k in allowed and v is not None}
 
 
-def _temp_profile_dir(ctx: AuthContext) -> str:
-    run_id = f"{os.getpid()}"
-    temp_dir = os.path.join(ctx.output_dir, f"auth_tmp_profile_{run_id}")
-    os.makedirs(temp_dir, exist_ok=True)
-    return temp_dir
-
-
 def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     cookie_path = _first_cookie_file(ctx.cookie_files)
     if not cookie_path:
         return False, None, "no_cookie_files_found"
 
-    profile_dir = _temp_profile_dir(ctx)
+    print(f"[AUTH] TRY MANUAL cookie={cookie_path}")
+    ctx_for_run = replace(ctx, profile_dirs=[], edge_temp_profile=True)
     try:
-        driver = _build_edge_driver(ctx, profile_dir)
+        driver, _, _, _ = create_edge_driver_for_auth(ctx_for_run)
     except Exception as exc:
         return False, None, f"driver_start_failed:{type(exc).__name__}"
 

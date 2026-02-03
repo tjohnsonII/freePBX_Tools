@@ -25,6 +25,14 @@ class AuthContext:
     headless: bool = True
     timeout_sec: int = 30
     output_dir: str = ""
+    attach: Optional[int] = None
+    auto_attach: bool = False
+    attach_host: str = "127.0.0.1"
+    attach_timeout: float = 2.0
+    fallback_profile_dir: str = "webscraper/edge_profile_tmp"
+    edge_temp_profile: bool = False
+    edge_kill_before: bool = False
+    show_browser: bool = False
     edge_binary: Optional[str] = None
     edgedriver_path: Optional[str] = None
 

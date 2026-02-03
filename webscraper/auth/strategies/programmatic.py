@@ -1,41 +1,17 @@
 from __future__ import annotations
 
-import os
+from dataclasses import replace
 from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from selenium.webdriver.edge.service import Service as EdgeService
 from selenium.webdriver.support.ui import WebDriverWait
 
 from webscraper import site_selectors
 
 from ..healthcheck import is_authenticated
 from ..types import AuthContext
-
-
-def _build_edge_driver(ctx: AuthContext, profile_dir: str) -> webdriver.Edge:
-    edge_options = EdgeOptions()
-    edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    edge_options.add_experimental_option("useAutomationExtension", False)
-    edge_options.add_argument("--disable-blink-features=AutomationControlled")
-    edge_options.add_argument("--ignore-certificate-errors")
-    edge_options.add_argument("--allow-insecure-localhost")
-
-    if ctx.edge_binary:
-        edge_options.binary_location = ctx.edge_binary
-    edge_options.add_argument(f"--user-data-dir={profile_dir}")
-    if ctx.headless:
-        edge_options.add_argument("--headless=new")
-        edge_options.add_argument("--disable-gpu")
-        edge_options.add_argument("--no-sandbox")
-
-    if ctx.edgedriver_path and os.path.exists(ctx.edgedriver_path):
-        service = EdgeService(ctx.edgedriver_path)
-    else:
-        service = EdgeService()
-    return webdriver.Edge(service=service, options=edge_options)
+from ..driver_factory import create_edge_driver_for_auth
 
 
 def _selectors_from_site() -> dict[str, list[str]]:
@@ -103,20 +79,14 @@ def _find_submit_button(driver):
     return None
 
 
-def _temp_profile_dir(ctx: AuthContext) -> str:
-    run_id = f"{os.getpid()}"
-    temp_dir = os.path.join(ctx.output_dir, f"auth_tmp_profile_{run_id}")
-    os.makedirs(temp_dir, exist_ok=True)
-    return temp_dir
-
-
 def try_programmatic(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     if not (ctx.username and ctx.password):
         return False, None, "missing_credentials"
 
-    profile_dir = _temp_profile_dir(ctx)
+    print("[AUTH] TRY PROGRAMMATIC")
+    ctx_for_run = replace(ctx, profile_dirs=[], edge_temp_profile=True)
     try:
-        driver = _build_edge_driver(ctx, profile_dir)
+        driver, _, _, _ = create_edge_driver_for_auth(ctx_for_run)
     except Exception as exc:
         return False, None, f"driver_start_failed:{type(exc).__name__}"
 
