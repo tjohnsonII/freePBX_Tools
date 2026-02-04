@@ -558,6 +558,222 @@ def load_cookies_json(driver: Any, path: str) -> bool:
         return False
 
 
+def _write_text(path: str, text: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _ensure_http_cookies(
+    cookie_path: str,
+    output_dir: str,
+    profile_dir_override: Optional[str],
+    profile_name: str,
+    resolved_profiles: List[str],
+    resolved_cookies: List[str],
+    auth_mode_value: Optional[str],
+    auth_profile_only: bool,
+    headless: bool,
+    attach: Optional[int],
+    auto_attach: bool,
+    attach_host: str,
+    attach_timeout: float,
+    fallback_profile_dir: str,
+    edge_temp_profile: bool,
+    edge_kill_before: bool,
+    show_browser: bool,
+    edge_binary_path_resolved: Optional[str],
+    edge_driver_env: Optional[str],
+    auth_username: Optional[str],
+    auth_password: Optional[str],
+    auth_check_url: Optional[str],
+    target_url: str,
+) -> bool:
+    if cookie_path and os.path.exists(cookie_path):
+        return True
+
+    auth_symbols = _resolve_auth_symbols()
+    if not auth_symbols:
+        print("[WARN] Auth module unavailable; cannot bootstrap cookies for HTTP mode.")
+        return False
+
+    AuthContext, AuthMode, authenticate = auth_symbols
+    (
+        auth_modes,
+        auth_profile_candidates,
+        auth_cookie_candidates,
+        _profile_only_enabled,
+    ) = build_auth_strategy_plan(
+        profile_dir_override=profile_dir_override,
+        profile_name=profile_name,
+        resolved_profiles=resolved_profiles,
+        resolved_cookies=resolved_cookies,
+        cookie_file_path=cookie_path,
+        auth_mode_value=auth_mode_value,
+        profile_only_flag=auth_profile_only,
+    )
+
+    auth_ctx = AuthContext(
+        base_url=target_url,
+        auth_check_url=auth_check_url or target_url,
+        preferred_browser="edge",
+        profile_dirs=auth_profile_candidates,
+        profile_name=profile_name,
+        cookie_files=auth_cookie_candidates,
+        username=auth_username,
+        password=auth_password,
+        headless=headless,
+        timeout_sec=30,
+        output_dir=output_dir,
+        attach=attach,
+        auto_attach=auto_attach,
+        attach_host=attach_host,
+        attach_timeout=attach_timeout,
+        fallback_profile_dir=fallback_profile_dir,
+        edge_temp_profile=edge_temp_profile,
+        edge_kill_before=edge_kill_before,
+        show_browser=show_browser,
+        edge_binary=edge_binary_path_resolved,
+        edgedriver_path=edge_driver_env,
+    )
+
+    auth_result = authenticate(auth_ctx, modes=auth_modes)
+    if not auth_result.ok or not auth_result.driver:
+        if auth_result.need_user_input:
+            print(auth_result.need_user_input.get("message", "Authentication failed."))
+        if auth_result.reason:
+            print(f"[AUTH] {auth_result.reason}")
+        return False
+
+    save_cookies_json(auth_result.driver, cookie_path)
+    try:
+        auth_result.driver.quit()
+    except Exception:
+        pass
+    return os.path.exists(cookie_path)
+
+
+def http_scrape_customers(
+    handles: List[str],
+    output_dir: str,
+    cookie_file: Optional[str],
+    target_url: str,
+    profile_dir_override: Optional[str],
+    profile_name: str,
+    resolved_profiles: List[str],
+    resolved_cookies: List[str],
+    auth_mode_value: Optional[str],
+    auth_profile_only: bool,
+    headless: bool,
+    attach: Optional[int],
+    auto_attach: bool,
+    attach_host: str,
+    attach_timeout: float,
+    fallback_profile_dir: str,
+    edge_temp_profile: bool,
+    edge_kill_before: bool,
+    show_browser: bool,
+    edge_binary_path_resolved: Optional[str],
+    edge_driver_env: Optional[str],
+    auth_username: Optional[str],
+    auth_password: Optional[str],
+    auth_check_url: Optional[str],
+    auth_user_agent: Optional[str],
+) -> None:
+    from webscraper import http_scraper
+
+    # HTTP scraping is preferred to avoid brittle GUI interactions; Selenium is used only for auth cookies.
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"{run_id}_{os.getpid()}"
+    run_dir = os.path.join(output_dir, run_id)
+    http_output_dir = os.path.join(run_dir, "http")
+    os.makedirs(http_output_dir, exist_ok=True)
+
+    cookie_path = cookie_file or os.path.join(run_dir, "selenium_cookies.json")
+    if not _ensure_http_cookies(
+        cookie_path=cookie_path,
+        output_dir=run_dir,
+        profile_dir_override=profile_dir_override,
+        profile_name=profile_name,
+        resolved_profiles=resolved_profiles,
+        resolved_cookies=resolved_cookies,
+        auth_mode_value=auth_mode_value,
+        auth_profile_only=auth_profile_only,
+        headless=headless,
+        attach=attach,
+        auto_attach=auto_attach,
+        attach_host=attach_host,
+        attach_timeout=attach_timeout,
+        fallback_profile_dir=fallback_profile_dir,
+        edge_temp_profile=edge_temp_profile,
+        edge_kill_before=edge_kill_before,
+        show_browser=show_browser,
+        edge_binary_path_resolved=edge_binary_path_resolved,
+        edge_driver_env=edge_driver_env,
+        auth_username=auth_username,
+        auth_password=auth_password,
+        auth_check_url=auth_check_url,
+        target_url=target_url,
+    ):
+        print("[ERROR] Unable to obtain authenticated cookies for HTTP mode.")
+        return
+
+    for handle in handles:
+        print(f"[HTTP] Fetching {handle}")
+        result = http_scraper.fetch_customer(
+            handle=handle,
+            cookies_path=cookie_path,
+            user_agent=auth_user_agent,
+            url=target_url,
+        )
+        if not result.auth_valid:
+            print("[HTTP] Auth appears invalid; re-authenticating via Selenium.")
+            if not _ensure_http_cookies(
+                cookie_path=cookie_path,
+                output_dir=run_dir,
+                profile_dir_override=profile_dir_override,
+                profile_name=profile_name,
+                resolved_profiles=resolved_profiles,
+                resolved_cookies=resolved_cookies,
+                auth_mode_value=auth_mode_value,
+                auth_profile_only=auth_profile_only,
+                headless=headless,
+                attach=attach,
+                auto_attach=auto_attach,
+                attach_host=attach_host,
+                attach_timeout=attach_timeout,
+                fallback_profile_dir=fallback_profile_dir,
+                edge_temp_profile=edge_temp_profile,
+                edge_kill_before=edge_kill_before,
+                show_browser=show_browser,
+                edge_binary_path_resolved=edge_binary_path_resolved,
+                edge_driver_env=edge_driver_env,
+                auth_username=auth_username,
+                auth_password=auth_password,
+                auth_check_url=auth_check_url,
+                target_url=target_url,
+            ):
+                print("[ERROR] Re-authentication failed; skipping HTTP scrape.")
+                return
+            result = http_scraper.fetch_customer(
+                handle=handle,
+                cookies_path=cookie_path,
+                user_agent=auth_user_agent,
+                url=target_url,
+            )
+
+        html_path = os.path.join(http_output_dir, f"customer_{handle}.html")
+        _write_text(html_path, result.html)
+
+        try:
+            parsed = http_scraper.parse_customer_html(result.html, handle=handle)
+            json_path = os.path.join(http_output_dir, f"customer_{handle}.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(parsed, f, indent=2)
+        except Exception as exc:
+            print(f"[WARN] HTTP parse failed for {handle}: {exc}")
+            print(f"[WARN] Saved raw HTML snapshot to {html_path}")
+
+
 def smoke_test_edge_driver() -> None:
     from selenium import webdriver
     from selenium.webdriver.edge.options import Options as EdgeOptions
@@ -2285,6 +2501,11 @@ if __name__ == "__main__":
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
     parser.add_argument(
+        "--http-only",
+        action="store_true",
+        help="Use HTTP requests for scraping (Selenium only used to obtain cookies; avoids GUI interactions).",
+    )
+    parser.add_argument(
         "--attach",
         type=int,
         help="Attach to an existing Edge remote-debugging port (requires launching Edge with --remote-debugging-port; "
@@ -2452,6 +2673,37 @@ if __name__ == "__main__":
     edge_profile_override = None
     if (args.auth_dump or args.auth_pause) and args.edge_temp_profile:
         edge_profile_override = edge_profile_dir(args)
+
+    profile_dir_override = os.path.abspath(args.profile_dir) if args.profile_dir else None
+    if args.http_only:
+        http_scrape_customers(
+            handles=handles,
+            output_dir=out_dir,
+            cookie_file=cookie_file,
+            target_url=args.target_url,
+            profile_dir_override=profile_dir_override,
+            profile_name=args.profile_name or "Default",
+            resolved_profiles=[os.path.abspath(p) for p in auth_profile_dirs],
+            resolved_cookies=[os.path.abspath(p) for p in auth_cookie_files if p],
+            auth_mode_value=auth_mode,
+            auth_profile_only=args.auth_profile_only,
+            headless=headless,
+            attach=args.attach,
+            auto_attach=args.auto_attach,
+            attach_host=args.attach_host,
+            attach_timeout=args.attach_timeout,
+            fallback_profile_dir=args.fallback_profile_dir,
+            edge_temp_profile=args.edge_temp_profile,
+            edge_kill_before=args.edge_kill_before,
+            show_browser=args.show,
+            edge_binary_path_resolved=edge_binary_path(),
+            edge_driver_env=os.environ.get("EDGEDRIVER_PATH"),
+            auth_username=auth_username,
+            auth_password=auth_password,
+            auth_check_url=auth_check_url,
+            auth_user_agent=auth_user_agent,
+        )
+        return
 
     selenium_scrape_tickets(
         url=url,
