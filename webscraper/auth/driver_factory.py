@@ -17,6 +17,7 @@ def create_edge_driver_for_auth(ctx: AuthContext) -> Tuple["webdriver.Edge", boo
     return create_edge_driver(
         output_dir=output_dir,
         headless=ctx.headless,
+        headless_requested=False,
         attach=ctx.attach,
         auto_attach=ctx.auto_attach,
         attach_host=ctx.attach_host,

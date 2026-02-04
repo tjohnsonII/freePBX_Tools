@@ -112,13 +112,18 @@ def classes_to_str(v: Any) -> str:
     return str(v).strip()
 
 
-def edge_debug_is_up(host: str, port: int, timeout: float) -> bool:
+def probe_edge_debugger(host: str, port: int, timeout: float) -> dict:
+    url = f"http://{host}:{port}/json/version"
+    result = {"ok": False, "url": url, "status": None, "error": None, "body": None}
     try:
-        url = f"http://{host}:{port}/json"
         with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
+            result["status"] = resp.status
+            payload = resp.read().decode("utf-8", errors="replace")
+            result["body"] = payload
+            result["ok"] = resp.status == 200
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
 
 
 def edge_debug_targets(host: str, port: int, timeout: float) -> List[dict]:
@@ -159,6 +164,7 @@ def switch_to_target_tab(driver: Any, target_url: str, url_contains: Optional[st
 def create_edge_driver(
     output_dir: str,
     headless: bool,
+    headless_requested: bool = False,
     attach: Optional[int],
     auto_attach: bool,
     attach_host: str,
@@ -344,7 +350,7 @@ def create_edge_driver(
         os.makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
-    def _build_edge_options(current_profile_dir: Optional[str]) -> tuple["EdgeOptions", List[str]]:
+    def _build_edge_options(current_profile_dir: Optional[str], allow_headless: bool) -> tuple["EdgeOptions", List[str]]:
         edge_options = EdgeOptions()
         edge_args: List[str] = []
         edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -373,7 +379,7 @@ def create_edge_driver(
             edge_args.append(f"--user-data-dir={current_profile_dir}")
             edge_options.add_argument(f"--profile-directory={resolved_profile_name}")
             edge_args.append(f"--profile-directory={resolved_profile_name}")
-        if headless:
+        if allow_headless and headless:
             edge_options.add_argument("--headless=new")
             edge_args.append("--headless=new")
             edge_options.add_argument("--disable-gpu")
@@ -382,37 +388,68 @@ def create_edge_driver(
             edge_args.append("--no-sandbox")
         return edge_options, edge_args
 
+    attach_requested = bool(attach or auto_attach)
     plan = []
     if attach:
         plan.append(("ATTACH_EXPLICIT", attach))
     if auto_attach and not attach:
         plan.append(("ATTACH_AUTO", 9222))
-    plan.append(("LAUNCH_FALLBACK", None))
+    if not attach_requested:
+        plan.append(("LAUNCH_FALLBACK", None))
 
     edgedriver_path = _validate_path("EdgeDriver", edge_driver_env or EDGEDRIVER)
     last_error: Optional[Exception] = None
 
     for mode, port in plan:
-        edge_options, edge_args = _build_edge_options(None)
+        allow_headless = False if (attach_requested and not headless_requested) else True
+        edge_options, edge_args = _build_edge_options(None, allow_headless=allow_headless)
 
         if mode in ("ATTACH_EXPLICIT", "ATTACH_AUTO"):
             attach_port = cast(int, port)
-            if not edge_debug_is_up(attach_host, attach_port, attach_timeout):
-                last_error = RuntimeError(f"Edge debug endpoint not reachable at {attach_host}:{attach_port}")
-                print(f"[WARN] {mode} failed: {last_error}")
-                continue
-            edge_options.add_experimental_option("debuggerAddress", f"{attach_host}:{attach_port}")
+            debugger_address = f"{attach_host}:{attach_port}"
+            probe_result = probe_edge_debugger(attach_host, attach_port, attach_timeout)
+            if not probe_result["ok"]:
+                last_error = RuntimeError(f"Edge debug endpoint not reachable at {debugger_address}")
+                print(f"[ATTACH] failed: {last_error}; probe={probe_result}")
+                curl_cmd = f'curl "{probe_result["url"]}"'
+                edge_bin = edge_binary_path_resolved or "msedge.exe"
+                profile_hint = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "edge_remote_profile")
+                print("[ATTACH] Troubleshooting:")
+                print(f"  curl test: {curl_cmd}")
+                print(
+                    "  PowerShell launch: "
+                    f'& "{edge_bin}" --remote-debugging-port={attach_port} --user-data-dir="{profile_hint}"'
+                )
+                raise SystemExit(2)
+            edge_options.add_experimental_option("debuggerAddress", debugger_address)
             print(f"[INFO] Edge args: {edge_args}")
             try:
                 service = EdgeService(log_output=os.path.join(output_dir, "msedgedriver.log"))
                 new_driver = webdriver.Edge(service=service, options=edge_options)
-                _confirm_edge_processes(edge_args, resolved_edge_profile_dir)
             except Exception as exc:
                 last_error = exc
-                print(f"[WARN] {mode} failed: {exc}")
-                continue
+                print(f"[ATTACH] failed: {exc}; probe={probe_result}")
+                curl_cmd = f'curl "{probe_result["url"]}"'
+                edge_bin = edge_binary_path_resolved or "msedge.exe"
+                profile_hint = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "edge_remote_profile")
+                print("[ATTACH] Troubleshooting:")
+                print(f"  curl test: {curl_cmd}")
+                print(
+                    "  PowerShell launch: "
+                    f'& "{edge_bin}" --remote-debugging-port={attach_port} --user-data-dir="{profile_hint}"'
+                )
+                raise SystemExit(2)
             print(f"[INFO] Driver init mode: {mode}")
             print(f"[INFO] Edge attached. Session id: {new_driver.session_id}")
+            try:
+                title = new_driver.title
+            except Exception:
+                title = "<unavailable>"
+            try:
+                current_url = new_driver.current_url
+            except Exception:
+                current_url = "<unavailable>"
+            print(f"[ATTACH] success {debugger_address} title='{title}' url='{current_url}'")
             found = switch_to_target_tab(
                 new_driver,
                 auth_url or "",
@@ -436,7 +473,7 @@ def create_edge_driver(
                 os.makedirs(fallback_dir, exist_ok=True)
             except Exception as e:
                 print(f"[WARN] Could not create fallback Edge profile directory '{fallback_dir}': {e}")
-            edge_options, edge_args = _build_edge_options(fallback_dir)
+            edge_options, edge_args = _build_edge_options(fallback_dir, allow_headless=True)
             print(f"[INFO] Edge args: {edge_args}")
             attempted_lock_cleanup = False
             while True:
@@ -468,7 +505,7 @@ def create_edge_driver(
                     if not temp_profile_used:
                         temp_profile_used = True
                         temp_dir = _make_temp_profile_dir()
-                        edge_options, edge_args = _build_edge_options(temp_dir)
+                        edge_options, edge_args = _build_edge_options(temp_dir, allow_headless=True)
                         print(f"[INFO] Edge args: {edge_args}")
                         print(
                             "[WARN] Edge failed to start with current profile. Retrying once with a fresh temp profile: "
@@ -605,6 +642,7 @@ def selenium_scrape_tickets(
     output_dir: str,
     handles: List[str],
     headless: bool = True,
+    headless_requested: bool = False,
     vacuum: bool = False,
     aggressive: bool = False,
     cookie_file: Optional[str] = None,
@@ -692,7 +730,8 @@ def selenium_scrape_tickets(
     effective_auth_url = auth_url or effective_target_url
     resolved_profile_name = profile_name or "Default"
     auth_mode = "AUTO" if (auth_dump or auth_pause) else None
-    enable_auth_orchestration = auth_orchestration and not auth_mode
+    attach_requested = bool(attach or auto_attach)
+    enable_auth_orchestration = auth_orchestration and not auth_mode and not attach_requested
     allow_manual_prompts = not enable_auth_orchestration
     if auth_mode or show_browser:
         headless = False
@@ -725,6 +764,7 @@ def selenium_scrape_tickets(
         driver, created_browser, attach_mode, resolved_edge_profile_dir = create_edge_driver(
             output_dir=output_dir,
             headless=headless,
+            headless_requested=headless_requested,
             attach=attach,
             auto_attach=auto_attach,
             attach_host=attach_host,
@@ -1060,6 +1100,7 @@ def selenium_scrape_tickets(
         driver, created_browser, attach_mode, _ = create_edge_driver(
             output_dir=output_dir,
             headless=headless,
+            headless_requested=headless_requested,
             attach=attach,
             auto_attach=auto_attach,
             attach_host=attach_host,
@@ -2206,8 +2247,18 @@ if __name__ == "__main__":
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
-    parser.add_argument("--attach", type=int, help="Attach to existing Edge debugger port (e.g. 9222)")
-    parser.add_argument("--auto-attach", action="store_true", help="If attach not provided, try to attach to 127.0.0.1:9222")
+    parser.add_argument(
+        "--attach",
+        type=int,
+        help="Attach to an existing Edge remote-debugging port (requires launching Edge with --remote-debugging-port; "
+        "scraper will not auto-launch a browser in attach mode)",
+    )
+    parser.add_argument(
+        "--auto-attach",
+        action="store_true",
+        help="If --attach not provided, try to attach to 127.0.0.1:9222 (requires Edge launched with "
+        "--remote-debugging-port; scraper will not auto-launch a browser in attach mode)",
+    )
     parser.add_argument("--attach-host", default="127.0.0.1", help="Edge debugger host (default 127.0.0.1)")
     parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Edge debugger probe (seconds)")
     parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile_tmp", help="Profile dir for fallback Edge launch")
@@ -2285,6 +2336,7 @@ if __name__ == "__main__":
     if handles is None:
         handles = [h.strip() for h in handles_env.split(",")] if handles_env else args.handles
     headless_env = os.environ.get("SCRAPER_HEADLESS")
+    headless_requested = headless_env == "1"
     headless = default_headless if headless_env is None else (headless_env == "1")
     if args.show:
         headless = False
@@ -2369,6 +2421,7 @@ if __name__ == "__main__":
         output_dir=out_dir,
         handles=handles,
         headless=headless,
+        headless_requested=headless_requested,
         vacuum=args.vacuum,
         aggressive=args.aggressive,
         cookie_file=cookie_file,
