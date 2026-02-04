@@ -533,6 +533,73 @@ def smoke_test_edge_driver() -> None:
         driver.quit()
 
 
+def build_auth_strategy_plan(
+    profile_dir_override: Optional[str],
+    profile_name: str,
+    resolved_profiles: List[str],
+    resolved_cookies: List[str],
+    cookie_file_path: Optional[str],
+    auth_mode_value: Optional[str],
+    profile_only_flag: bool,
+) -> tuple[Optional[List["AuthMode"]], List[str], List[str], bool]:
+    from webscraper.auth import AuthMode
+
+    auth_modes_local: Optional[List[AuthMode]] = None
+    if auth_mode_value:
+        normalized = auth_mode_value.strip().upper()
+        if normalized and normalized != "AUTO":
+            try:
+                auth_modes_local = [AuthMode[normalized]]
+            except KeyError:
+                print(f"[WARN] Unknown SCRAPER_AUTH_MODE '{auth_mode_value}'. Falling back to AUTO.")
+
+    profile_only_enabled = bool(profile_only_flag or profile_dir_override)
+    if profile_only_enabled:
+        print("[AUTH] profile_only enabled; skipping other strategies")
+        if profile_dir_override:
+            profile_candidates = [profile_dir_override]
+        else:
+            if resolved_profiles:
+                print("[AUTH] profile_only enabled without --profile-dir; using first configured profile dir only")
+                profile_candidates = [resolved_profiles[0]]
+            else:
+                profile_candidates = []
+        profile_name_display = profile_name or "Default"
+        profile_dir_display = profile_candidates[0] if profile_candidates else "<missing>"
+        print(f"[AUTH] using profile dir={profile_dir_display} name={profile_name_display}")
+        return [AuthMode.PROFILE], profile_candidates, [], True
+
+    profile_candidates = []
+    if profile_dir_override:
+        profile_candidates.append(profile_dir_override)
+    for candidate in resolved_profiles:
+        if candidate and candidate not in profile_candidates:
+            profile_candidates.append(candidate)
+    cookie_candidates = [p for p in resolved_cookies if p]
+    if cookie_file_path:
+        cookie_candidates.insert(0, os.path.abspath(cookie_file_path))
+    return auth_modes_local, profile_candidates, cookie_candidates, False
+
+
+def self_test_auth_strategy_profile_only() -> None:
+    profile_path = os.path.abspath(os.path.join("webscraper", "edge_profile_tmp"))
+    auth_modes_local, profiles_local, cookies_local, profile_only_enabled = build_auth_strategy_plan(
+        profile_dir_override=profile_path,
+        profile_name="Default",
+        resolved_profiles=["/tmp/other"],
+        resolved_cookies=["/tmp/cookies.json"],
+        cookie_file_path="/tmp/override.json",
+        auth_mode_value=None,
+        profile_only_flag=False,
+    )
+    from webscraper.auth import AuthMode
+
+    assert profile_only_enabled is True, "profile_only should be enabled when profile_dir is provided"
+    assert auth_modes_local == [AuthMode.PROFILE], "auth modes should be PROFILE only"
+    assert profiles_local == [profile_path], "profile candidates should be exactly the provided profile dir"
+    assert cookies_local == [], "cookie strategies should be skipped when profile_only is enabled"
+
+
 def selenium_scrape_tickets(
     url: str,
     output_dir: str,
@@ -567,6 +634,7 @@ def selenium_scrape_tickets(
     auth_check_url: Optional[str] = None,
     auth_user_agent: Optional[str] = None,
     auth_mode: Optional[str] = None,
+    auth_profile_only: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -1016,24 +1084,20 @@ def selenium_scrape_tickets(
         if enable_auth_orchestration:
             from webscraper.auth import AuthContext, AuthMode, authenticate
 
-            auth_modes: Optional[List[AuthMode]] = None
-            if auth_mode:
-                normalized = auth_mode.strip().upper()
-                if normalized and normalized != "AUTO":
-                    try:
-                        auth_modes = [AuthMode[normalized]]
-                    except KeyError:
-                        print(f"[WARN] Unknown SCRAPER_AUTH_MODE '{auth_mode}'. Falling back to AUTO.")
-
-            auth_profile_candidates: List[str] = []
-            if profile_dir_override:
-                auth_profile_candidates.append(profile_dir_override)
-            for candidate in resolved_auth_profiles:
-                if candidate and candidate not in auth_profile_candidates:
-                    auth_profile_candidates.append(candidate)
-            auth_cookie_candidates = [p for p in resolved_auth_cookies if p]
-            if cookie_file:
-                auth_cookie_candidates.insert(0, os.path.abspath(cookie_file))
+            (
+                auth_modes,
+                auth_profile_candidates,
+                auth_cookie_candidates,
+                _profile_only_enabled,
+            ) = build_auth_strategy_plan(
+                profile_dir_override=profile_dir_override,
+                profile_name=resolved_profile_name,
+                resolved_profiles=resolved_auth_profiles,
+                resolved_cookies=resolved_auth_cookies,
+                cookie_file_path=cookie_file,
+                auth_mode_value=auth_mode,
+                profile_only_flag=auth_profile_only,
+            )
             auth_ctx = AuthContext(
                 base_url=effective_target_url,
                 auth_check_url=auth_check_url or effective_auth_url,
@@ -2160,6 +2224,16 @@ if __name__ == "__main__":
     )
     parser.add_argument("--profile-dir", help="Override profile directory for Edge/Chrome (no venv activation required)")
     parser.add_argument("--profile-name", help="Chromium profile name (e.g., Default, Profile 1)")
+    parser.add_argument(
+        "--auth-profile-only",
+        action="store_true",
+        help="Only attempt auth using the provided --profile-dir/profile-name (skip other strategies)",
+    )
+    parser.add_argument(
+        "--self-test-auth-strategy",
+        action="store_true",
+        help="Run auth strategy self-test and exit",
+    )
     parser.add_argument("--no-quit", action="store_true", help="Do not quit the driver after auth diagnostics")
     parser.add_argument("--edge-only", action="store_true", help="Force Edge path for this run")
     parser.add_argument(
@@ -2186,6 +2260,10 @@ if __name__ == "__main__":
 
     if args.edge_smoke_test:
         smoke_test_edge_driver()
+        sys.exit(0)
+    if args.self_test_auth_strategy:
+        self_test_auth_strategy_profile_only()
+        print("[INFO] Auth strategy self-test passed.")
         sys.exit(0)
 
     # Env overrides last
@@ -2320,4 +2398,5 @@ if __name__ == "__main__":
         auth_check_url=auth_check_url,
         auth_user_agent=auth_user_agent,
         auth_mode=auth_mode,
+        auth_profile_only=args.auth_profile_only,
     )
