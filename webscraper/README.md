@@ -30,6 +30,14 @@ Run with a visible browser so you can log in if needed:
 python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output
 ```
 
+## Attach to an existing Edge session (remote debugging)
+Attach mode requires you to launch Edge with a remote debugging port first; the scraper will not auto-launch browsers in this mode.
+
+```powershell
+& "msedge.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\edge_remote_profile"
+python -m webscraper.ultimate_scraper --attach 9222 --attach-host 127.0.0.1 --handles KPM --out webscraper/output
+```
+
 ## Auth orchestration (PowerShell examples)
 The scraper now tries profile auth first, then programmatic login, then cookie injection.
 
