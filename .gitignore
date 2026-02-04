@@ -132,3 +132,40 @@ freepbx-tools/bin/123net_internal_docs/
 tools/
 scripts/secure_push.ps1
 gitleaks-report.json
+
+# local secrets / cookies
+cookies*.txt
+cookies*.json
+*cookies*
+*_cookies*
+*token*
+*jwt*
+*.db
+*.sqlite
+*.sqlite3
+
+# local dumps / exports / scratch
+*.csv
+*.json
+ENV_VARS.txt
+*VERSION*.txt
+*_TREE*.txt
+*_IPS*.txt
+sensitive_paths.txt
+server_ips.txt
+
+# VSCode local
+.vscode/
+
+# local reports / exports
+PIP_PACKAGES*.txt
+ProductionServers.txt
+TREE_*.txt
+customer_handles.txt
+env_git.txt
+site_company_mapping.txt
+traceroute-visualizer-main/traceroute_webapp_improvements.txt
+freepbx-tools/test_info.txt
+
+# traceroute backend scratch
+traceroute-visualizer-main/backend/All_Assignments.txt
