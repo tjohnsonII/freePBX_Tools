@@ -20,6 +20,7 @@ from typing import Any, List, Optional, TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from selenium import webdriver
+    from webscraper.auth import AuthMode
 
 try:
     from bs4 import BeautifulSoup
@@ -164,7 +165,6 @@ def switch_to_target_tab(driver: Any, target_url: str, url_contains: Optional[st
 def create_edge_driver(
     output_dir: str,
     headless: bool,
-    headless_requested: bool = False,
     attach: Optional[int],
     auto_attach: bool,
     attach_host: str,
@@ -179,6 +179,7 @@ def create_edge_driver(
     edge_temp_profile: bool,
     edge_kill_before: bool,
     show_browser: bool,
+    headless_requested: bool = False,
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -570,6 +571,30 @@ def smoke_test_edge_driver() -> None:
         driver.quit()
 
 
+def _resolve_auth_mode_type() -> Optional[Any]:
+    try:
+        from webscraper.auth import AuthMode
+        return AuthMode
+    except ModuleNotFoundError:
+        try:
+            from auth import AuthMode
+            return AuthMode
+        except ModuleNotFoundError:
+            return None
+
+
+def _resolve_auth_symbols() -> Optional[tuple[Any, Any, Any]]:
+    try:
+        from webscraper.auth import AuthContext, AuthMode, authenticate
+        return AuthContext, AuthMode, authenticate
+    except ModuleNotFoundError:
+        try:
+            from auth import AuthContext, AuthMode, authenticate
+            return AuthContext, AuthMode, authenticate
+        except ModuleNotFoundError:
+            return None
+
+
 def build_auth_strategy_plan(
     profile_dir_override: Optional[str],
     profile_name: str,
@@ -579,16 +604,18 @@ def build_auth_strategy_plan(
     auth_mode_value: Optional[str],
     profile_only_flag: bool,
 ) -> tuple[Optional[List["AuthMode"]], List[str], List[str], bool]:
-    from webscraper.auth import AuthMode
+    auth_mode_type = _resolve_auth_mode_type()
 
-    auth_modes_local: Optional[List[AuthMode]] = None
-    if auth_mode_value:
+    auth_modes_local: Optional[List["AuthMode"]] = None
+    if auth_mode_value and auth_mode_type:
         normalized = auth_mode_value.strip().upper()
         if normalized and normalized != "AUTO":
             try:
-                auth_modes_local = [AuthMode[normalized]]
+                auth_modes_local = [auth_mode_type[normalized]]
             except KeyError:
                 print(f"[WARN] Unknown SCRAPER_AUTH_MODE '{auth_mode_value}'. Falling back to AUTO.")
+    elif auth_mode_value and not auth_mode_type:
+        print("[WARN] AuthMode unavailable; ignoring SCRAPER_AUTH_MODE override.")
 
     profile_only_enabled = bool(profile_only_flag or profile_dir_override)
     if profile_only_enabled:
@@ -604,7 +631,10 @@ def build_auth_strategy_plan(
         profile_name_display = profile_name or "Default"
         profile_dir_display = profile_candidates[0] if profile_candidates else "<missing>"
         print(f"[AUTH] using profile dir={profile_dir_display} name={profile_name_display}")
-        return [AuthMode.PROFILE], profile_candidates, [], True
+        if auth_mode_type:
+            return [auth_mode_type.PROFILE], profile_candidates, [], True
+        print("[WARN] AuthMode unavailable; profile_only requested but auth orchestration disabled.")
+        return None, profile_candidates, [], True
 
     profile_candidates = []
     if profile_dir_override:
@@ -629,10 +659,13 @@ def self_test_auth_strategy_profile_only() -> None:
         auth_mode_value=None,
         profile_only_flag=False,
     )
-    from webscraper.auth import AuthMode
+    auth_mode_type = _resolve_auth_mode_type()
+    if not auth_mode_type:
+        print("[WARN] AuthMode unavailable; skipping auth strategy self-test.")
+        return
 
     assert profile_only_enabled is True, "profile_only should be enabled when profile_dir is provided"
-    assert auth_modes_local == [AuthMode.PROFILE], "auth modes should be PROFILE only"
+    assert auth_modes_local == [auth_mode_type.PROFILE], "auth modes should be PROFILE only"
     assert profiles_local == [profile_path], "profile candidates should be exactly the provided profile dir"
     assert cookies_local == [], "cookie strategies should be skipped when profile_only is enabled"
 
@@ -1123,56 +1156,60 @@ def selenium_scrape_tickets(
             run_auth_diagnostics()
             return
         if enable_auth_orchestration:
-            from webscraper.auth import AuthContext, AuthMode, authenticate
+            auth_symbols = _resolve_auth_symbols()
+            if not auth_symbols:
+                print("[WARN] Auth module unavailable; skipping auth orchestration.")
+            else:
+                AuthContext, AuthMode, authenticate = auth_symbols
 
-            (
-                auth_modes,
-                auth_profile_candidates,
-                auth_cookie_candidates,
-                _profile_only_enabled,
-            ) = build_auth_strategy_plan(
-                profile_dir_override=profile_dir_override,
-                profile_name=resolved_profile_name,
-                resolved_profiles=resolved_auth_profiles,
-                resolved_cookies=resolved_auth_cookies,
-                cookie_file_path=cookie_file,
-                auth_mode_value=auth_mode,
-                profile_only_flag=auth_profile_only,
-            )
-            auth_ctx = AuthContext(
-                base_url=effective_target_url,
-                auth_check_url=auth_check_url or effective_auth_url,
-                preferred_browser="edge",
-                profile_dirs=auth_profile_candidates,
-                profile_name=resolved_profile_name,
-                cookie_files=auth_cookie_candidates,
-                username=auth_username,
-                password=auth_password,
-                headless=headless,
-                timeout_sec=30,
-                output_dir=output_dir,
-                attach=attach,
-                auto_attach=auto_attach,
-                attach_host=attach_host,
-                attach_timeout=attach_timeout,
-                fallback_profile_dir=fallback_profile_dir,
-                edge_temp_profile=edge_temp_profile,
-                edge_kill_before=edge_kill_before,
-                show_browser=show_browser,
-                edge_binary=edge_binary_path_resolved,
-                edgedriver_path=edge_driver_env,
-            )
-            auth_result = authenticate(auth_ctx, modes=auth_modes)
-            if not auth_result.ok or not auth_result.driver:
-                if auth_result.need_user_input:
-                    print(auth_result.need_user_input.get("message", "Authentication failed."))
-                if auth_result.reason:
-                    print(f"[AUTH] {auth_result.reason}")
-                return
-            driver = cast("webdriver.Edge", auth_result.driver)
-            created_browser = True
-            attach_mode = False
-            _post_auth_setup()
+                (
+                    auth_modes,
+                    auth_profile_candidates,
+                    auth_cookie_candidates,
+                    _profile_only_enabled,
+                ) = build_auth_strategy_plan(
+                    profile_dir_override=profile_dir_override,
+                    profile_name=resolved_profile_name,
+                    resolved_profiles=resolved_auth_profiles,
+                    resolved_cookies=resolved_auth_cookies,
+                    cookie_file_path=cookie_file,
+                    auth_mode_value=auth_mode,
+                    profile_only_flag=auth_profile_only,
+                )
+                auth_ctx = AuthContext(
+                    base_url=effective_target_url,
+                    auth_check_url=auth_check_url or effective_auth_url,
+                    preferred_browser="edge",
+                    profile_dirs=auth_profile_candidates,
+                    profile_name=resolved_profile_name,
+                    cookie_files=auth_cookie_candidates,
+                    username=auth_username,
+                    password=auth_password,
+                    headless=headless,
+                    timeout_sec=30,
+                    output_dir=output_dir,
+                    attach=attach,
+                    auto_attach=auto_attach,
+                    attach_host=attach_host,
+                    attach_timeout=attach_timeout,
+                    fallback_profile_dir=fallback_profile_dir,
+                    edge_temp_profile=edge_temp_profile,
+                    edge_kill_before=edge_kill_before,
+                    show_browser=show_browser,
+                    edge_binary=edge_binary_path_resolved,
+                    edgedriver_path=edge_driver_env,
+                )
+                auth_result = authenticate(auth_ctx, modes=auth_modes)
+                if not auth_result.ok or not auth_result.driver:
+                    if auth_result.need_user_input:
+                        print(auth_result.need_user_input.get("message", "Authentication failed."))
+                    if auth_result.reason:
+                        print(f"[AUTH] {auth_result.reason}")
+                    return
+                driver = cast("webdriver.Edge", auth_result.driver)
+                created_browser = True
+                attach_mode = False
+                _post_auth_setup()
         else:
             initialize_driver()
 
