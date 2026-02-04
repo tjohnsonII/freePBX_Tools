@@ -2452,7 +2452,7 @@ def selenium_scrape_tickets(
                 pass
 
 
-if __name__ == "__main__":
+def main() -> int:
     # Prefer config defaults, allow CLI overrides, and finally env overrides
     try:
         # When executed as a module (python -m webscraper.ultimate_scraper)
@@ -2569,11 +2569,11 @@ if __name__ == "__main__":
 
     if args.edge_smoke_test:
         smoke_test_edge_driver()
-        sys.exit(0)
+        return 0
     if args.self_test_auth_strategy:
         self_test_auth_strategy_profile_only()
         print("[INFO] Auth strategy self-test passed.")
-        sys.exit(0)
+        return 0
 
     # Env overrides last
     url = os.environ.get("SCRAPER_URL") or args.url
@@ -2703,7 +2703,7 @@ if __name__ == "__main__":
             auth_check_url=auth_check_url,
             auth_user_agent=auth_user_agent,
         )
-        return
+        return 0
 
     selenium_scrape_tickets(
         url=url,
@@ -2742,3 +2742,7 @@ if __name__ == "__main__":
         auth_mode=auth_mode,
         auth_profile_only=args.auth_profile_only,
     )
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
