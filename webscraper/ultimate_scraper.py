@@ -1649,7 +1649,9 @@ def main() -> int:
     except Exception:
         # When executed as a plain script (python webscraper/ultimate_scraper.py),
         # ensure the project root is on sys.path, then try absolute import.
-        import importlib, importlib.util, sys, os
+        import importlib
+        import importlib.util
+        import sys
         try:
             cfg = importlib.import_module("webscraper.ultimate_scraper_config")
         except Exception:
