@@ -1,10 +1,12 @@
+// NOTE: VSCode tasks.json does not provide a native compound task that terminates
+// all running terminals/tasks; use the explicit Stop Everything/Stop All tasks below.
 {
   "version": "2.0.0",
   "tasks": [
     {
       "label": "Start Everything + CLI",
       "dependsOn": [
-        "traceroute-visualizer:open",
+        "traceroute-visualizer:dev",
         "polycom-yealink-mikrotik:dev",
         "freepbx-deploy-backend:dev",
         "freepbx-deploy-ui:dev",
@@ -12,7 +14,13 @@
       ],
       "dependsOrder": "parallel",
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "traceroute-visualizer:dev",
@@ -40,6 +48,12 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
       }
     },
     {
@@ -56,7 +70,13 @@
         "start \"\" \"http://localhost:3000\""
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "polycom-yealink-mikrotik:dev",
@@ -84,6 +104,12 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
       }
     },
     {
@@ -112,6 +138,12 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/freepbx-deploy-backend"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
       }
     },
     {
@@ -140,6 +172,12 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/freepbx-deploy-ui"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
       }
     },
     {
@@ -166,7 +204,25 @@
         }
       ],
       "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
+      "label": "Stop All",
+      "dependsOn": ["Stop Everything"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "Stop Everything",
@@ -178,7 +234,13 @@
         "for %%P in (3000 5173 5174 8002) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:test all (cmd)",
@@ -190,7 +252,13 @@
         "call scripts\\test_webscraper_cmd.bat"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:test all (cmd) (live cookies)",
@@ -202,7 +270,13 @@
         "set WEBSCRAPER_LIVE_COOKIES=1 && call scripts\\test_webscraper_cmd.bat"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:venv+deps",
@@ -214,7 +288,13 @@
         "if not exist .venv-webscraper (py -3.12 -m venv .venv-webscraper) && .venv-webscraper\\Scripts\\python.exe -m pip install -U pip && .venv-webscraper\\Scripts\\pip.exe install -r webscraper\\requirements.txt"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:smoke",
@@ -222,7 +302,13 @@
       "command": "${workspaceFolder}\\.venv-webscraper\\Scripts\\python.exe",
       "args": ["-m", "webscraper._smoke_test"],
       "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:ultimate --help",
@@ -234,7 +320,13 @@
         ".venv-webscraper\\Scripts\\python.exe webscraper\\ultimate_scraper.py --help"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:legacy --help",
@@ -246,7 +338,13 @@
         ".venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\ticket_scraper.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\scrape_vpbx_tables.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\extract_browser_cookies.py --help"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:chrome debug setup",
@@ -258,7 +356,13 @@
         "call webscraper\\chrome_debug_setup.bat"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     },
     {
       "label": "webscraper:cookies live",
@@ -274,7 +378,13 @@
         ".venv-webscraper\\Scripts\\python.exe webscraper\\chrome_cookies_live.py"
       ],
       "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" }
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
     }
   ]
 }
