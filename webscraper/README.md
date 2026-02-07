@@ -13,14 +13,15 @@ pip install selenium beautifulsoup4 lxml
 ```
 
 ## Quick Start (cmd-only, domain-locked Windows)
-From repo root (no PowerShell), use direct venv executables:
+From repo root (no PowerShell), use the venv activation script and module entrypoints:
 
 ```cmd
 py -3 -m venv .venv-webscraper
 .venv-webscraper\Scripts\python.exe -m pip install -U pip
 .venv-webscraper\Scripts\pip.exe install -r webscraper\requirements.txt
-.venv-webscraper\Scripts\python.exe webscraper\_smoke_test.py
-.venv-webscraper\Scripts\python.exe webscraper\ultimate_scraper.py --help
+call .venv-webscraper\Scripts\activate.bat
+python -m webscraper.smoke_test
+python -m webscraper.ultimate_scraper --help
 ```
 
 ## Run (interactive)
@@ -134,7 +135,7 @@ Run these from the repo root to avoid import errors:
 
 ```cmd
 python -m webscraper.run_discovery --help
-python -m webscraper._smoke_test
+python -m webscraper.smoke_test
 python -m webscraper.ultimate_scraper --help
 ```
 

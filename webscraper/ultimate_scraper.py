@@ -12,6 +12,7 @@ paths, and cookie handling) will be reintroduced in small, tested stages.
 """
 
 import os
+import sys
 import io
 import contextlib
 import glob
@@ -22,19 +23,25 @@ import time
 import urllib.request
 import urllib.parse
 import hashlib
+import importlib
+import importlib.util
 from datetime import datetime, timezone
 from typing import Any, List, Optional, TYPE_CHECKING, cast
+
+if __package__ in (None, ""):
+    package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    if package_root not in sys.path:
+        sys.path.insert(0, package_root)
 
 if TYPE_CHECKING:
     from selenium import webdriver
     from webscraper.auth import AuthMode
 
-try:
-    from bs4 import BeautifulSoup
-except Exception as exc:
+if importlib.util.find_spec("bs4") is None:
     BeautifulSoup = None
-    _BS4_IMPORT_ERROR = exc
+    _BS4_IMPORT_ERROR = ImportError("BeautifulSoup (bs4) is not installed.")
 else:
+    from bs4 import BeautifulSoup
     _BS4_IMPORT_ERROR = None
 
 PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile_tmp"))
@@ -118,6 +125,26 @@ def require_beautifulsoup():
             "BeautifulSoup (bs4) is required for HTML parsing. Install with `pip install beautifulsoup4`."
         ) from _BS4_IMPORT_ERROR
     return BeautifulSoup
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _write_run_metadata(output_dir: str, mode: str, run_id: Optional[str] = None) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    payload = {
+        "extracted_at": _iso_utc_now(),
+        "mode": mode,
+        "run_id": run_id,
+    }
+    metadata_path = os.path.join(output_dir, "run_metadata.json")
+    try:
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"[INFO] Wrote run metadata to {metadata_path}")
+    except Exception as exc:
+        print(f"[WARN] Could not write run metadata: {exc}")
 
 
 def classes_to_str(v: Any) -> str:
@@ -1121,6 +1148,7 @@ def http_scrape_customers(
     run_dir = os.path.join(output_dir, run_id)
     http_output_dir = os.path.join(run_dir, "http")
     os.makedirs(http_output_dir, exist_ok=True)
+    _write_run_metadata(run_dir, mode="http", run_id=run_id)
 
     cookie_path = cookie_file or os.path.join(run_dir, "selenium_cookies.json")
     if not _ensure_http_cookies(
@@ -1222,27 +1250,17 @@ def smoke_test_edge_driver() -> None:
 
 
 def _resolve_auth_mode_type() -> Optional[Any]:
-    try:
-        from webscraper.auth import AuthMode
-        return AuthMode
-    except ModuleNotFoundError:
-        try:
-            from auth import AuthMode
-            return AuthMode
-        except ModuleNotFoundError:
-            return None
+    if importlib.util.find_spec("webscraper.auth") is None:
+        return None
+    from webscraper.auth import AuthMode
+    return AuthMode
 
 
 def _resolve_auth_symbols() -> Optional[tuple[Any, Any, Any]]:
-    try:
-        from webscraper.auth import AuthContext, AuthMode, authenticate
-        return AuthContext, AuthMode, authenticate
-    except ModuleNotFoundError:
-        try:
-            from auth import AuthContext, AuthMode, authenticate
-            return AuthContext, AuthMode, authenticate
-        except ModuleNotFoundError:
-            return None
+    if importlib.util.find_spec("webscraper.auth") is None:
+        return None
+    from webscraper.auth import AuthContext, AuthMode, authenticate
+    return AuthContext, AuthMode, authenticate
 
 
 def build_auth_strategy_plan(
@@ -1581,6 +1599,7 @@ def selenium_scrape_tickets(
     )
 
     os.makedirs(output_dir, exist_ok=True)
+    _write_run_metadata(output_dir, mode="selenium")
     # Prune legacy noisy files to keep output readable
     try:
         legacy_patterns = [
@@ -2376,36 +2395,23 @@ def selenium_scrape_tickets(
                 pass
 
 
+def _load_config():
+    spec = importlib.util.find_spec("webscraper.ultimate_scraper_config")
+    if spec is not None:
+        return importlib.import_module("webscraper.ultimate_scraper_config")
+    config_path = os.path.join(os.path.dirname(__file__), "ultimate_scraper_config.py")
+    spec = importlib.util.spec_from_file_location("ultimate_scraper_config", config_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load ultimate_scraper_config.py")
+    cfg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cfg)
+    return cfg
+
+
 def main() -> int:
     # Prefer config defaults, allow CLI overrides, and finally env overrides
-    try:
-        # When executed as a module (python -m webscraper.ultimate_scraper)
-        from . import ultimate_scraper_config as cfg
-    except Exception:
-        # When executed as a plain script (python webscraper/ultimate_scraper.py),
-        # ensure the project root is on sys.path, then try absolute import.
-        import importlib
-        import importlib.util
-        import sys
-        try:
-            cfg = importlib.import_module("webscraper.ultimate_scraper_config")
-        except Exception:
-            try:
-                pkg_dir = os.path.dirname(__file__)
-                project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-                if project_root not in sys.path:
-                    sys.path.insert(0, project_root)
-                cfg = importlib.import_module("webscraper.ultimate_scraper_config")
-            except Exception:
-                # Final fallback: load config directly by file path
-                config_path = os.path.join(os.path.dirname(__file__), "ultimate_scraper_config.py")
-                spec = importlib.util.spec_from_file_location("ultimate_scraper_config", config_path)
-                if spec is None or spec.loader is None:
-                    raise RuntimeError("Could not load ultimate_scraper_config.py")
-                cfg = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(cfg)
+    cfg = _load_config()
     import argparse
-    import sys
 
     default_url = getattr(cfg, "DEFAULT_URL", "https://noc.123.net/customers")
     default_target_url = getattr(
