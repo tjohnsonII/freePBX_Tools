@@ -22,7 +22,7 @@ import time
 import urllib.request
 import urllib.parse
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -1484,7 +1484,7 @@ def scrape_ticket_details(
             except Exception as exc:
                 print(f"[WARN] Screenshot failed for {ticket_id}: {exc}")
 
-            extracted_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            extracted_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
             payload = {
                 "ticket_id": ticket_id,
                 "handle": handle,
