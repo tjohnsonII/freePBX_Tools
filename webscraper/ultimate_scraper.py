@@ -21,6 +21,7 @@ import sqlite3
 import time
 import urllib.request
 import urllib.parse
+import hashlib
 from datetime import datetime
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 
@@ -366,6 +367,184 @@ def upsert_ticket(conn: sqlite3.Connection, data: dict) -> None:
         ),
     )
     conn.commit()
+
+
+def _parse_year_month(extracted_at: Optional[str], fallback_path: Optional[str]) -> str:
+    if extracted_at:
+        cleaned = extracted_at.rstrip("Z")
+        try:
+            parsed = datetime.fromisoformat(cleaned)
+            return parsed.strftime("%Y-%m")
+        except ValueError:
+            pass
+    if fallback_path and os.path.exists(fallback_path):
+        try:
+            ts = os.path.getmtime(fallback_path)
+            return datetime.utcfromtimestamp(ts).strftime("%Y-%m")
+        except OSError:
+            pass
+    return datetime.utcnow().strftime("%Y-%m")
+
+
+def _load_existing_kb_keys(kb_jsonl: str) -> set[tuple[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    if not os.path.exists(kb_jsonl):
+        return seen
+    with open(kb_jsonl, "r", encoding="utf-8") as fh:
+        for line in fh:
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            ticket_id = as_str(data.get("ticket_id"))
+            handle = as_str(data.get("handle"))
+            if ticket_id and handle:
+                seen.add((handle, ticket_id))
+    return seen
+
+
+def _init_kb_sqlite(db_path: str) -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickets(
+            handle TEXT,
+            ticket_id TEXT,
+            url TEXT,
+            extracted_at TEXT,
+            page_title TEXT,
+            text TEXT,
+            hash TEXT,
+            word_count INTEGER,
+            year_month TEXT,
+            html_path TEXT,
+            screenshot_path TEXT,
+            PRIMARY KEY(handle, ticket_id)
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def _upsert_kb_record(conn: sqlite3.Connection, record: dict) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO tickets (
+            handle, ticket_id, url, extracted_at, page_title, text, hash, word_count,
+            year_month, html_path, screenshot_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.get("handle"),
+            record.get("ticket_id"),
+            record.get("url"),
+            record.get("extracted_at"),
+            record.get("page_title"),
+            record.get("text"),
+            record.get("hash"),
+            record.get("word_count"),
+            record.get("year_month"),
+            record.get("html_path"),
+            record.get("screenshot_path"),
+        ),
+    )
+    conn.commit()
+
+
+def build_kb_index(
+    out_dir: str,
+    resume: bool,
+    kb_jsonl: str,
+    kb_sqlite: Optional[str],
+) -> dict:
+    tickets_root = os.path.join(out_dir, "tickets")
+    if not os.path.isdir(tickets_root):
+        print(f"[KB] Tickets folder not found at {tickets_root}")
+        return {"processed": 0, "skipped": 0, "failed": 0, "total": 0}
+
+    os.makedirs(os.path.dirname(kb_jsonl), exist_ok=True)
+    seen_keys = _load_existing_kb_keys(kb_jsonl) if resume else set()
+    mode = "a" if resume else "w"
+    conn = _init_kb_sqlite(kb_sqlite) if kb_sqlite else None
+
+    processed = 0
+    skipped = 0
+    failed = 0
+    total = 0
+
+    with open(kb_jsonl, mode, encoding="utf-8") as out_f:
+        for handle in sorted(os.listdir(tickets_root)):
+            handle_dir = os.path.join(tickets_root, handle)
+            if not os.path.isdir(handle_dir):
+                continue
+            for ticket_id in sorted(os.listdir(handle_dir)):
+                ticket_dir = os.path.join(handle_dir, ticket_id)
+                if not os.path.isdir(ticket_dir):
+                    continue
+                total += 1
+                key = (handle, ticket_id)
+                if key in seen_keys:
+                    skipped += 1
+                    continue
+                ticket_json_path = os.path.join(ticket_dir, "ticket.json")
+                if not os.path.exists(ticket_json_path):
+                    failed += 1
+                    print(f"[KB] missing ticket.json for {handle}/{ticket_id}")
+                    continue
+                try:
+                    with open(ticket_json_path, "r", encoding="utf-8") as fh:
+                        ticket_data = json.load(fh)
+                except Exception as exc:
+                    failed += 1
+                    print(f"[KB] failed to read {ticket_json_path}: {exc}")
+                    continue
+
+                text = as_str(ticket_data.get("text"))
+                text = text[:20000]
+                page_title = as_str(ticket_data.get("page_title")) or None
+                extracted_at = as_str(ticket_data.get("extracted_at")) or None
+                html_path = ticket_data.get("html_path")
+                if not html_path:
+                    candidate = os.path.join(ticket_dir, "page.html")
+                    html_path = candidate if os.path.exists(candidate) else None
+                screenshot_path = ticket_data.get("screenshot_path")
+                if not screenshot_path:
+                    candidate = os.path.join(ticket_dir, "page.png")
+                    screenshot_path = candidate if os.path.exists(candidate) else None
+                year_month = _parse_year_month(extracted_at, ticket_json_path)
+                word_count = len(text.split()) if text else 0
+                text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+                record = {
+                    "ticket_id": ticket_data.get("ticket_id") or ticket_id,
+                    "handle": ticket_data.get("handle") or handle,
+                    "url": ticket_data.get("url"),
+                    "extracted_at": extracted_at,
+                    "page_title": page_title,
+                    "text": text,
+                    "html_path": html_path,
+                    "screenshot_path": screenshot_path,
+                    "source": ticket_data.get("source"),
+                    "tags": [],
+                    "hash": text_hash,
+                    "word_count": word_count,
+                    "year_month": year_month,
+                }
+                out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                if conn:
+                    _upsert_kb_record(conn, record)
+                seen_keys.add(key)
+                processed += 1
+
+    if conn:
+        conn.close()
+    print(f"[KB] Summary: processed={processed} skipped={skipped} failed={failed}")
+    return {"processed": processed, "skipped": skipped, "failed": failed, "total": total}
 
 
 def probe_edge_debugger(host: str, port: int, timeout: float) -> dict:
@@ -1370,6 +1549,8 @@ def selenium_scrape_tickets(
     scrape_ticket_details_enabled: bool = False,
     tickets_json: Optional[str] = None,
     kb_dir: str = "webscraper/knowledge_base",
+    build_kb: bool = False,
+    kb_jsonl: Optional[str] = None,
     kb_sqlite: Optional[str] = None,
     max_tickets: Optional[int] = None,
     rate_limit: float = 0.5,
@@ -2101,6 +2282,15 @@ def selenium_scrape_tickets(
                 "[TICKET] Overall: "
                 f"scraped={total_ticket_scraped} skipped={total_ticket_skipped} failed={total_ticket_failed}"
             )
+        if build_kb:
+            if not kb_jsonl:
+                kb_jsonl = os.path.join(output_dir, "kb.jsonl")
+            build_kb_index(
+                out_dir=output_dir,
+                resume=resume,
+                kb_jsonl=kb_jsonl,
+                kb_sqlite=kb_sqlite,
+            )
     except KeyboardInterrupt:
         print("[WARN] Interrupted by user (Ctrl+C). Shutting down.")
     finally:
@@ -2231,7 +2421,7 @@ def main() -> int:
     parser.add_argument(
         "--scrape-ticket-details",
         action="store_true",
-        help="After collecting ticket links, visit each ticket page and build the knowledge base",
+        help="After collecting ticket links, visit each ticket page and save ticket artifacts",
     )
     parser.add_argument(
         "--tickets-json",
@@ -2243,8 +2433,17 @@ def main() -> int:
         help="Knowledge base output directory (default: webscraper/knowledge_base)",
     )
     parser.add_argument(
+        "--build-kb",
+        action="store_true",
+        help="Build KB index (kb.jsonl) from scraped ticket artifacts after scraping",
+    )
+    parser.add_argument(
+        "--kb-jsonl",
+        help="KB JSONL output path (default: <out>/kb.jsonl)",
+    )
+    parser.add_argument(
         "--kb-sqlite",
-        help="SQLite DB path (default: <kb-dir>/hosted_tickets.sqlite)",
+        help="Optional SQLite DB path (if provided, also write KB SQLite)",
     )
     parser.add_argument("--max-tickets", type=int, help="Optional limit for number of tickets to scrape")
     parser.add_argument("--rate-limit", type=float, default=0.5, help="Sleep between ticket pages (seconds)")
@@ -2264,6 +2463,7 @@ def main() -> int:
     # Env overrides last
     url = os.environ.get("SCRAPER_URL") or args.url
     out_dir = os.environ.get("SCRAPER_OUT") or args.out
+    kb_jsonl = args.kb_jsonl or os.path.join(out_dir, "kb.jsonl")
     cookie_file = os.environ.get("SCRAPER_COOKIE_FILE") or args.cookie_file
     # Determine handles precedence: --handles-file > env > CLI list
     handles_env = os.environ.get("SCRAPER_HANDLES")
@@ -2430,6 +2630,8 @@ def main() -> int:
         scrape_ticket_details_enabled=args.scrape_ticket_details,
         tickets_json=args.tickets_json,
         kb_dir=args.kb_dir,
+        build_kb=args.build_kb,
+        kb_jsonl=kb_jsonl,
         kb_sqlite=args.kb_sqlite,
         max_tickets=args.max_tickets,
         rate_limit=args.rate_limit,
