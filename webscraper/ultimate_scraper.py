@@ -12,7 +12,6 @@ paths, and cookie handling) will be reintroduced in small, tested stages.
 """
 
 import os
-import sys
 import io
 import contextlib
 import glob
@@ -29,9 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 
 if __package__ in (None, ""):
-    package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-    if package_root not in sys.path:
-        sys.path.insert(0, package_root)
+    raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
 
 if TYPE_CHECKING:
     from selenium import webdriver
@@ -410,7 +407,11 @@ def _parse_year_month(extracted_at: Optional[str], fallback_path: Optional[str])
             return datetime.utcfromtimestamp(ts).strftime("%Y-%m")
         except OSError:
             pass
-    return datetime.utcnow().strftime("%Y-%m")
+    fallback_stamp = _iso_utc_now()
+    try:
+        return datetime.fromisoformat(fallback_stamp.rstrip("Z")).strftime("%Y-%m")
+    except ValueError:
+        return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
 def _load_existing_kb_keys(kb_jsonl: str) -> set[tuple[str, str]]:
@@ -1250,17 +1251,24 @@ def smoke_test_edge_driver() -> None:
 
 
 def _resolve_auth_mode_type() -> Optional[Any]:
-    if importlib.util.find_spec("webscraper.auth") is None:
+    try:
+        auth_module = importlib.import_module("webscraper.auth")
+    except ModuleNotFoundError:
         return None
-    from webscraper.auth import AuthMode
-    return AuthMode
+    return getattr(auth_module, "AuthMode", None)
 
 
 def _resolve_auth_symbols() -> Optional[tuple[Any, Any, Any]]:
-    if importlib.util.find_spec("webscraper.auth") is None:
+    try:
+        auth_module = importlib.import_module("webscraper.auth")
+    except ModuleNotFoundError:
         return None
-    from webscraper.auth import AuthContext, AuthMode, authenticate
-    return AuthContext, AuthMode, authenticate
+    auth_context = getattr(auth_module, "AuthContext", None)
+    auth_mode = getattr(auth_module, "AuthMode", None)
+    authenticate = getattr(auth_module, "authenticate", None)
+    if auth_context and auth_mode and authenticate:
+        return auth_context, auth_mode, authenticate
+    return None
 
 
 def build_auth_strategy_plan(

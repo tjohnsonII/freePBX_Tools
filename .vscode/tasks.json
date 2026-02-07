@@ -61,17 +61,15 @@
     {
       "label": "traceroute-visualizer:open-browser",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "dependsOn": [
         "traceroute-visualizer:dev"
       ],
       "dependsOrder": "sequence",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "$urls = @('http://localhost:5174','http://localhost:3000','http://localhost:5173'); $timeout = (Get-Date).AddSeconds(30); $target = $null; while ((Get-Date) -lt $timeout -and -not $target) { foreach ($url in $urls) { try { $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2; if ($response.StatusCode -eq 200) { $target = $url; break } } catch { Start-Sleep -Milliseconds 250 } } }; if ($target) { Start-Process $target } else { Write-Host 'Traceroute visualizer did not respond within 30s.' }"
+        "/d",
+        "/c",
+        "for %%U in (http://localhost:5174 http://localhost:3000 http://localhost:5173) do start \"\" \"%%U\""
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
@@ -119,13 +117,11 @@
     {
       "label": "freepbx-deploy-backend:dev",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "Set-Location -Path \"${workspaceFolder}/freepbx-deploy-backend\"; $venvCandidates = @('.venv', '.venv-backend', 'venv'); $pythonExe = $null; $pythonArgs = @(); foreach ($venv in $venvCandidates) { $candidate = Join-Path -Path (Get-Location) -ChildPath (Join-Path $venv 'Scripts\\python.exe'); if (Test-Path $candidate) { $pythonExe = $candidate; break } } if (-not $pythonExe) { $pythonExe = 'py'; $pythonArgs = @('-3') }; Write-Host \"cwd: $(Get-Location)\"; & $pythonExe @pythonArgs --version; & $pythonExe @pythonArgs -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
+        "/d",
+        "/c",
+        "set \"PYTHON_EXE=py -3\" & if exist .venv\\Scripts\\python.exe set \"PYTHON_EXE=.venv\\Scripts\\python.exe\" & if exist .venv-backend\\Scripts\\python.exe set \"PYTHON_EXE=.venv-backend\\Scripts\\python.exe\" & if exist venv\\Scripts\\python.exe set \"PYTHON_EXE=venv\\Scripts\\python.exe\" & echo cwd: %cd% & %PYTHON_EXE% --version & %PYTHON_EXE% -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
       ],
       "problemMatcher": [
         {
@@ -145,6 +141,24 @@
       "options": {
         "cwd": "${workspaceFolder}/freepbx-deploy-backend"
       },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
+      "label": "CMD Shell (venv)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/k",
+        "if exist .venv-webscraper\\Scripts\\activate.bat (call .venv-webscraper\\Scripts\\activate.bat) else (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first.)"
+      ],
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" },
       "presentation": {
         "panel": "dedicated",
         "group": "dev",
