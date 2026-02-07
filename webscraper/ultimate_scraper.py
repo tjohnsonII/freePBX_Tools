@@ -1,6 +1,9 @@
 """
 Ultimate Scraper (minimal baseline)
 
+Smoke test:
+python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output/test --scrape-ticket-details --max-tickets 3 --save-html --resume
+
 This clean baseline provides a single, minimal Selenium function to capture
 basic page state and debug artifacts for a list of customer handles.
 
@@ -13,6 +16,8 @@ import io
 import contextlib
 import glob
 import json
+import re
+import sqlite3
 import time
 import urllib.request
 from datetime import datetime
@@ -105,12 +110,259 @@ def as_str(v: Any) -> str:
     return str(v).strip()
 
 
+def require_beautifulsoup():
+    if BeautifulSoup is None:
+        raise RuntimeError(
+            "BeautifulSoup (bs4) is required for HTML parsing. Install with `pip install beautifulsoup4`."
+        ) from _BS4_IMPORT_ERROR
+    return BeautifulSoup
+
+
 def classes_to_str(v: Any) -> str:
     if v is None:
         return ""
     if isinstance(v, (list, tuple)):
         return " ".join(str(x) for x in v if x).strip()
     return str(v).strip()
+
+
+def normalize_label(label: str) -> str:
+    cleaned = re.sub(r"[:\s]+$", "", label.strip())
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", cleaned.strip().lower())
+    return cleaned.strip("_")
+
+
+def parse_ticket_id(url: str) -> Optional[str]:
+    if not url:
+        return None
+    match = re.search(r"/ticket/([^/?#]+)", url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def parse_ticket_id_from_text(text: str) -> Optional[str]:
+    if not text:
+        return None
+    patterns = [
+        r"ticket\s*id[:\s]*([A-Za-z0-9-]+)",
+        r"\bid[:\s]*([A-Za-z0-9-]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def extract_label_value_pairs(soup: Any) -> dict:
+    fields: dict[str, Any] = {}
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            cells = row.find_all(["th", "td"])
+            if len(cells) < 2:
+                continue
+            raw_label = cells[0].get_text(" ", strip=True)
+            raw_value = cells[1].get_text(" ", strip=True)
+            if not raw_label or not raw_value:
+                continue
+            key = normalize_label(raw_label)
+            if not key:
+                continue
+            existing = fields.get(key)
+            if existing is None:
+                fields[key] = raw_value
+            elif isinstance(existing, list):
+                if raw_value not in existing:
+                    existing.append(raw_value)
+            else:
+                if raw_value != existing:
+                    fields[key] = [existing, raw_value]
+    return fields
+
+
+def _value_for_keys(fields: dict, keys: List[str]) -> Optional[str]:
+    for key in keys:
+        value = fields.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            joined = " ".join(v for v in value if v)
+            if joined:
+                return joined
+        else:
+            if str(value).strip():
+                return str(value).strip()
+    return None
+
+
+def _extract_contacts(fields: dict, text: str) -> List[dict]:
+    contacts: List[dict] = []
+    email_pattern = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    phone_pattern = r"\+?\d[\d\s().-]{6,}"
+    for key, value in fields.items():
+        if "contact" in key or "phone" in key or "email" in key:
+            val_text = " ".join(value) if isinstance(value, list) else str(value)
+            contact = {"label": key, "raw": val_text}
+            email_match = re.search(email_pattern, val_text)
+            phone_match = re.search(phone_pattern, val_text)
+            if email_match:
+                contact["email"] = email_match.group(0)
+            if phone_match:
+                contact["phone"] = phone_match.group(0)
+            contacts.append(contact)
+    for email in sorted(set(re.findall(email_pattern, text))):
+        contacts.append({"label": "email", "email": email})
+    for phone in sorted(set(re.findall(phone_pattern, text))):
+        contacts.append({"label": "phone", "phone": phone})
+    return contacts
+
+
+def _extract_associated_files(soup: Any) -> List[dict]:
+    files: List[dict] = []
+    for table in soup.find_all("table"):
+        headers = [h.get_text(" ", strip=True).lower() for h in table.find_all("th")]
+        header_text = " ".join(headers)
+        if "file" not in header_text and "attachment" not in header_text:
+            continue
+        rows = table.find_all("tr")
+        for row in rows[1:]:
+            cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+            if not cells:
+                continue
+            entry = {
+                "file_name": cells[0] if len(cells) > 0 else None,
+                "size": cells[1] if len(cells) > 1 else None,
+                "distinction": cells[2] if len(cells) > 2 else None,
+                "description": cells[3] if len(cells) > 3 else None,
+            }
+            files.append(entry)
+    return files
+
+
+def extract_ticket_fields(html: str) -> dict:
+    bs4 = require_beautifulsoup()
+    soup = bs4(html, "html.parser")
+    fields = extract_label_value_pairs(soup)
+    raw_text = soup.get_text(" ", strip=True)
+    full_text = " ".join(raw_text.split())
+
+    company_value = _value_for_keys(fields, ["company", "company_name", "customer", "company_handle"])
+    company_name = None
+    company_code = None
+    if company_value:
+        match = re.match(r"^(.*?)(?:\(([^)]+)\))?$", company_value)
+        if match:
+            company_name = match.group(1).strip() if match.group(1) else company_value
+            company_code = match.group(2).strip() if match.group(2) else None
+        else:
+            company_name = company_value
+
+    subject = _value_for_keys(fields, ["subject", "issue", "ticket_subject"])
+    status = _value_for_keys(fields, ["status", "ticket_status"])
+    ticket_type = _value_for_keys(fields, ["type", "ticket_type"])
+    circuit_id = _value_for_keys(fields, ["circuit_id", "circuit"])
+    external_id = _value_for_keys(fields, ["external_id", "external_ticket_id", "external"])
+    born_updated = _value_for_keys(fields, ["born_updated", "born_updated_line", "born_updated_date", "born_updated_time"])
+    if not born_updated:
+        match = re.search(r"born/updated\s*[:\s]*([^\n]+)", raw_text, flags=re.IGNORECASE)
+        if match:
+            born_updated = match.group(1).strip()
+
+    address = _value_for_keys(fields, ["address", "service_address", "location"])
+    access_hours = _value_for_keys(fields, ["access_hours", "access", "access_hours"])
+    dispatch = _value_for_keys(fields, ["dispatch", "dispatch_info"])
+    region = _value_for_keys(fields, ["region", "market"])
+    work_involved = _value_for_keys(fields, ["work_involved", "work", "work_details"])
+    quick_links = _value_for_keys(fields, ["quick_links", "quick_link", "links"])
+
+    contacts = _extract_contacts(fields, full_text)
+    associated_files = _extract_associated_files(soup)
+
+    return {
+        "company_name": company_name,
+        "company_code": company_code,
+        "subject": subject,
+        "status": status,
+        "type": ticket_type,
+        "circuit_id": circuit_id,
+        "external_id": external_id,
+        "born_updated": born_updated,
+        "address": address,
+        "access_hours": access_hours,
+        "dispatch": dispatch,
+        "region": region,
+        "work_involved": work_involved,
+        "quick_links": quick_links,
+        "contacts": contacts,
+        "associated_files": associated_files,
+        "full_page_text": full_text,
+        "fields": fields,
+    }
+
+
+def save_ticket_json(kb_dir: str, ticket_id: str, data: dict) -> str:
+    tickets_dir = os.path.join(kb_dir, "tickets")
+    os.makedirs(tickets_dir, exist_ok=True)
+    json_path = os.path.join(tickets_dir, f"{ticket_id}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return json_path
+
+
+def init_sqlite(db_path: str) -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickets (
+            ticket_id TEXT PRIMARY KEY,
+            url TEXT,
+            company_handle TEXT NULL,
+            company_name TEXT NULL,
+            subject TEXT NULL,
+            status TEXT NULL,
+            type TEXT NULL,
+            circuit_id TEXT NULL,
+            born_updated TEXT NULL,
+            extracted_at TEXT NOT NULL,
+            json_path TEXT NOT NULL,
+            html_path TEXT NULL,
+            full_text TEXT NULL,
+            data_json TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def upsert_ticket(conn: sqlite3.Connection, data: dict) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO tickets (
+            ticket_id, url, company_handle, company_name, subject, status, type,
+            circuit_id, born_updated, extracted_at, json_path, html_path, full_text, data_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get("ticket_id"),
+            data.get("url"),
+            data.get("company_handle"),
+            data.get("company_name"),
+            data.get("subject"),
+            data.get("status"),
+            data.get("type"),
+            data.get("circuit_id"),
+            data.get("born_updated"),
+            data.get("extracted_at"),
+            data.get("json_path"),
+            data.get("html_path"),
+            data.get("full_text"),
+            data.get("data_json"),
+        ),
+    )
+    conn.commit()
 
 
 def probe_edge_debugger(host: str, port: int, timeout: float) -> dict:
@@ -886,6 +1138,199 @@ def self_test_auth_strategy_profile_only() -> None:
     assert cookies_local == [], "cookie strategies should be skipped when profile_only is enabled"
 
 
+def _ticket_page_looks_ready(html: str, current_url: str) -> bool:
+    text = html or ""
+    if re.search(r"Ticket Information", text, flags=re.IGNORECASE):
+        return True
+    if "/ticket/" in (current_url or "").lower():
+        if re.search(r"Ticket ID", text, flags=re.IGNORECASE) and "<table" in text:
+            return True
+    if BeautifulSoup is None:
+        return False
+    soup = BeautifulSoup(text, "html.parser")
+    for table in soup.find_all("table"):
+        headers = " ".join(h.get_text(" ", strip=True) for h in table.find_all("th")).lower()
+        if any(key in headers for key in ("ticket information", "circuit id", "born/updated", "status", "type")):
+            return True
+    return False
+
+
+def _wait_for_ticket_page(driver: Any, timeout: float, retries: int = 2) -> bool:
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    last_error: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            WebDriverWait(driver, timeout).until(
+                lambda d: _ticket_page_looks_ready(d.page_source or "", d.current_url or "")
+            )
+            return True
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                try:
+                    driver.refresh()
+                except Exception:
+                    pass
+                time.sleep(1.0)
+    if last_error:
+        print(f"[WARN] Ticket page did not stabilize: {last_error}")
+    return False
+
+
+def _load_tickets_json(path: str) -> dict[str, List[str]]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return {str(k): list(v) for k, v in data.items() if isinstance(v, list)}
+    except Exception as exc:
+        print(f"[WARN] Could not read tickets json '{path}': {exc}")
+    return {}
+
+
+def _ticket_exists(conn: sqlite3.Connection, ticket_id: str) -> bool:
+    cur = conn.execute("SELECT 1 FROM tickets WHERE ticket_id = ? LIMIT 1", (ticket_id,))
+    return cur.fetchone() is not None
+
+
+def scrape_ticket_details(
+    driver: Any,
+    tickets_by_handle: dict[str, List[str]],
+    output_dir: str,
+    tickets_json: Optional[str],
+    kb_dir: str,
+    kb_sqlite: Optional[str],
+    max_tickets: Optional[int],
+    rate_limit: float,
+    resume: bool,
+    save_html: bool,
+    save_screenshot: bool,
+) -> None:
+    bs4 = require_beautifulsoup()
+    if not kb_sqlite:
+        kb_sqlite = os.path.join(kb_dir, "hosted_tickets.sqlite")
+    if not tickets_by_handle and tickets_json:
+        tickets_by_handle = _load_tickets_json(tickets_json)
+    if not tickets_by_handle:
+        default_json = os.path.join(output_dir, "tickets_all.json")
+        if os.path.exists(default_json):
+            tickets_by_handle = _load_tickets_json(default_json)
+    if not tickets_by_handle:
+        print("[WARN] No tickets found to scrape.")
+        return
+
+    os.makedirs(kb_dir, exist_ok=True)
+    html_dir = os.path.join(kb_dir, "html")
+    screenshot_dir = os.path.join(kb_dir, "screenshots")
+    if save_html:
+        os.makedirs(html_dir, exist_ok=True)
+    if save_screenshot:
+        os.makedirs(screenshot_dir, exist_ok=True)
+
+    conn = init_sqlite(kb_sqlite)
+    total_scraped = 0
+    total_failed = 0
+    total_skipped = 0
+
+    for handle, urls in tickets_by_handle.items():
+        handle_scraped = 0
+        handle_failed = 0
+        handle_skipped = 0
+        print(f"[TICKET] Handle {handle}: {len(urls)} tickets")
+        for url in urls:
+            if max_tickets is not None and total_scraped + total_failed + total_skipped >= max_tickets:
+                break
+            ticket_id = parse_ticket_id(url)
+            if resume and ticket_id and _ticket_exists(conn, ticket_id):
+                handle_skipped += 1
+                total_skipped += 1
+                continue
+            try:
+                driver.get(url)
+                if not _wait_for_ticket_page(driver, timeout=25, retries=2):
+                    raise RuntimeError("ticket page did not load")
+                html = driver.page_source or ""
+                soup = bs4(html, "html.parser")
+                page_text = soup.get_text(" ", strip=True)
+                if not ticket_id:
+                    ticket_id = parse_ticket_id_from_text(page_text)
+                if not ticket_id:
+                    raise RuntimeError("ticket id not found")
+
+                html_path = None
+                if save_html:
+                    html_path = os.path.join(html_dir, f"{ticket_id}.html")
+                    _write_text(html_path, html)
+                if save_screenshot:
+                    screenshot_path = os.path.join(screenshot_dir, f"{ticket_id}.png")
+                    try:
+                        driver.get_screenshot_as_file(screenshot_path)
+                    except Exception as exc:
+                        print(f"[WARN] Screenshot failed for {ticket_id}: {exc}")
+
+                ticket_fields = extract_ticket_fields(html)
+                extracted_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+                data = {
+                    "ticket_id": ticket_id,
+                    "url": url,
+                    "company_handle": handle,
+                    "company_name": ticket_fields.get("company_name"),
+                    "company_code": ticket_fields.get("company_code"),
+                    "subject": ticket_fields.get("subject"),
+                    "status": ticket_fields.get("status"),
+                    "type": ticket_fields.get("type"),
+                    "circuit_id": ticket_fields.get("circuit_id"),
+                    "external_id": ticket_fields.get("external_id"),
+                    "born_updated": ticket_fields.get("born_updated"),
+                    "address": ticket_fields.get("address"),
+                    "access_hours": ticket_fields.get("access_hours"),
+                    "dispatch": ticket_fields.get("dispatch"),
+                    "region": ticket_fields.get("region"),
+                    "work_involved": ticket_fields.get("work_involved"),
+                    "quick_links": ticket_fields.get("quick_links"),
+                    "contacts": ticket_fields.get("contacts"),
+                    "associated_files": ticket_fields.get("associated_files"),
+                    "full_page_text": ticket_fields.get("full_page_text"),
+                    "fields": ticket_fields.get("fields"),
+                    "extracted_at": extracted_at,
+                }
+                json_path = save_ticket_json(kb_dir, ticket_id, data)
+                record = {
+                    "ticket_id": ticket_id,
+                    "url": url,
+                    "company_handle": handle,
+                    "company_name": ticket_fields.get("company_name"),
+                    "subject": ticket_fields.get("subject"),
+                    "status": ticket_fields.get("status"),
+                    "type": ticket_fields.get("type"),
+                    "circuit_id": ticket_fields.get("circuit_id"),
+                    "born_updated": ticket_fields.get("born_updated"),
+                    "extracted_at": extracted_at,
+                    "json_path": json_path,
+                    "html_path": html_path,
+                    "full_text": ticket_fields.get("full_page_text"),
+                    "data_json": json.dumps(data),
+                }
+                upsert_ticket(conn, record)
+                handle_scraped += 1
+                total_scraped += 1
+            except Exception as exc:
+                handle_failed += 1
+                total_failed += 1
+                print(f"[ERROR] Failed to scrape ticket {url}: {exc}")
+            finally:
+                if rate_limit:
+                    time.sleep(rate_limit)
+        print(
+            f"[TICKET] Summary {handle}: scraped={handle_scraped} skipped={handle_skipped} failed={handle_failed}"
+        )
+    conn.close()
+    print(
+        f"[TICKET] Overall: scraped={total_scraped} skipped={total_skipped} failed={total_failed}"
+    )
+
+
 def selenium_scrape_tickets(
     url: str,
     output_dir: str,
@@ -922,6 +1367,15 @@ def selenium_scrape_tickets(
     auth_user_agent: Optional[str] = None,
     auth_mode: Optional[str] = None,
     auth_profile_only: bool = False,
+    scrape_ticket_details_enabled: bool = False,
+    tickets_json: Optional[str] = None,
+    kb_dir: str = "webscraper/knowledge_base",
+    kb_sqlite: Optional[str] = None,
+    max_tickets: Optional[int] = None,
+    rate_limit: float = 0.5,
+    resume: bool = False,
+    save_html: bool = False,
+    save_screenshot: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -944,13 +1398,6 @@ def selenium_scrape_tickets(
         TimeoutException,
         WebDriverException,
     )
-
-    def require_beautifulsoup():
-        if BeautifulSoup is None:
-            raise RuntimeError(
-                "BeautifulSoup (bs4) is required for HTML parsing. Install with `pip install beautifulsoup4`."
-            ) from _BS4_IMPORT_ERROR
-        return BeautifulSoup
 
     os.makedirs(output_dir, exist_ok=True)
     # Prune legacy noisy files to keep output readable
@@ -1631,10 +2078,26 @@ def selenium_scrape_tickets(
                 print(f"[INFO] Wrote combined tickets to {all_path}")
             except Exception as exc:
                 print(f"[WARN] Could not write combined tickets file: {exc}")
+        if scrape_ticket_details_enabled:
+            scrape_ticket_details(
+                driver=driver,
+                tickets_by_handle=all_tickets,
+                output_dir=output_dir,
+                tickets_json=tickets_json,
+                kb_dir=kb_dir,
+                kb_sqlite=kb_sqlite,
+                max_tickets=max_tickets,
+                rate_limit=rate_limit,
+                resume=resume,
+                save_html=save_html,
+                save_screenshot=save_screenshot,
+            )
     except KeyboardInterrupt:
         print("[WARN] Interrupted by user (Ctrl+C). Shutting down.")
     finally:
-        if driver and created_browser:
+        if no_quit and driver:
+            print("[WARN] --no-quit set; leaving browser open.")
+        elif driver and created_browser:
             try:
                 driver.quit()
             except Exception:
@@ -1756,6 +2219,29 @@ def main() -> int:
         action="store_true",
         help="Enable auth orchestration (default on unless disabled)",
     )
+    parser.add_argument(
+        "--scrape-ticket-details",
+        action="store_true",
+        help="After collecting ticket links, visit each ticket page and build the knowledge base",
+    )
+    parser.add_argument(
+        "--tickets-json",
+        help="Path to tickets_all.json (defaults to <out>/tickets_all.json if present)",
+    )
+    parser.add_argument(
+        "--kb-dir",
+        default=os.path.join("webscraper", "knowledge_base"),
+        help="Knowledge base output directory (default: webscraper/knowledge_base)",
+    )
+    parser.add_argument(
+        "--kb-sqlite",
+        help="SQLite DB path (default: <kb-dir>/hosted_tickets.sqlite)",
+    )
+    parser.add_argument("--max-tickets", type=int, help="Optional limit for number of tickets to scrape")
+    parser.add_argument("--rate-limit", type=float, default=0.5, help="Sleep between ticket pages (seconds)")
+    parser.add_argument("--resume", action="store_true", help="Skip tickets already present in sqlite by ticket_id")
+    parser.add_argument("--save-html", action="store_true", help="Save raw HTML per ticket_id")
+    parser.add_argument("--save-screenshot", action="store_true", help="Save screenshot per ticket_id")
     args = parser.parse_args()
 
     if args.edge_smoke_test:
@@ -1932,6 +2418,15 @@ def main() -> int:
         auth_user_agent=auth_user_agent,
         auth_mode=auth_mode,
         auth_profile_only=args.auth_profile_only,
+        scrape_ticket_details_enabled=args.scrape_ticket_details,
+        tickets_json=args.tickets_json,
+        kb_dir=args.kb_dir,
+        kb_sqlite=args.kb_sqlite,
+        max_tickets=args.max_tickets,
+        rate_limit=args.rate_limit,
+        resume=args.resume,
+        save_html=args.save_html,
+        save_screenshot=args.save_screenshot,
     )
     return 0
 
