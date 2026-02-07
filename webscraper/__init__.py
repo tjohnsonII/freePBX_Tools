@@ -1,1 +1,5 @@
-# This file marks the webscraper directory as a Python package
+"""Webscraper package exports."""
+
+from . import site_selectors as site_selectors
+
+__all__ = ["site_selectors"]

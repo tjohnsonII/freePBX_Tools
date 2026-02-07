@@ -155,31 +155,16 @@
     {
       "label": "webscraper:dev",
       "type": "shell",
-      "command": "powershell",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "Set-Location -Path \"${workspaceFolder}/webscraper\"; $venvCandidates = @('.venv-webscraper', '.venv', 'venv'); $pythonExe = $null; $pythonArgs = @(); foreach ($venv in $venvCandidates) { $candidate = Join-Path -Path (Get-Location) -ChildPath (Join-Path $venv 'Scripts\\python.exe'); if (Test-Path $candidate) { $pythonExe = $candidate; break } } if (-not $pythonExe) { $pythonExe = 'py'; $pythonArgs = @('-3') }; Write-Host \"cwd: $(Get-Location)\"; & $pythonExe @pythonArgs --version; & $pythonExe @pythonArgs dev_server.py --reload"
+        "/d",
+        "/c",
+        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.ultimate_scraper"
       ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "Webscraper dev server starting",
-            "endsPattern": "Webscraper dev server ready|Uvicorn running on|Serving HTTP on"
-          }
-        }
-      ],
-      "isBackground": true,
+      "problemMatcher": [],
+      "isBackground": false,
       "options": {
-        "cwd": "${workspaceFolder}/webscraper"
+        "cwd": "${workspaceFolder}"
       },
       "presentation": {
         "panel": "dedicated",
@@ -341,8 +326,12 @@
     {
       "label": "webscraper:smoke",
       "type": "shell",
-      "command": "${workspaceFolder}\\.venv-webscraper\\Scripts\\python.exe",
-      "args": ["-m", "webscraper._smoke_test"],
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.smoke_test"
+      ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": {
@@ -359,7 +348,7 @@
       "args": [
         "/d",
         "/c",
-        ".venv-webscraper\\Scripts\\python.exe webscraper\\ultimate_scraper.py --help"
+        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.ultimate_scraper --help"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
