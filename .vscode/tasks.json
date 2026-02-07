@@ -7,10 +7,12 @@
       "label": "Start Everything + CLI",
       "dependsOn": [
         "traceroute-visualizer:dev",
+        "traceroute-visualizer:open-browser",
         "polycom-yealink-mikrotik:dev",
         "freepbx-deploy-backend:dev",
         "freepbx-deploy-ui:dev",
-        "freepbx-tools-manager:cli"
+        "freepbx-tools-manager:cli",
+        "webscraper:dev"
       ],
       "dependsOrder": "parallel",
       "problemMatcher": [],
@@ -57,17 +59,19 @@
       }
     },
     {
-      "label": "traceroute-visualizer:open",
+      "label": "traceroute-visualizer:open-browser",
       "type": "shell",
-      "command": "cmd.exe",
+      "command": "powershell",
       "dependsOn": [
         "traceroute-visualizer:dev"
       ],
       "dependsOrder": "sequence",
       "args": [
-        "/d",
-        "/c",
-        "start \"\" \"http://localhost:3000\""
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$urls = @('http://localhost:5174','http://localhost:3000','http://localhost:5173'); $timeout = (Get-Date).AddSeconds(30); $target = $null; while ((Get-Date) -lt $timeout -and -not $target) { foreach ($url in $urls) { try { $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2; if ($response.StatusCode -eq 200) { $target = $url; break } } catch { Start-Sleep -Milliseconds 250 } } }; if ($target) { Start-Process $target } else { Write-Host 'Traceroute visualizer did not respond within 30s.' }"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
@@ -115,11 +119,13 @@
     {
       "label": "freepbx-deploy-backend:dev",
       "type": "shell",
-      "command": "cmd.exe",
+      "command": "powershell",
       "args": [
-        "/d",
-        "/c",
-        "py -3 -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Set-Location -Path \"${workspaceFolder}/freepbx-deploy-backend\"; $venvCandidates = @('.venv', '.venv-backend', 'venv'); $pythonExe = $null; $pythonArgs = @(); foreach ($venv in $venvCandidates) { $candidate = Join-Path -Path (Get-Location) -ChildPath (Join-Path $venv 'Scripts\\python.exe'); if (Test-Path $candidate) { $pythonExe = $candidate; break } } if (-not $pythonExe) { $pythonExe = 'py'; $pythonArgs = @('-3') }; Write-Host \"cwd: $(Get-Location)\"; & $pythonExe @pythonArgs --version; & $pythonExe @pythonArgs -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
       ],
       "problemMatcher": [
         {
@@ -138,6 +144,42 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/freepbx-deploy-backend"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
+      "label": "webscraper:dev",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Set-Location -Path \"${workspaceFolder}/webscraper\"; $venvCandidates = @('.venv-webscraper', '.venv', 'venv'); $pythonExe = $null; $pythonArgs = @(); foreach ($venv in $venvCandidates) { $candidate = Join-Path -Path (Get-Location) -ChildPath (Join-Path $venv 'Scripts\\python.exe'); if (Test-Path $candidate) { $pythonExe = $candidate; break } } if (-not $pythonExe) { $pythonExe = 'py'; $pythonArgs = @('-3') }; Write-Host \"cwd: $(Get-Location)\"; & $pythonExe @pythonArgs --version; & $pythonExe @pythonArgs dev_server.py --reload"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "Webscraper dev server starting",
+            "endsPattern": "Webscraper dev server ready|Uvicorn running on|Serving HTTP on"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}/webscraper"
       },
       "presentation": {
         "panel": "dedicated",
