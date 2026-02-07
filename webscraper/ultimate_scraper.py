@@ -2135,35 +2135,81 @@ def selenium_scrape_tickets(
             except TimeoutException:
                 return False
 
-        def reveal_trouble_ticket_data(driver: Any) -> bool:
+        def reveal_trouble_ticket_data(driver: Any) -> Optional[str]:
             try:
                 toggle = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "a.show_hide[rel='#slideid5']"))
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "a.show_hide[rel]"))
                 )
             except TimeoutException:
-                return False
+                return None
+            rel_value = (toggle.get_attribute("rel") or "").strip()
             try:
                 toggle.click()
             except ElementClickInterceptedException:
                 driver.execute_script("arguments[0].click();", toggle)
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.visibility_of_element_located((By.CSS_SELECTOR, "#slideid5"))
-                )
-                return True
-            except TimeoutException:
+            panel_selector = rel_value if rel_value else None
+            if not panel_selector:
+                return rel_value or None
+
+            def panel_has_ticket_links(drv: Any) -> bool:
+                try:
+                    panel = drv.find_element(By.CSS_SELECTOR, panel_selector)
+                except Exception:
+                    return False
+                if not panel.is_displayed():
+                    return False
+                for anchor in panel.find_elements(By.TAG_NAME, "a"):
+                    href = anchor.get_attribute("href") or ""
+                    onclick = anchor.get_attribute("onclick") or ""
+                    if "/ticket/" in href or "noc-tickets.123.net" in href or "/ticket/" in onclick:
+                        return True
                 return False
 
-        def scrape_ticket_links(driver: Any) -> List[str]:
+            try:
+                WebDriverWait(driver, 15).until(lambda d: panel_has_ticket_links(d))
+            except TimeoutException:
+                pass
+            return rel_value or None
+
+        def _normalize_ticket_url(href: str, onclick: str) -> Optional[str]:
+            base_url = "https://noc-tickets.123.net"
+            href_value = (href or "").strip()
+            onclick_value = (onclick or "").strip()
+            if href_value:
+                if "noc-tickets.123.net" in href_value or "/ticket/" in href_value:
+                    if href_value.startswith("/"):
+                        return urllib.parse.urljoin(base_url, href_value)
+                    if href_value.startswith("http"):
+                        return href_value
+                    if "ticket/" in href_value:
+                        return urllib.parse.urljoin(base_url, href_value)
+            if onclick_value and "/ticket/" in onclick_value:
+                full_match = re.search(r"https?://[^\"'\\s]+/ticket/\\d+", onclick_value)
+                if full_match:
+                    return full_match.group(0)
+                id_match = re.search(r"/ticket/(\\d+)", onclick_value)
+                if id_match:
+                    return f"{base_url}/ticket/{id_match.group(1)}"
+            return None
+
+        def scrape_ticket_links(driver: Any, panel_selector: Optional[str]) -> tuple[List[str], int, List[dict[str, str]]]:
             links: List[str] = []
             seen = set()
-            for link in driver.find_elements(By.CSS_SELECTOR, "#slideid5 a[href*='/ticket/']"):
-                href = link.get_attribute("href")
-                if not href or href in seen:
+            samples: List[dict[str, str]] = []
+            if not panel_selector:
+                return links, 0, samples
+            anchors = driver.find_elements(By.CSS_SELECTOR, f"{panel_selector} a")
+            for anchor in anchors:
+                href = anchor.get_attribute("href") or ""
+                onclick = anchor.get_attribute("onclick") or ""
+                if len(samples) < 10:
+                    samples.append({"href": href, "onclick": onclick})
+                url = _normalize_ticket_url(href, onclick)
+                if not url or url in seen:
                     continue
-                seen.add(href)
-                links.append(href)
-            return links
+                seen.add(url)
+                links.append(url)
+            return links, len(anchors), samples
 
         all_tickets: dict[str, List[str]] = {}
 
@@ -2189,14 +2235,41 @@ def selenium_scrape_tickets(
                         save_debug_artifacts(handle, "company_handle_timeout")
                         all_tickets[handle] = []
                         return []
-                    save_debug_artifacts(handle, "after_search_loaded")
-                    if not reveal_trouble_ticket_data(driver):
+                    after_search_html = driver.page_source or ""
+                    try:
+                        after_search_png = driver.get_screenshot_as_png()
+                    except Exception:
+                        after_search_png = None
+                    panel_rel = reveal_trouble_ticket_data(driver)
+                    if not panel_rel:
                         print(f"[WARN] Trouble Ticket Data toggle missing for {handle}")
                         save_debug_artifacts(handle, "ticket_panel_missing")
                         all_tickets[handle] = []
                         return []
-                    save_debug_artifacts(handle, "after_ticket_panel")
-                    tickets = scrape_ticket_links(driver)
+                    after_toggle_html = driver.page_source or ""
+                    try:
+                        after_toggle_png = driver.get_screenshot_as_png()
+                    except Exception:
+                        after_toggle_png = None
+                    tickets, panel_anchor_count, panel_anchor_samples = scrape_ticket_links(driver, panel_rel)
+                    if not tickets:
+                        print(f"[TICKET] No URLs found for {handle}")
+                        print(f"[TICKET] toggle rel={panel_rel!r}")
+                        print(f"[TICKET] panel anchors={panel_anchor_count}")
+                        if panel_anchor_samples:
+                            print("[TICKET] panel sample anchors:")
+                            for sample in panel_anchor_samples:
+                                print(f"[TICKET] href={sample.get('href','')} onclick={sample.get('onclick','')}")
+                        if after_search_html:
+                            _write_text(os.path.join(output_dir, f"{handle}_after_search.html"), after_search_html)
+                        if after_search_png:
+                            with open(os.path.join(output_dir, f"{handle}_after_search.png"), "wb") as f:
+                                f.write(after_search_png)
+                        if after_toggle_html:
+                            _write_text(os.path.join(output_dir, f"{handle}_after_toggle.html"), after_toggle_html)
+                        if after_toggle_png:
+                            with open(os.path.join(output_dir, f"{handle}_after_toggle.png"), "wb") as f:
+                                f.write(after_toggle_png)
                     all_tickets[handle] = tickets
                     out_path = os.path.join(output_dir, f"tickets_{handle}.json")
                     with open(out_path, "w", encoding="utf-8") as f:
