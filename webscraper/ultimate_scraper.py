@@ -20,6 +20,7 @@ import re
 import sqlite3
 import time
 import urllib.request
+import urllib.parse
 from datetime import datetime
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 
@@ -135,10 +136,12 @@ def normalize_label(label: str) -> str:
 def parse_ticket_id(url: str) -> Optional[str]:
     if not url:
         return None
-    match = re.search(r"/ticket/([^/?#]+)", url)
-    if match:
-        return match.group(1)
-    return None
+    parsed = urllib.parse.urlparse(url)
+    path = parsed.path or ""
+    if not path:
+        return None
+    last_segment = path.rstrip("/").split("/")[-1]
+    return last_segment or None
 
 
 def parse_ticket_id_from_text(text: str) -> Optional[str]:
@@ -1183,152 +1186,149 @@ def _load_tickets_json(path: str) -> dict[str, List[str]]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
+            if "handle" in data and "tickets" in data:
+                handle = str(data.get("handle"))
+                tickets = data.get("tickets")
+                if handle and isinstance(tickets, list):
+                    return {handle: [str(item) for item in tickets if item]}
             return {str(k): list(v) for k, v in data.items() if isinstance(v, list)}
     except Exception as exc:
         print(f"[WARN] Could not read tickets json '{path}': {exc}")
     return {}
 
 
-def _ticket_exists(conn: sqlite3.Connection, ticket_id: str) -> bool:
-    cur = conn.execute("SELECT 1 FROM tickets WHERE ticket_id = ? LIMIT 1", (ticket_id,))
-    return cur.fetchone() is not None
+def _load_ticket_urls_for_handle(output_dir: str, handle: str) -> List[str]:
+    handle_path = os.path.join(output_dir, f"tickets_{handle}.json")
+    if os.path.exists(handle_path):
+        data = _load_tickets_json(handle_path)
+        if handle in data:
+            return [str(item) for item in data[handle] if item]
+    all_path = os.path.join(output_dir, "tickets_all.json")
+    if os.path.exists(all_path):
+        data = _load_tickets_json(all_path)
+        if handle in data:
+            return [str(item) for item in data[handle] if item]
+    return []
+
+
+def _wait_for_ticket_ready(driver: Any, timeout: float) -> None:
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    WebDriverWait(driver, timeout).until(lambda d: d.execute_script("return document.readyState") == "complete")
+    WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+
+
+def _is_login_redirect(driver: Any) -> bool:
+    current_url = (driver.current_url or "").lower()
+    if any(token in current_url for token in ("login", "signin", "sso", "auth")):
+        return True
+    try:
+        title = (driver.title or "").lower()
+        if any(token in title for token in ("login", "sign in", "authenticate")):
+            return True
+    except Exception:
+        pass
+    try:
+        page_html = driver.page_source or ""
+    except Exception:
+        return False
+    if re.search(r"type=['\"]password['\"]", page_html, flags=re.IGNORECASE):
+        return True
+    return False
 
 
 def scrape_ticket_details(
     driver: Any,
-    tickets_by_handle: dict[str, List[str]],
-    output_dir: str,
-    tickets_json: Optional[str],
-    kb_dir: str,
-    kb_sqlite: Optional[str],
+    handle: str,
+    ticket_urls: List[str],
+    out_dir: str,
     max_tickets: Optional[int],
-    rate_limit: float,
-    resume: bool,
     save_html: bool,
-    save_screenshot: bool,
-) -> None:
+    resume: bool,
+) -> dict:
     bs4 = require_beautifulsoup()
-    if not kb_sqlite:
-        kb_sqlite = os.path.join(kb_dir, "hosted_tickets.sqlite")
-    if not tickets_by_handle and tickets_json:
-        tickets_by_handle = _load_tickets_json(tickets_json)
-    if not tickets_by_handle:
-        default_json = os.path.join(output_dir, "tickets_all.json")
-        if os.path.exists(default_json):
-            tickets_by_handle = _load_tickets_json(default_json)
-    if not tickets_by_handle:
-        print("[WARN] No tickets found to scrape.")
-        return
+    urls = [u for u in ticket_urls if u]
+    if not urls:
+        urls = _load_ticket_urls_for_handle(out_dir, handle)
+    if not urls:
+        print(f"[TICKET] No URLs found for {handle}")
+        return {"handle": handle, "scraped": 0, "skipped": 0, "failed": 0, "total": 0}
 
-    os.makedirs(kb_dir, exist_ok=True)
-    html_dir = os.path.join(kb_dir, "html")
-    screenshot_dir = os.path.join(kb_dir, "screenshots")
-    if save_html:
-        os.makedirs(html_dir, exist_ok=True)
-    if save_screenshot:
-        os.makedirs(screenshot_dir, exist_ok=True)
+    ticket_root = os.path.join(out_dir, "tickets", handle)
+    os.makedirs(ticket_root, exist_ok=True)
 
-    conn = init_sqlite(kb_sqlite)
-    total_scraped = 0
-    total_failed = 0
-    total_skipped = 0
+    scraped = 0
+    skipped = 0
+    failed = 0
+    total = 0
 
-    for handle, urls in tickets_by_handle.items():
-        handle_scraped = 0
-        handle_failed = 0
-        handle_skipped = 0
-        print(f"[TICKET] Handle {handle}: {len(urls)} tickets")
-        for url in urls:
-            if max_tickets is not None and total_scraped + total_failed + total_skipped >= max_tickets:
-                break
-            ticket_id = parse_ticket_id(url)
-            if resume and ticket_id and _ticket_exists(conn, ticket_id):
-                handle_skipped += 1
-                total_skipped += 1
-                continue
+    for url in urls:
+        if max_tickets is not None and total >= max_tickets:
+            break
+        total += 1
+        ticket_id = parse_ticket_id(url)
+        if not ticket_id:
+            print(f"[TICKET] failed url={url} reason=missing_ticket_id")
+            failed += 1
+            continue
+        ticket_dir = os.path.join(ticket_root, ticket_id)
+        os.makedirs(ticket_dir, exist_ok=True)
+        ticket_json_path = os.path.join(ticket_dir, "ticket.json")
+        if resume and os.path.exists(ticket_json_path):
+            print(f"[TICKET] skipped {ticket_id} (resume)")
+            skipped += 1
+            continue
+        try:
+            driver.get(url)
+            _wait_for_ticket_ready(driver, timeout=25)
+            if _is_login_redirect(driver):
+                raise RuntimeError(f"login redirect detected at {driver.current_url}")
+            if "/ticket/" not in (driver.current_url or "").lower():
+                print(f"[WARN] Ticket URL unexpected: {driver.current_url}")
+
+            page_html = driver.page_source or ""
+            soup = bs4(page_html, "html.parser")
+            page_text = soup.get_text(" ", strip=True)
+            page_title = soup.title.string.strip() if soup.title and soup.title.string else None
+            ticket_fields = extract_ticket_fields(page_html)
+            subject = ticket_fields.get("subject") or page_title
+
+            html_path = None
+            if save_html:
+                html_path = os.path.join(ticket_dir, "page.html")
+                _write_text(html_path, page_html)
+            screenshot_path = os.path.join(ticket_dir, "page.png")
             try:
-                driver.get(url)
-                if not _wait_for_ticket_page(driver, timeout=25, retries=2):
-                    raise RuntimeError("ticket page did not load")
-                html = driver.page_source or ""
-                soup = bs4(html, "html.parser")
-                page_text = soup.get_text(" ", strip=True)
-                if not ticket_id:
-                    ticket_id = parse_ticket_id_from_text(page_text)
-                if not ticket_id:
-                    raise RuntimeError("ticket id not found")
-
-                html_path = None
-                if save_html:
-                    html_path = os.path.join(html_dir, f"{ticket_id}.html")
-                    _write_text(html_path, html)
-                if save_screenshot:
-                    screenshot_path = os.path.join(screenshot_dir, f"{ticket_id}.png")
-                    try:
-                        driver.get_screenshot_as_file(screenshot_path)
-                    except Exception as exc:
-                        print(f"[WARN] Screenshot failed for {ticket_id}: {exc}")
-
-                ticket_fields = extract_ticket_fields(html)
-                extracted_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-                data = {
-                    "ticket_id": ticket_id,
-                    "url": url,
-                    "company_handle": handle,
-                    "company_name": ticket_fields.get("company_name"),
-                    "company_code": ticket_fields.get("company_code"),
-                    "subject": ticket_fields.get("subject"),
-                    "status": ticket_fields.get("status"),
-                    "type": ticket_fields.get("type"),
-                    "circuit_id": ticket_fields.get("circuit_id"),
-                    "external_id": ticket_fields.get("external_id"),
-                    "born_updated": ticket_fields.get("born_updated"),
-                    "address": ticket_fields.get("address"),
-                    "access_hours": ticket_fields.get("access_hours"),
-                    "dispatch": ticket_fields.get("dispatch"),
-                    "region": ticket_fields.get("region"),
-                    "work_involved": ticket_fields.get("work_involved"),
-                    "quick_links": ticket_fields.get("quick_links"),
-                    "contacts": ticket_fields.get("contacts"),
-                    "associated_files": ticket_fields.get("associated_files"),
-                    "full_page_text": ticket_fields.get("full_page_text"),
-                    "fields": ticket_fields.get("fields"),
-                    "extracted_at": extracted_at,
-                }
-                json_path = save_ticket_json(kb_dir, ticket_id, data)
-                record = {
-                    "ticket_id": ticket_id,
-                    "url": url,
-                    "company_handle": handle,
-                    "company_name": ticket_fields.get("company_name"),
-                    "subject": ticket_fields.get("subject"),
-                    "status": ticket_fields.get("status"),
-                    "type": ticket_fields.get("type"),
-                    "circuit_id": ticket_fields.get("circuit_id"),
-                    "born_updated": ticket_fields.get("born_updated"),
-                    "extracted_at": extracted_at,
-                    "json_path": json_path,
-                    "html_path": html_path,
-                    "full_text": ticket_fields.get("full_page_text"),
-                    "data_json": json.dumps(data),
-                }
-                upsert_ticket(conn, record)
-                handle_scraped += 1
-                total_scraped += 1
+                driver.get_screenshot_as_file(screenshot_path)
             except Exception as exc:
-                handle_failed += 1
-                total_failed += 1
-                print(f"[ERROR] Failed to scrape ticket {url}: {exc}")
-            finally:
-                if rate_limit:
-                    time.sleep(rate_limit)
-        print(
-            f"[TICKET] Summary {handle}: scraped={handle_scraped} skipped={handle_skipped} failed={handle_failed}"
-        )
-    conn.close()
-    print(
-        f"[TICKET] Overall: scraped={total_scraped} skipped={total_skipped} failed={total_failed}"
-    )
+                print(f"[WARN] Screenshot failed for {ticket_id}: {exc}")
+
+            extracted_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            payload = {
+                "ticket_id": ticket_id,
+                "handle": handle,
+                "url": url,
+                "extracted_at": extracted_at,
+                "page_title": page_title,
+                "subject": subject,
+                "text": page_text,
+                "html_path": html_path,
+                "screenshot_path": screenshot_path,
+                "source": "noc-tickets.123.net",
+            }
+            with open(ticket_json_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            print(f"[TICKET] scraped {ticket_id}")
+            scraped += 1
+        except Exception as exc:
+            failed += 1
+            print(f"[TICKET] failed {ticket_id or url}: {exc}")
+
+    summary = {"handle": handle, "scraped": scraped, "skipped": skipped, "failed": failed, "total": total}
+    print(f"[TICKET] Summary {handle}: scraped={scraped} skipped={skipped} failed={failed}")
+    return summary
 
 
 def selenium_scrape_tickets(
@@ -1986,10 +1986,11 @@ def selenium_scrape_tickets(
 
         all_tickets: dict[str, List[str]] = {}
 
-        def process_handle(handle: str) -> None:
+        def process_handle(handle: str) -> List[str]:
             print(f"[HANDLE] Starting {handle}")
             debug_log_path = os.path.join(output_dir, f"debug_log_{handle}.txt")
             debug_buffer = io.StringIO()
+            tickets: List[str] = []
             try:
                 with contextlib.redirect_stdout(debug_buffer), contextlib.redirect_stderr(debug_buffer):
                     print(f"[DEBUG] Navigated to: {driver.current_url}")
@@ -2001,18 +2002,18 @@ def selenium_scrape_tickets(
                         print(f"[ERROR] Search flow failed for {handle}: {exc}")
                         save_debug_artifacts(handle, "search_failed")
                         all_tickets[handle] = []
-                        return
+                        return []
                     if not wait_company_handle(driver, handle, timeout=20):
                         print(f"[WARN] Company handle verification failed for {handle}")
                         save_debug_artifacts(handle, "company_handle_timeout")
                         all_tickets[handle] = []
-                        return
+                        return []
                     save_debug_artifacts(handle, "after_search_loaded")
                     if not reveal_trouble_ticket_data(driver):
                         print(f"[WARN] Trouble Ticket Data toggle missing for {handle}")
                         save_debug_artifacts(handle, "ticket_panel_missing")
                         all_tickets[handle] = []
-                        return
+                        return []
                     save_debug_artifacts(handle, "after_ticket_panel")
                     tickets = scrape_ticket_links(driver)
                     all_tickets[handle] = tickets
@@ -2030,16 +2031,33 @@ def selenium_scrape_tickets(
                 with open(debug_log_path, "w", encoding="utf-8") as dbg:
                     dbg.write(debug_buffer.getvalue())
                 print(f"[HANDLE] Finished {handle}. Log: {debug_log_path}")
+            return tickets
 
         def is_invalid_session_error(err: Exception) -> bool:
             return "invalid session id" in str(err).lower()
 
         abort_run = False
+        total_ticket_scraped = 0
+        total_ticket_skipped = 0
+        total_ticket_failed = 0
         for handle in handles:
             retries = 0
             while True:
                 try:
-                    process_handle(handle)
+                    tickets = process_handle(handle)
+                    if scrape_ticket_details_enabled:
+                        summary = scrape_ticket_details(
+                            driver=driver,
+                            handle=handle,
+                            ticket_urls=tickets,
+                            out_dir=output_dir,
+                            max_tickets=max_tickets,
+                            save_html=save_html,
+                            resume=resume,
+                        )
+                        total_ticket_scraped += summary.get("scraped", 0)
+                        total_ticket_skipped += summary.get("skipped", 0)
+                        total_ticket_failed += summary.get("failed", 0)
                     break
                 except InvalidSessionIdException as e:
                     print(f"[WARN] Invalid session id detected for {handle}.")
@@ -2079,18 +2097,9 @@ def selenium_scrape_tickets(
             except Exception as exc:
                 print(f"[WARN] Could not write combined tickets file: {exc}")
         if scrape_ticket_details_enabled:
-            scrape_ticket_details(
-                driver=driver,
-                tickets_by_handle=all_tickets,
-                output_dir=output_dir,
-                tickets_json=tickets_json,
-                kb_dir=kb_dir,
-                kb_sqlite=kb_sqlite,
-                max_tickets=max_tickets,
-                rate_limit=rate_limit,
-                resume=resume,
-                save_html=save_html,
-                save_screenshot=save_screenshot,
+            print(
+                "[TICKET] Overall: "
+                f"scraped={total_ticket_scraped} skipped={total_ticket_skipped} failed={total_ticket_failed}"
             )
     except KeyboardInterrupt:
         print("[WARN] Interrupted by user (Ctrl+C). Shutting down.")
