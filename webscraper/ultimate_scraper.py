@@ -16,7 +16,9 @@ import io
 import contextlib
 import glob
 import json
+import logging
 import re
+import sys
 import sqlite3
 import time
 import urllib.request
@@ -126,6 +128,27 @@ def require_beautifulsoup():
 
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+class _FlushStreamHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            self.flush()
+        except Exception:
+            pass
+
+
+def _build_phase_logger(enabled: bool) -> logging.Logger:
+    logger = logging.getLogger("ultimate_scraper.phase")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers = []
+    if enabled:
+        handler = _FlushStreamHandler(stream=sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+    return logger
 
 
 def _write_run_metadata(output_dir: str, mode: str, run_id: Optional[str] = None) -> None:
@@ -876,7 +899,7 @@ def create_edge_driver(
                 print(f"[ATTACH] failed: {last_error}; probe={probe_result}")
                 curl_cmd = f'curl "{probe_result["url"]}"'
                 edge_bin = edge_binary_path_resolved or "msedge.exe"
-                profile_hint = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "edge_remote_profile")
+                profile_hint = os.path.join(os.environ.get("USERNAME", "C:\\Temp"), "edge_remote_profile")
                 print("[ATTACH] Troubleshooting:")
                 print(f"  curl test: {curl_cmd}")
                 print(
@@ -894,7 +917,7 @@ def create_edge_driver(
                 print(f"[ATTACH] failed: {exc}; probe={probe_result}")
                 curl_cmd = f'curl "{probe_result["url"]}"'
                 edge_bin = edge_binary_path_resolved or "msedge.exe"
-                profile_hint = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "edge_remote_profile")
+                profile_hint = os.path.join(os.environ.get("USERNAME", "C:\\Temp"), "edge_remote_profile")
                 print("[ATTACH] Troubleshooting:")
                 print(f"  curl test: {curl_cmd}")
                 print(
@@ -1486,6 +1509,7 @@ def scrape_ticket_details(
             skipped += 1
             continue
         try:
+            print(f"[{_iso_utc_now()}] [PHASE 06 SCRAPE TICKET] ticket_id={ticket_id} url={url}", flush=True)
             driver.get(url)
             _wait_for_ticket_ready(driver, timeout=25)
             if _is_login_redirect(driver):
@@ -1583,6 +1607,10 @@ def selenium_scrape_tickets(
     resume: bool = False,
     save_html: bool = False,
     save_screenshot: bool = False,
+    phase_logs: bool = False,
+    debug_dir: Optional[str] = None,
+    dump_dom_on_fail: bool = True,
+    edge_smoke_test: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -1602,11 +1630,14 @@ def selenium_scrape_tickets(
         ElementClickInterceptedException,
         InvalidSessionIdException,
         NoSuchElementException,
+        StaleElementReferenceException,
         TimeoutException,
         WebDriverException,
     )
 
     os.makedirs(output_dir, exist_ok=True)
+    debug_dir = os.path.abspath(debug_dir or output_dir)
+    os.makedirs(debug_dir, exist_ok=True)
     _write_run_metadata(output_dir, mode="selenium")
     # Prune legacy noisy files to keep output readable
     try:
@@ -2102,40 +2133,73 @@ def selenium_scrape_tickets(
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
 
+        phase_logger = _build_phase_logger(phase_logs)
+
+        def _phase(step_num: int, name: str, details: str = "", started_at: Optional[float] = None) -> None:
+            elapsed = f" dt={time.monotonic() - started_at:.2f}s" if started_at is not None else ""
+            suffix = f" {details}" if details else ""
+            phase_logger.info(f"[{_iso_utc_now()}] [PHASE {step_num:02d} {name}]{suffix}{elapsed}")
+
         def save_debug_artifacts(handle: str, label: str) -> None:
             safe_label = label.replace(" ", "_").lower()
-            html_path = os.path.join(output_dir, f"{handle}_{safe_label}.html")
-            png_path = os.path.join(output_dir, f"{handle}_{safe_label}.png")
+            html_path = os.path.join(debug_dir, f"{handle}_{safe_label}.html")
+            png_path = os.path.join(debug_dir, f"{handle}_{safe_label}.png")
             try:
                 with open(html_path, "w", encoding="utf-8") as f:
                     f.write(driver.page_source)
             except Exception as exc:
-                print(f"[WARN] Could not save HTML ({label}) for {handle}: {exc}")
+                print(f"[WARN] Could not save HTML ({label}) for {handle}: {exc}", flush=True)
             try:
                 driver.save_screenshot(png_path)
             except Exception as exc:
-                print(f"[WARN] Could not save screenshot ({label}) for {handle}: {exc}")
+                print(f"[WARN] Could not save screenshot ({label}) for {handle}: {exc}", flush=True)
+
+        def _probe_company_dom(clicked_selector: str = "") -> dict[str, Any]:
+            anchors = driver.find_elements(By.TAG_NAME, "a")
+            link_hrefs = [(a.get_attribute("href") or "").strip() for a in anchors[:10]]
+            page_text = driver.page_source or ""
+            table_candidates = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
+            first_rows = 0
+            if table_candidates:
+                first_rows = len(table_candidates[0].find_elements(By.XPATH, ".//tr[td]"))
+            panel_visible = False
+            for sel in ("#slideid7", "div[id*='slide']", "div.slide"):
+                for panel in driver.find_elements(By.CSS_SELECTOR, sel):
+                    if panel.is_displayed():
+                        panel_visible = True
+                        break
+                if panel_visible:
+                    break
+            return {
+                "found_showhide_text": "Trouble Ticket Data" in page_text,
+                "clicked_selector": clicked_selector,
+                "panel_visible": panel_visible,
+                "table_found": bool(table_candidates),
+                "table_row_count": first_rows,
+                "first_10_link_hrefs": link_hrefs,
+                "page_title": driver.title,
+                "current_url": driver.current_url,
+                "anchor_count": len(anchors),
+            }
+
+        def _log_fail(phase: str, handle: str, exc: Exception, debug_ctx: dict[str, Any]) -> None:
+            probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
+            print(
+                f"[FAIL] phase={phase} exception={exc} current_url={driver.current_url} "
+                f"anchors={probe.get('anchor_count')} has_trouble_text={probe.get('found_showhide_text')} "
+                f"table_found={probe.get('table_found')}",
+                flush=True,
+            )
 
         def search_company(driver: Any, handle: str) -> None:
-            search_box = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input#customers"))
-            )
+            search_box = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "input#customers")))
             query = f"{handle}:company_data:handle:{handle}"
             search_box.clear()
             search_box.send_keys(query)
-            time.sleep(0.1)
             try:
-                search_btn = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, "input[type='submit'][value='Search ->']")
-                    )
-                )
+                search_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='submit'][value='Search ->']")))
             except TimeoutException:
-                search_btn = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable(
-                        (By.XPATH, "//input[@type='submit' and contains(@value,'Search')]")
-                    )
-                )
+                search_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//input[@type='submit' and contains(@value,'Search')]")))
             try:
                 search_btn.click()
             except ElementClickInterceptedException:
@@ -2143,175 +2207,178 @@ def selenium_scrape_tickets(
 
         def wait_company_handle(driver: Any, handle: str, timeout: int = 20) -> bool:
             def _matches(drv: Any) -> bool:
-                th_elements = drv.find_elements(
-                    By.XPATH, "//th[contains(normalize-space(), 'Company Handle')]"
-                )
+                th_elements = drv.find_elements(By.XPATH, "//th[contains(normalize-space(), 'Company Handle')]")
                 for th in th_elements:
                     try:
                         td = th.find_element(By.XPATH, "following-sibling::td[1]")
                     except Exception:
                         continue
-                    value = (td.text or "").strip()
-                    if value == handle:
+                    if (td.text or "").strip() == handle:
                         return True
                 return False
-
             try:
                 WebDriverWait(driver, timeout).until(lambda d: _matches(d))
                 return True
             except TimeoutException:
                 return False
 
-        def reveal_trouble_ticket_data(driver: Any) -> Optional[str]:
-            try:
-                toggle = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "a.show_hide[rel]"))
-                )
-            except TimeoutException:
-                return None
-            rel_value = (toggle.get_attribute("rel") or "").strip()
-            try:
-                toggle.click()
-            except ElementClickInterceptedException:
-                driver.execute_script("arguments[0].click();", toggle)
-            panel_selector = rel_value if rel_value else None
-            if not panel_selector:
-                return rel_value or None
-
-            def panel_has_ticket_links(drv: Any) -> bool:
-                try:
-                    panel = drv.find_element(By.CSS_SELECTOR, panel_selector)
-                except Exception:
-                    return False
-                if not panel.is_displayed():
-                    return False
-                for anchor in panel.find_elements(By.TAG_NAME, "a"):
-                    href = anchor.get_attribute("href") or ""
-                    onclick = anchor.get_attribute("onclick") or ""
-                    if "/ticket/" in href or "noc-tickets.123.net" in href or "/ticket/" in onclick:
-                        return True
-                return False
-
-            try:
-                WebDriverWait(driver, 15).until(lambda d: panel_has_ticket_links(d))
-            except TimeoutException:
-                pass
-            return rel_value or None
-
         def _normalize_ticket_url(href: str, onclick: str) -> Optional[str]:
-            base_url = "https://noc-tickets.123.net"
             href_value = (href or "").strip()
             onclick_value = (onclick or "").strip()
+            origin = urllib.parse.urlsplit(driver.current_url)
+            base_origin = f"{origin.scheme}://{origin.netloc}" if origin.scheme and origin.netloc else "https://noc-tickets.123.net"
             if href_value:
-                if "noc-tickets.123.net" in href_value or "/ticket/" in href_value:
-                    if href_value.startswith("/"):
-                        return urllib.parse.urljoin(base_url, href_value)
-                    if href_value.startswith("http"):
-                        return href_value
-                    if "ticket/" in href_value:
-                        return urllib.parse.urljoin(base_url, href_value)
+                if href_value.startswith("http"):
+                    return href_value
+                return urllib.parse.urljoin(base_origin, href_value)
             if onclick_value and "/ticket/" in onclick_value:
-                full_match = re.search(r"https?://[^\"'\\s]+/ticket/\\d+", onclick_value)
+                full_match = re.search(r'https?://[^"\'\s]+/ticket/\d+', onclick_value)
                 if full_match:
                     return full_match.group(0)
-                id_match = re.search(r"/ticket/(\\d+)", onclick_value)
+                id_match = re.search(r"/ticket/(\d+)", onclick_value)
                 if id_match:
-                    return f"{base_url}/ticket/{id_match.group(1)}"
+                    return urllib.parse.urljoin(base_origin, f"/ticket/{id_match.group(1)}")
             return None
 
-        def scrape_ticket_links(driver: Any, panel_selector: Optional[str]) -> tuple[List[str], int, List[dict[str, str]]]:
+        def expand_trouble_tickets_section(driver: Any, wait: Any, debug_ctx: dict[str, Any]) -> None:
+            selectors = [
+                (By.XPATH, "//a[contains(normalize-space(),'Show/Hide Trouble Ticket Data')]"),
+                (By.XPATH, "//a[contains(normalize-space(),'Trouble Ticket Data') and contains(@class,'show_hide')]"),
+                (By.XPATH, "//a[contains(normalize-space(),'Trouble Ticket Data')]"),
+                (By.CSS_SELECTOR, "a.show_hide[rel*='slide'],a.show_hide[rel*='#slideid']"),
+                (By.CSS_SELECTOR, "a[rel*='slide'],a[href*='#slideid']"),
+            ]
+            last_exc = None
+            for by, selector in selectors:
+                try:
+                    elems = driver.find_elements(by, selector)
+                    debug_ctx.setdefault("selectors_tried", []).append(f"{by}:{selector} -> {len(elems)}")
+                    if not elems:
+                        continue
+                    toggle = elems[0]
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", toggle)
+                    clicked_selector = (toggle.get_attribute("rel") or toggle.get_attribute("href") or selector).strip()
+                    debug_ctx["clicked_selector"] = clicked_selector
+                    try:
+                        toggle.click()
+                    except ElementClickInterceptedException:
+                        driver.execute_script("arguments[0].click();", toggle)
+                    wait.until(lambda d: any(p.is_displayed() for p in d.find_elements(By.CSS_SELECTOR, clicked_selector if clicked_selector.startswith('#') else "div[id*='slide']")))
+                    return
+                except Exception as exc:
+                    last_exc = exc
+            raise RuntimeError(f"Unable to expand Trouble Ticket section: {last_exc}")
+
+        def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any]) -> List[str]:
+            candidate_tables = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
+            if not candidate_tables:
+                candidate_tables = driver.find_elements(By.XPATH, "//table")
             links: List[str] = []
-            seen = set()
+            seen: set[str] = set()
+            row_count = 0
             samples: List[dict[str, str]] = []
-            if not panel_selector:
-                return links, 0, samples
-            anchors = driver.find_elements(By.CSS_SELECTOR, f"{panel_selector} a")
-            for anchor in anchors:
-                href = anchor.get_attribute("href") or ""
-                onclick = anchor.get_attribute("onclick") or ""
-                if len(samples) < 10:
-                    samples.append({"href": href, "onclick": onclick})
-                url = _normalize_ticket_url(href, onclick)
-                if not url or url in seen:
-                    continue
-                seen.add(url)
-                links.append(url)
-            return links, len(anchors), samples
+            for table in candidate_tables:
+                rows = table.find_elements(By.XPATH, ".//tr[td]")
+                row_count = max(row_count, len(rows))
+                for row in rows:
+                    for anchor in row.find_elements(By.XPATH, ".//a"):
+                        href = anchor.get_attribute("href") or ""
+                        onclick = anchor.get_attribute("onclick") or ""
+                        if len(samples) < 10:
+                            samples.append({"href": href, "onclick": onclick})
+                        url = _normalize_ticket_url(href, onclick)
+                        if not url or url in seen:
+                            continue
+                        seen.add(url)
+                        links.append(url)
+            debug_ctx["table_row_count"] = row_count
+            debug_ctx["link_count"] = len(links)
+            debug_ctx["panel_anchor_samples"] = samples
+            return links
 
         all_tickets: dict[str, List[str]] = {}
 
         def process_handle(handle: str) -> List[str]:
-            print(f"[HANDLE] Starting {handle}")
-            debug_log_path = os.path.join(output_dir, f"debug_log_{handle}.txt")
-            debug_buffer = io.StringIO()
+            print(f"[HANDLE] Starting {handle}", flush=True)
+            debug_log_path = os.path.join(debug_dir, f"debug_log_{handle}.txt")
+            debug_lines: List[str] = []
             tickets: List[str] = []
+
+            def _dbg(msg: str) -> None:
+                line = f"{_iso_utc_now()} {msg}"
+                debug_lines.append(line)
+                if phase_logs:
+                    print(line, flush=True)
+
+            def _write_probe_and_artifacts(reason: str, debug_ctx: dict[str, Any]) -> None:
+                probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
+                probe_path = os.path.join(debug_dir, f"company_{handle}_probe.json")
+                with open(probe_path, "w", encoding="utf-8") as pf:
+                    json.dump(probe, pf, indent=2)
+                if dump_dom_on_fail:
+                    _write_text(os.path.join(debug_dir, f"company_{handle}_fail.html"), driver.page_source or "")
+                    try:
+                        driver.save_screenshot(os.path.join(debug_dir, f"company_{handle}_fail.png"))
+                    except Exception:
+                        pass
+                _dbg(f"failure_reason={reason} probe={probe_path}")
+
             try:
-                with contextlib.redirect_stdout(debug_buffer), contextlib.redirect_stderr(debug_buffer):
-                    print(f"[DEBUG] Navigated to: {driver.current_url}")
-                    print(f"[DEBUG] Processing handle: {handle}")
-                    save_debug_artifacts(handle, "before_search")
+                _dbg(f"current_url={driver.current_url} handle={handle}")
+                t_nav = time.monotonic()
+                _phase(1, "NAVIGATE", f"url={driver.current_url}", t_nav)
+                t_auth = time.monotonic()
+                _phase(2, "AUTH CHECK", f"logged_in={not _is_login_redirect(driver)}", t_auth)
+                t0 = time.monotonic()
+                _phase(3, "HANDLE PAGE", f"handle={handle} url={driver.current_url}", t0)
+                search_company(driver, handle)
+                if not wait_company_handle(driver, handle, timeout=20):
+                    raise RuntimeError(f"Company handle verification failed for {handle}")
+
+                wait = WebDriverWait(driver, 15)
+                debug_ctx: dict[str, Any] = {"handle": handle, "selectors_tried": []}
+                expand_ok = False
+                for attempt in range(1, 4):
                     try:
-                        search_company(driver, handle)
-                    except TimeoutException as exc:
-                        print(f"[ERROR] Search flow failed for {handle}: {exc}")
-                        save_debug_artifacts(handle, "search_failed")
-                        all_tickets[handle] = []
-                        return []
-                    if not wait_company_handle(driver, handle, timeout=20):
-                        print(f"[WARN] Company handle verification failed for {handle}")
-                        save_debug_artifacts(handle, "company_handle_timeout")
-                        all_tickets[handle] = []
-                        return []
-                    after_search_html = driver.page_source or ""
-                    try:
-                        after_search_png = driver.get_screenshot_as_png()
-                    except Exception:
-                        after_search_png = None
-                    panel_rel = reveal_trouble_ticket_data(driver)
-                    if not panel_rel:
-                        print(f"[WARN] Trouble Ticket Data toggle missing for {handle}")
-                        save_debug_artifacts(handle, "ticket_panel_missing")
-                        all_tickets[handle] = []
-                        return []
-                    after_toggle_html = driver.page_source or ""
-                    try:
-                        after_toggle_png = driver.get_screenshot_as_png()
-                    except Exception:
-                        after_toggle_png = None
-                    tickets, panel_anchor_count, panel_anchor_samples = scrape_ticket_links(driver, panel_rel)
-                    if not tickets:
-                        print(f"[TICKET] No URLs found for {handle}")
-                        print(f"[TICKET] toggle rel={panel_rel!r}")
-                        print(f"[TICKET] panel anchors={panel_anchor_count}")
-                        if panel_anchor_samples:
-                            print("[TICKET] panel sample anchors:")
-                            for sample in panel_anchor_samples:
-                                print(f"[TICKET] href={sample.get('href','')} onclick={sample.get('onclick','')}")
-                        if after_search_html:
-                            _write_text(os.path.join(output_dir, f"{handle}_after_search.html"), after_search_html)
-                        if after_search_png:
-                            with open(os.path.join(output_dir, f"{handle}_after_search.png"), "wb") as f:
-                                f.write(after_search_png)
-                        if after_toggle_html:
-                            _write_text(os.path.join(output_dir, f"{handle}_after_toggle.html"), after_toggle_html)
-                        if after_toggle_png:
-                            with open(os.path.join(output_dir, f"{handle}_after_toggle.png"), "wb") as f:
-                                f.write(after_toggle_png)
-                    all_tickets[handle] = tickets
-                    out_path = os.path.join(output_dir, f"tickets_{handle}.json")
-                    with open(out_path, "w", encoding="utf-8") as f:
-                        json.dump({"handle": handle, "tickets": tickets}, f, indent=2)
-                    print(f"[HANDLE] {handle} tickets={len(tickets)}")
+                        t_expand = time.monotonic()
+                        expand_trouble_tickets_section(driver, wait, debug_ctx)
+                        _phase(4, "EXPAND TICKETS", f"selector={debug_ctx.get('clicked_selector','')} attempt={attempt}", t_expand)
+                        wait.until(lambda d: len(extract_ticket_urls_from_company_page(d, debug_ctx)) > 0 or "no ticket" in (d.page_source or "").lower())
+                        expand_ok = True
+                        break
+                    except (StaleElementReferenceException, TimeoutException, RuntimeError) as exc:
+                        _dbg(f"expand_attempt={attempt} exception={exc}")
+                        if attempt == 3:
+                            _log_fail("EXPAND_TICKETS", handle, exc, debug_ctx)
+                            _write_probe_and_artifacts("expand_failed", debug_ctx)
+                            raise
+
+                if expand_ok:
+                    t_parse = time.monotonic()
+                    tickets = extract_ticket_urls_from_company_page(driver, debug_ctx)
+                    _phase(5, "PARSE TABLE", f"rows={debug_ctx.get('table_row_count',0)} links={len(tickets)}", t_parse)
+                if not tickets:
+                    print(f"[TICKET] No URLs found for {handle}", flush=True)
+                    _write_probe_and_artifacts("parse_no_urls", debug_ctx)
+
+                if edge_smoke_test:
+                    probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
+                    print(f"[SMOKE] handle={handle} probe={json.dumps(probe, sort_keys=True)}", flush=True)
+
+                all_tickets[handle] = tickets
+                out_path = os.path.join(output_dir, f"tickets_{handle}.json")
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump({"handle": handle, "tickets": tickets}, f, indent=2)
+                print(f"[HANDLE] {handle} tickets={len(tickets)}", flush=True)
             except InvalidSessionIdException as e:
-                print(f"[ERROR] Invalid session id while processing {handle}: {e}")
+                print(f"[ERROR] Invalid session id while processing {handle}: {e}", flush=True)
                 raise
             except Exception as e:
-                # Also print to console for immediate visibility
-                print(f"[ERROR] Exception for handle {handle}: {e}")
+                print(f"[ERROR] Exception for handle {handle}: {e}", flush=True)
             finally:
                 with open(debug_log_path, "w", encoding="utf-8") as dbg:
-                    dbg.write(debug_buffer.getvalue())
-                print(f"[HANDLE] Finished {handle}. Log: {debug_log_path}")
+                    dbg.write("\n".join(debug_lines) + "\n")
+                print(f"[HANDLE] Finished {handle}. Log: {debug_log_path}", flush=True)
             return tickets
 
         def is_invalid_session_error(err: Exception) -> bool:
@@ -2383,6 +2450,7 @@ def selenium_scrape_tickets(
                 f"scraped={total_ticket_scraped} skipped={total_ticket_skipped} failed={total_ticket_failed}"
             )
         if build_kb:
+            print(f"[{_iso_utc_now()}] [PHASE 07 BUILD KB] items_written=pending", flush=True)
             if not kb_jsonl:
                 kb_jsonl = os.path.join(output_dir, "kb.jsonl")
             build_kb_index(
@@ -2537,11 +2605,17 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true", help="Skip tickets already present in sqlite by ticket_id")
     parser.add_argument("--save-html", action="store_true", help="Save raw HTML per ticket_id")
     parser.add_argument("--save-screenshot", action="store_true", help="Save screenshot per ticket_id")
+    parser.add_argument("--phase-logs", dest="phase_logs", action="store_true", help="Emit phase-by-phase progress logs")
+    parser.add_argument("--no-phase-logs", dest="phase_logs", action="store_false", help="Disable phase logs")
+    parser.set_defaults(phase_logs=None)
+    parser.add_argument("--debug-dir", help="Directory for per-handle debug artifacts (default: --out)")
+    parser.add_argument("--dump-dom-on-fail", dest="dump_dom_on_fail", action="store_true", help="Save fail HTML/PNG/probe artifacts")
+    parser.add_argument("--no-dump-dom-on-fail", dest="dump_dom_on_fail", action="store_false", help="Disable fail HTML/PNG/probe artifacts")
+    parser.set_defaults(dump_dom_on_fail=True)
     args = parser.parse_args()
+    if args.phase_logs is None:
+        args.phase_logs = bool(args.show or args.save_html or args.save_screenshot)
 
-    if args.edge_smoke_test:
-        smoke_test_edge_driver()
-        return 0
     if args.self_test_auth_strategy:
         self_test_auth_strategy_profile_only()
         print("[INFO] Auth strategy self-test passed.")
@@ -2725,6 +2799,10 @@ def main() -> int:
         resume=args.resume,
         save_html=args.save_html,
         save_screenshot=args.save_screenshot,
+        phase_logs=args.phase_logs,
+        debug_dir=args.debug_dir or out_dir,
+        dump_dom_on_fail=args.dump_dom_on_fail,
+        edge_smoke_test=args.edge_smoke_test,
     )
     return 0
 
