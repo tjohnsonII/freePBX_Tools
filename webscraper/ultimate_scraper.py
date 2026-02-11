@@ -1467,6 +1467,111 @@ def _is_login_redirect(driver: Any) -> bool:
     return False
 
 
+def _is_keycloak_auth_redirect(driver: Any) -> bool:
+    current_url = (getattr(driver, "current_url", "") or "").lower()
+    if "keycloak-01.123.net" in current_url or "/protocol/openid-connect/auth" in current_url:
+        return True
+    try:
+        title = (driver.title or "").lower()
+        if "sign in" in title:
+            return True
+    except Exception:
+        pass
+    try:
+        html = (driver.page_source or "").lower()
+    except Exception:
+        return False
+    login_markers = (
+        "kc-form-login",
+        "id=\"username\"",
+        "name=\"username\"",
+        "id=\"password\"",
+        "name=\"password\"",
+        "/protocol/openid-connect/auth",
+    )
+    return any(marker in html for marker in login_markers)
+
+
+def _phase_line(phase_name: str, handle: str, url: str, started_at: float, status: str) -> None:
+    dt = max(0.0, time.monotonic() - started_at)
+    print(
+        f"[{_iso_utc_now()}] PHASE {phase_name} handle={handle or '-'} url={url or '-'} dt={dt:.2f}s status={status}",
+        flush=True,
+    )
+
+
+def _capture_auth_redirect_artifacts(driver: Any, out_dir: str, ticket_id: str) -> dict[str, str]:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_ticket = re.sub(r"[^A-Za-z0-9_-]", "_", ticket_id or "unknown")
+    base = os.path.join(out_dir, f"auth_redirect_{safe_ticket}_{ts}")
+    html_path = f"{base}.html"
+    png_path = f"{base}.png"
+    log_path = f"{base}.log"
+    os.makedirs(out_dir, exist_ok=True)
+    try:
+        _write_text(html_path, driver.page_source or "")
+    except Exception as exc:
+        print(f"[WARN] Could not save auth redirect HTML: {exc}", flush=True)
+    try:
+        driver.save_screenshot(png_path)
+    except Exception as exc:
+        print(f"[WARN] Could not save auth redirect screenshot: {exc}", flush=True)
+    try:
+        logs = driver.get_log("browser")
+        with open(log_path, "w", encoding="utf-8") as fh:
+            for entry in logs:
+                fh.write(f"{entry.get('level')} {entry.get('message')}\n")
+    except Exception as exc:
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.write(f"console_log_unavailable: {exc}\n")
+    return {"html": html_path, "png": png_path, "log": log_path}
+
+
+def ensure_noc_tickets_session(
+    driver: Any,
+    preauth_url: str,
+    timeout: int,
+    pause: bool,
+    out_dir: str,
+    handle: str,
+) -> bool:
+    phase_start = time.monotonic()
+    _phase_line("AUTH_WARMUP_START", handle=handle, url=preauth_url, started_at=phase_start, status="begin")
+    try:
+        driver.get(preauth_url)
+    except Exception as exc:
+        _phase_line("AUTH_WARMUP_TIMEOUT", handle=handle, url=preauth_url, started_at=phase_start, status=f"navigate_error:{exc}")
+        return False
+
+    if not _is_keycloak_auth_redirect(driver):
+        _phase_line("AUTH_WARMUP_OK", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="already_authenticated")
+        return True
+
+    _phase_line("AUTH_WARMUP_KEYCLOAK_DETECTED", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="redirect")
+    _capture_auth_redirect_artifacts(driver=driver, out_dir=out_dir, ticket_id="warmup")
+    if pause:
+        _phase_line("AUTH_WARMUP_WAITING_FOR_USER", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="manual_login_required")
+        print(
+            "[AUTH] Complete login in the visible Edge window, then return here. Waiting for authenticated noc-tickets session...",
+            flush=True,
+        )
+
+    deadline = time.monotonic() + max(timeout, 1)
+    while time.monotonic() < deadline:
+        try:
+            current_url = driver.current_url or ""
+            host = urllib.parse.urlparse(current_url).netloc.lower()
+            if not _is_keycloak_auth_redirect(driver) and "noc-tickets.123.net" in host:
+                _phase_line("AUTH_WARMUP_OK", handle=handle, url=current_url, started_at=phase_start, status="authenticated")
+                return True
+        except Exception:
+            pass
+        time.sleep(1.0)
+
+    _phase_line("AUTH_WARMUP_TIMEOUT", handle=handle, url=getattr(driver, "current_url", preauth_url) or preauth_url, started_at=phase_start, status="timeout")
+    return False
+
+
 def scrape_ticket_details(
     driver: Any,
     handle: str,
@@ -1475,6 +1580,12 @@ def scrape_ticket_details(
     max_tickets: Optional[int],
     save_html: bool,
     resume: bool,
+    preauth_noc_tickets: bool,
+    preauth_url: str,
+    preauth_timeout: int,
+    preauth_pause: bool,
+    retry_on_auth_redirect: int,
+    noc_tickets_authed: Optional[dict[str, bool]] = None,
 ) -> dict:
     bs4 = require_beautifulsoup()
     urls = [u for u in ticket_urls if u]
@@ -1491,6 +1602,7 @@ def scrape_ticket_details(
     skipped = 0
     failed = 0
     total = 0
+    session_state = noc_tickets_authed if noc_tickets_authed is not None else {"ok": False}
 
     for url in urls:
         if max_tickets is not None and total >= max_tickets:
@@ -1510,8 +1622,50 @@ def scrape_ticket_details(
             continue
         try:
             print(f"[{_iso_utc_now()}] [PHASE 06 SCRAPE TICKET] ticket_id={ticket_id} url={url}", flush=True)
-            driver.get(url)
-            _wait_for_ticket_ready(driver, timeout=25)
+            auth_fail = False
+            max_attempts = max(0, retry_on_auth_redirect) + 1
+            for attempt in range(1, max_attempts + 1):
+                driver.get(url)
+                redirected = _is_keycloak_auth_redirect(driver)
+                if not redirected:
+                    try:
+                        _wait_for_ticket_ready(driver, timeout=25)
+                    except Exception:
+                        redirected = _is_keycloak_auth_redirect(driver)
+                        if not redirected:
+                            raise
+                if not redirected:
+                    auth_fail = False
+                    break
+
+                auth_fail = True
+                _capture_auth_redirect_artifacts(driver=driver, out_dir=out_dir, ticket_id=ticket_id)
+                if preauth_noc_tickets:
+                    if not session_state.get("ok") or _is_keycloak_auth_redirect(driver):
+                        session_state["ok"] = ensure_noc_tickets_session(
+                            driver=driver,
+                            preauth_url=preauth_url,
+                            timeout=preauth_timeout,
+                            pause=preauth_pause,
+                            out_dir=out_dir,
+                            handle=handle,
+                        )
+                phase_started = time.monotonic()
+                _phase_line(
+                    "TICKET_RETRY",
+                    handle=handle,
+                    url=url,
+                    started_at=phase_started,
+                    status=f"attempt={attempt}/{max_attempts}",
+                )
+                if attempt >= max_attempts:
+                    break
+
+            if auth_fail:
+                failed += 1
+                print(f"[TICKET] failed {ticket_id}: auth_redirect_persisted", flush=True)
+                continue
+
             if _is_login_redirect(driver):
                 raise RuntimeError(f"login redirect detected at {driver.current_url}")
             if "/ticket/" not in (driver.current_url or "").lower():
@@ -1611,6 +1765,11 @@ def selenium_scrape_tickets(
     debug_dir: Optional[str] = None,
     dump_dom_on_fail: bool = True,
     edge_smoke_test: bool = False,
+    preauth_noc_tickets: bool = False,
+    preauth_url: str = "https://noc-tickets.123.net/",
+    preauth_timeout: int = 180,
+    preauth_pause: bool = True,
+    retry_on_auth_redirect: int = 2,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -2269,6 +2428,23 @@ def selenium_scrape_tickets(
                     last_exc = exc
             raise RuntimeError(f"Unable to expand Trouble Ticket section: {last_exc}")
 
+        def verify_trouble_ticket_rows(driver: Any, timeout: float) -> int:
+            end_at = time.monotonic() + timeout
+            last_rows = 0
+            while time.monotonic() < end_at:
+                candidate_tables = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
+                if not candidate_tables:
+                    candidate_tables = driver.find_elements(By.XPATH, "//table")
+                for table in candidate_tables:
+                    rows = len(table.find_elements(By.XPATH, ".//tr[td]"))
+                    last_rows = max(last_rows, rows)
+                    if rows >= 1:
+                        print(f"[{_iso_utc_now()}] PHASE EXPAND_TICKETS_VERIFY rows={rows}", flush=True)
+                        return rows
+                time.sleep(0.5)
+            print(f"[{_iso_utc_now()}] PHASE EXPAND_TICKETS_VERIFY rows={last_rows}", flush=True)
+            raise TimeoutException(f"Trouble ticket table rows not found within {timeout}s")
+
         def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any]) -> List[str]:
             candidate_tables = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
             if not candidate_tables:
@@ -2343,6 +2519,7 @@ def selenium_scrape_tickets(
                         t_expand = time.monotonic()
                         expand_trouble_tickets_section(driver, wait, debug_ctx)
                         _phase(4, "EXPAND TICKETS", f"selector={debug_ctx.get('clicked_selector','')} attempt={attempt}", t_expand)
+                        verify_trouble_ticket_rows(driver, timeout=8)
                         wait.until(lambda d: len(extract_ticket_urls_from_company_page(d, debug_ctx)) > 0 or "no ticket" in (d.page_source or "").lower())
                         expand_ok = True
                         break
@@ -2388,6 +2565,7 @@ def selenium_scrape_tickets(
         total_ticket_scraped = 0
         total_ticket_skipped = 0
         total_ticket_failed = 0
+        noc_tickets_session_state = {"ok": False}
         for handle in handles:
             retries = 0
             while True:
@@ -2402,6 +2580,12 @@ def selenium_scrape_tickets(
                             max_tickets=max_tickets,
                             save_html=save_html,
                             resume=resume,
+                            preauth_noc_tickets=preauth_noc_tickets,
+                            preauth_url=preauth_url,
+                            preauth_timeout=preauth_timeout,
+                            preauth_pause=preauth_pause,
+                            retry_on_auth_redirect=retry_on_auth_redirect,
+                            noc_tickets_authed=noc_tickets_session_state,
                         )
                         total_ticket_scraped += summary.get("scraped", 0)
                         total_ticket_skipped += summary.get("skipped", 0)
@@ -2605,6 +2789,15 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true", help="Skip tickets already present in sqlite by ticket_id")
     parser.add_argument("--save-html", action="store_true", help="Save raw HTML per ticket_id")
     parser.add_argument("--save-screenshot", action="store_true", help="Save screenshot per ticket_id")
+    parser.add_argument("--preauth-noc-tickets", dest="preauth_noc_tickets", action="store_true", help="Enable noc-tickets session warm-up when auth redirects are detected")
+    parser.add_argument("--no-preauth-noc-tickets", dest="preauth_noc_tickets", action="store_false", help="Disable noc-tickets session warm-up flow")
+    parser.set_defaults(preauth_noc_tickets=None)
+    parser.add_argument("--preauth-url", default="https://noc-tickets.123.net/", help="URL used for noc-tickets pre-auth warm-up")
+    parser.add_argument("--preauth-timeout", type=int, default=180, help="Timeout in seconds for noc-tickets pre-auth warm-up")
+    parser.add_argument("--preauth-pause", dest="preauth_pause", action="store_true", help="Pause for manual login in visible browser during noc-tickets pre-auth")
+    parser.add_argument("--no-preauth-pause", dest="preauth_pause", action="store_false", help="Do not pause for manual login during noc-tickets pre-auth")
+    parser.set_defaults(preauth_pause=True)
+    parser.add_argument("--retry-on-auth-redirect", type=int, default=2, help="Retries per ticket after auth redirect warm-up")
     parser.add_argument("--phase-logs", dest="phase_logs", action="store_true", help="Emit phase-by-phase progress logs")
     parser.add_argument("--no-phase-logs", dest="phase_logs", action="store_false", help="Disable phase logs")
     parser.set_defaults(phase_logs=None)
@@ -2615,6 +2808,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.phase_logs is None:
         args.phase_logs = bool(args.show or args.save_html or args.save_screenshot)
+    if args.preauth_noc_tickets is None:
+        args.preauth_noc_tickets = bool(args.scrape_ticket_details)
 
     if args.self_test_auth_strategy:
         self_test_auth_strategy_profile_only()
@@ -2803,6 +2998,11 @@ def main() -> int:
         debug_dir=args.debug_dir or out_dir,
         dump_dom_on_fail=args.dump_dom_on_fail,
         edge_smoke_test=args.edge_smoke_test,
+        preauth_noc_tickets=args.preauth_noc_tickets,
+        preauth_url=args.preauth_url,
+        preauth_timeout=args.preauth_timeout,
+        preauth_pause=args.preauth_pause,
+        retry_on_auth_redirect=args.retry_on_auth_redirect,
     )
     return 0
 
