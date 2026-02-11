@@ -185,11 +185,19 @@ def parse_ticket_id(url: str) -> Optional[str]:
     if not url:
         return None
     parsed = urllib.parse.urlparse(url)
+    query_pairs = urllib.parse.parse_qs(parsed.query or "")
+    for key in ("ticket_id", "id", "ticket"):
+        values = query_pairs.get(key) or []
+        for value in values:
+            numeric = re.search(r"\b(\d{12,})\b", value or "")
+            if numeric:
+                return numeric.group(1)
     path = parsed.path or ""
-    if not path:
-        return None
-    last_segment = path.rstrip("/").split("/")[-1]
-    return last_segment or None
+    for segment in reversed(path.rstrip("/").split("/")):
+        numeric = re.search(r"\b(\d{12,})\b", segment or "")
+        if numeric:
+            return numeric.group(1)
+    return None
 
 
 def parse_ticket_id_from_text(text: str) -> Optional[str]:
@@ -2399,6 +2407,61 @@ def selenium_scrape_tickets(
                     return urllib.parse.urljoin(base_origin, f"/ticket/{id_match.group(1)}")
             return None
 
+        def _extract_ticket_id_from_href(href: str) -> Optional[str]:
+            parsed = urllib.parse.urlparse(href or "")
+            query_pairs = urllib.parse.parse_qs(parsed.query or "")
+            for key in ("ticket_id", "id", "ticket"):
+                values = query_pairs.get(key) or []
+                for value in values:
+                    numeric = re.search(r"\b(\d{12,})\b", value or "")
+                    if numeric:
+                        return numeric.group(1)
+            path_parts = [p for p in (parsed.path or "").split("/") if p]
+            for part in reversed(path_parts):
+                numeric = re.search(r"\b(\d{12,})\b", part)
+                if numeric:
+                    return numeric.group(1)
+            return None
+
+        def _locate_trouble_ticket_table(driver: Any) -> Optional[Any]:
+            tables = driver.find_elements(By.XPATH, "//table")
+            for table in tables:
+                headers = [h.text.strip().lower() for h in table.find_elements(By.XPATH, ".//tr[1]//*[self::th or self::td]")]
+                has_ticket_id = any("ticket id" in header for header in headers)
+                has_subject = any("subject" in header for header in headers)
+                if has_ticket_id and has_subject:
+                    return table
+            return None
+
+        def _classify_ticket_link(href: str, link_text: str) -> tuple[bool, Optional[str], str]:
+            href_value = (href or "").strip()
+            text_value = (link_text or "").strip()
+            lowered_href = href_value.lower()
+            for excluded in ("/new_ticket", "dsx_circuits.cgi", "customers.cgi", "smb://", "file://"):
+                if excluded in lowered_href:
+                    return False, None, f"excluded_pattern:{excluded}"
+
+            text_match = re.fullmatch(r"\d{12,}", text_value)
+            if text_match:
+                return True, text_match.group(0), "text_ticket_id"
+
+            href_ticket_id = _extract_ticket_id_from_href(href_value)
+            if href_ticket_id:
+                parsed = urllib.parse.urlparse(href_value)
+                query_pairs = urllib.parse.parse_qs(parsed.query or "")
+                has_explicit_param = False
+                for key in ("ticket_id", "id", "ticket"):
+                    values = query_pairs.get(key) or []
+                    if any(re.search(r"\b\d+\b", value or "") for value in values):
+                        has_explicit_param = True
+                        break
+                if has_explicit_param:
+                    return True, href_ticket_id, "href_ticket_param"
+                if "/ticket/" in (parsed.path or ""):
+                    return True, href_ticket_id, "href_ticket_path"
+
+            return False, None, "missing_ticket_id_pattern"
+
         def expand_trouble_tickets_section(driver: Any, wait: Any, debug_ctx: dict[str, Any]) -> None:
             selectors = [
                 (By.XPATH, "//a[contains(normalize-space(),'Show/Hide Trouble Ticket Data')]"),
@@ -2432,10 +2495,8 @@ def selenium_scrape_tickets(
             end_at = time.monotonic() + timeout
             last_rows = 0
             while time.monotonic() < end_at:
-                candidate_tables = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
-                if not candidate_tables:
-                    candidate_tables = driver.find_elements(By.XPATH, "//table")
-                for table in candidate_tables:
+                table = _locate_trouble_ticket_table(driver)
+                if table is not None:
                     rows = len(table.find_elements(By.XPATH, ".//tr[td]"))
                     last_rows = max(last_rows, rows)
                     if rows >= 1:
@@ -2445,31 +2506,85 @@ def selenium_scrape_tickets(
             print(f"[{_iso_utc_now()}] PHASE EXPAND_TICKETS_VERIFY rows={last_rows}", flush=True)
             raise TimeoutException(f"Trouble ticket table rows not found within {timeout}s")
 
-        def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any]) -> List[str]:
-            candidate_tables = driver.find_elements(By.XPATH, "//table[.//a[contains(@href,'ticket') or contains(@onclick,'ticket')]]")
-            if not candidate_tables:
-                candidate_tables = driver.find_elements(By.XPATH, "//table")
+        def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any], log_links: bool = True) -> List[str]:
+            clicked_selector = as_str(debug_ctx.get("clicked_selector"))
+            panel_anchors: List[Any] = []
+            if clicked_selector.startswith("#"):
+                panel_elems = driver.find_elements(By.CSS_SELECTOR, clicked_selector)
+                if panel_elems:
+                    panel_anchors = panel_elems[0].find_elements(By.XPATH, ".//a")
+            if not panel_anchors:
+                panel_anchors = driver.find_elements(By.XPATH, "//a")
+            total_anchors_in_panel = len(panel_anchors)
+
+            table = _locate_trouble_ticket_table(driver)
+            if table is None:
+                debug_ctx["table_row_count"] = 0
+                debug_ctx["link_count"] = 0
+                debug_ctx["total_anchors_in_panel"] = total_anchors_in_panel
+                debug_ctx["anchors_in_table"] = 0
+                debug_ctx["accepted_ticket_links"] = 0
+                debug_ctx["rejected_links"] = 0
+                if log_links:
+                    print(
+                        f"[TICKET LINKS] total_anchors_in_panel={total_anchors_in_panel} anchors_in_table=0 "
+                        "accepted_ticket_links=0 rejected_links=0",
+                        flush=True,
+                    )
+                return []
+
             links: List[str] = []
             seen: set[str] = set()
-            row_count = 0
+            ticket_ids_seen: set[str] = set()
+            row_count = len(table.find_elements(By.XPATH, ".//tr[td]"))
             samples: List[dict[str, str]] = []
-            for table in candidate_tables:
-                rows = table.find_elements(By.XPATH, ".//tr[td]")
-                row_count = max(row_count, len(rows))
-                for row in rows:
-                    for anchor in row.find_elements(By.XPATH, ".//a"):
-                        href = anchor.get_attribute("href") or ""
-                        onclick = anchor.get_attribute("onclick") or ""
-                        if len(samples) < 10:
-                            samples.append({"href": href, "onclick": onclick})
-                        url = _normalize_ticket_url(href, onclick)
-                        if not url or url in seen:
-                            continue
-                        seen.add(url)
-                        links.append(url)
+            anchors_in_table = table.find_elements(By.XPATH, ".//a")
+            rejected_links = 0
+            rejected_logged = 0
+            for anchor in anchors_in_table:
+                href = anchor.get_attribute("href") or ""
+                onclick = anchor.get_attribute("onclick") or ""
+                link_text = (anchor.text or "").strip()
+                if len(samples) < 10:
+                    samples.append({"href": href, "onclick": onclick})
+                normalized_url = _normalize_ticket_url(href, onclick)
+                if not normalized_url:
+                    rejected_links += 1
+                    if log_links and rejected_logged < 10:
+                        print("REJECTED LINK reason=missing_href_or_onclick_url href=''", flush=True)
+                        rejected_logged += 1
+                    continue
+                accepted, ticket_id, reason = _classify_ticket_link(normalized_url, link_text)
+                if not accepted:
+                    rejected_links += 1
+                    if log_links and rejected_logged < 10:
+                        print(f"REJECTED LINK reason={reason} href={normalized_url}", flush=True)
+                        rejected_logged += 1
+                    continue
+                if not ticket_id or ticket_id in ticket_ids_seen:
+                    continue
+                ticket_ids_seen.add(ticket_id)
+                if normalized_url in seen:
+                    continue
+                seen.add(normalized_url)
+                links.append(normalized_url)
+                if log_links:
+                    print(f"ACCEPTED TICKET ticket_id={ticket_id} href={normalized_url}", flush=True)
+
             debug_ctx["table_row_count"] = row_count
             debug_ctx["link_count"] = len(links)
             debug_ctx["panel_anchor_samples"] = samples
+            debug_ctx["total_anchors_in_panel"] = total_anchors_in_panel
+            debug_ctx["anchors_in_table"] = len(anchors_in_table)
+            debug_ctx["accepted_ticket_links"] = len(links)
+            debug_ctx["rejected_links"] = rejected_links
+            if log_links:
+                print(
+                    f"[TICKET LINKS] total_anchors_in_panel={total_anchors_in_panel} "
+                    f"anchors_in_table={len(anchors_in_table)} accepted_ticket_links={len(links)} "
+                    f"rejected_links={rejected_links}",
+                    flush=True,
+                )
             return links
 
         all_tickets: dict[str, List[str]] = {}
@@ -2520,7 +2635,7 @@ def selenium_scrape_tickets(
                         expand_trouble_tickets_section(driver, wait, debug_ctx)
                         _phase(4, "EXPAND TICKETS", f"selector={debug_ctx.get('clicked_selector','')} attempt={attempt}", t_expand)
                         verify_trouble_ticket_rows(driver, timeout=8)
-                        wait.until(lambda d: len(extract_ticket_urls_from_company_page(d, debug_ctx)) > 0 or "no ticket" in (d.page_source or "").lower())
+                        wait.until(lambda d: len(extract_ticket_urls_from_company_page(d, debug_ctx, log_links=False)) > 0 or "no ticket" in (d.page_source or "").lower())
                         expand_ok = True
                         break
                     except (StaleElementReferenceException, TimeoutException, RuntimeError) as exc:
