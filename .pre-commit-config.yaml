@@ -6,6 +6,9 @@ repos:
         args:
           - "--baseline"
           - ".secrets.baseline"
+          - "--exclude-lines"
+          - '"integrity"\s*:\s*"sha(1|512)-[A-Za-z0-9+/=]+"'
+          - "--"
           # npm lockfiles contain high-entropy integrity hashes that are not secrets
           # (e.g., "integrity": "sha512-..."). Ignore those lines to avoid noise.
           - "--exclude-lines"

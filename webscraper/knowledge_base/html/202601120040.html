@@ -1,0 +1,2371 @@
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="shortcut icon" href="../../docs-assets/ico/favicon.png">
+
+    <title>202601120040</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="https://cdn.123.net/css/packages/bootstrap3.1.1.css" rel="stylesheet">
+    <!-- <link href="/dist-tickets/css/scroll.css" rel="stylesheet"> -->
+
+    <!-- Custom styles for this template -->
+    <link href="https://cdn.123.net/css/packages/starter-template.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link href="https://cdn.123.net/css/packages/sb-admin-2.css" rel="stylesheet">
+
+    <!-- Custom Fonts -->
+    <link href="https://cdn.123.net/css/packages/font-awesome.min.css" rel="stylesheet" type="text/css">
+
+    <!-- Custom styles for data_table -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.123.net/css/packages/jquery.dataTables.css">
+
+    <!-- Custom styles for date picker -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.123.net/css/packages/bootstrap-datetimepicker.min.css">
+
+    <!-- Just for debugging purposes. Don't actually copy this line! -->
+    <!--[if lt IE 9]><script src="../../docs-assets/js/ie8-responsive-file-warning.js"></script><![endif]-->
+
+    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.3.0/respond.min.js"></script>
+    <![endif]-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@4.x/css/materialdesignicons.min.css">
+    <link rel="stylesheet" href="https://cdn.123.net/css/packages/vuetify.min.css">
+  <style>
+/* "FILENAME: .ticket_t/_.css"*/
+.alert-success>.v-window {
+  background-color: #dff0d8;
+}
+
+.v-tabs {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+.estimated-minutes {
+  min-width: 160px;
+  max-width: 200px;
+}
+
+.button { 
+  padding: 10px 20px; 
+  margin-top: 5px;  
+  color: white; 
+  background-color: #007BFF; 
+  border: none; 
+  border-radius: 4px; 
+  cursor: pointer;
+}
+</style>
+<style type="text/css" id="vuetify-theme-stylesheet">.v-application a { color: #1976d2; }
+.v-application .primary {
+  background-color: #1976d2 !important;
+  border-color: #1976d2 !important;
+}
+.v-application .primary--text {
+  color: #1976d2 !important;
+  caret-color: #1976d2 !important;
+}
+.v-application .primary.lighten-5 {
+  background-color: #c7fdff !important;
+  border-color: #c7fdff !important;
+}
+.v-application .primary--text.text--lighten-5 {
+  color: #c7fdff !important;
+  caret-color: #c7fdff !important;
+}
+.v-application .primary.lighten-4 {
+  background-color: #a8e0ff !important;
+  border-color: #a8e0ff !important;
+}
+.v-application .primary--text.text--lighten-4 {
+  color: #a8e0ff !important;
+  caret-color: #a8e0ff !important;
+}
+.v-application .primary.lighten-3 {
+  background-color: #8ac5ff !important;
+  border-color: #8ac5ff !important;
+}
+.v-application .primary--text.text--lighten-3 {
+  color: #8ac5ff !important;
+  caret-color: #8ac5ff !important;
+}
+.v-application .primary.lighten-2 {
+  background-color: #6aaaff !important;
+  border-color: #6aaaff !important;
+}
+.v-application .primary--text.text--lighten-2 {
+  color: #6aaaff !important;
+  caret-color: #6aaaff !important;
+}
+.v-application .primary.lighten-1 {
+  background-color: #488fef !important;
+  border-color: #488fef !important;
+}
+.v-application .primary--text.text--lighten-1 {
+  color: #488fef !important;
+  caret-color: #488fef !important;
+}
+.v-application .primary.darken-1 {
+  background-color: #005eb6 !important;
+  border-color: #005eb6 !important;
+}
+.v-application .primary--text.text--darken-1 {
+  color: #005eb6 !important;
+  caret-color: #005eb6 !important;
+}
+.v-application .primary.darken-2 {
+  background-color: #00479b !important;
+  border-color: #00479b !important;
+}
+.v-application .primary--text.text--darken-2 {
+  color: #00479b !important;
+  caret-color: #00479b !important;
+}
+.v-application .primary.darken-3 {
+  background-color: #003180 !important;
+  border-color: #003180 !important;
+}
+.v-application .primary--text.text--darken-3 {
+  color: #003180 !important;
+  caret-color: #003180 !important;
+}
+.v-application .primary.darken-4 {
+  background-color: #001e67 !important;
+  border-color: #001e67 !important;
+}
+.v-application .primary--text.text--darken-4 {
+  color: #001e67 !important;
+  caret-color: #001e67 !important;
+}
+.v-application .secondary {
+  background-color: #424242 !important;
+  border-color: #424242 !important;
+}
+.v-application .secondary--text {
+  color: #424242 !important;
+  caret-color: #424242 !important;
+}
+.v-application .secondary.lighten-5 {
+  background-color: #c1c1c1 !important;
+  border-color: #c1c1c1 !important;
+}
+.v-application .secondary--text.text--lighten-5 {
+  color: #c1c1c1 !important;
+  caret-color: #c1c1c1 !important;
+}
+.v-application .secondary.lighten-4 {
+  background-color: #a6a6a6 !important;
+  border-color: #a6a6a6 !important;
+}
+.v-application .secondary--text.text--lighten-4 {
+  color: #a6a6a6 !important;
+  caret-color: #a6a6a6 !important;
+}
+.v-application .secondary.lighten-3 {
+  background-color: #8b8b8b !important;
+  border-color: #8b8b8b !important;
+}
+.v-application .secondary--text.text--lighten-3 {
+  color: #8b8b8b !important;
+  caret-color: #8b8b8b !important;
+}
+.v-application .secondary.lighten-2 {
+  background-color: #727272 !important;
+  border-color: #727272 !important;
+}
+.v-application .secondary--text.text--lighten-2 {
+  color: #727272 !important;
+  caret-color: #727272 !important;
+}
+.v-application .secondary.lighten-1 {
+  background-color: #595959 !important;
+  border-color: #595959 !important;
+}
+.v-application .secondary--text.text--lighten-1 {
+  color: #595959 !important;
+  caret-color: #595959 !important;
+}
+.v-application .secondary.darken-1 {
+  background-color: #2c2c2c !important;
+  border-color: #2c2c2c !important;
+}
+.v-application .secondary--text.text--darken-1 {
+  color: #2c2c2c !important;
+  caret-color: #2c2c2c !important;
+}
+.v-application .secondary.darken-2 {
+  background-color: #171717 !important;
+  border-color: #171717 !important;
+}
+.v-application .secondary--text.text--darken-2 {
+  color: #171717 !important;
+  caret-color: #171717 !important;
+}
+.v-application .secondary.darken-3 {
+  background-color: #000000 !important;
+  border-color: #000000 !important;
+}
+.v-application .secondary--text.text--darken-3 {
+  color: #000000 !important;
+  caret-color: #000000 !important;
+}
+.v-application .secondary.darken-4 {
+  background-color: #000000 !important;
+  border-color: #000000 !important;
+}
+.v-application .secondary--text.text--darken-4 {
+  color: #000000 !important;
+  caret-color: #000000 !important;
+}
+.v-application .accent {
+  background-color: #82b1ff !important;
+  border-color: #82b1ff !important;
+}
+.v-application .accent--text {
+  color: #82b1ff !important;
+  caret-color: #82b1ff !important;
+}
+.v-application .accent.lighten-5 {
+  background-color: #ffffff !important;
+  border-color: #ffffff !important;
+}
+.v-application .accent--text.text--lighten-5 {
+  color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+.v-application .accent.lighten-4 {
+  background-color: #f8ffff !important;
+  border-color: #f8ffff !important;
+}
+.v-application .accent--text.text--lighten-4 {
+  color: #f8ffff !important;
+  caret-color: #f8ffff !important;
+}
+.v-application .accent.lighten-3 {
+  background-color: #daffff !important;
+  border-color: #daffff !important;
+}
+.v-application .accent--text.text--lighten-3 {
+  color: #daffff !important;
+  caret-color: #daffff !important;
+}
+.v-application .accent.lighten-2 {
+  background-color: #bce8ff !important;
+  border-color: #bce8ff !important;
+}
+.v-application .accent--text.text--lighten-2 {
+  color: #bce8ff !important;
+  caret-color: #bce8ff !important;
+}
+.v-application .accent.lighten-1 {
+  background-color: #9fccff !important;
+  border-color: #9fccff !important;
+}
+.v-application .accent--text.text--lighten-1 {
+  color: #9fccff !important;
+  caret-color: #9fccff !important;
+}
+.v-application .accent.darken-1 {
+  background-color: #6596e2 !important;
+  border-color: #6596e2 !important;
+}
+.v-application .accent--text.text--darken-1 {
+  color: #6596e2 !important;
+  caret-color: #6596e2 !important;
+}
+.v-application .accent.darken-2 {
+  background-color: #467dc6 !important;
+  border-color: #467dc6 !important;
+}
+.v-application .accent--text.text--darken-2 {
+  color: #467dc6 !important;
+  caret-color: #467dc6 !important;
+}
+.v-application .accent.darken-3 {
+  background-color: #2364aa !important;
+  border-color: #2364aa !important;
+}
+.v-application .accent--text.text--darken-3 {
+  color: #2364aa !important;
+  caret-color: #2364aa !important;
+}
+.v-application .accent.darken-4 {
+  background-color: #004c90 !important;
+  border-color: #004c90 !important;
+}
+.v-application .accent--text.text--darken-4 {
+  color: #004c90 !important;
+  caret-color: #004c90 !important;
+}
+.v-application .error {
+  background-color: #ff5252 !important;
+  border-color: #ff5252 !important;
+}
+.v-application .error--text {
+  color: #ff5252 !important;
+  caret-color: #ff5252 !important;
+}
+.v-application .error.lighten-5 {
+  background-color: #ffe4d5 !important;
+  border-color: #ffe4d5 !important;
+}
+.v-application .error--text.text--lighten-5 {
+  color: #ffe4d5 !important;
+  caret-color: #ffe4d5 !important;
+}
+.v-application .error.lighten-4 {
+  background-color: #ffc6b9 !important;
+  border-color: #ffc6b9 !important;
+}
+.v-application .error--text.text--lighten-4 {
+  color: #ffc6b9 !important;
+  caret-color: #ffc6b9 !important;
+}
+.v-application .error.lighten-3 {
+  background-color: #ffa99e !important;
+  border-color: #ffa99e !important;
+}
+.v-application .error--text.text--lighten-3 {
+  color: #ffa99e !important;
+  caret-color: #ffa99e !important;
+}
+.v-application .error.lighten-2 {
+  background-color: #ff8c84 !important;
+  border-color: #ff8c84 !important;
+}
+.v-application .error--text.text--lighten-2 {
+  color: #ff8c84 !important;
+  caret-color: #ff8c84 !important;
+}
+.v-application .error.lighten-1 {
+  background-color: #ff6f6a !important;
+  border-color: #ff6f6a !important;
+}
+.v-application .error--text.text--lighten-1 {
+  color: #ff6f6a !important;
+  caret-color: #ff6f6a !important;
+}
+.v-application .error.darken-1 {
+  background-color: #df323b !important;
+  border-color: #df323b !important;
+}
+.v-application .error--text.text--darken-1 {
+  color: #df323b !important;
+  caret-color: #df323b !important;
+}
+.v-application .error.darken-2 {
+  background-color: #bf0025 !important;
+  border-color: #bf0025 !important;
+}
+.v-application .error--text.text--darken-2 {
+  color: #bf0025 !important;
+  caret-color: #bf0025 !important;
+}
+.v-application .error.darken-3 {
+  background-color: #9f0010 !important;
+  border-color: #9f0010 !important;
+}
+.v-application .error--text.text--darken-3 {
+  color: #9f0010 !important;
+  caret-color: #9f0010 !important;
+}
+.v-application .error.darken-4 {
+  background-color: #800000 !important;
+  border-color: #800000 !important;
+}
+.v-application .error--text.text--darken-4 {
+  color: #800000 !important;
+  caret-color: #800000 !important;
+}
+.v-application .info {
+  background-color: #2196f3 !important;
+  border-color: #2196f3 !important;
+}
+.v-application .info--text {
+  color: #2196f3 !important;
+  caret-color: #2196f3 !important;
+}
+.v-application .info.lighten-5 {
+  background-color: #d4ffff !important;
+  border-color: #d4ffff !important;
+}
+.v-application .info--text.text--lighten-5 {
+  color: #d4ffff !important;
+  caret-color: #d4ffff !important;
+}
+.v-application .info.lighten-4 {
+  background-color: #b5ffff !important;
+  border-color: #b5ffff !important;
+}
+.v-application .info--text.text--lighten-4 {
+  color: #b5ffff !important;
+  caret-color: #b5ffff !important;
+}
+.v-application .info.lighten-3 {
+  background-color: #95e8ff !important;
+  border-color: #95e8ff !important;
+}
+.v-application .info--text.text--lighten-3 {
+  color: #95e8ff !important;
+  caret-color: #95e8ff !important;
+}
+.v-application .info.lighten-2 {
+  background-color: #75ccff !important;
+  border-color: #75ccff !important;
+}
+.v-application .info--text.text--lighten-2 {
+  color: #75ccff !important;
+  caret-color: #75ccff !important;
+}
+.v-application .info.lighten-1 {
+  background-color: #51b0ff !important;
+  border-color: #51b0ff !important;
+}
+.v-application .info--text.text--lighten-1 {
+  color: #51b0ff !important;
+  caret-color: #51b0ff !important;
+}
+.v-application .info.darken-1 {
+  background-color: #007cd6 !important;
+  border-color: #007cd6 !important;
+}
+.v-application .info--text.text--darken-1 {
+  color: #007cd6 !important;
+  caret-color: #007cd6 !important;
+}
+.v-application .info.darken-2 {
+  background-color: #0064ba !important;
+  border-color: #0064ba !important;
+}
+.v-application .info--text.text--darken-2 {
+  color: #0064ba !important;
+  caret-color: #0064ba !important;
+}
+.v-application .info.darken-3 {
+  background-color: #004d9f !important;
+  border-color: #004d9f !important;
+}
+.v-application .info--text.text--darken-3 {
+  color: #004d9f !important;
+  caret-color: #004d9f !important;
+}
+.v-application .info.darken-4 {
+  background-color: #003784 !important;
+  border-color: #003784 !important;
+}
+.v-application .info--text.text--darken-4 {
+  color: #003784 !important;
+  caret-color: #003784 !important;
+}
+.v-application .success {
+  background-color: #4caf50 !important;
+  border-color: #4caf50 !important;
+}
+.v-application .success--text {
+  color: #4caf50 !important;
+  caret-color: #4caf50 !important;
+}
+.v-application .success.lighten-5 {
+  background-color: #dcffd6 !important;
+  border-color: #dcffd6 !important;
+}
+.v-application .success--text.text--lighten-5 {
+  color: #dcffd6 !important;
+  caret-color: #dcffd6 !important;
+}
+.v-application .success.lighten-4 {
+  background-color: #beffba !important;
+  border-color: #beffba !important;
+}
+.v-application .success--text.text--lighten-4 {
+  color: #beffba !important;
+  caret-color: #beffba !important;
+}
+.v-application .success.lighten-3 {
+  background-color: #a2ff9e !important;
+  border-color: #a2ff9e !important;
+}
+.v-application .success--text.text--lighten-3 {
+  color: #a2ff9e !important;
+  caret-color: #a2ff9e !important;
+}
+.v-application .success.lighten-2 {
+  background-color: #85e783 !important;
+  border-color: #85e783 !important;
+}
+.v-application .success--text.text--lighten-2 {
+  color: #85e783 !important;
+  caret-color: #85e783 !important;
+}
+.v-application .success.lighten-1 {
+  background-color: #69cb69 !important;
+  border-color: #69cb69 !important;
+}
+.v-application .success--text.text--lighten-1 {
+  color: #69cb69 !important;
+  caret-color: #69cb69 !important;
+}
+.v-application .success.darken-1 {
+  background-color: #2d9437 !important;
+  border-color: #2d9437 !important;
+}
+.v-application .success--text.text--darken-1 {
+  color: #2d9437 !important;
+  caret-color: #2d9437 !important;
+}
+.v-application .success.darken-2 {
+  background-color: #00791e !important;
+  border-color: #00791e !important;
+}
+.v-application .success--text.text--darken-2 {
+  color: #00791e !important;
+  caret-color: #00791e !important;
+}
+.v-application .success.darken-3 {
+  background-color: #006000 !important;
+  border-color: #006000 !important;
+}
+.v-application .success--text.text--darken-3 {
+  color: #006000 !important;
+  caret-color: #006000 !important;
+}
+.v-application .success.darken-4 {
+  background-color: #004700 !important;
+  border-color: #004700 !important;
+}
+.v-application .success--text.text--darken-4 {
+  color: #004700 !important;
+  caret-color: #004700 !important;
+}
+.v-application .warning {
+  background-color: #fb8c00 !important;
+  border-color: #fb8c00 !important;
+}
+.v-application .warning--text {
+  color: #fb8c00 !important;
+  caret-color: #fb8c00 !important;
+}
+.v-application .warning.lighten-5 {
+  background-color: #ffff9e !important;
+  border-color: #ffff9e !important;
+}
+.v-application .warning--text.text--lighten-5 {
+  color: #ffff9e !important;
+  caret-color: #ffff9e !important;
+}
+.v-application .warning.lighten-4 {
+  background-color: #fffb82 !important;
+  border-color: #fffb82 !important;
+}
+.v-application .warning--text.text--lighten-4 {
+  color: #fffb82 !important;
+  caret-color: #fffb82 !important;
+}
+.v-application .warning.lighten-3 {
+  background-color: #ffdf67 !important;
+  border-color: #ffdf67 !important;
+}
+.v-application .warning--text.text--lighten-3 {
+  color: #ffdf67 !important;
+  caret-color: #ffdf67 !important;
+}
+.v-application .warning.lighten-2 {
+  background-color: #ffc24b !important;
+  border-color: #ffc24b !important;
+}
+.v-application .warning--text.text--lighten-2 {
+  color: #ffc24b !important;
+  caret-color: #ffc24b !important;
+}
+.v-application .warning.lighten-1 {
+  background-color: #ffa72d !important;
+  border-color: #ffa72d !important;
+}
+.v-application .warning--text.text--lighten-1 {
+  color: #ffa72d !important;
+  caret-color: #ffa72d !important;
+}
+.v-application .warning.darken-1 {
+  background-color: #db7200 !important;
+  border-color: #db7200 !important;
+}
+.v-application .warning--text.text--darken-1 {
+  color: #db7200 !important;
+  caret-color: #db7200 !important;
+}
+.v-application .warning.darken-2 {
+  background-color: #bb5900 !important;
+  border-color: #bb5900 !important;
+}
+.v-application .warning--text.text--darken-2 {
+  color: #bb5900 !important;
+  caret-color: #bb5900 !important;
+}
+.v-application .warning.darken-3 {
+  background-color: #9d4000 !important;
+  border-color: #9d4000 !important;
+}
+.v-application .warning--text.text--darken-3 {
+  color: #9d4000 !important;
+  caret-color: #9d4000 !important;
+}
+.v-application .warning.darken-4 {
+  background-color: #802700 !important;
+  border-color: #802700 !important;
+}
+.v-application .warning--text.text--darken-4 {
+  color: #802700 !important;
+  caret-color: #802700 !important;
+}</style></head>
+
+  <body style="">
+
+    <div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+      <div class="container-non-responsive">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"><img style="height:25px;" src="https://portal.123.net/img/123Logo.jpg"></a>
+        </div>
+        <div class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Administration<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+                <li><a href="/view_all">Support Tickets</a></li>
+                <li><a href="/view/hosted">Hosted Tickets</a></li>
+                <li><a href="/view_residential_restoration">Residential Tickets</a></li>
+                <li><a href="/view_noc">NOC Tickets</a></li>
+                <li><a href="/view_billing">Billing Tickets</a></li>
+                <li><a href="/view_facilities">Facilities Tickets</a></li>
+                <li><a href="/view_change_mgmt">Change Management Tickets</a></li>
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Accounting<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+                <li><a href="https://portal.123.net/admin/accounting_invitar.cgi">Accounting Invitar</a></li>
+                <li><a href="https://secure.123.net/cgi-bin/web_interface/dev/roi.cgi">ROI Calculator</a></li>
+                <li><a href="https://portal.123.net/admin/taxes.cgi">Taxes Table</a></li>
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Manage IP<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+                <li><a href="https://portal.123.net/admin/ip_devices.cgi">IP Devices</a></li>
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Ordering<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">PRI/ISDN<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Trunking<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+              </ul>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Virtual Services<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+              </ul>
+            </li>
+<!--
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Managed Numbers<b class="caret"></b></a>
+              <ul class="dropdown-menu">
+              </ul>
+            </li>
+-->
+          </ul>
+        </div><!--/.nav-collapse -->
+      </div>
+    </div>
+
+
+      <div class="starter-template">
+    <div class="container">
+    <!--<div class="container-non-responsive">-->
+
+
+<div id="ticket_app"><div data-app="true" class="v-application v-application--is-ltr theme--light" id="app"><div class="v-application--wrap"><div class="container"><form action="/update_ticket/202601120040" method="post" enctype="multipart/form-data" id="main_form" onsubmit="return verify()" class="form-horizontal"><div class="row"><div class="col-xs-12"><legend><b>Company: </b>Kavitha Ponduri MD PC(KPM)
+              <b>Id: </b>202601120040
+              <b>Subj:</b> Call on Park
+            </legend></div></div> <div class="row"><div class="col-xs-6"><!----> <div class="alert alert-success" style="max-height: 50vh; overflow-y: auto;"><div class="v-window v-item-group theme--light v-tabs-items"><div class="v-window__container" style=""><div class="v-window-item v-window-item--active"><div class="container"><div class="row no-gutters"><!----> <div class="col"><input id="contact_name_0" placeholder="Contact Name" name="contact_name" type="text" disabled="disabled" class="form-control input-sm"></div> <div class="col col-5"><input id="contact_email_0" placeholder="Email" name="contact_email" type="text" disabled="disabled" class="form-control input-sm"></div> <div class="col"><input id="contact_phone_0" placeholder="Number" name="contact_phone" type="text" disabled="disabled" class="form-control input-sm"></div> <div class="col col-1"><!----></div></div></div> <!----> <button type="button" disabled="disabled" class="v-btn v-btn--disabled v-btn--text theme--light v-size--small"><span class="v-btn__content">Add Contact</span></button></div><!----></div></div></div> <div class="alert alert-warning"><div class="form-group"><label class="col-xs-4 control-label">Intrusive Testing:</label> <div class="col-xs-8"><select id="auth_test" name="auth_test" class="form-control input-sm"><option value="n">Not Authorized</option> <option value="y">Authorized</option></select></div></div> <!----> <div class="form-group"><label class="col-xs-4 control-label">Dispatch:</label> <div class="col-xs-8"><select id="auth_dispatch" name="auth_dispatch" class="form-control input-sm"><option value="y">Authorized</option> <option value="n">Not Authorized</option></select></div></div> <!----> <!----> <!----> <!----> <!----> <!----> <!----> <!----></div> <div class="alert bg-danger"><h4>Associated Files</h4><table id="files" style="width: 100%;"><tbody><tr><th>File Name</th> <th>File Size (bytes)</th> <th>Distinction</th> <th>Description</th> <th>Delete</th></tr></tbody></table></div></div> <div class="col-xs-6"><div class="alert alert-info"><h4>Ticket Information</h4> <div class="form-group"><label class="col-xs-3 control-label">Status:</label> <input type="hidden" id="status_old" name="status_old" value="c"> <div class="col-xs-4"><select id="status" name="status" onchange="show_hide_hold(this)" class="form-control input-sm"><option value="o">Open</option> <option value="t">Open Timer</option> <option value="p">Close Pending</option> <option value="c" selected="selected">Close Ticket</option></select> <input type="hidden" id="status_changed" name="status_changed" value="n"></div></div> <div id="show_hold" class="form-group"><label class="col-xs-3 control-label">Hold 24 hr:</label> <div class="col-xs-7"><input type="hidden" id="close_time_old" name="close_time_old" value="24"> <input id="close_datepicker" name="close_datepicker" type="text" value="2026-01-13 17:00:00" class="form-control input-group date form_datetime"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Type:</label> <div class="col-xs-7"><select id="priority" name="priority" onchange="EventBus.$emit('change-detected')" class="form-control input-sm"><option value="1">Standard</option> <option value="hosted">Hosted</option> <option value="noc">NOC</option> <option value="billing">Billing</option> <option value="facilities">Facilities</option> <option value="proactive">Proactive</option> <option value="smarthands">Smart Hands</option></select></div></div> <div class="form-group"><label class="col-xs-3 control-label">Close Ticket Narrative:</label> <div class="col-xs-7"><select id="close_narrative" name="close_narrative" class="form-control input-sm"><option value=""></option> <option value="Changes made - Phone/User Configuration Update">Changes made - Phone/User Configuration Update</option><option value="Changes made - PBX Call Flow Changes">Changes made - PBX Call Flow Changes</option><option value="Changes made - Firewall or Switch Settings Updated">Changes made - Firewall or Switch Settings Updated</option><option value="Incident resolved - Rebooted Phone">Incident resolved - Rebooted Phone</option><option value="Incident resolved - Rebooted 123NET Firewall/Switch">Incident resolved - Rebooted 123NET Firewall/Switch</option><option value="Incident resolved - Rebooted Customer Firewall/Switch">Incident resolved - Rebooted Customer Firewall/Switch</option><option value="Incident resolved - Replaced Phone">Incident resolved - Replaced Phone</option><option value="Incident resolved - Replaced 123NET Firewall/Switch">Incident resolved - Replaced 123NET Firewall/Switch</option><option value="Incident resolved - Softphone or Application issue">Incident resolved - Softphone or Application issue</option><option value="No action taken - Provided advice/ training">No action taken - Provided advice/ training</option><option value="No action taken - NTF or canceled request">No action taken - NTF or canceled request</option><option value="No action taken - Customer or Vendor Resolved">No action taken - Customer or Vendor Resolved</option><option value="No action taken - Duplicate ticket">No action taken - Duplicate ticket</option><option value="Turnup Ticket">Turnup Ticket</option><option value="Other or Complex (see notes)">Other or Complex (see notes)</option><option value="Forced error, tech induced error">Forced error, tech induced error</option> <option value="other">Other</option></select></div></div> <!----> <div class="form-group"><label class="col-xs-3 control-label">External ID:</label> <div class="col-xs-7"><input id="ext_id" name="ext_id" type="text" value="Parked Calls Disconnect After 4 Minutes" class="form-control input-sm"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Circuit ID:</label> <div class="col-xs-7"><input id="ckt_id" name="ckt_id" type="text" value="" class="form-control input-sm"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Born/Updated:</label> <div class="col-xs-7"><p class="form-control-static">2026-01-12 16:08:34 <b>-</b> 2026-01-13 16:59:51</p></div></div> <div class="form-group"><label class="col-xs-3 control-label">Ticket Complete:</label> <div class="col-xs-7"><input type="checkbox" id="myCheckbox" name="ticketCompleteCheckbox" checked="checked" class="form-control input-sm" style="width: 15%;"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Dispatch Needed:</label> <div class="col-xs-7"><input type="checkbox" id="dispatchCheckbox" name="dispatchCheckbox" class="form-control input-sm" style="width: 15%;"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Ticket Visible to Customer:</label> <div class="col-xs-7"><input type="checkbox" id="ticketVisible" name="ticketVisible" class="form-control input-sm" style="width: 15%;"></div></div> <div class="form-group"><label class="col-xs-3 control-label">Resolved Timestamp:</label> <div class="col-xs-7"><p class="form-control-static">2026-01-12 16:24:02</p></div></div></div></div></div> <div class="row"><a id="assign" onclick="check_lock('tjohnson')">Acquire Ticket Lock (I plan to update)</a> <a id="unassign" onclick="update_tech('NONE')">Release Ticket Lock (I do not plan to update)</a></div> <div class="row"><div class="col-xs-12 update"><div class="alert" style="background-color: rgb(230, 230, 250);"><h4>Internal 'Next Action' Field
+                <div class="v-input ml-2 d-inline-block estimated-minutes v-input--is-label-active v-input--is-dirty v-input--dense theme--light v-text-field v-text-field--is-booted v-text-field--placeholder"><div class="v-input__control"><div class="v-input__slot"><div class="v-text-field__slot"><label for="input-8" class="v-label v-label--active theme--light" style="left: 0px; right: auto; position: absolute;">Estimated Minutes</label><input name="next_action_update_minutes_spent" min="0" max="32767" inputmode="numeric" id="input-8" type="number"></div></div><div class="v-text-field__details"><div class="v-messages theme--light"><div class="v-messages__wrapper"></div></div></div></div></div></h4> <input type="hidden" id="data_int_next_old" name="data_int_next_old" value=""> <textarea id="data_int_next" name="data_int_next" placeholder="Enter Internal Update Here" class="form-control" style="height: 150px;"></textarea></div></div></div> <div class="row"><div class="col-xs-12 update"><div class="alert bg-success"><h4>
+                Update External Data 
+                <div class="v-input ml-2 d-inline-block v-input--hide-details v-input--dense theme--light v-text-field v-text-field--is-booted v-text-field--enclosed v-text-field--outlined v-text-field--placeholder v-select v-autocomplete"><div class="v-input__control"><div role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-owns="list-11" class="v-input__slot"><fieldset aria-hidden="true"><legend style="width: 0px;"><span class="notranslate">​</span></legend></fieldset><div class="v-select__slot"><input id="input-11" placeholder="Primary Narratives" type="text" autocomplete="off"><div class="v-input__append-inner"><div></div></div><div class="v-input__append-inner"><div class="v-input__icon v-input__icon--append"><i aria-hidden="true" class="v-icon notranslate mdi mdi-menu-down theme--light"></i></div></div><input type="hidden"></div><div class="v-menu"><!----></div></div></div></div> <div class="v-input ml-2 d-inline-block estimated-minutes v-input--is-label-active v-input--is-dirty v-input--dense theme--light v-text-field v-text-field--is-booted v-text-field--placeholder"><div class="v-input__control"><div class="v-input__slot"><div class="v-text-field__slot"><label for="input-14" class="v-label v-label--active theme--light" style="left: 0px; right: auto; position: absolute;">Estimated Minutes</label><input name="ext_update_minutes_spent" min="0" max="32767" inputmode="numeric" id="input-14" type="number"></div></div><div class="v-text-field__details"><div class="v-messages theme--light"><div class="v-messages__wrapper"></div></div></div></div></div></h4> <textarea id="ext_update" name="data" placeholder="Enter Ticket Update Here" class="form-control" style="height: 75px;"></textarea> <button type="button" class="button">Generate Ticket Comment</button> <button type="button" class="button">Paraphrase Comment</button></div></div></div> <div class="row"><div class="col-xs-12 update"><div class="alert bg-danger"><h4 class="d-flex align-items-center"><span class="mt-3 mr-3">Update Internal Data</span> <!----> <div class="v-input ml-2 d-inline-block estimated-minutes v-input--is-label-active v-input--is-dirty v-input--dense theme--light v-text-field v-text-field--is-booted v-text-field--placeholder"><div class="v-input__control"><div class="v-input__slot"><div class="v-text-field__slot"><label for="input-17" class="v-label v-label--active theme--light" style="left: 0px; right: auto; position: absolute;">Estimated Minutes</label><input name="int_update_minutes_spent" min="0" max="32767" inputmode="numeric" id="input-17" type="number"></div></div><div class="v-text-field__details"><div class="v-messages theme--light"><div class="v-messages__wrapper"></div></div></div></div></div></h4> <textarea id="data_int" name="data_int" placeholder="Enter Internal Update Here" class="form-control" style="height: 75px;"></textarea></div></div></div> <div class="row"><div class="col-xs-12 update"><div class="alert" style="background-color: rgb(252, 248, 227);"><h4>Upload Files</h4><h4><p style="font-size: 12px;">Note: Max file size is 16MB.</p> <input id="files_upload" name="files_upload" type="file"> <br> <textarea id="files_desc" name="files_desc" placeholder="Enter File Description Here" class="form-control" style="height: 75px;"></textarea> <input id="perm_level" name="perm_level" type="checkbox" value="external"> File is external
+            </h4></div></div></div> <div class="row"><div class="col-xs-4"><input type="hidden" name="tstamp_modified" value="2026-01-13 16:59:51"> <button name="submit_type" value="leave" id="submit_btn" class="btn btn-success">Update and Leave</button> <button name="submit_type" value="stay" id="submit_btn" class="btn btn-primary">Update and Stay</button></div> <div update="" class="col-xs-8"><h4><span id="demo"></span></h4> <h4><span id="tech"></span></h4></div></div> <input type="hidden" name="ticket_id" value="202601120040"></form> <div class="row"><div class="col-xs-12"><h4>Ticket Thread <a onclick="show_hide_internal()">show/hide internal</a></h4> <div class="alert bg-info"><div class="alert bg-success"><b>123 Tech: Andries Menko</b><br> <span id="helpBlock" class="help-block"><b>Posted At: 2026-01-12 16:24:02</b></span> <p class="text-success note" style="white-space: pre-line; display: inline;">
+                Good afternoon,
+
+We have increased the park time to 10 minutes.
+
+Please let us know if there is anything else you need help with.
+
+Thanks!
+              </p></div> <div class="alert bg-danger internal" style="display: block;"><b>123 Internal Note: Andries Menko</b><br> <span id="helpBlock" class="help-block"><b>Posted At: 2026-01-12 16:24:02</b></span> <span id="helpBlock" class="help-block"><p class="font-weight-bold">Ticket was set to closd pending.</p></span> <p class="text-danger note" style="white-space: pre-line; display: inline;">
+                Changed Parking from 300 to 600 seconds.
+
+CP for 24 hours.
+              </p></div> <div class="alert bg-danger internal" style="display: block;"><b>123 Internal Note: Jessica Braendle</b><br> <span id="helpBlock" class="help-block"><b>Posted At: 2026-01-12 16:11:50</b></span> <p class="text-danger note" style="white-space: pre-line; display: inline;"></p></div> <div class="alert bg-warning"><b>Customer: Vasu  Ponduri</b><br> <span id="helpBlock" class="help-block"><b>Posted At: 2026-01-12 16:08:34</b></span> <p class="text-warning note" style="white-space: pre-line; display: inline;">
+                When the call is on park, it gets disconnected after 4 min.   Can you change that to 10 min.  Thanks
+              </p></div></div></div></div> <div class="row"><table cellspacing="0" width="100%"></table></div></div> <div class="v-dialog__container"><!----></div> <div class="v-dialog__container" style="z-index: 2000;"><!----></div> <div class="v-snack v-snack--bottom v-snack--has-background v-snack--multi-line"><div class="v-snack__wrapper v-sheet theme--dark red" style="display: none;"><div role="status" aria-live="polite" class="v-snack__content"></div><div class="v-snack__action "></div></div></div></div></div></div> <!-- #ticket_app -->
+
+
+  </div>
+</div>
+  
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://cdn.123.net/js/packages/jquery-1.10.2.min.js"></script>
+    <script type="text/javascript" language="javascript" src="https://cdn.123.net/js/packages/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.123.net/js/packages/bootstrap.min.js"></script>
+    <script type="text/javascript" language="javascript" src="https://cdn.123.net/js/packages/moment.js"></script>
+    <script type="text/javascript" language="javascript" src="https://cdn.123.net/js/packages/bootstrap-datetimepicker.min.js"></script>
+
+    <script type="text/javascript">
+    $(".form_datetime").datetimepicker({
+      minDate: 'now', 
+      format: "YYYY-MM-DD HH:mm", 
+      stepping:'10', 
+      sideBySide:true
+    }).on('dp.change',function(e){
+      $("#close_datepicker").val(e.date.format("YYYY-MM-DD HH:mm"));
+      $("#status_changed").val("y");
+    });
+
+ </script>   
+
+    <script type="text/javascript" class="init">
+      $(document).ready(function() {
+        $('#example').DataTable({
+          "aLengthMenu": [[-1, 10, 50], ["All",10, 50]],
+         // "order": [[ 0, "asc"], [3, "desc" ]]
+         // "ordering": false,
+            "aaSorting": []
+        });
+      } );
+    </script>
+
+  <script src="https://cdn.123.net/js/packages/axios.min.js"></script>
+  <script src="https://cdn.123.net/js/packages/lodash.min.js"></script>
+    <script src="https://cdn.123.net/js/packages/vue.min.js"></script>
+
+    <script src="https://cdn.123.net/js/packages/vuetify.js"></script>
+    <script src="https://cdn.123.net/js/packages/vuetify-datetime-picker.min.js"></script>
+  <script>
+// "FILENAME: .ticket_t/_.js"
+var EventBus = new Vue({});
+
+function show_hide_internal(elem) {
+ $(".internal").toggle();
+}
+
+$(".update").show();
+function show_hide_update(elem) {
+ $(".update").toggle();
+}
+
+$(".header").hide();
+function show_hide_header(elem) {
+ $(".header").toggle();
+}
+
+function show_hide_hold(elem) {
+  if(elem.value == 'p'){
+   document.getElementById('show_hold').style.display = "block";
+  }
+  else if (elem.value == 't'){
+   document.getElementById('show_hold').style.display = "block";
+  }else {
+   document.getElementById('show_hold').style.display = "none";
+  }
+}
+
+function remove_field(name) {
+  var x = document.getElementById(name);
+  x.parentNode.removeChild(x);
+  EventBus.$emit('change-detected');
+}
+
+//AJAX
+
+var state = '';
+var current_lock = '';
+
+function loadDoc() {
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (xhttp.readyState == 4 && xhttp.status == 200) {
+      var resp = xhttp.responseText;
+      var obj = jQuery.parseJSON(resp);
+ //     document.getElementById("demo").innerHTML = 'Currently viewing: ' + obj.viewers;
+      document.getElementById("tech").innerHTML = 'Ticket Currently Locked By: ' + obj.tech;
+      current_lock = obj.tech;
+      lockdown(obj.tech);
+      setTimeout(function(){loadDoc();}, 30000);
+    }
+  };
+  xhttp.open("GET", "/ticket_ajax?ticket=202601120040&user=tjohnson", true);
+  xhttp.send();
+}
+
+function get_data_from_server() {
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (xhttp.readyState == 4 && xhttp.status == 200) {
+      var resp = xhttp.responseText;
+      var obj = jQuery.parseJSON(resp);
+ //     document.getElementById("demo").innerHTML = 'Currently viewing: ' + obj.viewers;
+      document.getElementById("tech").innerHTML = 'Ticket Currently Locked By: ' + obj.tech;
+      current_lock = obj.tech;
+    }
+  };
+  xhttp.open("GET", "/ticket_ajax?ticket=202601120040&user=tjohnson", true);
+  xhttp.send();
+}
+
+function check_lock(name){
+  get_data_from_server();
+  var tech = name;
+  if((current_lock != '') && (tech != current_lock)){
+    var r = confirm("This ticket is locked by " + current_lock + ". Press OK to take over the lock on this ticket.");
+    if (r == true) {
+      update_tech(tech);
+    } else {
+    }
+  } else {
+    update_tech(tech);
+  }
+}
+
+function update_tech(name) {
+  var tech = name;
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (xhttp.readyState == 4 && xhttp.status == 200) {
+      var resp = xhttp.responseText;
+      var obj = jQuery.parseJSON(resp);
+//      document.getElementById("demo").innerHTML = 'Currently viewing: ' + obj.viewers;
+      document.getElementById("tech").innerHTML = 'Ticket Currently Locked By: ' + obj.tech;
+      current_lock = obj.tech;
+      lockdown(obj.tech);
+    }
+  };
+    xhttp.open("GET", "/ticket_ajax_take_lock?ticket=202601120040&user=" + tech, true);
+    xhttp.send();
+}
+
+function lockdown(tech) {
+  var assigned_tech = tech;
+  if (assigned_tech == 'tjohnson'){
+    $("#main_form :input").attr("disabled", false);
+    $("#unassign").show();
+    $("#assign").hide();
+    state = 'mine';
+  } else {
+    $("#main_form :input").attr("disabled", true);
+    $("#unassign").hide();
+    $("#assign").show();
+    if ((state == 'mine') && assigned_tech != ''){
+      alert('This ticket has been taken over by ' + tech);
+    }
+    state = 'notmine';
+  }
+  EventBus.$emit('lockdown', tech);
+}
+
+loadDoc();
+
+function appendInputs(inputs) {
+  $('[auto-added="true"]').remove();
+  var i = 0;
+  inputs.forEach(function(input) {
+    var value = input.value||'';
+    var id = "auto_"+i;
+    $('#main_form').append('<input id="'+id+'" auto-added="true" type="hidden" name="'+input.name+'" />');
+    $('#'+id).val(value);
+    i++;
+  });
+}
+
+//CHEWLAY
+//$('#main_form').submit(function() {
+function verify () {
+  var close_time_old = $('#close_time_old').val();
+  var close_time = $('#close_time').val();
+  var status_old = $('#status_old').val();
+  var status = $('#status').val();
+  var ext_update = $('#ext_update').val();
+  var data_int = $('#data_int').val();
+  var data_int_next = $('#data_int_next').val();
+  var data_int_next_old = $('#data_int_next_old').val();
+	var file_upload = $('#files_upload').val();
+	var letmepass = $('#letmepass').val();
+	//alert((0 === file_upload.length) +" "+ (0 === data_int.length) +" "+ (0 === ext_update.length) +" "+  (data_int_next === data_int_next_old));
+  var submit_button = $('#submit_btn');
+  document.getElementById("submit_btn").disabled = 'true';
+  if((status != status_old) | (close_time != close_time_old)){
+    if((0 === file_upload.length) & (0 === data_int.length) & (0 === ext_update.length) & (data_int_next === data_int_next_old) & (letmepass != null && letmepass == '0')){
+      alert('You must add a file, internal, or external note to change hold timer or status.');
+      submit_button.removeAttr('disabled');
+      return false;
+    }
+  }
+
+  appendInputs(getVueInputs());
+
+  return true;
+//  alert('status: ' + status + ' status_old: ' +  status_old + ' close_time: ' +  close_time + ' close_time_old: ' + close_time_old + ' data_int:' + data_int + ': ext_update :' + ext_update + ':');
+//  return false;
+};
+
+//$('#main_form').one('submit', function() {
+//    document.getElementById("submit_btn").disabled = 'true';
+//});
+
+$("#priority").val('hosted');
+$("#status").val('c');
+$("#assigned_tech").val('');
+
+function showDiv(elem){
+   if(elem.value == 'p'){
+      document.getElementById('hold_time').style.display = "block";
+   } else {
+      document.getElementById('hold_time').style.display = "none";
+   }
+}
+function auto_fill_update(elem){
+  $('#ext_update').val($(elem).val());
+}
+$("#status").on("input", function() {
+  $("#status_changed").val("y");
+});
+$("#close_datepicker").on("input", function() {
+  $("#status_changed").val("y");
+});
+
+;(function(w,d) {
+
+  Vue.component('datetime', {
+  props: {
+    value: {
+      required: true,
+    },
+    label: {
+      type: String,
+    },
+  },
+  data: function() {
+    return {
+      picker: false,
+      tab: 'date',
+      date: null,
+      time: null,
+      lastDate: null,
+      lastTime: null,
+    };
+  },
+  computed: {
+    datetime: function() {
+      return this.date+' '+this.time;
+    },
+  },
+  methods: {
+    set: function() {
+      this.picker = false;
+      this.$emit('input', this.datetime);
+      this.$emit('change', this.datetime);
+    },
+    cancel: function() {
+      this.picker = false;
+      this.date = this.lastDate;
+      this.time = this.lastTime;
+    },
+    setInternal: function(val) {
+      var datetime = val.split(' ');
+      this.date = datetime[0];
+      this.time = datetime[1];
+      this.lastDate = this.date;
+      this.lastTime = this.time;
+    },
+  },
+  mounted: function() {
+    if (this.value != null) {
+      this.setInternal(this.value);
+    }
+  },
+  watch: {
+    value: function(val) {
+      this.setInternal(val);
+    },
+  },
+  template: `
+    <div>
+      <v-text-field :value="datetime" @click="picker=true"></v-text-field>
+      <v-dialog
+        v-model="picker"
+        style="z-index:2000;"
+        width="400"
+      >
+        <v-card>
+          <v-tabs
+            v-model="tab"
+            grow
+          >
+            <v-tab :key="0">Date</v-tab>
+            <v-tab :key="1">Time</v-tab>
+          </v-tabs>
+          <v-tabs-items v-model="tab">
+            <v-tab-item>
+              <v-date-picker
+                v-model="date"
+                full-width
+                @input="tab=1"
+              ></v-date-picker>
+            </v-tab-item>
+            <v-tab-item>
+              <v-time-picker
+                v-model="time"
+                format="24hr"
+                full-width
+              ></v-time-picker>
+            </v-tab-item>
+          </v-tabs-items>
+          <v-card-actions>
+            <v-btn
+              color="primary"
+              text
+              @click="cancel"
+            >Cancel</v-btn>
+            <v-btn
+              color="primary"
+              text
+              @click="set"
+            >Save</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+    </div>
+  `,
+});
+
+  Vue.component('setup-wizard', {
+  props: {
+    value: {
+      type: Boolean,
+    },
+    ticketId: {
+      required: true,
+    },
+  },
+  data: function() {
+    return {
+      headers: [],
+      circuits: [],
+      page: 1,
+      pageLength: 15,
+      totalItems: 0,
+      isLoading: false,
+      sortBy: 'is_date',
+      sortDesc: true,
+      selectedCircuits: [],
+      search: null,
+      eel_or_colo: 'eel',
+      filters: [
+        {text: 'Active or Pending', value: 'active_or_pending'},
+        {text: 'Active Circuits', value: 'active'},
+        {text: 'Pending Circuits', value: 'pending'},
+        {text: 'Disconnected Circuits', value: 'disconnected'},
+        {text: 'Current Month', value: 'current'},
+        {text: 'Previous Month', value: 'previous'},
+        {text: 'Current Exclude', value: 'current_exclude'},
+        {text: 'Current 0.00', value: 'current_0_mrc'},
+      ],
+      tos: [],
+      type: [],
+      selectedFilter: 'active_or_pending',
+      selectedTos: 'All',
+      selectedType: 'All',
+      companySearch: null,
+      companyType: 'all',
+      companyTypes: [
+        {text: 'All', value: 'all'},
+        {text: 'Retail', value: 'retail'},
+        {text: 'Carrier', value: 'carrier'},
+        {text: 'Wholesale', value: 'wholesale'},
+      ],
+      ASR_IP: null,
+      selected: [],
+      cacheSelected: [],
+      columnSearch: {},
+      headerSlot: 'header.',
+      itemsPerPageOptions: [5, 10, 15, 50, 100, 500],
+    };
+  },
+  mounted: function() {
+    this.getSelected();
+    this.getTableData(this);
+    this.getFilters();
+  },
+  watch: {
+    columnSearch: {
+      deep: true,
+      handler: function() {
+        this.getTableData(this);
+      },
+    },
+    page: function() {
+      this.getTableData(this);
+    },
+    pageLength: function() {
+      this.getTableData(this);
+    },
+    sortBy: function() {
+      this.getTableData(this);
+    },
+    sortDesc: function() {
+      this.getTableData(this);
+    },
+    search: function() {
+      this.getTableData(this);
+    },
+    eel_or_colo: function() {
+      var oldSelected = _.cloneDeep(this.selected);
+      this.circuits = [];
+      this.selected = this.cacheSelected;
+      this.cacheSelected = oldSelected;
+      this.getTableData(this);
+    },
+    selectedFilter: function() {
+      this.getTableData(this);
+    },
+    selectedTos: function() {
+      this.getTableData(this);
+    },
+    selectedType: function() {
+      this.getTableData(this);
+    },
+    ASR_IP: function() {
+      this.getTableData(this);
+    },
+    companySearch: function() {
+      this.getTableData(this);
+    },
+    companyType: function() {
+      this.getTableData(this);
+    },
+  },
+  computed: {
+    allSelected: function() {
+      return [...this.selected, ...this.cacheSelected];
+    },
+    uniqueCompanies: function() {
+      var companies = {};
+      var count = 0;
+      this.allSelected.forEach(function(x) {
+        var handle = x.owner||x.company_handle;
+        if (companies[handle] == null) {
+          companies[handle] = 1;
+          count++;
+        }
+      });
+      return count;
+    },
+  },
+  methods: {
+    getSelected: function() {
+      var vm = this;
+      axios.get('/ticket/'+this.ticketId+'/associated_services').then(function(res) {
+        var services = res.data;
+        services.forEach(function(service) {
+          if (service.is_colo=='y') {
+            service.location = service.pk;
+          } else {
+            service.pon = service.pk;
+          }
+        });
+        vm.selected = [...services];
+      });
+    },
+    saveServices: function() {
+      var vm = this;
+      axios.post('/ticket/'+this.ticketId+'/associated_services', this.allSelected).then(function(res) {
+        vm.$emit('input', false);
+        window.location.reload();
+      }).catch(vm.throwAxiosError);
+    },
+    removeSelected: function(service) {
+      var key = 'pon';
+      var value = service.pon;
+      if (service.pon == null) {
+        key = 'location';
+        value = service.location;
+      }
+      var condition = {};
+      condition[key] = value;
+      var index = _.findIndex(this.selected, condition);
+      if (index != -1) {
+        this.selected.splice(index, 1);
+      } else {
+        this.cacheSelected.splice(_.findIndex(this.cacheSelected, condition), 1);
+      }
+    },
+    getFilters: function() {
+      var vm = this;
+      axios.get('/get_circuit_filters').then(function(res) {
+        vm.tos = ['All', ...res.data.tos];
+        vm.type = ['All', ...res.data.type];
+      });
+    },
+    getTableData: _.debounce(function(vue) {
+      vue.isLoading = true;
+      vue.getCircuits().then(function(res) {
+        vue.circuits = res.circuits;
+        vue.totalItems = res.totalItems;
+        vue.headers = res.headers;
+        vue.sortBy = res.sortBy;
+        vue.sortDesc = res.sortDesc;
+      }).finally(function() {
+        vue.isLoading = false;
+      });
+    }, 900),
+    getCircuits: function() {
+      var vue = this;
+      return new Promise(function(resolve,reject) {
+        axios.post('/get_circuits', {
+          page: vue.page,
+          page_length: vue.pageLength,
+          sort_by: vue.sortBy,
+          sort_desc: vue.sortDesc,
+          search: vue.search,
+          eel_or_colo: vue.eel_or_colo,
+          filter: vue.selectedFilter,
+          tos: vue.selectedTos,
+          type: vue.selectedType,
+          company_search: vue.companySearch,
+          company_type: vue.companyType,
+          column_search: vue.columnSearch,
+          ASR_IP: vue.ASR_IP,
+        }).then(function(response) {
+          resolve(response.data);
+        }).catch(function(err) {
+          vue.throwAxiosError(err);
+          reject(err);
+        });
+      });
+    },
+    throwAxiosError: function(err) {
+      EventBus.$emit('axios-error', err);
+    },
+  },
+  template: `
+    <v-dialog
+      width="80%"
+      :value="value"
+      @input="$emit('input')"
+      style="z-index:2000;"
+    >
+      <v-card>
+        <v-card-text>
+          <v-container>
+            <v-row>
+              <v-col cols="2" v-if="allSelected.length>0">
+                <v-data-iterator
+                  :items="allSelected"
+                  :items-per-page="-1"
+                >
+                  <template v-slot:header>
+                    {{ uniqueCompanies }} companies affected
+                  </template>
+                  <template v-slot:default="{ items }">
+                    <v-container>
+                      <v-row v-for="service in items">
+                        <span>{{ service.pon||service.location }} - {{ service.owner||service.company_handle}}</span>
+                        <v-spacer></v-spacer>
+                        <v-btn
+                          icon
+                          small
+                          @click="removeSelected(service)"
+                        >
+                          <v-icon>mdi-minus</v-icon>
+                        </v-btn>
+                      </v-row>
+                    </v-container>
+                  </template>
+                </v-data-iterator>
+              </v-col>
+              <v-col>
+                <v-data-table
+                  :headers="headers"
+                  :items="circuits"
+                  dense
+                  :items-per-page.sync="pageLength"
+                  :page.sync="page"
+                  :server-items-length="totalItems"
+                  :loading="isLoading"
+                  :sort-by.sync="sortBy"
+                  :sort-desc.sync="sortDesc"
+                  must-sort
+                  :multi-sort="false"
+                  show-select
+                  v-model="selected"
+                  :item-key="eel_or_colo=='eel' ? 'pon' : 'location'"
+                  :footer-props="{'items-per-page-options': itemsPerPageOptions}"
+                >
+                  <template v-slot:top>
+                    <v-container>
+                      <v-row>
+                        <v-switch
+                          label="Search Colo Data"
+                          v-model="eel_or_colo"
+                          true-value="colo"
+                          false-value="eel"
+                        ></v-switch>
+                        <v-spacer></v-spacer>
+                        <v-btn
+                          color="primary"
+                          @click="saveServices"
+                        >
+                          Save
+                        </v-btn>
+                      </v-row>
+                      <template v-if="eel_or_colo=='eel'">
+                        <v-row>
+                          <v-text-field
+                            v-model="companySearch"
+                            label="Company"
+                          ></v-text-field>
+                          <v-select
+                            label="Company Type"
+                            v-model="companyType"
+                            :items="companyTypes"
+                          ></v-select>
+                        </v-row>
+                        <v-row>
+                          <v-select
+                            label="Filter"
+                            :items="filters"
+                            v-model="selectedFilter"
+                          ></v-select>
+                          <v-select
+                            label="TOS"
+                            :items="tos"
+                            v-model="selectedTos"
+                          ></v-select>
+                          <v-select
+                            label="Type"
+                            :items="type"
+                            v-model="selectedType"
+                          ></v-select>
+                          <v-text-field
+                            v-model="ASR_IP"
+                            label="ASR IP"
+                          ></v-text-field>
+                        </v-row>
+                        <v-row>
+                          <v-text-field
+                            prepend-inner-icon="mdi-magnify"
+                            v-model="search"
+                            label="Search"
+                          ></v-text-field>
+                        </v-row>
+                      </template>
+                    </v-container>
+                  </template>
+                  <template
+                    v-for="(header, i) in headers"
+                    v-if="eel_or_colo=='colo'"
+                    v-slot:[headerSlot+header.value]=""
+                  >
+                    {{ header.text }}
+                    <v-menu
+                      v-if="!header.nofilter"
+                      offset-y
+                      :close-on-content-click="false"
+                    >
+                        <template v-slot:activator="{ on, attrs }">
+                          <v-btn icon v-bind="attrs" v-on="on">
+                            <v-icon small :color="columnSearch[header.value]!=null&&columnSearch[header.value]!='' ? 'success' : '' ">mdi-filter</v-icon>
+                          </v-btn>
+                        </template>
+                        <v-card
+                          width="280"
+                        >
+                          <v-text-field
+                            class="pa-4"
+                            :label="'Search by ' + header.text"
+                            :value="columnSearch[header.value]"
+                            @input="(newVal) => $set(columnSearch, header.value, newVal)"
+                            color="success"
+                          ></v-text-field>
+
+                          <v-card-actions>
+                            <v-btn
+                              @click="columnSearch[header.value] = ''"
+                              small
+                              text
+                              color="success"
+                              class="ml-2 mb-2"
+                          >Clear</v-btn>
+                        </v-card-actions>
+                      </v-card>
+                    </v-menu>
+                  </template>
+                  <template v-slot:item.company="{ item }">
+                    {{ item.company_name }} - {{ item.handle }}
+                  </template>
+                  <template v-slot:item.pon="{ item }">
+                    <a :href="'https://secure.123.net/cgi-bin/web_interface/admin/dsx_circuits.cgi?&option_fe=view&fr_search_company=&fr_search_order=&fr_search_status=&fr_search_tos=&fr_search_company_type=&fr_search_string=&display_results=50&fr_search_start=0&pon='+item.pon" target="_blank">{{ item.pon }}</a>
+                  </template>
+                  <template v-slot:item.location="{ item }">
+                    <a :href="'https://secure.123.net/cgi-bin/web_interface/admin/colo_data.cgi?option_fe=modify&filter=All&location='+item.location" target="_blank">{{ item.location }}</a>
+                  </template>
+                </v-data-table>
+              </v-col>
+            </v-row>
+          </v-container>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+  `,
+});
+
+  Vue.component('searchable-menu', {
+  props: {
+    items: {
+      type: Array,
+    },
+    activatorText: {
+      type: String,
+    },
+  },
+  data: function() {
+    return {
+      search: null,
+    };
+  },
+  template: `
+    <v-menu
+      bottom
+      offset-x
+      :close-on-content-click="false"
+    >
+      <template v-slot:activator="{ on, attrs }">
+        <v-btn
+          v-bind="attrs"
+          v-on="on"
+        >
+          {{ activatorText }} 
+          <v-icon>mdi-menu-down</v-icon>
+        </v-btn>
+      </template>
+      <v-card>
+        <v-data-iterator
+          :items="items"
+          :search="search"
+        >
+          <template v-slot:header>
+            <v-container>
+              <v-text-field
+                v-model="search"
+                label="Search"
+                prepend-inner-icon="mdi-magnify"
+              ></v-text-field>
+            </v-container>
+          </template>
+          <template v-slot:default="{ items }">
+            <v-list>
+              <v-list-item v-for="(item, index) in items" :key="index">
+                <slot name="default" v-bind:item="item"></slot>
+              </v-list-item>
+            </v-list>
+          </template>
+        </v-data-iterator>
+      </v-card>
+    </v-menu>`,
+});
+
+  Vue.component('hrn-sender', {
+  props: {
+    value: {
+      required: true,
+    },
+    to: {
+      type: Array,
+    },
+    services: {
+      type: Array,
+    },
+    subject: {
+      type: String,
+    },
+    body: {
+      type: String,
+    },
+    history: {
+      type: String,
+    },
+    appendHistory: {
+      type: Boolean,
+    },
+    attachCircuits: {
+      type: Boolean,
+    },
+    hrnUpdateType: {
+      type: String,
+    },
+  },
+  data: function() {
+    return {};
+  },
+  template: `
+    <v-dialog
+      :value="value"
+    >
+      <v-card>
+        <v-container>
+          <v-row>
+            <searchable-menu
+              :items="to"
+              activator-text="To:"
+            >
+              <template v-slot:default="{ item }">
+                <v-list-item-title>
+                  {{ item.email }}
+                </v-list-item-title>
+              </template>
+            </searchable-menu>
+            <searchable-menu
+              :items="services"
+              activator-text="Circuits"
+            >
+              <template v-slot:default="{ item }">
+                <v-list-item-title>
+                  {{ item.pon||item.location }}
+                </v-list-item-title>
+              </template>
+            </searchable-menu>
+          </v-row>
+          <v-row class="mt-5" justify="start">
+            <v-col cols="12" style="max-width: 25%;">
+              <v-select
+                :items="['NOTICE', 'UPDATE', 'COMPLETE']"
+                label="HRN Status"
+                dense
+                @change="(hrnUpdateType) => $emit('update:hrn-update-type', hrnUpdateType)"
+              ></v-select>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-text-field
+              label="Subject"
+              :value="subject"
+              @input="(subject) => $emit('update:subject', subject)"
+            ></v-text-field>
+          </v-row>
+          <v-row>
+            <v-col :cols="9">
+              <v-textarea
+                label="Body"
+                :value="body"
+                @input="(body) => $emit('update:body', body)"
+                auto-grow
+              ></v-textarea>
+            </v-col>
+            <v-col :cols="3">
+              <v-switch
+                label="Append Previous Updates"
+                :value="appendHistory"
+                :input-value="appendHistory"
+                @change="(appendHistory) => $emit('update:append-history', appendHistory)"
+              ></v-switch>
+              <v-switch
+                label="Attach Affected Circuits"
+                :value="attachCircuits"
+                :input-value="attachCircuits"
+                @change="(attachCircuits) => $emit('update:attach-circuits', attachCircuits)"
+              ></v-switch>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-textarea
+              v-if="appendHistory"
+              label="Appended History"
+              :value="history"
+              readonly
+              auto-grow
+            ></v-textarea>
+          </v-row>
+        </v-container>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn
+            color="primary"
+            text
+            @click="$emit('input', false)"
+          >Cancel</v-btn>
+          <v-btn
+            color="primary"
+            @click="$emit('submit')"
+          >Confirm</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  `,
+});
+
+  Vue.component('global-user-search', {
+  props: {
+    value: {
+      type: String,
+    },
+    bias: {
+      type: Object,
+      default: function() {
+        return {};
+      },
+    },
+  },
+  data: function() {
+    return {
+      globalUsers: [],
+      search: null,
+      isLoading: false,
+      debouncedFetch: null,
+    };
+  },
+  watch: {
+    search: function() {
+      this.debouncedFetch();
+    },
+  },
+  mounted: function() {
+    this.debouncedFetch = _.debounce(this.fetchGlobalUsers, 500);
+    this.debouncedFetch();
+  },
+  methods: {
+    fetchGlobalUsers: function() {
+      var vm = this;
+      vm.isLoading = true;
+      axios.post('/search_global_users', { search: this.search, bias: this.bias }).then(function(res) {
+        vm.globalUsers = res.data;
+      }).finally(function() {
+        vm.isLoading = false;
+      });
+    },
+    emitInput: function(input) {
+      this.$emit('input', input);
+    }
+  },
+  template: `
+    <v-autocomplete
+      :value="value"
+      @input="emitInput"
+      :search-input.sync="search"
+      :loading="isLoading"
+      :items="globalUsers"
+      item-value="login"
+      item-text="login"
+      hide-no-data
+      no-filter
+      clearable
+      placeholder="Search for a contact"
+      hint="You can search by email, name, or handle"
+      persistent-hint
+    >
+      <template v-slot:item="{ item }">
+        <v-list-item-content>
+          {{ item.first_name }} {{ item.last_name }} <{{ item.email_address }}> - {{ item.company_handle }}
+        </v-list-item-content>
+      </template>
+    </v-autocomplete>
+  `,
+});
+
+  Vue.component('global-user-setter', {
+  props: {
+    value: {
+      required: true,
+    },
+    contact: {
+      required: true,
+    },
+  },
+  data: function() {
+    return {
+      menu: false,
+      selectedGlobalUser: null,
+    };
+  },
+  mounted: function() {
+    this.selectedGlobalUser = this.value;
+  },
+  watch: {
+    value: function(val) {
+      this.selectedGlobalUser = val;
+    },
+  },
+  methods: {
+    emitInput: function() {
+      this.$emit('input', this.selectedGlobalUser);
+      this.menu = false;
+    },
+  },
+  template: `
+    <v-menu
+      v-model="menu"
+      :close-on-content-click="false"
+      :nudge-width="200"
+      offset-x
+    >
+      <template v-slot:activator="{ on: onMenu }">
+        <v-tooltip right>
+          <template v-slot:activator="{ on: onTooltip }">
+            <v-btn
+              icon
+              text
+              :color="value!=null ? 'primary' : 'secondary'"
+              small
+              v-on="{ ...onMenu, ...onTooltip }"
+            >
+              <v-icon v-text="value!=null ? 'mdi-link-variant' : 'mdi-link-variant-off'"></v-icon>
+            </v-btn>
+          </template>
+          <span>
+           <template v-if="value!=null">{{ value }} - {{ contact.company_handle }}</template>
+           <template v-else>NO ASSOCIATED ACCOUNT</template>
+          </span>
+        </v-tooltip>
+      </template>
+      <v-card>
+        <v-card-text>
+          <global-user-search v-model="selectedGlobalUser" :bias="{email: contact.email}"></global-user-search>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn
+            text
+            @click="menu = false"
+          >
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            text
+            @click="emitInput"
+          >
+            Save
+          </v-btn> 
+        </v-card-actions>
+      </v-card>
+    </v-menu>
+  `,
+});
+
+
+  var app = new Vue({
+    el: '#ticket_app',
+    vuetify: new Vuetify(),
+    mounted: function() {
+      $('#priority').val('hosted');
+      $('#close_narrative').val('Changes made - PBX Call Flow Changes');
+      $('#custom_narrative').val('');
+      var vm = this;
+      EventBus.$on('error', this.showErrors);
+      EventBus.$on('axios-error', this.handleAxiosError);
+      EventBus.$on('change-detected', this.dataChanged);
+      EventBus.$on('lockdown', this.lockdown);
+      if (this.hrn_start == null) {
+        var now = (new Date()).toISOString().slice(0,10);
+        this.hrn_start = now+' 00:00';
+        this.hrn_end = now+' 06:00';
+      }
+      this.legacyInitialization();
+      window['getVueInputs'] = this.exportInputs;
+      window['sendingHRN'] = this.sendHRN;
+
+      if (this.dispatchId) {
+      this.dispatchNeeded = true;
+      }
+      if (this.TicketVisibility == 1){
+        this.isTicketVisible = true;
+      }
+    },
+    computed: {
+      isHRNCandidate: function() {
+        var priority = this.ticket.priority;
+        if (priority == 'master' || priority == 'hrn') {
+          return true;
+        } else {
+          return false;
+        }
+      },
+      emailValidation: function(){
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return this.contacts.ticket.every((ticket)=>{
+       if(typeof ticket.email === 'string' && ticket.email.trim() !== ''){
+        const email = ticket.email.trim();
+        return emailRegex.test(email);
+        }
+        return false;
+        });
+      },
+      dispatchInfo(){
+        return this.authDispatch === 'y';
+      },
+      intrusiveTesting(){
+        return this.authTesting === 'y';
+      },
+      showButton() {
+        if(this.ticketType === 'residential') {
+          return false;
+        }
+        return true;
+      },
+  
+    },
+    watch: {
+      hrn_start: function(val) {
+        var date = val.slice(0,10);
+        if (this.hrn_end != null) {
+          this.hrn_end = date+this.hrn_end.slice(10);
+        }
+      },
+      confirmingHRNDetails: function(val) {
+        if (val) {
+          this.getHRNPreview();
+        }
+      },
+    },
+    methods: {
+      lockdown: function(tech) {
+        this.lockedBy = tech;
+      },
+      addContact: function(tabId) {
+        this.contacts[tabId].push({});
+        this.dataChanged();
+      },
+      deleteContact: function(tabId, i) {
+        this.contacts[tabId].splice(i, 1);
+        this.dataChanged();
+      },
+      autoFillUpdate() {
+        this.externalUpdate = this.templateSelected;
+      },
+      dataChanged: function() {
+        this.dataHasChanged = true;
+      },
+      legacyInitialization: function() {
+        $(".form_datetime").datetimepicker({
+          minDate: 'now', 
+          format: "YYYY-MM-DD HH:mm", 
+          stepping:'10', 
+          sideBySide:true
+        }).on('dp.change',function(e){
+          $("#close_datepicker").val(e.date.format("YYYY-MM-DD HH:mm"));
+          $("#status_changed").val("y");
+        });
+      },
+      getContacts: function(i) {
+        return this.enriched_updates[i].contacts;
+      },
+      getServices: function(i) {
+        return this.enriched_updates[i].services;
+      },
+      updateSubject: function(val) {
+        this.hrnPreview.email.subject = val;
+      },
+      updateBody: function(val) {
+        this.hrnPreview.email.body = val;
+      },
+      confirmHRNDetails: function() {
+        this.confirmedHRNDetails = true;
+        // click the send HRN button
+        $('button[value="send_hrn"]')[0].click();
+      },
+      sendHRN: function() {
+        if (this.dataHasChanged) {
+          this.showErrors([{message: 'Either the contacts or the ticket information has changed.\nYou must save these new changes before sending an HRN.'}]);
+          return false;
+        }
+        if (!this.confirmedHRNDetails) {
+          this.confirmingHRNDetails = true;
+          return false;
+        } else {
+          $('#letmepass').val('1');
+        }
+      },
+      getHRNPreview: function() {
+        var vm = this;
+        var data = {
+          data_hrn: $('#data_hrn').val(),
+          hrn_update_type: $('#hrn_update_type').val(),
+        };
+        this.exportInputs().forEach(function(input) {
+          data[input.name] = input.value;
+        });
+        axios.post('/ticket/'+this.ticketId+'/hrn_preview', data).then(function(res) {
+          vm.hrnPreview = res.data;
+          vm.hrnSubject = vm.hrnPreview.email.subject;
+          vm.hrnBody = vm.hrnPreview.email.body;
+          vm.hrnHistory = vm.hrnPreview.email.history;
+          vm.hrnUpdateType = vm.hrnPreview.email.hrnUpdateType;
+        });
+      },
+      exportInputs: function() {
+        if (this.is_hrn == 'y') {
+          var inputs = [
+            { name: 'hrn_type', value: this.hrn_type },
+            { name: 'hrn_start', value: this.hrn_start },
+            { name: 'hrn_end', value: this.hrn_end },
+            { name: 'expected_downtime', value: this.expected_downtime },
+            { name: 'is_emergency_hrn', value: this.is_emergency_hrn },
+            { name: 'affected_services', value: this.affected_services },
+            { name: 'hrn_subject', value: this.hrnSubject },
+            { name: 'hrn_body', value: this.hrnBody },
+            { name: 'hrnUpdateType', value: this.hrnUpdateType },
+            { name: 'append_history', value: (this.appendHistory == true ? 'y' : 'n') },
+            { name: 'attach_circuits', value: (this.attachCircuits == true ? 'y' : 'n') },
+          ];
+          // Hacky code because of the unholy union of the old implementation and Vue
+          // Vuetify wasn't rendering the tab content of the HRN contacts, so unless the
+          // user clicked on that tab, the contacts wouldn't get sent back
+          // This checks that and will make them get sent back if they are missing
+          if (this.contacts['hrn'].length > 0 && $('[name="contact_email_hrn"]').val() == null) {
+            this.contacts['hrn'].forEach(function(contact) {
+              inputs.push({
+                name: 'contact_name_hrn',
+                value: contact.name,
+              });
+              inputs.push({
+                name: 'contact_email_hrn',
+                value: contact.email,
+              });
+              inputs.push({
+                name: 'contact_phone_hrn',
+                value: contact.number,
+              });
+              inputs.push({
+                name: 'contact_login_hrn',
+                value: contact.global_user_id,
+              });
+            });
+          }
+          return inputs;
+        } else {
+          return [];
+        }
+      },
+      showErrors: function(errors) {
+        this.errors = errors;
+        this.snackbar = true;
+      },
+      handleAxiosError: function(err) {
+        var errorMessage;
+        if (err.response != null && err.response.data != null && typeof err.response.data == 'object' && err.response.data.message != null) {
+          errorMessage = err.response.data;
+        } else {
+          errorMessage = {message: 'Something went wrong'};
+        }
+        this.showErrors([errorMessage]);
+      },
+      aiNextComment() {
+        axios.get('/ticket/'+this.ticketId+'/ai_next_comment', this.ticketId).then((res) => {
+          resObj = JSON.parse(res.data);
+          this.externalUpdate = resObj.data.generate_customer_reply;
+        });
+      },
+      paraphraseRequest() {
+        let contactName = this.contacts.ticket[0].name;
+        var data = {
+          text: this.externalUpdate,
+          tech: this.techFullName,
+          contact: contactName,
+          context: 'update',
+        };
+        axios.post('/ticket/paraphrase', data).then((res) => {
+          resObj = JSON.parse(res.data);
+          this.externalUpdate = resObj.text;
+        }); 
+      },
+    },
+    data: {
+      tech: 'tjohnson',
+      techFullName: 'Timothy Johnson II',
+      lockedBy: null,
+      ticketId: 202601120040,
+      ticket: {"affected_services":null,"assigned_status":"y","assigned_tech":"","auth_dispatch":"n","auth_test":"n","auth_test_hours":null,"ckt_id":null,"close_narrative":"Changes made - PBX Call Flow Changes","close_time":63939511800,"company_handle":"KPM","contact_email":"vponduri@hotmail.com","contact_email_alt":"","contact_name":"Vasu  Ponduri","contact_phone":"7343067110","cust_id":null,"custom_narrative":null,"customer_visible":1,"data":"January 12, 2026 at 16:24:02 Andries Menko Wrote:\n---------------------------------------------------------------\nGood afternoon,\r\n\r\nWe have increased the park time to 10 minutes.\r\n\r\nPlease let us know if there is anything else you need help with.\r\n\r\nThanks!\n\n\n\nJanuary 12, 2026 at 16:08:34 Vasu  Ponduri Wrote:\n---------------------------------------------------------------\nWhen the call is on park, it gets disconnected after 4 min.   Can you change that to 10 min.  Thanks","data_ebon":null,"data_int":null,"expected_downtime":null,"ext_id":"Parked Calls Disconnect After 4 Minutes","holdtimer":"-592.0","hrn_end":null,"hrn_start":null,"hrn_type":null,"id":"202601120040","is_emergency_hrn":null,"lcon":null,"lcon_number":null,"message_id":"202601120040.rHwIrWiL","notify":"c","operation_hours":null,"owner":null,"owner_assigned_date":null,"owner_assigner":null,"pon":null,"priority":"hosted","status":"c","status_waiting":"n","subject":"Call on Park","ticket_complete":"y","tstamp_close_time":"2026-01-13 17:00:00","tstamp_created":"2026-01-12 16:08:34","tstamp_ebond":null,"tstamp_escalate":null,"tstamp_ignore":null,"tstamp_modified":"2026-01-13 16:59:51","tstamp_resolved":"2026-01-12 16:24:02","type":null,"white_glove_notified":"n","who_assigned":null},
+      enriched_updates: [{"row_id":1219308},{"row_id":1219309},{"row_id":1219296},{"row_id":1219287}],
+      setupWizard: false,
+      errors: [],
+      snackbar: false,
+      is_hrn: 'n',
+      hrnTypes: [
+        {text: '123NET Maintenance', value: '123net_maintenance'},
+        {text: 'Underlying Carrier Maintenance', value: 'carrier_maintenance'},
+        {text: 'Outage', value: 'outage'},
+        {text: 'Freehand', value: 'freehand'},
+      ],
+      hrn_type: ''||null,
+      is_emergency_hrn: 'n',
+      hrn_start: ''||null,
+      hrn_end: ''||null,
+      expected_downtime: ''||null,
+      affected_services: ''||null,
+      commonDurations: [
+        '00:20:00',
+        '00:30:00',
+        '01:00:00',
+        '02:00:00',
+        '03:00:00',
+        '04:00:00',
+        '05:00:00',
+        '06:00:00',
+        '08:00:00',
+      ],
+      confirmedHRNDetails: false,
+      confirmingHRNDetails: false,
+      hrnPreview: {},
+      hrnSubject: null,
+      hrnBody: null,
+      hrnHistory: null,
+      hrnUpdateType: null,
+      appendHistory: true,
+      attachCircuits: true,
+      dataHasChanged: false,
+      contactTab: 'ticket',
+      contactTabs: [
+        {id: 'ticket', text: 'Ticket Contacts'},
+        {id: 'hrn', text: 'HRN Contacts'}
+      ],
+      contacts: {"hrn":[],"ticket":[{"company_handle":null,"email":"vponduri@hotmail.com","form_order":0,"global_user_id":null,"hrn_email":null,"name":"Vasu  Ponduri","number":"7343067110","row_id":3103293,"system_generated":"n","ticket_id":"202601120040"}]},
+      templateSelected: null,
+      authDispatch: 'n',
+      authTesting: 'n',
+      ticketType: 'hosted',
+      selectedCloseoutNarrative:'Changes made - PBX Call Flow Changes',
+      customNarrative: '',
+      dispatchPriority: '',
+      region: '',
+      dispatchId: '',
+      TicketVisibility: '1',
+      dispatchNeeded: false,
+      dispatchUpdate: false,
+      isTicketVisible: false, 
+      externalUpdate: '',
+      closeoutNarratives: {
+        1: [
+          'Advice/Training Provided',
+          'Cancelled by customer',
+          'Could not replicate',
+          'Duplicate ticket',
+          'Hardware repaired,replaced,rebooted',
+          'No action taken(no trouble found)',
+          'Related incident resolved',
+          'Resolved by 3rd party (vendor/type 2 carrier)',
+          'Resolved by change request',
+          'User error/Resolved by customer',
+          '123NET hands on',
+          'Forced error, tech induced error',
+          ],
+        noc: [
+          'Advice/Training Provided',
+          'Cancelled by customer',
+          'Could not replicate',
+          'Duplicate ticket',
+          'Hardware repaired,replaced,rebooted',
+          'No action taken(no trouble found)',
+          'Related incident resolved',
+          'Resolved by 3rd party (vendor/type 2 carrier)',
+          'Resolved by change request',
+          'User error/Resolved by customer',
+          '123NET hands on',
+          'Forced error, tech induced error',
+          ],
+        hosted: [
+          'Changes made - Phone/User Configuration Update',
+          'Changes made - PBX Call Flow Changes',
+          'Changes made - Firewall or Switch Settings Updated',
+          'Incident resolved - Rebooted Phone',
+          'Incident resolved - Rebooted 123NET Firewall/Switch',
+          'Incident resolved - Rebooted Customer Firewall/Switch',
+          'Incident resolved - Replaced Phone',
+          'Incident resolved - Replaced 123NET Firewall/Switch',
+          'Incident resolved - Softphone or Application issue',
+          'No action taken - Provided advice/ training',
+          'No action taken - NTF or canceled request',
+          'No action taken - Customer or Vendor Resolved',
+          'No action taken - Duplicate ticket',
+          'Turnup Ticket',
+          'Other or Complex (see notes)',
+          'Forced error, tech induced error',
+        ],
+        master: [
+          '123NET fiber repair',
+          '3rd party fiber repair',
+          'Equip. rebooted/repaired',
+          'Equip. replaced',
+          '123NET hands on',
+          'Unsuccessful / Reverted / Rollback - needs new HRN',
+          'Forced error, tech induced error',
+        ],
+        hrn: [
+          '123NET fiber repair',
+          '3rd party fiber repair',
+          'Equip. rebooted/repaired',
+          'Equip. replaced',
+          'Unsuccessful / Reverted / Rollback - needs new HRN',
+          'Forced error, tech induced error',
+        ],
+        network: [
+          '123NET fiber repair',
+          '3rd party fiber repair',
+          'Equip. rebooted/repaired',
+          'Equip. replaced',
+          'Unsuccessful / Reverted / Rollback - needs new HRN',
+          'Forced error, tech induced error',
+        ],
+        proactive: [
+          'Power restored to equip',
+          'DPO - repair/rebooted equip. not billed',
+          'DPO - repair/rebooted equip. billed',
+          'Related incident resolved',
+          'Customer error',
+          'Customer rebooted equip',
+          'Resolved by 3rd party',
+          'Cancelled by customer',
+          '123NET hands on',
+          'Forced error, tech induced error',
+        ],
+        smarthands: [
+          'Equip. rebooted',
+          'Equip. replaced',
+          'Rack/Stack',
+          'Jumper replaced/reseated',
+          'Cancelled by customer',
+          'Forced error, tech induced error',
+        ],
+        it: [
+          'Employee offboarding complete',
+          'New employee process complete',
+          'Laptop replacement',
+          'Additional equipment/software request',
+          'Hardware/software troubleshooting',
+          'Provided user training/advice',
+          'Internal change request',
+        ],
+        residential: [
+          'Fault Not Found',
+          'Resolved by 123net',
+          'Resolved by Contractor',
+          'Forced error, tech induced error',
+        ]
+      },
+      updateTemplates: [
+        {
+          header: 'Primary Narratives (Initial Ticket Creation)',
+        },
+        {
+          text: 'Basic Internet Outage',
+          value: "*Insert Customer Name* called in reporting the Internet is down at the location referenced above. We are investigating further on our end and will provide updates as we obtain more information. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Basic Voice Services Outage',
+          value: "*Insert Customer Name* called in reporting their voice services are down at the location referenced above. We are investigating further on our end and will provide updates as we obtain more information. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Basic Voice Quality Trouble',
+          value: "*Insert Customer Name* called in reporting they are experiencing call quality issues at the location referenced above. We are investigating further on our end and will provide updates as we obtain more information. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Basic Internet Bandwidth Issues',
+          value: "*Insert Customer Name* called in reporting they are experiencing bandwidth issues at the location referenced above. We are investigating further on our end and will provide updates as we obtain more information. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          header: 'Primary Narratives',
+        },
+        {
+          text: "Account Number Verification (Mostly Email)",
+          value: 'We are happy to assist with this request, however, your account number and PIN number are required to proceed further. Please provide the account number and we will move forward with your request.',
+        },
+        {
+          text: 'Basic Request for Additional Information',
+          value: "Hello,\n\nOur team is investigating the reported issue(s) further. In the meantime, please provide as much detail pertaining to the trouble you are reporting to assist with our investigation.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Customer Side of Circuit Down',
+          value: "Hello,\n\nOur team has investigated further and confirmed that the circuit is live and we are able to reach the equipment on premises. However, we are detecting the port on our equipment that hands off to you down at this time. Please verify cabling and power to the device connected to our equipment listed below. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nEquipment: (Equipment type and asset tag)\nCustomer Port: (Port we hand off to customer)\n\nThank you",
+        },
+        {
+          text: 'International Calling',
+          value: "Hello,\n\nOn PRI circuits/SIP trunks, we disable international calling by default unless specifically requested by the customer.  This is in place due to international fraud which occurs frequently on systems which are not secured. As a safeguard, we only enable international dialing after it is requested.\n\nSee the paragraph below from our MSA that applies to Fraudulent activity before confirming. Once you agree to the terms, we will enable international call for you.\n\nFraudulent Activity. You agree to pay for all charges for international, local, and long distance calls, including but not limited to those placed by You or Your customers, and those that are a result of fraudulent activity, fraudulent international calling, or a compromise of Your system's security resulting in increased consumption of Services. In addition, You agree that 123NET is not responsible for the security of Your company's network equipment and You agree to pay for all bandwidth consumption charges and expenses that are a result of fraudulent activity or a compromise of Your network or equipment that is not provided by 123NET, that result in increased consumption of Services.\n\nIf you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Call Examples',
+          value: "Hello,\n\nIn order to troubleshoot the reported issues further, please provide call examples in the format below and contact us with any questions by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nOriginating Number:\nTerminating Number:\nDate and Time of Call:\nDescription of Issue:\n\nThank you",
+        },
+        {
+          text: 'Intrusive Testing - Scheduling - T1 - Errors',
+          value: "Hello,\n\nWe have detected errors on the following circuit and would like to schedule intrusive testing to isolate the trouble further. Downtime is typically up to 1 hour, however, this will vary depending on the results. Please provide the authorized testing hours, as well as the local contact information and we will proceed with scheduling the test. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nAuthorized Testing Hours:\nLocal Contact Name:\nLocal Contact Number:\nAccess Hours Onsite:\n\nThank you",
+        },
+        {
+          text: 'Local Contact Information',
+          value: "Hello,\n\nWe have detected issues on this circuit and will need to engage the last mile provider for further isolation of the trouble. Please provide the local access information below and we will proceed the next course of action.\n\nLocal Contact Name:\nLocal Contact Number:\nAccess Hours Onsite:\n\nThank you",
+        },
+        {
+          text: 'Bandwidth Saturation',
+          value: "Hello,\n\nWe have reviewed the bandwidth usage on this circuit and have determined that there is bandwidth saturation occurring. Below is the bandwidth graph for reference. Simply refresh the webpage to obtain the latest statistics. Please investigate internally to determine what might be causing this usage, as we do not have visibility within your internal network. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n*Enter PRTG Bandwidth Graph URL Here*\n\nThank you",
+        },
+        {
+          text: 'Known 123NET Network Outage',
+          value: "Hello,\n\n123NET is experiencing a network event that is affecting your services. We have engineers actively investigating further. There is no ETTR at this time. Updates will be provided as we receive information from the investigation.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'NetOps Team Investigation',
+          value: "Hello,\n\nWe are escalating this case to our NetOps Team for a circuit evaluation. Updates will be provided as we receive more information from their investigation. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Projects Team Engagement',
+          value: "Hello,\n\nPlease engage our Projects Team at projects@123.net to process your request. We will hold this ticket 24 hours in which will then close. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          header: 'Close Out Narratives',
+        },
+        {
+          text: 'Simple Close Out',
+          value: "Hello,\n\nThank you for confirming the issues are now resolved. We will hold this ticket 24 hours in which will then close.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'AT&T T1 Close Out',
+          value: "Hello,\n\nAT&T has cleared this ticket in their system with repairs of: \"PLACE AT&T RESOLUTION HERE\". Our monitoring has confirmed this circuit is now restored. This ticket will be held 24 hours in which will then close if no further issues are reported. If you require additional assistance, please reach out to us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Circuit Restore Due to Power',
+          value: "Hello,\n\nOur monitoring has confirmed this circuit is now restored. Logs within our equipment on site indicate power loss, as we are showing an uptime of \"INSERT UPTIME OF EQUIPMENT.\" If this power interruption was not planned or issues persist, please ensure that our equipment is plugged into a reliable power source and contact us by replying to this ticket or calling our 24/7 NOC by phone at 888-440-0123. We will hold this ticket 24 hours in which will then close if no further assistance is required.\n\nThank you",
+        },
+        {
+          text: 'Have Not Heard Back',
+          value: "Hello,\n\nWe have been attempting to reach you, but have not heard back. This ticket will be held 24 hours in which will then close if no response. If you continue to have issues or require further assistance, please don't hesitate to reach out to us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: '123NET Technician Dispatch Resolution',
+          value: "Hello,\n\nThis circuit has been restored after 123NET Technicians dispatched out and isolated the trouble further. A summary of the work completed to restore services is below. We will hold this ticket for 24 hours in which will then close if no further issues reported. Please reach out to us again if you require additional assistance by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nSummary of work completed:\n*INSERT WORK COMPLETED BY DISPATCH TECHNICIAN TO RESTORE SERVICES*\n\nThank you",
+        },
+        {
+          text: '123NET Network Outage Resolution',
+          value: "Hello,\n\n123NET confirms that services are now restored. An official RFO will be sent out when the investigation is completed.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: '123NET RFO',
+          value: "Hello,\n\nServices remain stable as we continue to monitor. Referenced below is the official RFO regarding the outage you experienced. We will hold this ticket 24 hours in which will then close.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\n*Place RFO Here*\nThank you",
+        },
+        {
+          header: 'Proactive (Initial Ticket Creation)',
+        },
+        {
+          text: 'T1 - Confirmed Loop to Smart Jack - Unable to Reach Equipment',
+          value: "Hello,\n\nWe are opening this ticket proactively, as we have detected our equipment offline at the location referenced above. Further testing confirms we are able to loop the smart jack on premises, but we are unable to reach our equipment. Please verify power at this location and to our equipment on site. If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'T1 - No Loop to Smart Jack',
+          value: "Hello,\n\nWe are opening this ticket proactively, as we have detected our equipment offline at the location referenced above. Further testing confirms we are not able to loop the smart jack on premises.  In order to proceed in isolating the trouble, please provide the local access information below and we will engage the last mile provider to investigate.\n\nLocal Contact Name:\nLocal Contact Number:\nAccess Hours Onsite:\n\nThank you",
+        },
+        {
+          text: 'T1 - Errors to Smart Jack',
+          value: "Hello,\n\nWe are opening this ticket proactively, as we have detected issues on this circuit at the location referenced above. Further testing confirms we are detecting errors while looping the smart jack on premises.  In order to proceed in isolating the trouble, please provide the local access information below and we will engage the last mile provider to investigate.\n\nLocal Contact Name:\nLocal Contact Number:\nAccess Hours Onsite:\n\nThank you",
+        },
+        {
+          text: 'Wireless - Unable to Reach Equipment',
+          value: "Hello,\n\nWe are opening this ticket proactively, as we have detected our equipment offline at the location referenced above. Please verify power at this location and to our equipment on site. If power is verified, please power cycle the PoE injector in an attempt to restore services. Once this is completed, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Fiber - Unable to Reach Equipment',
+          value: "Hello,\n\nWe are opening this ticket proactively, as we have detected our equipment offline at the location referenced above. Please verify power at this location and to our equipment on site. Once this is completed, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          text: 'Known 123NET Network Outage',
+          value: "Hello,\n\n123NET is experiencing a network event that is affecting your services. We have engineers actively investigating further. There is no ETTR at this time. Updates will be provided as we receive information from the investigation.  If you have any questions or concerns, please contact us by replying to this ticket or contacting our 24/7 NOC by phone at 888-440-0123.\n\nThank you",
+        },
+        {
+          header: 'Select A Common Update',
+        },
+        {
+          text: 'T1_SMJK',
+          value: "We are unable to loop up the T1 smartjack at customer premise. A trouble ticket has been opened with the last mile provider for additional testing and possible dispatch for line repairs. Status updates will be posted as they become available.",
+        },
+        {
+          text: 'T1_CSU_DETAILED',
+          value: "We are able to loop up and run clean to the smartjack at the customer premise but we are unable to get a response from the CSU of the T1 router that terminates this circuit. Please confirm that the customer premise equipment has power, wiring between the smartjack to the router is connected/good and that hardware is functioning properly. A reboot of the CPE might resolve.",
+        },
+        {
+          text: 'T1_CSU_SIMPLE',
+          value: "Testing clean to the smartjack. Unable to loop up the CSU. Please check power/wiring/CPE. No trouble found with the circuit/transport.",
+        },
+        {
+          text: 'T1_LOOP',
+          value: "We are seeing a loop on the circuit that we are unable to remotely clear. Please confirm if the CSU of the remote T1 router is stuck in loop back mode. If not we may need to open a trouble ticket with the last mile provider to clear.",
+        },
+        {
+          text: 'WX_POWER',
+          value: "We are seeing the wireless circuit down at this time. Please confirm that the radio/PoE injector is plugged in and has power. If it appears to have power, please reboot the equipment by removing power from the device for 15 seconds and plugging back in. It may take up to 5 minutes for the wireless link to re-establish.",
+        },
+        {
+          text: 'WX_DEGRADE',
+          value: "We have noticed a change in the strength of the wireless signal at this location. We may need to dispatch a 123NET technician in order to restore the signal back to ideal levels. A wireless technician will review and advise if a dispatch will be required.",
+        },
+        {
+          text: 'WX_RFI',
+          value: "We are seeing possible signs of radio frequency interference on the link. During times that RFI is experienced the service quality may be degraded. We may need to perform some intrusive scans on the link in order to restore the signal back to ideal levels.",
+        },
+        {
+          text: 'LEC_SMJK_DOWN',
+          value: "Unable to loop SMJK from CFA. Okay to test. Okay to DPO if trouble found on ATT network. LCON *name/number*. Acc hrs *time/days*;",
+        },
+        {
+          text: 'LEC_SMJK_ERRORS',
+          value: "Testing errors to the SMJK from CFA. Okay to test. Okay to DPO if trouble found on ATT network. LCON *name/number*. Acc hrs *time/days*;",
+        },
+        {
+          text: 'LEC_FOREIGN_LOOP',
+          value: "Seeing a loop on the circuit. Okay to test. Okay to DPO if trouble found on ATT network. LCON *name/number*. Acc hrs *time/days*;",
+        },
+        {
+          text: 'LEC_2W_NO_TONE',
+          value: "No continuity between CFA and NID. Okay to test. Okay to DPO if trouble found on ATT network. LCON *name/number*. Acc hrs *time/days*;",
+        },
+        {
+          text: 'LEC_2W_DEGRADE',
+          value: "Losing continuity between CFA and NID. Okay to test. Okay to DPO if trouble found on ATT network. LCON *name/number*. Acc hrs *time/days*;",
+        },
+        {
+          text: 'LEC_2W_TAG',
+          value: "Circuit not tagged at premise. Requesting tag and locate. Okay to test. Okay to DPO. LCON *name/number*. Acc hrs *time/days*;",
+        },
+      ],
+    },
+  });
+})(window,document);
+</script>
+
+
+
+</body></html>

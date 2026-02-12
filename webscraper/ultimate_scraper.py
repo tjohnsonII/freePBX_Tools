@@ -2074,6 +2074,11 @@ def scrape_ticket_details(
         os.makedirs(ticket_dir, exist_ok=True)
         ticket_json_path = os.path.join(ticket_dir, "ticket.json")
         if resume and os.path.exists(ticket_json_path):
+            print(f"[TICKET] skipped {ticket_id} (resume)")
+            skipped += 1
+            continue
+
+        if resume and os.path.exists(ticket_json_path):
             print(f"[TICKET] skipped {current_ticket_id or url} (resume)")
             skipped += 1
             continue
