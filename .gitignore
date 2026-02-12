@@ -169,3 +169,6 @@ freepbx-tools/test_info.txt
 
 # traceroute backend scratch
 traceroute-visualizer-main/backend/All_Assignments.txt
+
+webscraper/output/**/cookie_store.json
+webscraper/**/cookie_store.json

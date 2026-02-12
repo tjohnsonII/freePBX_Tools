@@ -130,6 +130,18 @@ def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def log_phase(tag: str, **kv: Any) -> None:
+    parts = []
+    for key, value in kv.items():
+        safe_value = "-" if value is None else str(value).replace("\n", " ").strip()
+        parts.append(f"{key}={safe_value}")
+    suffix = " ".join(parts)
+    line = f"[{_iso_utc_now()}] {tag}"
+    if suffix:
+        line = f"{line} {suffix}"
+    print(line, flush=True)
+
+
 class _FlushStreamHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
@@ -1056,37 +1068,93 @@ def create_edge_driver(
     raise RuntimeError("Edge driver could not be initialized.")
 
 
-def save_cookies_json(driver: Any, path: str) -> None:
-    try:
-        cookies = driver.get_cookies()
-        allowed_keys = {"name", "value", "path", "domain", "secure", "httpOnly", "expiry"}
-        sanitized = [{k: c[k] for k in c if k in allowed_keys} for c in cookies]
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(sanitized, f, indent=2)
-        print(f"[INFO] Saved {len(sanitized)} cookies to {path}")
-    except Exception as e:
-        print(f"[WARN] Could not save cookies: {e}")
+def _cookie_domain_summary(domains: List[str]) -> str:
+    ordered = sorted({d for d in domains if d})
+    return ",".join(ordered[:3]) if ordered else "-"
 
 
-def load_cookies_json(driver: Any, path: str) -> bool:
+def load_cookie_store(path: str) -> List[dict[str, Any]]:
     if not path or not os.path.exists(path):
-        return False
+        return []
     try:
         with open(path, "r", encoding="utf-8") as f:
-            cookies = json.load(f)
-        added = 0
-        for c in cookies:
-            try:
-                cookie = {k: c[k] for k in c if k in ("name", "value", "path", "domain", "secure", "httpOnly", "expiry")}
-                driver.add_cookie(cookie)
-                added += 1
-            except Exception:
+            payload = json.load(f)
+        if not isinstance(payload, list):
+            log_phase("COOKIE_STORE_LOAD", path=path, status="invalid_format", loaded=0)
+            return []
+        cookies = [item for item in payload if isinstance(item, dict)]
+        log_phase(
+            "COOKIE_STORE_LOAD",
+            path=path,
+            loaded=len(cookies),
+            domains=_cookie_domain_summary([as_str(c.get("domain")).lower() for c in cookies]),
+            status="ok",
+        )
+        return cookies
+    except Exception as exc:
+        log_phase("COOKIE_STORE_LOAD", path=path, loaded=0, status=f"error:{exc}")
+        return []
+
+
+def save_cookie_store(driver: Any, path: str, domains: Optional[List[str]] = None) -> dict[str, Any]:
+    allowed_keys = {"name", "value", "domain", "path", "expiry", "secure", "httpOnly", "sameSite"}
+    stats: dict[str, Any] = {
+        "path": path,
+        "total": 0,
+        "saved": 0,
+        "filtered": 0,
+        "domains": [],
+        "status": "ok",
+    }
+    domain_filters = [d.lower() for d in (domains or []) if d]
+    try:
+        cookies = driver.get_cookies() or []
+        stats["total"] = len(cookies)
+        sanitized: List[dict[str, Any]] = []
+        for cookie in cookies:
+            cookie_domain = as_str(cookie.get("domain")).lower()
+            if domain_filters and not any(d in cookie_domain for d in domain_filters):
+                stats["filtered"] += 1
                 continue
-        print(f"[INFO] Loaded {added}/{len(cookies)} cookies from {path}")
-        return added > 0
-    except Exception as e:
-        print(f"[WARN] Cookie injection skipped: {e}")
-        return False
+            sanitized.append({k: cookie[k] for k in allowed_keys if k in cookie})
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(sanitized, f, indent=2)
+        cookie_domains = [as_str(c.get("domain")).lower() for c in sanitized]
+        stats["saved"] = len(sanitized)
+        stats["domains"] = sorted({d for d in cookie_domains if d})
+        log_phase(
+            "COOKIE_STORE_SAVE",
+            path=path,
+            total=stats["total"],
+            saved=stats["saved"],
+            filtered=stats["filtered"],
+            domains=_cookie_domain_summary(cookie_domains),
+            status="ok",
+        )
+    except Exception as exc:
+        stats["status"] = f"error:{exc}"
+        log_phase("COOKIE_STORE_SAVE", path=path, status=stats["status"])
+    return stats
+
+
+def apply_cookies(driver: Any, cookies: List[dict[str, Any]]) -> dict[str, Any]:
+    allowed_keys = {"name", "value", "domain", "path", "expiry", "secure", "httpOnly", "sameSite"}
+    stats: dict[str, Any] = {"loaded": len(cookies), "added": 0, "failed": 0, "domains": []}
+    domains: List[str] = []
+    for item in cookies:
+        try:
+            cookie = {k: item[k] for k in allowed_keys if k in item}
+            if not cookie.get("name") or cookie.get("value") is None:
+                stats["failed"] += 1
+                continue
+            driver.add_cookie(cookie)
+            stats["added"] += 1
+            domains.append(as_str(cookie.get("domain")).lower())
+        except Exception:
+            stats["failed"] += 1
+    stats["domains"] = sorted({d for d in domains if d})
+    return stats
 
 
 def _write_text(path: str, text: str) -> None:
@@ -1175,7 +1243,7 @@ def _ensure_http_cookies(
             print(f"[AUTH] {auth_result.reason}")
         return False
 
-    save_cookies_json(auth_result.driver, cookie_path)
+    save_cookie_store(auth_result.driver, cookie_path)
     try:
         auth_result.driver.quit()
     except Exception:
@@ -1558,10 +1626,37 @@ def _is_keycloak_auth_redirect(driver: Any) -> bool:
 
 def _phase_line(phase_name: str, handle: str, url: str, started_at: float, status: str) -> None:
     dt = max(0.0, time.monotonic() - started_at)
-    print(
-        f"[{_iso_utc_now()}] PHASE {phase_name} handle={handle or '-'} url={url or '-'} dt={dt:.2f}s status={status}",
-        flush=True,
-    )
+    log_phase("PHASE", phase=phase_name, handle=handle or "-", url=url or "-", dt=f"{dt:.2f}s", status=status)
+
+
+def _auth_status(driver: Any, expected_host: str) -> tuple[bool, str, str, str]:
+    current_url = getattr(driver, "current_url", "") or ""
+    parsed = urllib.parse.urlparse(current_url)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or "/"
+    lowered_url = current_url.lower()
+    if host == "keycloak-01.123.net" or "/protocol/openid-connect/auth" in lowered_url or "/login-actions/" in lowered_url:
+        return False, host, path, "keycloak_redirect"
+    if host != expected_host:
+        return False, host, path, "unexpected_host"
+    body = ""
+    try:
+        body = (driver.page_source or "")[:120000].lower()
+    except Exception:
+        pass
+    markers = ("new ticket", "ticket", "tickets", "logout")
+    if any(marker in body for marker in markers):
+        return True, host, path, "marker_text"
+    try:
+        nav_hits = driver.find_elements(
+            "css selector",
+            "#top-nav, .top-nav, nav.navbar, .navbar, .header-nav, .main-nav",
+        )
+        if nav_hits:
+            return True, host, path, "marker_nav"
+    except Exception:
+        pass
+    return False, host, path, "missing_marker"
 
 
 def _capture_auth_redirect_artifacts(driver: Any, out_dir: str, ticket_id: str) -> dict[str, str]:
@@ -1598,6 +1693,8 @@ def ensure_noc_tickets_session(
     pause: bool,
     out_dir: str,
     handle: str,
+    cookie_store: Optional[str] = None,
+    save_cookies_after_auth: bool = False,
 ) -> bool:
     phase_start = time.monotonic()
     _phase_line("AUTH_WARMUP_START", handle=handle, url=preauth_url, started_at=phase_start, status="begin")
@@ -1607,11 +1704,15 @@ def ensure_noc_tickets_session(
         _phase_line("AUTH_WARMUP_TIMEOUT", handle=handle, url=preauth_url, started_at=phase_start, status=f"navigate_error:{exc}")
         return False
 
-    if not _is_keycloak_auth_redirect(driver):
+    authed, host, path, reason = _auth_status(driver, expected_host="noc-tickets.123.net")
+    if authed:
         _phase_line("AUTH_WARMUP_OK", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="already_authenticated")
+        if save_cookies_after_auth and cookie_store:
+            save_cookie_store(driver, cookie_store, domains=["noc-tickets.123.net", "keycloak-01.123.net"])
         return True
 
-    _phase_line("AUTH_WARMUP_KEYCLOAK_DETECTED", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="redirect")
+    if reason == "keycloak_redirect":
+        _phase_line("AUTH_WARMUP_KEYCLOAK_DETECTED", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="redirect")
     _capture_auth_redirect_artifacts(driver=driver, out_dir=out_dir, ticket_id="warmup")
     if pause:
         _phase_line("AUTH_WARMUP_WAITING_FOR_USER", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="manual_login_required")
@@ -1621,16 +1722,32 @@ def ensure_noc_tickets_session(
         )
 
     deadline = time.monotonic() + max(timeout, 1)
+    last_heartbeat = 0.0
     while time.monotonic() < deadline:
         try:
             current_url = driver.current_url or ""
-            host = urllib.parse.urlparse(current_url).netloc.lower()
-            if not _is_keycloak_auth_redirect(driver) and "noc-tickets.123.net" in host:
+            authed, host, path, reason = _auth_status(driver, expected_host="noc-tickets.123.net")
+            now = time.monotonic()
+            if now - last_heartbeat >= 2.0:
+                elapsed = now - phase_start
+                log_phase(
+                    "AUTH_WARMUP_HEARTBEAT",
+                    handle=handle or "-",
+                    elapsed=f"{elapsed:.1f}s",
+                    host=host or "-",
+                    path=(path or "/")[:80],
+                    authenticated=authed,
+                    reason=reason,
+                )
+                last_heartbeat = now
+            if authed:
                 _phase_line("AUTH_WARMUP_OK", handle=handle, url=current_url, started_at=phase_start, status="authenticated")
+                if save_cookies_after_auth and cookie_store:
+                    save_cookie_store(driver, cookie_store, domains=["noc-tickets.123.net", "keycloak-01.123.net"])
                 return True
         except Exception:
             pass
-        time.sleep(1.0)
+        time.sleep(0.5)
 
     _phase_line("AUTH_WARMUP_TIMEOUT", handle=handle, url=getattr(driver, "current_url", preauth_url) or preauth_url, started_at=phase_start, status="timeout")
     return False
@@ -1651,6 +1768,9 @@ def scrape_ticket_details(
     retry_on_auth_redirect: int,
     noc_tickets_authed: Optional[dict[str, bool]] = None,
     phase_logger: Optional[PhaseLogger] = None,
+    cookie_store: Optional[str] = None,
+    save_cookies: bool = False,
+    save_cookies_after_auth: bool = False,
 ) -> dict:
     bs4 = require_beautifulsoup()
     urls = [entry for entry in (_coerce_ticket_entry(u) for u in ticket_urls) if entry]
@@ -1703,9 +1823,12 @@ def scrape_ticket_details(
                 driver.get(url)
                 redirected = _is_keycloak_auth_redirect(driver)
                 if redirected:
-                    plog.log(
-                        f"[{_iso_utc_now()}] PHASE AUTH_REDIRECT handle={handle} ticket_id={ticket_id} "
-                        f"attempt={attempt}/{max_attempts} redirect_url={driver.current_url or '-'}"
+                    log_phase(
+                        "AUTH_REDIRECT",
+                        handle=handle,
+                        ticket_id=ticket_id,
+                        attempt=f"{attempt}/{max_attempts}",
+                        redirect_url=driver.current_url or "-",
                     )
                 if not redirected:
                     try:
@@ -1729,15 +1852,10 @@ def scrape_ticket_details(
                             pause=preauth_pause,
                             out_dir=out_dir,
                             handle=handle,
+                            cookie_store=cookie_store,
+                            save_cookies_after_auth=save_cookies_after_auth,
                         )
-                phase_started = time.monotonic()
-                _phase_line(
-                    "TICKET_RETRY",
-                    handle=handle,
-                    url=url,
-                    started_at=phase_started,
-                    status=f"attempt={attempt}/{max_attempts}",
-                )
+                log_phase("TICKET_RETRY", handle=handle, ticket_id=ticket_id, url=url, attempt=f"{attempt}/{max_attempts}")
                 if attempt >= max_attempts:
                     break
 
@@ -1786,6 +1904,8 @@ def scrape_ticket_details(
             bytes_saved = len(page_html.encode("utf-8"))
             plog.log(f"[{_iso_utc_now()}] PHASE SCRAPE_URL handle={handle} status=ok ticket_id={ticket_id} bytes_saved={bytes_saved} output={ticket_json_path}")
             print(f"[TICKET] scraped {ticket_id}")
+            if save_cookies and cookie_store:
+                save_cookie_store(driver, cookie_store, domains=["noc-tickets.123.net", "keycloak-01.123.net"])
             scraped += 1
         except Exception as exc:
             failed += 1
@@ -1853,6 +1973,11 @@ def selenium_scrape_tickets(
     preauth_pause: bool = True,
     retry_on_auth_redirect: int = 2,
     include_new_ticket_links: bool = False,
+    cookie_store: Optional[str] = None,
+    load_cookies: bool = False,
+    save_cookies: bool = False,
+    save_cookies_after_auth: bool = False,
+    clear_cookies: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -1923,6 +2048,21 @@ def selenium_scrape_tickets(
     cookies_path: Optional[str] = None
     resolved_auth_profiles = [os.path.abspath(p) for p in (auth_profile_dirs or []) if p]
     resolved_auth_cookies = [os.path.abspath(p) for p in (auth_cookie_files or []) if p]
+    cookie_store_path = os.path.abspath(cookie_store) if cookie_store else os.path.join(output_dir, "cookie_store.json")
+
+    log_phase(
+        "STARTUP",
+        url=url,
+        target_url=effective_target_url,
+        scrape_ticket_details=scrape_ticket_details_enabled,
+        preauth_noc_tickets=preauth_noc_tickets,
+        cookie_store=cookie_store_path,
+        load_cookies=load_cookies,
+        save_cookies=save_cookies,
+        save_cookies_after_auth=save_cookies_after_auth,
+        clear_cookies=clear_cookies,
+        profile_dir=profile_dir_override or "-",
+    )
 
     def run_auth_diagnostics() -> None:
         nonlocal driver, created_browser, attach_mode
@@ -2072,17 +2212,32 @@ def selenium_scrape_tickets(
         except Exception:
             pass
 
-        # Attempt to load and inject cookies after navigation to target
-        if cookie_file:
+        if clear_cookies:
             try:
-                injected = load_cookies_json(driver, cookie_file)
-                if injected:
-                    try:
-                        driver.get(effective_target_url)
-                    except Exception:
-                        pass
-            except Exception as e:
-                print(f"[WARN] Cookie injection failed: {e}")
+                driver.delete_all_cookies()
+                log_phase("COOKIE_CLEAR", status="ok")
+            except Exception as exc:
+                log_phase("COOKIE_CLEAR", status=f"error:{exc}")
+
+        if load_cookies and cookie_store_path:
+            store_exists = os.path.exists(cookie_store_path)
+            log_phase("COOKIE_STORE_LOAD", path=cookie_store_path, exists=store_exists)
+            if store_exists:
+                try:
+                    driver.get("https://noc-tickets.123.net/")
+                    stored_cookies = load_cookie_store(cookie_store_path)
+                    apply_stats = apply_cookies(driver, stored_cookies)
+                    log_phase(
+                        "COOKIE_STORE_APPLY",
+                        path=cookie_store_path,
+                        loaded=apply_stats.get("loaded", 0),
+                        added=apply_stats.get("added", 0),
+                        failures=apply_stats.get("failed", 0),
+                        domains=_cookie_domain_summary(apply_stats.get("domains", [])),
+                    )
+                    driver.refresh()
+                except Exception as exc:
+                    log_phase("COOKIE_STORE_APPLY", path=cookie_store_path, status=f"error:{exc}")
         try:
             # Try to navigate; if DNS fails, prompt for manual navigation
             try:
@@ -2137,11 +2292,10 @@ def selenium_scrape_tickets(
                     print("[INFO] Detected page content; continuing scrape.")
                 except Exception:
                     print("[WARN] Page still looks empty; proceeding but results may be blank.")
-            # Persist current authenticated session cookies
+            # Persist current authenticated session cookies only when requested
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
-            save_cookies_json(driver, cookies_path)
-            if cookie_file:
-                save_cookies_json(driver, cookie_file)
+            if save_cookies:
+                save_cookie_store(driver, cookie_store_path, domains=["noc-tickets.123.net", "keycloak-01.123.net"])
 
             # Quick readiness check: ensure we can see a search input or Search button
             try:
@@ -2799,6 +2953,9 @@ def selenium_scrape_tickets(
                             retry_on_auth_redirect=retry_on_auth_redirect,
                             noc_tickets_authed=noc_tickets_session_state,
                             phase_logger=realtime_phase_logger,
+                            cookie_store=cookie_store_path,
+                            save_cookies=save_cookies,
+                            save_cookies_after_auth=save_cookies_after_auth,
                         )
                         total_ticket_scraped += summary.get("scraped", 0)
                         total_ticket_skipped += summary.get("skipped", 0)
@@ -2905,6 +3062,11 @@ def main() -> int:
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
+    parser.add_argument("--cookie-store", help="Path to persisted Selenium cookie store (JSON list format)")
+    parser.add_argument("--load-cookies", action="store_true", help="Load cookies from --cookie-store before scraping")
+    parser.add_argument("--save-cookies", action="store_true", help="Save cookies to --cookie-store at checkpoints")
+    parser.add_argument("--save-cookies-after-auth", action="store_true", help="Save cookies after AUTH_WARMUP_OK")
+    parser.add_argument("--clear-cookies", action="store_true", help="Clear browser cookies before scraping")
     parser.add_argument(
         "--http-only",
         action="store_true",
@@ -3039,6 +3201,7 @@ def main() -> int:
     out_dir = os.environ.get("SCRAPER_OUT") or args.out
     kb_jsonl = args.kb_jsonl or os.path.join(out_dir, "kb.jsonl")
     cookie_file = os.environ.get("SCRAPER_COOKIE_FILE") or args.cookie_file
+    cookie_store = os.environ.get("SCRAPER_COOKIE_STORE") or args.cookie_store or os.path.join(out_dir, "cookie_store.json")
     # Determine handles precedence: --handles-file > env > CLI list
     handles_env = os.environ.get("SCRAPER_HANDLES")
     handles = None
@@ -3174,6 +3337,11 @@ def main() -> int:
         vacuum=args.vacuum,
         aggressive=args.aggressive,
         cookie_file=cookie_file,
+        cookie_store=cookie_store,
+        load_cookies=args.load_cookies,
+        save_cookies=args.save_cookies,
+        save_cookies_after_auth=args.save_cookies_after_auth,
+        clear_cookies=args.clear_cookies,
         attach=args.attach,
         auto_attach=args.auto_attach,
         attach_host=args.attach_host,
