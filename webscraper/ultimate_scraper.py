@@ -200,6 +200,44 @@ def parse_ticket_id(url: str) -> Optional[str]:
     return None
 
 
+def classify_url(url: str) -> str:
+    if not url:
+        return "other"
+    lowered = url.strip().lower()
+    if lowered.startswith("file://") or lowered.startswith("smb://"):
+        return "file_share"
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.netloc or "").lower()
+    path = (parsed.path or "").lower()
+    if host == "secure.123.net" and "dsx_circuits.cgi" in path:
+        return "dsx_circuit"
+    if host == "noc-tickets.123.net":
+        if path.startswith("/new_ticket"):
+            return "new_ticket"
+        if re.fullmatch(r"/ticket/\d{12,}", path.rstrip("/")):
+            return "ticket_detail"
+    return "other"
+
+
+def build_ticket_url_entry(url: str) -> dict[str, Optional[str]]:
+    kind = classify_url(url)
+    ticket_id = parse_ticket_id(url) if kind == "ticket_detail" else None
+    return {"url": url, "kind": kind, "ticket_id": ticket_id}
+
+
+def _url_kind_priority(kind: str) -> int:
+    return 0 if kind == "ticket_detail" else 1
+
+
+class PhaseLogger:
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled
+
+    def log(self, message: str) -> None:
+        if self.enabled:
+            print(message, flush=True)
+
+
 def parse_ticket_id_from_text(text: str) -> Optional[str]:
     if not text:
         return None
@@ -1417,7 +1455,20 @@ def _wait_for_ticket_page(driver: Any, timeout: float, retries: int = 2) -> bool
     return False
 
 
-def _load_tickets_json(path: str) -> dict[str, List[str]]:
+def _coerce_ticket_entry(item: Any) -> Optional[dict[str, Optional[str]]]:
+    if isinstance(item, str):
+        return build_ticket_url_entry(item)
+    if isinstance(item, dict):
+        url = as_str(item.get("url"))
+        if not url:
+            return None
+        kind = as_str(item.get("kind")) or classify_url(url)
+        ticket_id = as_str(item.get("ticket_id")) or (parse_ticket_id(url) if kind == "ticket_detail" else None)
+        return {"url": url, "kind": kind, "ticket_id": ticket_id}
+    return None
+
+
+def _load_tickets_json(path: str) -> dict[str, List[dict[str, Optional[str]]]]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -1426,24 +1477,29 @@ def _load_tickets_json(path: str) -> dict[str, List[str]]:
                 handle = str(data.get("handle"))
                 tickets = data.get("tickets")
                 if handle and isinstance(tickets, list):
-                    return {handle: [str(item) for item in tickets if item]}
-            return {str(k): list(v) for k, v in data.items() if isinstance(v, list)}
+                    return {handle: [entry for entry in (_coerce_ticket_entry(item) for item in tickets) if entry]}
+            loaded: dict[str, List[dict[str, Optional[str]]]] = {}
+            for key, values in data.items():
+                if not isinstance(values, list):
+                    continue
+                loaded[str(key)] = [entry for entry in (_coerce_ticket_entry(item) for item in values) if entry]
+            return loaded
     except Exception as exc:
         print(f"[WARN] Could not read tickets json '{path}': {exc}")
     return {}
 
 
-def _load_ticket_urls_for_handle(output_dir: str, handle: str) -> List[str]:
+def _load_ticket_urls_for_handle(output_dir: str, handle: str) -> List[dict[str, Optional[str]]]:
     handle_path = os.path.join(output_dir, f"tickets_{handle}.json")
     if os.path.exists(handle_path):
         data = _load_tickets_json(handle_path)
         if handle in data:
-            return [str(item) for item in data[handle] if item]
+            return data[handle]
     all_path = os.path.join(output_dir, "tickets_all.json")
     if os.path.exists(all_path):
         data = _load_tickets_json(all_path)
         if handle in data:
-            return [str(item) for item in data[handle] if item]
+            return data[handle]
     return []
 
 
@@ -1583,7 +1639,7 @@ def ensure_noc_tickets_session(
 def scrape_ticket_details(
     driver: Any,
     handle: str,
-    ticket_urls: List[str],
+    ticket_urls: List[dict[str, Optional[str]]],
     out_dir: str,
     max_tickets: Optional[int],
     save_html: bool,
@@ -1594,14 +1650,18 @@ def scrape_ticket_details(
     preauth_pause: bool,
     retry_on_auth_redirect: int,
     noc_tickets_authed: Optional[dict[str, bool]] = None,
+    phase_logger: Optional[PhaseLogger] = None,
 ) -> dict:
     bs4 = require_beautifulsoup()
-    urls = [u for u in ticket_urls if u]
+    urls = [entry for entry in (_coerce_ticket_entry(u) for u in ticket_urls) if entry]
     if not urls:
         urls = _load_ticket_urls_for_handle(out_dir, handle)
     if not urls:
         print(f"[TICKET] No URLs found for {handle}")
         return {"handle": handle, "scraped": 0, "skipped": 0, "failed": 0, "total": 0}
+
+    urls = sorted(urls, key=lambda item: (_url_kind_priority(as_str(item.get("kind"))), as_str(item.get("url"))))
+    plog = phase_logger or PhaseLogger(enabled=True)
 
     ticket_root = os.path.join(out_dir, "tickets", handle)
     os.makedirs(ticket_root, exist_ok=True)
@@ -1612,15 +1672,23 @@ def scrape_ticket_details(
     total = 0
     session_state = noc_tickets_authed if noc_tickets_authed is not None else {"ok": False}
 
-    for url in urls:
+    for entry in urls:
         if max_tickets is not None and total >= max_tickets:
             break
         total += 1
-        ticket_id = parse_ticket_id(url)
+        url = as_str(entry.get("url"))
+        kind = as_str(entry.get("kind")) or classify_url(url)
+        ticket_id = as_str(entry.get("ticket_id")) or (parse_ticket_id(url) if kind == "ticket_detail" else None)
+        plog.log(f"[{_iso_utc_now()}] PHASE SCRAPE_URL handle={handle} status=begin classification={kind} url={url}")
+        if kind != "ticket_detail":
+            print(f"[TICKET] skipped url={url} reason=non_ticket_detail kind={kind}", flush=True)
+            skipped += 1
+            continue
         if not ticket_id:
             print(f"[TICKET] failed url={url} reason=missing_ticket_id")
             failed += 1
             continue
+
         ticket_dir = os.path.join(ticket_root, ticket_id)
         os.makedirs(ticket_dir, exist_ok=True)
         ticket_json_path = os.path.join(ticket_dir, "ticket.json")
@@ -1629,12 +1697,16 @@ def scrape_ticket_details(
             skipped += 1
             continue
         try:
-            print(f"[{_iso_utc_now()}] [PHASE 06 SCRAPE TICKET] ticket_id={ticket_id} url={url}", flush=True)
             auth_fail = False
             max_attempts = max(0, retry_on_auth_redirect) + 1
             for attempt in range(1, max_attempts + 1):
                 driver.get(url)
                 redirected = _is_keycloak_auth_redirect(driver)
+                if redirected:
+                    plog.log(
+                        f"[{_iso_utc_now()}] PHASE AUTH_REDIRECT handle={handle} ticket_id={ticket_id} "
+                        f"attempt={attempt}/{max_attempts} redirect_url={driver.current_url or '-'}"
+                    )
                 if not redirected:
                     try:
                         _wait_for_ticket_ready(driver, timeout=25)
@@ -1711,6 +1783,8 @@ def scrape_ticket_details(
             }
             with open(ticket_json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            bytes_saved = len(page_html.encode("utf-8"))
+            plog.log(f"[{_iso_utc_now()}] PHASE SCRAPE_URL handle={handle} status=ok ticket_id={ticket_id} bytes_saved={bytes_saved} output={ticket_json_path}")
             print(f"[TICKET] scraped {ticket_id}")
             scraped += 1
         except Exception as exc:
@@ -1778,6 +1852,7 @@ def selenium_scrape_tickets(
     preauth_timeout: int = 180,
     preauth_pause: bool = True,
     retry_on_auth_redirect: int = 2,
+    include_new_ticket_links: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -2301,6 +2376,7 @@ def selenium_scrape_tickets(
         from selenium.webdriver.support import expected_conditions as EC
 
         phase_logger = _build_phase_logger(phase_logs)
+        realtime_phase_logger = PhaseLogger(enabled=phase_logs)
 
         def _phase(step_num: int, name: str, details: str = "", started_at: Optional[float] = None) -> None:
             elapsed = f" dt={time.monotonic() - started_at:.2f}s" if started_at is not None else ""
@@ -2506,7 +2582,7 @@ def selenium_scrape_tickets(
             print(f"[{_iso_utc_now()}] PHASE EXPAND_TICKETS_VERIFY rows={last_rows}", flush=True)
             raise TimeoutException(f"Trouble ticket table rows not found within {timeout}s")
 
-        def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any], log_links: bool = True) -> List[str]:
+        def extract_ticket_urls_from_company_page(driver: Any, debug_ctx: dict[str, Any], log_links: bool = True) -> List[dict[str, Optional[str]]]:
             clicked_selector = as_str(debug_ctx.get("clicked_selector"))
             panel_anchors: List[Any] = []
             if clicked_selector.startswith("#"):
@@ -2533,67 +2609,88 @@ def selenium_scrape_tickets(
                     )
                 return []
 
-            links: List[str] = []
+            links: List[dict[str, Optional[str]]] = []
             seen: set[str] = set()
-            ticket_ids_seen: set[str] = set()
             row_count = len(table.find_elements(By.XPATH, ".//tr[td]"))
             samples: List[dict[str, str]] = []
             anchors_in_table = table.find_elements(By.XPATH, ".//a")
             rejected_links = 0
-            rejected_logged = 0
+            rejected_with_reason: List[tuple[str, str]] = []
+            anchors_total = len(anchors_in_table)
+            kept_ticket_detail = 0
+            kept_new_ticket = 0
+            kept_other = 0
+
             for anchor in anchors_in_table:
                 href = anchor.get_attribute("href") or ""
                 onclick = anchor.get_attribute("onclick") or ""
-                link_text = (anchor.text or "").strip()
                 if len(samples) < 10:
                     samples.append({"href": href, "onclick": onclick})
                 normalized_url = _normalize_ticket_url(href, onclick)
                 if not normalized_url:
                     rejected_links += 1
-                    if log_links and rejected_logged < 10:
-                        print("REJECTED LINK reason=missing_href_or_onclick_url href=''", flush=True)
-                        rejected_logged += 1
+                    if len(rejected_with_reason) < 5:
+                        rejected_with_reason.append(("missing_href_or_onclick_url", ""))
                     continue
-                accepted, ticket_id, reason = _classify_ticket_link(normalized_url, link_text)
-                if not accepted:
+
+                kind = classify_url(normalized_url)
+                if kind in {"dsx_circuit", "file_share"}:
                     rejected_links += 1
-                    if log_links and rejected_logged < 10:
-                        print(f"REJECTED LINK reason={reason} href={normalized_url}", flush=True)
-                        rejected_logged += 1
+                    if len(rejected_with_reason) < 5:
+                        rejected_with_reason.append((f"filtered:{kind}", normalized_url))
                     continue
-                if not ticket_id or ticket_id in ticket_ids_seen:
+                if scrape_ticket_details_enabled and kind == "new_ticket" and not include_new_ticket_links:
+                    rejected_links += 1
+                    if len(rejected_with_reason) < 5:
+                        rejected_with_reason.append(("filtered:new_ticket", normalized_url))
                     continue
-                ticket_ids_seen.add(ticket_id)
+                if scrape_ticket_details_enabled and kind == "other":
+                    rejected_links += 1
+                    if len(rejected_with_reason) < 5:
+                        rejected_with_reason.append(("filtered:other", normalized_url))
+                    continue
+
                 if normalized_url in seen:
                     continue
                 seen.add(normalized_url)
-                links.append(normalized_url)
-                if log_links:
-                    print(f"ACCEPTED TICKET ticket_id={ticket_id} href={normalized_url}", flush=True)
+                entry = build_ticket_url_entry(normalized_url)
+                links.append(entry)
+                if kind == "ticket_detail":
+                    kept_ticket_detail += 1
+                elif kind == "new_ticket":
+                    kept_new_ticket += 1
+                else:
+                    kept_other += 1
 
+            links = sorted(links, key=lambda item: (_url_kind_priority(as_str(item.get("kind"))), as_str(item.get("url"))))
+            kept_total = len(links)
             debug_ctx["table_row_count"] = row_count
-            debug_ctx["link_count"] = len(links)
+            debug_ctx["link_count"] = kept_total
             debug_ctx["panel_anchor_samples"] = samples
             debug_ctx["total_anchors_in_panel"] = total_anchors_in_panel
-            debug_ctx["anchors_in_table"] = len(anchors_in_table)
-            debug_ctx["accepted_ticket_links"] = len(links)
+            debug_ctx["anchors_in_table"] = anchors_total
+            debug_ctx["accepted_ticket_links"] = kept_total
             debug_ctx["rejected_links"] = rejected_links
-            if log_links:
-                print(
-                    f"[TICKET LINKS] total_anchors_in_panel={total_anchors_in_panel} "
-                    f"anchors_in_table={len(anchors_in_table)} accepted_ticket_links={len(links)} "
-                    f"rejected_links={rejected_links}",
-                    flush=True,
+            if log_links and phase_logs:
+                realtime_phase_logger.log(
+                    f"[{_iso_utc_now()}] PHASE EXTRACT_URLS handle={handle} anchors_total={anchors_total} "
+                    f"kept_total={kept_total} kept_ticket_detail={kept_ticket_detail} "
+                    f"kept_new_ticket={kept_new_ticket} kept_other={kept_other}"
+                )
+                accepted_sample = [as_str(item.get("url")) for item in links if as_str(item.get("kind")) == "ticket_detail"][:5]
+                realtime_phase_logger.log(
+                    f"[{_iso_utc_now()}] PHASE URL_SAMPLES handle={handle} accepted_ticket_detail={accepted_sample} "
+                    f"rejected={rejected_with_reason[:5]}"
                 )
             return links
 
-        all_tickets: dict[str, List[str]] = {}
+        all_tickets: dict[str, List[dict[str, Optional[str]]]] = {}
 
-        def process_handle(handle: str) -> List[str]:
+        def process_handle(handle: str) -> List[dict[str, Optional[str]]]:
             print(f"[HANDLE] Starting {handle}", flush=True)
             debug_log_path = os.path.join(debug_dir, f"debug_log_{handle}.txt")
             debug_lines: List[str] = []
-            tickets: List[str] = []
+            tickets: List[dict[str, Optional[str]]] = []
 
             def _dbg(msg: str) -> None:
                 line = f"{_iso_utc_now()} {msg}"
@@ -2701,6 +2798,7 @@ def selenium_scrape_tickets(
                             preauth_pause=preauth_pause,
                             retry_on_auth_redirect=retry_on_auth_redirect,
                             noc_tickets_authed=noc_tickets_session_state,
+                            phase_logger=realtime_phase_logger,
                         )
                         total_ticket_scraped += summary.get("scraped", 0)
                         total_ticket_skipped += summary.get("skipped", 0)
@@ -2880,6 +2978,11 @@ def main() -> int:
     parser.add_argument(
         "--tickets-json",
         help="Path to tickets_all.json (defaults to <out>/tickets_all.json if present)",
+    )
+    parser.add_argument(
+        "--include-new-ticket-links",
+        action="store_true",
+        help="Keep /new_ticket links in extracted output (still sorted after ticket_detail links)",
     )
     parser.add_argument(
         "--kb-dir",
@@ -3118,6 +3221,7 @@ def main() -> int:
         preauth_timeout=args.preauth_timeout,
         preauth_pause=args.preauth_pause,
         retry_on_auth_redirect=args.retry_on_auth_redirect,
+        include_new_ticket_links=args.include_new_ticket_links,
     )
     return 0
 
