@@ -1706,6 +1706,35 @@ def _is_keycloak_auth_redirect(driver: Any) -> bool:
     return any(marker in html for marker in login_markers)
 
 
+def _is_authenticated_session(driver: Any) -> bool:
+    current = str(getattr(driver, "current_url", "") or "")
+    current_lower = current.lower()
+    if not current_lower.startswith("https://noc-tickets.123.net/"):
+        return False
+    if _is_keycloak_auth_redirect(driver):
+        return False
+    try:
+        title = str(getattr(driver, "title", "") or "")
+    except Exception:
+        title = ""
+    if "noc tickets" in title.lower() or "noc-tickets" in title.lower():
+        return True
+    try:
+        has_nav = bool(
+            driver.execute_script(
+                "return !!document.querySelector('nav, .navbar, [data-testid*=\"nav\" i], a[href*=\"/ticket/\"]');"
+            )
+        )
+        has_login_form = bool(
+            driver.execute_script(
+                "return !!document.querySelector('form[action*=\"login\" i], input[type=\"password\"], #kc-form-login');"
+            )
+        )
+        return has_nav or not has_login_form
+    except Exception:
+        return False
+
+
 def _phase_line(phase_name: str, handle: str, url: str, started_at: float, status: str) -> None:
     dt = max(0.0, time.monotonic() - started_at)
     print(
@@ -1744,7 +1773,7 @@ def _capture_auth_redirect_artifacts(driver: Any, out_dir: str, ticket_id: str) 
 def ensure_noc_tickets_session(
     driver: Any,
     preauth_url: str,
-    timeout: int,
+    preauth_timeout: int,
     pause: bool,
     out_dir: str,
     handle: str,
@@ -1753,38 +1782,6 @@ def ensure_noc_tickets_session(
     save_cookies_after_auth: bool = True,
     load_cookies_before_auth: bool = True,
 ) -> bool:
-    def _is_authenticated_session() -> bool:
-        current = str(getattr(driver, "current_url", "") or "")
-        current_lower = current.lower()
-        if not current_lower.startswith("https://noc-tickets.123.net/"):
-            return False
-        if any(marker in current_lower for marker in ("keycloak", "/protocol/openid-connect/", "/login-actions/")):
-            return False
-        try:
-            title = str(getattr(driver, "title", "") or "")
-        except Exception:
-            title = ""
-        if "noc tickets" in title.lower() or "noc-tickets" in title.lower():
-            return True
-        try:
-            has_nav = bool(
-                driver.execute_script(
-                    "return !!document.querySelector('nav, .navbar, [data-testid*=\"nav\" i], a[href*=\"/ticket/\"]');"
-                )
-            )
-            has_login_form = bool(
-                driver.execute_script(
-                    "return !!document.querySelector('form[action*=\"login\" i], input[type=\"password\"], #kc-form-login');"
-                )
-            )
-            return has_nav or not has_login_form
-        except Exception:
-            return False
-
-    def _is_keycloak_redirect() -> bool:
-        current = str(getattr(driver, "current_url", "") or "").lower()
-        return any(marker in current for marker in ("keycloak", "/protocol/openid-connect/", "/login-actions/"))
-
     phase_start = time.monotonic()
     _phase_line("AUTH_WARMUP_START", handle=handle, url=preauth_url, started_at=phase_start, status="begin")
     if cookie_store_path and load_cookies_before_auth:
@@ -1797,18 +1794,18 @@ def ensure_noc_tickets_session(
         _phase_line("AUTH_WARMUP_TIMEOUT", handle=handle, url=preauth_url, started_at=phase_start, status=f"navigate_error:{exc}")
         return False
 
-    if _is_authenticated_session() and not _is_keycloak_redirect():
+    if _is_authenticated_session(driver) and not _is_keycloak_auth_redirect(driver):
         _phase_line("AUTH_WARMUP_OK", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="already_authenticated")
         if cookie_store_path and save_cookies_after_auth:
             saved_count = save_cookie_store(driver, cookie_store_path, skip_if_empty=True)
             print(f"[AUTH] cookie save complete count={saved_count} path={cookie_store_path}", flush=True)
         return True
 
-    if _is_keycloak_redirect():
+    if _is_keycloak_auth_redirect(driver):
         _phase_line("AUTH_WARMUP_KEYCLOAK_DETECTED", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="redirect")
         _capture_auth_redirect_artifacts(driver=driver, out_dir=out_dir, ticket_id="warmup")
 
-    if pause and _is_keycloak_redirect():
+    if pause and _is_keycloak_auth_redirect(driver):
         _phase_line("AUTH_WARMUP_WAITING_FOR_USER", handle=handle, url=driver.current_url or preauth_url, started_at=phase_start, status="manual_login_required")
         print(
             "\n" + "=" * 88 + "\n"
@@ -1818,16 +1815,16 @@ def ensure_noc_tickets_session(
             flush=True,
         )
 
-    deadline = time.monotonic() + max(auth_timeout if pause else timeout, 1)
+    deadline = time.monotonic() + max(auth_timeout if pause else preauth_timeout, 1)
     while time.monotonic() < deadline:
         try:
             current_url = driver.current_url or ""
-            authenticated = _is_authenticated_session()
+            authenticated = _is_authenticated_session(driver)
             print(
                 f"[AUTH] heartbeat elapsed={time.monotonic() - phase_start:.1f}s current_url={current_url} authenticated={authenticated}",
                 flush=True,
             )
-            if authenticated and not _is_keycloak_redirect():
+            if authenticated and not _is_keycloak_auth_redirect(driver):
                 _phase_line("AUTH_WARMUP_OK", handle=handle, url=current_url, started_at=phase_start, status="authenticated")
                 if cookie_store_path and save_cookies_after_auth:
                     saved_count = save_cookie_store(driver, cookie_store_path, skip_if_empty=True)
@@ -1934,7 +1931,7 @@ def scrape_ticket_details(
                         session_state["ok"] = ensure_noc_tickets_session(
                             driver=driver,
                             preauth_url=preauth_url,
-                            timeout=preauth_timeout,
+                            preauth_timeout=preauth_timeout,
                             pause=preauth_pause,
                             out_dir=out_dir,
                             handle=handle,
