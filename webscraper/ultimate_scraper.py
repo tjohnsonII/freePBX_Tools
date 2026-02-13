@@ -14,6 +14,7 @@ paths, and cookie handling) will be reintroduced in small, tested stages.
 import os
 import io
 import contextlib
+import argparse
 import glob
 import json
 import logging
@@ -3105,10 +3106,14 @@ def _load_config():
     return cfg
 
 
+def add_cookie_persistence_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cookie-store", dest="cookie_store", help="Path to persistent cookie store JSON")
+    parser.add_argument("--save-cookies-after-auth", dest="save_cookies_after_auth", action="store_true", help="Save cookies after auth flow completes")
+
+
 def main() -> int:
     # Prefer config defaults, allow CLI overrides, and finally env overrides
     cfg = _load_config()
-    import argparse
 
     default_url = getattr(cfg, "DEFAULT_URL", "https://noc.123.net/customers")
     default_target_url = getattr(
@@ -3236,19 +3241,13 @@ def main() -> int:
     parser.set_defaults(preauth_noc_tickets=None)
     parser.add_argument("--preauth-url", default="https://noc-tickets.123.net/", help="URL used for noc-tickets pre-auth warm-up")
     parser.add_argument("--preauth-timeout", type=int, default=180, help="Timeout in seconds for noc-tickets pre-auth warm-up")
-    # Keep this option registered exactly once; auth warm-up uses args.cookie_store for both load/save flows.
-    parser.add_argument(
-        "--cookie-store",
-        dest="cookie_store",
-        help="Path to persistent noc-tickets cookie store JSON",
-    )
+    add_cookie_persistence_args(parser)
     parser.add_argument("--load-cookies", dest="load_cookies", action="store_true", help="Load noc-tickets cookies from --cookie-store before auth warm-up")
     parser.add_argument("--no-load-cookies", dest="load_cookies", action="store_false", help="Disable cookie preload before auth warm-up")
     parser.set_defaults(load_cookies=True)
     parser.add_argument("--save-cookies", dest="save_cookies", action="store_true", help="Enable saving noc-tickets cookies to --cookie-store")
     parser.add_argument("--no-save-cookies", dest="save_cookies", action="store_false", help="Disable noc-tickets cookie persistence")
     parser.set_defaults(save_cookies=True)
-    parser.add_argument("--save-cookies-after-auth", dest="save_cookies_after_auth", action="store_true", help="Save cookies after AUTH_WARMUP_OK")
     parser.add_argument("--no-save-cookies-after-auth", dest="save_cookies_after_auth", action="store_false", help="Do not save cookies after auth warm-up")
     parser.set_defaults(save_cookies_after_auth=True)
     parser.add_argument("--preauth-pause", dest="preauth_pause", action="store_true", help="Pause for manual login in visible browser during noc-tickets pre-auth")
