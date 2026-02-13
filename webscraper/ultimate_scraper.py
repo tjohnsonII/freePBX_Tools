@@ -3236,7 +3236,12 @@ def main() -> int:
     parser.set_defaults(preauth_noc_tickets=None)
     parser.add_argument("--preauth-url", default="https://noc-tickets.123.net/", help="URL used for noc-tickets pre-auth warm-up")
     parser.add_argument("--preauth-timeout", type=int, default=180, help="Timeout in seconds for noc-tickets pre-auth warm-up")
-    parser.add_argument("--cookie-store", help="Path to persistent noc-tickets cookie store JSON")
+    # Keep this option registered exactly once; auth warm-up uses args.cookie_store for both load/save flows.
+    parser.add_argument(
+        "--cookie-store",
+        dest="cookie_store",
+        help="Path to persistent noc-tickets cookie store JSON",
+    )
     parser.add_argument("--load-cookies", dest="load_cookies", action="store_true", help="Load noc-tickets cookies from --cookie-store before auth warm-up")
     parser.add_argument("--no-load-cookies", dest="load_cookies", action="store_false", help="Disable cookie preload before auth warm-up")
     parser.set_defaults(load_cookies=True)
