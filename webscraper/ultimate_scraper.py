@@ -3239,10 +3239,20 @@ def main() -> int:
     parser.add_argument("--preauth-url", default="https://noc-tickets.123.net/", help="URL used for noc-tickets pre-auth warm-up")
     parser.add_argument("--preauth-timeout", type=int, default=180, help="Timeout in seconds for noc-tickets pre-auth warm-up")
     add_cookie_persistence_args(parser)
-    parser.add_argument("--load-cookies", dest="load_cookies", action="store_true", help="Load noc-tickets cookies from --cookie-store before auth warm-up")
+    parser.add_argument(
+        "--load-cookies",
+        dest="load_cookies",
+        action="store_true",
+        help="Load noc-tickets cookies from the configured cookie store before auth warm-up",
+    )
     parser.add_argument("--no-load-cookies", dest="load_cookies", action="store_false", help="Disable cookie preload before auth warm-up")
     parser.set_defaults(load_cookies=True)
-    parser.add_argument("--save-cookies", dest="save_cookies", action="store_true", help="Enable saving noc-tickets cookies to --cookie-store")
+    parser.add_argument(
+        "--save-cookies",
+        dest="save_cookies",
+        action="store_true",
+        help="Enable saving noc-tickets cookies to the configured cookie store",
+    )
     parser.add_argument("--no-save-cookies", dest="save_cookies", action="store_false", help="Disable noc-tickets cookie persistence")
     parser.set_defaults(save_cookies=True)
     parser.add_argument("--no-save-cookies-after-auth", dest="save_cookies_after_auth", action="store_false", help="Do not save cookies after auth warm-up")
