@@ -28,6 +28,13 @@ import importlib
 import importlib.util
 from datetime import datetime, timezone
 from typing import Any, List, Optional, TYPE_CHECKING, cast
+from webscraper.browser.edge_driver import (
+    EdgeStartupError as ModularEdgeStartupError,
+    create_edge_driver as modular_create_edge_driver,
+    edge_binary_path as modular_edge_binary_path,
+)
+from webscraper.kb.indexer import build_kb_index as modular_build_kb_index
+from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_extract_ticket_fields
 
 if __package__ in (None, ""):
     raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
@@ -1651,6 +1658,7 @@ def scrape_ticket_details(
     retry_on_auth_redirect: int,
     noc_tickets_authed: Optional[dict[str, bool]] = None,
     phase_logger: Optional[PhaseLogger] = None,
+    rate_limit: float = 0.5,
 ) -> dict:
     bs4 = require_beautifulsoup()
     urls = [entry for entry in (_coerce_ticket_entry(u) for u in ticket_urls) if entry]
@@ -1790,6 +1798,9 @@ def scrape_ticket_details(
         except Exception as exc:
             failed += 1
             print(f"[TICKET] failed {ticket_id or url}: {exc}")
+        finally:
+            if rate_limit > 0:
+                time.sleep(rate_limit)
 
     summary = {"handle": handle, "scraped": scraped, "skipped": skipped, "failed": failed, "total": total}
     print(f"[TICKET] Summary {handle}: scraped={scraped} skipped={skipped} failed={failed}")
@@ -2799,6 +2810,7 @@ def selenium_scrape_tickets(
                             retry_on_auth_redirect=retry_on_auth_redirect,
                             noc_tickets_authed=noc_tickets_session_state,
                             phase_logger=realtime_phase_logger,
+                            rate_limit=rate_limit,
                         )
                         total_ticket_scraped += summary.get("scraped", 0)
                         total_ticket_skipped += summary.get("skipped", 0)
@@ -2866,6 +2878,14 @@ def selenium_scrape_tickets(
                 driver.quit()
             except Exception:
                 pass
+
+
+# Modularized implementations
+EdgeStartupError = ModularEdgeStartupError
+edge_binary_path = modular_edge_binary_path
+create_edge_driver = modular_create_edge_driver
+extract_ticket_fields = modular_extract_ticket_fields
+build_kb_index = modular_build_kb_index
 
 
 def _load_config():
