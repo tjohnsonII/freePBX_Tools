@@ -30,6 +30,29 @@ You can also run:
 .\scripts\run_tests.ps1
 ```
 
+## Unit tests vs manual scripts
+Run stable unit tests only (no credentials/profile required):
+
+```powershell
+.\.venv-webscraper\Scripts\python.exe -m pytest -q
+```
+
+Manual/integration helpers now live in `scripts/manual_tests/` and are **not** part of pytest collection.
+Examples:
+
+```powershell
+.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\smoke_manual.py
+.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\cookie_manual.py
+.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\dashboard_manual.py
+```
+
+Manual script environment variables:
+- `EDGE_PROFILE_DIR` (required by cookie/storage/CDP scripts)
+- `EDGE_PROFILE_NAME` (optional, defaults to `Default`)
+- `FREEPBX_HOST` (optional for dashboard script, defaults to `69.39.69.102`)
+- `FREEPBX_USER` and `FREEPBX_PASSWORD` (required for dashboard unless provided via local `config.py`)
+
+
 ## Quick Start (cmd-only, domain-locked Windows)
 From repo root (no PowerShell), use the venv activation script and module entrypoints:
 
