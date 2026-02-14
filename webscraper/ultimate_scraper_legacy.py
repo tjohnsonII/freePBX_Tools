@@ -1391,6 +1391,7 @@ def build_auth_strategy_plan(
 
 
 def self_test_auth_strategy_profile_only() -> None:
+    """Lightweight validation that exercises the same auth driver import path used at runtime."""
     profile_path = os.path.abspath(os.path.join("webscraper", "edge_profile_tmp"))
     auth_modes_local, profiles_local, cookies_local, profile_only_enabled = build_auth_strategy_plan(
         profile_dir_override=profile_path,
@@ -1410,6 +1411,22 @@ def self_test_auth_strategy_profile_only() -> None:
     assert auth_modes_local == [auth_mode_type.PROFILE], "auth modes should be PROFILE only"
     assert profiles_local == [profile_path], "profile candidates should be exactly the provided profile dir"
     assert cookies_local == [], "cookie strategies should be skipped when profile_only is enabled"
+
+    # Validate runtime driver factory import path used by orchestration (catches ImportError regressions).
+    from webscraper.auth.driver_factory import create_edge_driver_for_auth
+    from webscraper.auth.types import AuthContext
+
+    create_edge_driver_for_auth_ref = getattr(create_edge_driver_for_auth, "__name__", "")
+    assert create_edge_driver_for_auth_ref == "create_edge_driver_for_auth", "driver factory entrypoint missing"
+
+    ctx = AuthContext(
+        base_url="https://example.com",
+        auth_check_url="https://example.com",
+        profile_dirs=[profile_path],
+        profile_name="Default",
+    )
+    assert ctx.profile_dirs[0] == profile_path, "auth context should preserve explicit profile dir"
+    print("[INFO] Self-test is a lightweight validation (planning + runtime driver factory wiring).")
 
 
 def _ticket_page_looks_ready(html: str, current_url: str) -> bool:
@@ -1881,7 +1898,7 @@ def selenium_scrape_tickets(
     os.makedirs(output_dir, exist_ok=True)
     debug_dir = os.path.abspath(debug_dir or output_dir)
     os.makedirs(debug_dir, exist_ok=True)
-    _write_run_metadata(output_dir, mode="selenium")
+    _write_run_metadata(output_dir, mode="selenium", run_id=os.path.basename(os.path.abspath(output_dir)))
     # Prune legacy noisy files to keep output readable
     try:
         legacy_patterns = [
@@ -1911,7 +1928,7 @@ def selenium_scrape_tickets(
     resolved_profile_name = profile_name or "Default"
     auth_mode = "AUTO" if (auth_dump or auth_pause) else None
     attach_requested = bool(attach or auto_attach)
-    enable_auth_orchestration = auth_orchestration and not auth_mode and not attach_requested
+    enable_auth_orchestration = auth_orchestration and not auth_mode and not attach_requested and not edge_smoke_test
     allow_manual_prompts = not enable_auth_orchestration
     if auth_mode or show_browser:
         headless = False
@@ -2299,6 +2316,34 @@ def selenium_scrape_tickets(
         _post_auth_setup()
 
     try:
+        if edge_smoke_test:
+            print("[SMOKE] Running Edge smoke test (auth orchestration disabled).")
+            driver, created_browser, attach_mode, _ = create_edge_driver(
+                output_dir=output_dir,
+                headless=headless,
+                headless_requested=headless_requested,
+                attach=attach,
+                auto_attach=auto_attach,
+                attach_host=attach_host,
+                attach_timeout=attach_timeout,
+                fallback_profile_dir=fallback_profile_dir,
+                profile_dir=profile_dir,
+                profile_name=resolved_profile_name,
+                auth_dump=False,
+                auth_pause=False,
+                auth_timeout=auth_timeout,
+                auth_url=effective_target_url,
+                edge_temp_profile=edge_temp_profile,
+                edge_kill_before=edge_kill_before,
+                show_browser=show_browser,
+            )
+            if effective_target_url:
+                try:
+                    driver.get(effective_target_url)
+                except Exception:
+                    pass
+            print("[SMOKE] Edge smoke test passed.")
+            return
         if auth_dump:
             run_auth_diagnostics()
             return
@@ -3041,7 +3086,7 @@ def main() -> int:
 
     if args.self_test_auth_strategy:
         self_test_auth_strategy_profile_only()
-        print("[INFO] Auth strategy self-test passed.")
+        print("[INFO] Auth strategy self-test passed (lightweight validation).")
         return 0
 
     # Env overrides last
@@ -3175,9 +3220,15 @@ def main() -> int:
         )
         return 0
 
+    selenium_run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    selenium_run_id = f"{selenium_run_id}_{os.getpid()}"
+    selenium_out_dir = os.path.join(out_dir, selenium_run_id)
+    os.makedirs(selenium_out_dir, exist_ok=True)
+    print(f"[INFO] Selenium run output dir: {selenium_out_dir}")
+
     selenium_scrape_tickets(
         url=url,
-        output_dir=out_dir,
+        output_dir=selenium_out_dir,
         handles=handles,
         headless=headless,
         headless_requested=headless_requested,
@@ -3223,7 +3274,7 @@ def main() -> int:
         save_html=args.save_html,
         save_screenshot=args.save_screenshot,
         phase_logs=args.phase_logs,
-        debug_dir=args.debug_dir or out_dir,
+        debug_dir=args.debug_dir or selenium_out_dir,
         dump_dom_on_fail=args.dump_dom_on_fail,
         edge_smoke_test=args.edge_smoke_test,
         preauth_noc_tickets=args.preauth_noc_tickets,

@@ -16,7 +16,7 @@ def _build_need_user_input(ctx: AuthContext, modes: Iterable[AuthMode]) -> dict:
     fields: List[str] = []
     if not _existing_paths(ctx.profile_dirs):
         fields.append("profile_dir")
-    if not (ctx.username and ctx.password):
+    if AuthMode.PROGRAMMATIC in modes and not (ctx.username and ctx.password):
         fields.append("username/password")
     if not _existing_paths(ctx.cookie_files):
         fields.append("cookie_file")
