@@ -12,6 +12,24 @@ Install packages:
 pip install selenium beautifulsoup4 lxml
 ```
 
+## Windows CLI quickstart (Git Bash vs PowerShell)
+- If you are in **Git Bash**, run git commands as shown there.
+- If you are in **PowerShell**, run commands **without** a leading `$` (for example, `git status`).
+- Do **not** paste the shell prompt line (for example `tjohnson@... MINGW64 ...`) into PowerShell.
+
+PowerShell test commands (no `$` prefix):
+
+```powershell
+.\.venv-webscraper\Scripts\python.exe -m pip install -U pip pytest
+.\.venv-webscraper\Scripts\python.exe -m pytest -q
+```
+
+You can also run:
+
+```powershell
+.\scripts\run_tests.ps1
+```
+
 ## Quick Start (cmd-only, domain-locked Windows)
 From repo root (no PowerShell), use the venv activation script and module entrypoints:
 
