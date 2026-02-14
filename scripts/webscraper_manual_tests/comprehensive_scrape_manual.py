@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Manual / integration script; not run by pytest.
 """Run a small comprehensive VPBX scrape for manual validation."""
 
 from __future__ import annotations

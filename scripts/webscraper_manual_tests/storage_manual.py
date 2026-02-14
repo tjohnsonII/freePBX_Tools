@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Manual / integration script; not run by pytest.
 """Manual storage diagnostics using an existing Edge profile."""
 
 from __future__ import annotations

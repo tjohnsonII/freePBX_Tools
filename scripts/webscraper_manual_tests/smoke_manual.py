@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Manual / integration script; not run by pytest.
 """Manual smoke check for the legacy Selenium scraping path."""
 
 from __future__ import annotations

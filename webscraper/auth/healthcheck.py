@@ -159,6 +159,43 @@ def _has_enough_dom_content(driver) -> bool:
         return False
 
 
+def auth_confirmed_from_page(
+    *,
+    current_url: str,
+    page_source: str,
+    has_password_input: bool,
+    has_expected_logged_in_elements: bool,
+    has_session_cookie: bool,
+    has_enough_dom_content: bool,
+) -> Tuple[bool, str]:
+    lowered_url = (current_url or "").lower()
+    in_app_url = ("/cgi-bin/web_interface/admin/" in lowered_url) or ("customers.cgi" in lowered_url)
+    if in_app_url and not any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
+        return True, "authenticated_url_detected"
+
+    if any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
+        return False, "login_url_detected"
+
+    source = (page_source or "").lower()
+    login_markers = ("sign in", "login", "username", "password")
+    if any(marker in source for marker in login_markers) and has_password_input:
+        return False, "login_markers_present"
+
+    if has_expected_logged_in_elements:
+        return True, "expected_logged_in_elements_present"
+
+    if has_session_cookie:
+        return True, "session_cookie_present"
+
+    if has_password_input:
+        return False, "password_input_present"
+
+    if not any(marker in source for marker in login_markers) and has_enough_dom_content:
+        return True, "no_login_markers_and_dom_content_present"
+
+    return False, "auth_not_confirmed"
+
+
 def is_authenticated(driver, ctx: AuthContext) -> Tuple[bool, str]:
     target_url = ctx.auth_check_url or ctx.base_url
     try:
@@ -167,34 +204,19 @@ def is_authenticated(driver, ctx: AuthContext) -> Tuple[bool, str]:
         return False, f"navigation_failed:{type(exc).__name__}"
 
     current_url = _current_url(driver, target_url)
-    lowered_url = current_url.lower()
-    in_app_url = ("/cgi-bin/web_interface/admin/" in lowered_url) or ("customers.cgi" in lowered_url)
-    if in_app_url and not any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
-        return True, "authenticated_url_detected"
-
-    if any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
-        _write_auth_diagnostics(driver, ctx, target_url, current_url)
-        return False, "login_url_detected"
-
     source = _page_source(driver)
-    login_markers = ("sign in", "login", "username", "password")
-    if any(marker in source for marker in login_markers):
-        if _has_password_input(driver):
-            _write_auth_diagnostics(driver, ctx, target_url, current_url)
-            return False, "login_markers_present"
+    has_password = _has_password_input(driver)
+    ok, reason = auth_confirmed_from_page(
+        current_url=current_url,
+        page_source=source,
+        has_password_input=has_password,
+        has_expected_logged_in_elements=_has_expected_logged_in_elements(driver),
+        has_session_cookie=_has_session_cookie(driver),
+        has_enough_dom_content=_has_enough_dom_content(driver),
+    )
+    if ok:
+        return True, reason
 
-    if _has_expected_logged_in_elements(driver):
-        return True, "expected_logged_in_elements_present"
-
-    if _has_session_cookie(driver):
-        return True, "session_cookie_present"
-
-    if _has_password_input(driver):
+    if reason in {"login_url_detected", "login_markers_present", "password_input_present", "auth_not_confirmed"}:
         _write_auth_diagnostics(driver, ctx, target_url, current_url)
-        return False, "password_input_present"
-
-    if not any(marker in source for marker in login_markers) and _has_enough_dom_content(driver):
-        return True, "no_login_markers_and_dom_content_present"
-
-    _write_auth_diagnostics(driver, ctx, target_url, current_url)
-    return False, "auth_not_confirmed"
+    return False, reason
