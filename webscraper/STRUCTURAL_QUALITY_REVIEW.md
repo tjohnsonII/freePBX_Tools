@@ -312,3 +312,23 @@
 - Caller imports:
   - `from webscraper.cli.main_cookie_tools import main`
 
+
+---
+
+## Refactor update (current pass)
+
+- `webscraper/ultimate_scraper.py` is now a thin CLI wrapper that only dispatches to `webscraper.cli.main`.
+- `webscraper/cli/main.py` is now an executable module (`python -m webscraper.cli.main`) that delegates to legacy runtime behavior.
+- Added `webscraper/errors.py` as the **single source of truth** for custom exceptions, including `EdgeStartupError`.
+- `webscraper/browser/edge_driver.py` and `webscraper/ultimate_scraper_legacy.py` now import `EdgeStartupError` from `webscraper.errors` (no duplicate class definitions).
+- Added typed models package `webscraper/models/` (`TicketUrlEntry`, `TicketDetails`) for shared data contracts.
+- Added `webscraper/scrape/runner.py` with `run_scrape(config)` as orchestration entrypoint.
+- Added core helpers with explicit typing:
+  - `webscraper/core/config_loader.py` (`load_config`, `_load_config` compatibility alias)
+  - `webscraper/core/paths.py` (`ensure_output_dir`, `runtime_edge_profile_dir`, metadata/text writers)
+- Added basic retry primitive in `webscraper/scrape/retry_logic.py` (`run_with_retry`).
+- Added tests under `webscraper/tests/` for config/paths, retry logic, and CLI `--help` smoke behavior.
+- Updated `.gitignore` with explicit runtime output ignores for:
+  - `webscraper/browser/output/`
+  - `webscraper/**/edge_tmp_profile/`
+

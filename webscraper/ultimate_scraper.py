@@ -1,10 +1,13 @@
-"""Backward-compatible module shim for the ultimate scraper CLI/runtime.
+"""Thin, backward-compatible CLI wrapper."""
 
-Primary entrypoint remains:
-    python -m webscraper.ultimate_scraper
-"""
+from __future__ import annotations
 
-from webscraper.ultimate_scraper_legacy import *  # noqa: F401,F403
+import os
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from webscraper.cli.main import main
 
 

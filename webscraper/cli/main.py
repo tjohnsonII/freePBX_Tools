@@ -1,9 +1,16 @@
-"""CLI entrypoint for the webscraper ultimate scraper.
+"""CLI entrypoint for the webscraper ultimate scraper."""
 
-This module keeps argument parsing/dispatch behavior intact by delegating to the
-legacy runtime module while preserving the canonical CLI invocation contract.
-"""
+from __future__ import annotations
 
-from webscraper.ultimate_scraper_legacy import main
+from webscraper import ultimate_scraper_legacy as legacy
+
+
+def main() -> int:
+    return legacy.main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
 
 __all__ = ["main"]
