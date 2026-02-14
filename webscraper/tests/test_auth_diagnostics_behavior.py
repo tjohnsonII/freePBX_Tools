@@ -1,9 +1,11 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 from webscraper.auth import AuthContext, AuthMode, authenticate
+from webscraper.auth.healthcheck import is_authenticated
 from webscraper.auth.strategies import profile
 from webscraper import ultimate_scraper_legacy as legacy
 
@@ -65,6 +67,86 @@ class AuthDiagnosticsBehaviorTests(unittest.TestCase):
                         auth_orchestration=True,
                         edge_smoke_test=True,
                     )
+
+    def test_auth_healthcheck_writes_diagnostics_bundle_on_failure(self) -> None:
+        class _FailingAuthDriver:
+            current_url = "https://secure.example.com/login"
+            title = "Sign In"
+            page_source = "<html><body>Please sign in</body></html>"
+
+            def get(self, _url: str) -> None:
+                return None
+
+            def find_elements(self, _by: str, selector: str):
+                if selector == "input[type='password']":
+                    return [object()]
+                return []
+
+            def find_element(self, _by: str, _selector: str):
+                class _Body:
+                    text = "Please sign in to continue"
+
+                return _Body()
+
+            def get_cookies(self):
+                return [{"name": "csrftoken", "value": "hidden"}]
+
+            def save_screenshot(self, path: str) -> bool:
+                Path(path).write_bytes(b"png")
+                return True
+
+        with tempfile.TemporaryDirectory() as td:
+            ctx = AuthContext(base_url="https://secure.example.com", auth_check_url=None, output_dir=td)
+            ok, reason = is_authenticated(_FailingAuthDriver(), ctx)
+            self.assertFalse(ok)
+            self.assertEqual(reason, "login_url_detected")
+
+            report = Path(td) / "auth_failure_diagnostics.json"
+            html = Path(td) / "auth_failure_page.html"
+            screenshot = Path(td) / "auth_failure_screenshot.png"
+            self.assertTrue(report.exists())
+            self.assertTrue(html.exists())
+            self.assertTrue(screenshot.exists())
+
+            data = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(data["final_url"], "https://secure.example.com/login")
+            self.assertEqual(data["cookie_count"], 1)
+            self.assertEqual(data["cookie_names"], ["csrftoken"])
+
+    def test_auth_healthcheck_heuristics_url_and_selector(self) -> None:
+        class _UrlAuthedDriver:
+            current_url = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
+
+            def get(self, _url: str) -> None:
+                return None
+
+            def find_elements(self, _by: str, _selector: str):
+                return []
+
+        class _SelectorAuthedDriver:
+            current_url = "https://secure.example.com/dashboard"
+            page_source = "<html><body>Dashboard</body></html>"
+
+            def get(self, _url: str) -> None:
+                return None
+
+            def find_elements(self, _by: str, selector: str):
+                if selector == "#search_results":
+                    return [object()]
+                return []
+
+            def get_cookies(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as td:
+            ctx = AuthContext(base_url="https://secure.example.com", auth_check_url=None, output_dir=td)
+            ok, reason = is_authenticated(_UrlAuthedDriver(), ctx)
+            self.assertTrue(ok)
+            self.assertEqual(reason, "authenticated_url_detected")
+
+            ok2, reason2 = is_authenticated(_SelectorAuthedDriver(), ctx)
+            self.assertTrue(ok2)
+            self.assertEqual(reason2, "expected_logged_in_elements_present")
 
 
 if __name__ == "__main__":
