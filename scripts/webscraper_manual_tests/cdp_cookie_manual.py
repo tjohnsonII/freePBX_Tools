@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Manual / integration script; not run by pytest.
 """Manual cookie diagnostics using Selenium and CDP."""
 
 from __future__ import annotations

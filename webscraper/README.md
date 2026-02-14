@@ -30,20 +30,21 @@ You can also run:
 .\scripts\run_tests.ps1
 ```
 
-## Unit tests vs manual scripts
-Run stable unit tests only (no credentials/profile required):
+## Testing
+Run unit tests from repo root (Windows venv example):
 
 ```powershell
-.\.venv-webscraper\Scripts\python.exe -m pytest -q
+.\.venv-webscraper\Scripts\python.exe -m pytest
 ```
 
-Manual/integration helpers now live in `scripts/manual_tests/` and are **not** part of pytest collection.
-Examples:
+Unit tests are restricted to `webscraper/tests` via the repo-root `pytest.ini` (`testpaths = webscraper/tests`, `python_files = test_*.py`, `addopts = -q`). This prevents accidental pytest collection of environment-dependent scripts.
+
+Manual/integration scripts live in `scripts/webscraper_manual_tests/` and should be run directly, for example:
 
 ```powershell
-.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\smoke_manual.py
-.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\cookie_manual.py
-.\.venv-webscraper\Scripts\python.exe scripts\manual_tests\dashboard_manual.py
+.\.venv-webscraper\Scripts\python.exe scripts\webscraper_manual_tests\smoke_manual.py
+.\.venv-webscraper\Scripts\python.exe scripts\webscraper_manual_tests\cookie_manual.py
+.\.venv-webscraper\Scripts\python.exe scripts\webscraper_manual_tests\dashboard_manual.py
 ```
 
 Manual script environment variables:

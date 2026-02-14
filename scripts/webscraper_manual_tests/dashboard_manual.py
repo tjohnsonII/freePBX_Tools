@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Manual / integration script; not run by pytest.
 """Manually validate remote dashboard access over SSH."""
 
 from __future__ import annotations
