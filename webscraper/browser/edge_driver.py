@@ -5,6 +5,8 @@ import urllib.request
 from datetime import datetime
 from typing import Any, List, Optional, TYPE_CHECKING
 
+from webscraper.errors import EdgeStartupError
+
 if TYPE_CHECKING:
     from selenium import webdriver
 
@@ -17,52 +19,6 @@ def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
     if os.path.exists(path):
         return path
     print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
-    return None
-
-class EdgeStartupError(RuntimeError):
-    def __init__(self, message: str, edge_args: List[str], profile_dir: str, edge_binary: Optional[str]) -> None:
-        details = [
-            message,
-            f"Edge args: {edge_args}",
-            f"Profile dir: {profile_dir}",
-            f"Edge binary: {edge_binary or 'Selenium Manager auto-detect'}",
-            "Advice: profile may be locked or invalid; try --edge-temp-profile",
-        ]
-        super().__init__("\n".join(details))
-        self.edge_args = edge_args
-        self.profile_dir = profile_dir
-        self.edge_binary = edge_binary
-
-
-def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
-    if not path:
-        return None
-    if os.path.exists(path):
-        return path
-    print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
-    return None
-
-
-def edge_binary_path() -> Optional[str]:
-    edge_binary_env = os.environ.get("EDGE_PATH") or os.environ.get("EDGE_BINARY_PATH")
-    if edge_binary_env:
-        resolved = _validate_path("Edge binary (env)", edge_binary_env)
-        if resolved:
-            print(f"[INFO] Using Edge binary from env: {resolved}")
-            return resolved
-    pf86 = os.environ.get("ProgramFiles(x86)")
-    pf = os.environ.get("ProgramFiles")
-    preferred = []
-    if pf86:
-        preferred.append(os.path.join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"))
-    if pf:
-        preferred.append(os.path.join(pf, "Microsoft", "Edge", "Application", "msedge.exe"))
-    for candidate in preferred:
-        resolved = _validate_path("Edge binary", candidate)
-        if resolved:
-            print(f"[INFO] Using Edge binary: {resolved}")
-            return resolved
-    print("[INFO] Using Selenium Manager to locate Edge binary.")
     return None
 
 def edge_binary_path() -> Optional[str]:

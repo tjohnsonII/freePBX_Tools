@@ -169,3 +169,7 @@ freepbx-tools/test_info.txt
 
 # traceroute backend scratch
 traceroute-visualizer-main/backend/All_Assignments.txt
+
+# Explicit webscraper runtime outputs
+webscraper/browser/output/
+webscraper/**/edge_tmp_profile/

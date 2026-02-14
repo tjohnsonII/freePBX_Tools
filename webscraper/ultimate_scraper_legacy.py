@@ -1,3 +1,7 @@
+"""ARCHIVAL NOTE: This module is retained for behavior-preserving compatibility during the modular refactor.
+New entrypoints should use ``webscraper.cli.main`` and package modules.
+"""
+
 """
 Ultimate Scraper (minimal baseline)
 
@@ -35,6 +39,7 @@ from webscraper.browser.edge_driver import (
 )
 from webscraper.kb.indexer import build_kb_index as modular_build_kb_index
 from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_extract_ticket_fields
+from webscraper.errors import EdgeStartupError
 
 if __package__ in (None, ""):
     raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
@@ -51,21 +56,6 @@ else:
     _BS4_IMPORT_ERROR = None
 
 PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile_tmp"))
-
-
-class EdgeStartupError(RuntimeError):
-    def __init__(self, message: str, edge_args: List[str], profile_dir: str, edge_binary: Optional[str]) -> None:
-        details = [
-            message,
-            f"Edge args: {edge_args}",
-            f"Profile dir: {profile_dir}",
-            f"Edge binary: {edge_binary or 'Selenium Manager auto-detect'}",
-            "Advice: profile may be locked or invalid; try --edge-temp-profile",
-        ]
-        super().__init__("\n".join(details))
-        self.edge_args = edge_args
-        self.profile_dir = profile_dir
-        self.edge_binary = edge_binary
 
 
 def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
