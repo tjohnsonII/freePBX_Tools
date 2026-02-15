@@ -24,12 +24,14 @@ app.add_middleware(
 
 
 def get_db_path() -> str:
-    return os.environ.get("TICKETS_DB_PATH", DEFAULT_DB)
+    return os.environ.get("TICKETS_DB") or os.environ.get("TICKETS_DB_PATH", DEFAULT_DB)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "db_path": get_db_path()}
+def health() -> dict[str, object]:
+    db_path = get_db_path()
+    stats_payload = db.get_stats(db_path)
+    return {"status": "ok", "db_path": db_path, **stats_payload}
 
 
 @app.get("/handles")
@@ -98,6 +100,7 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
 
+    os.environ["TICKETS_DB"] = args.db
     os.environ["TICKETS_DB_PATH"] = args.db
 
     import uvicorn

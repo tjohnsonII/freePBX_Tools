@@ -2737,6 +2737,7 @@ def selenium_scrape_tickets(
             debug_log_path = os.path.join(debug_dir, f"debug_log_{handle}.txt")
             debug_lines: List[str] = []
             tickets: List[dict[str, Optional[str]]] = []
+            debug_ctx: dict[str, Any] = {"handle": handle, "selectors_tried": []}
 
             def _dbg(msg: str) -> None:
                 line = f"{_iso_utc_now()} {msg}"
@@ -2744,12 +2745,25 @@ def selenium_scrape_tickets(
                 if phase_logs:
                     print(line, flush=True)
 
-            def _write_probe_and_artifacts(reason: str, debug_ctx: dict[str, Any]) -> None:
+            def _save_handle_artifacts(reason: str, debug_ctx: dict[str, Any], include_fail_artifacts: bool = False) -> None:
                 probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
                 probe_path = os.path.join(debug_dir, f"company_{handle}_probe.json")
                 with open(probe_path, "w", encoding="utf-8") as pf:
                     json.dump(probe, pf, indent=2)
-                if dump_dom_on_fail:
+                handle_html = os.path.join(debug_dir, f"handle_page_{handle}.html")
+                _write_text(handle_html, driver.page_source or "")
+                try:
+                    driver.save_screenshot(os.path.join(debug_dir, f"handle_page_{handle}.png"))
+                except Exception:
+                    pass
+                table_html_path = os.path.join(debug_dir, f"table_snippet_{handle}.html")
+                try:
+                    table = _locate_trouble_ticket_table(driver)
+                    if table is not None:
+                        _write_text(table_html_path, table.get_attribute("outerHTML") or "")
+                except Exception as exc:
+                    _dbg(f"table_snippet_error={exc}")
+                if include_fail_artifacts and dump_dom_on_fail:
                     _write_text(os.path.join(debug_dir, f"company_{handle}_fail.html"), driver.page_source or "")
                     try:
                         driver.save_screenshot(os.path.join(debug_dir, f"company_{handle}_fail.png"))
@@ -2760,6 +2774,7 @@ def selenium_scrape_tickets(
             try:
                 _dbg(f"current_url={driver.current_url} handle={handle}")
                 t_nav = time.monotonic()
+                driver.get(url)
                 _phase(1, "NAVIGATE", f"url={driver.current_url}", t_nav)
                 t_auth = time.monotonic()
                 _phase(2, "AUTH CHECK", f"logged_in={not _is_login_redirect(driver)}", t_auth)
@@ -2770,7 +2785,6 @@ def selenium_scrape_tickets(
                     raise RuntimeError(f"Company handle verification failed for {handle}")
 
                 wait = WebDriverWait(driver, 15)
-                debug_ctx: dict[str, Any] = {"handle": handle, "selectors_tried": []}
                 expand_ok = False
                 for attempt in range(1, 4):
                     try:
@@ -2785,7 +2799,7 @@ def selenium_scrape_tickets(
                         _dbg(f"expand_attempt={attempt} exception={exc}")
                         if attempt == 3:
                             _log_fail("EXPAND_TICKETS", handle, exc, debug_ctx)
-                            _write_probe_and_artifacts("expand_failed", debug_ctx)
+                            _save_handle_artifacts("expand_failed", debug_ctx, include_fail_artifacts=True)
                             raise
 
                 if expand_ok:
@@ -2794,12 +2808,13 @@ def selenium_scrape_tickets(
                     _phase(5, "PARSE TABLE", f"rows={debug_ctx.get('table_row_count',0)} links={len(tickets)}", t_parse)
                 if not tickets:
                     print(f"[TICKET] No URLs found for {handle}", flush=True)
-                    _write_probe_and_artifacts("parse_no_urls", debug_ctx)
+                    _save_handle_artifacts("parse_no_urls", debug_ctx, include_fail_artifacts=True)
 
                 if edge_smoke_test:
                     probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
                     print(f"[SMOKE] handle={handle} probe={json.dumps(probe, sort_keys=True)}", flush=True)
 
+                _save_handle_artifacts("handle_processed", debug_ctx, include_fail_artifacts=False)
                 all_tickets[handle] = tickets
                 out_path = os.path.join(output_dir, f"tickets_{handle}.json")
                 with open(out_path, "w", encoding="utf-8") as f:
@@ -2810,6 +2825,10 @@ def selenium_scrape_tickets(
                 raise
             except Exception as e:
                 print(f"[ERROR] Exception for handle {handle}: {e}", flush=True)
+                try:
+                    _save_handle_artifacts("handle_exception", debug_ctx, include_fail_artifacts=True)
+                except Exception:
+                    pass
             finally:
                 with open(debug_log_path, "w", encoding="utf-8") as dbg:
                     dbg.write("\n".join(debug_lines) + "\n")

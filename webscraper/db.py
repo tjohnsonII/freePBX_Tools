@@ -43,6 +43,7 @@ def init_db(db_path: str) -> None:
                 started_utc TEXT,
                 finished_utc TEXT,
                 args_json TEXT,
+                out_dir TEXT,
                 git_sha TEXT,
                 host TEXT
             );
@@ -70,6 +71,7 @@ def init_db(db_path: str) -> None:
                 sha256 TEXT,
                 created_utc TEXT,
                 run_id TEXT,
+                notes TEXT,
                 PRIMARY KEY(ticket_id, handle, artifact_type, path)
             );
 
@@ -79,6 +81,14 @@ def init_db(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_artifacts_ticket ON ticket_artifacts(ticket_id, handle);
             """
         )
+        _ensure_column(conn, "runs", "out_dir", "TEXT")
+        _ensure_column(conn, "ticket_artifacts", "notes", "TEXT")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def _git_sha() -> str | None:
@@ -91,13 +101,31 @@ def _git_sha() -> str | None:
 
 def start_run(db_path: str, args_dict: dict[str, Any]) -> str:
     run_id = str(uuid.uuid4())
+    create_run(db_path, run_id, args_dict=args_dict)
+    return run_id
+
+
+def create_run(
+    db_path: str,
+    run_id: str,
+    started_at: str | None = None,
+    args_dict: dict[str, Any] | None = None,
+    out_dir: str | None = None,
+) -> str:
     with _connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO runs(run_id, started_utc, args_json, git_sha, host)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO runs(run_id, started_utc, args_json, out_dir, git_sha, host)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (run_id, utc_now(), json.dumps(args_dict, sort_keys=True), _git_sha(), socket.gethostname()),
+            (
+                run_id,
+                started_at or utc_now(),
+                json.dumps(args_dict or {}, sort_keys=True),
+                out_dir,
+                _git_sha(),
+                socket.gethostname(),
+            ),
         )
     return run_id
 
@@ -172,6 +200,10 @@ def upsert_tickets(db_path: str, run_id: str, handle: str, tickets_list: Iterabl
     return inserted
 
 
+def upsert_ticket(db_path: str, run_id: str, handle: str, ticket: dict[str, Any]) -> bool:
+    return upsert_tickets(db_path, run_id, handle, [ticket]) > 0
+
+
 def record_artifact(
     db_path: str,
     run_id: str,
@@ -179,6 +211,7 @@ def record_artifact(
     ticket_id: str,
     artifact_type: str,
     path: str,
+    notes: str | None = None,
 ) -> None:
     digest = None
     try:
@@ -189,12 +222,13 @@ def record_artifact(
     with _connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO ticket_artifacts(ticket_id, handle, artifact_type, path, sha256, created_utc, run_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ticket_artifacts(ticket_id, handle, artifact_type, path, sha256, created_utc, run_id, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticket_id, handle, artifact_type, path) DO UPDATE SET
                 sha256=excluded.sha256,
                 created_utc=excluded.created_utc,
-                run_id=excluded.run_id
+                run_id=excluded.run_id,
+                notes=excluded.notes
             """,
-            (ticket_id, handle, artifact_type, path, digest, utc_now(), run_id),
+            (ticket_id, handle, artifact_type, path, digest, utc_now(), run_id, notes),
         )

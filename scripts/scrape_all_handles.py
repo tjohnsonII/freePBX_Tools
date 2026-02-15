@@ -11,7 +11,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -129,63 +129,104 @@ def _artifact_type(path: Path) -> str:
     return ext or "file"
 
 
-def _load_ticket_json(path: Path) -> dict[str, Any] | None:
+def _load_ticket_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
 
 
+def _find_ticket_json_candidates(batch_out: Path) -> list[Path]:
+    preferred = batch_out / "tickets_all.json"
+    if preferred.exists():
+        return [preferred]
+    return sorted(batch_out.rglob("tickets*.json"))
+
+
+def _extract_handle_ticket_map(payload: Any) -> dict[str, list[dict[str, Any]]]:
+    mapped: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(payload, dict):
+        if "handle" in payload and isinstance(payload.get("tickets"), list):
+            handle = str(payload.get("handle") or "").strip()
+            if handle:
+                mapped[handle] = [row for row in payload.get("tickets", []) if isinstance(row, dict)]
+            return mapped
+        for handle, rows in payload.items():
+            if isinstance(rows, list):
+                mapped[str(handle)] = [row for row in rows if isinstance(row, dict)]
+    return mapped
+
+
+def _collect_per_ticket_rows(batch_out: Path, handle: str) -> list[dict[str, Any]]:
+    ticket_root = batch_out / "tickets" / handle
+    detail_rows: list[dict[str, Any]] = []
+    if ticket_root.exists():
+        for ticket_json in ticket_root.glob("*/ticket.json"):
+            payload = _load_ticket_json(ticket_json)
+            if isinstance(payload, dict):
+                detail_rows.append(payload)
+    return detail_rows
+
+
+def _record_batch_artifacts(db_path: str, run_id: str, batch_out: Path, batch_handle_set: set[str]) -> None:
+    for artifact in batch_out.rglob("*"):
+        if not artifact.is_file():
+            continue
+        lower_name = artifact.name.lower()
+        match = re.search(r"(?:_|^)([a-z0-9]+)(?:_|\.)", lower_name)
+        handle = match.group(1).upper() if match else "_batch"
+        if handle not in batch_handle_set:
+            handle = "_batch"
+        record_artifact(
+            db_path=db_path,
+            run_id=run_id,
+            handle=handle,
+            ticket_id="_batch",
+            artifact_type=_artifact_type(artifact),
+            path=str(artifact),
+        )
+
+
 def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str]]:
     successes: set[str] = set()
     failures: set[str] = set()
 
-    all_path = batch_out / "tickets_all.json"
     all_data: dict[str, list[dict[str, Any]]] = {}
-    if all_path.exists():
-        try:
-            all_data = json.loads(all_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(f"[WARN] Failed to parse {all_path}: {exc}")
+    json_candidates = _find_ticket_json_candidates(batch_out)
+    for candidate in json_candidates:
+        payload = _load_ticket_json(candidate)
+        extracted = _extract_handle_ticket_map(payload)
+        if extracted:
+            for handle, rows in extracted.items():
+                all_data.setdefault(handle, []).extend(rows)
+            record_artifact(db_path, run_id, "_batch", "_batch", "json", str(candidate), notes="parsed_ticket_json")
 
     for handle in batch_handles:
         handle_tickets = all_data.get(handle, [])
-        ticket_root = batch_out / "tickets" / handle
-        detail_rows: list[dict[str, Any]] = []
-
-        if ticket_root.exists():
-            for ticket_json in ticket_root.glob("*/ticket.json"):
-                payload = _load_ticket_json(ticket_json)
-                if payload:
-                    detail_rows.append(payload)
-
+        detail_rows = _collect_per_ticket_rows(batch_out, handle)
+        upsert_handle(db_path, handle, "processing")
         rows_to_store = detail_rows if detail_rows else handle_tickets
-        upsert_tickets(db_path, run_id, handle, rows_to_store)
+        inserted = upsert_tickets(db_path, run_id, handle, rows_to_store)
 
-        if handle in all_data:
+        if rows_to_store:
             upsert_handle(db_path, handle, "success")
             successes.add(handle)
         else:
-            upsert_handle(db_path, handle, "failed", "handle missing from tickets_all.json")
+            reason = "no tickets parsed; artifacts captured"
+            upsert_handle(db_path, handle, "failed", reason)
             failures.add(handle)
 
+        ticket_root = batch_out / "tickets" / handle
         if ticket_root.exists():
             for artifact in ticket_root.glob("*/*"):
                 if not artifact.is_file():
                     continue
                 ticket_id = artifact.parent.name
-                record_artifact(
-                    db_path=db_path,
-                    run_id=run_id,
-                    handle=handle,
-                    ticket_id=ticket_id,
-                    artifact_type=_artifact_type(artifact),
-                    path=str(artifact),
-                )
+                record_artifact(db_path, run_id, handle, ticket_id, _artifact_type(artifact), str(artifact))
 
-    if all_path.exists():
-        record_artifact(db_path, run_id, "_batch", "_batch", "json", str(all_path))
+        print(f"[INFO] Handle {handle}: parsed_rows={len(rows_to_store)} upserted={inserted}")
 
+    _record_batch_artifacts(db_path, run_id, batch_out, set(batch_handles))
     return successes, failures
 
 
@@ -197,10 +238,10 @@ def main() -> int:
         return 1
 
     init_db(args.db)
-    run_id = start_run(args.db, vars(args))
 
     root_out = Path(args.out) / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     root_out.mkdir(parents=True, exist_ok=True)
+    run_id = start_run(args.db, vars(args))
 
     total_successes: set[str] = set()
     total_failures: set[str] = set()
