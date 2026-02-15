@@ -3,7 +3,7 @@ import json
 import time
 import urllib.request
 from datetime import datetime
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, cast
 
 from webscraper.errors import EdgeStartupError
 

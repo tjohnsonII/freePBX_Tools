@@ -78,8 +78,25 @@ Attach mode requires you to launch Edge with a remote debugging port first and l
 
 ```cmd
 msedge.exe --remote-debugging-port=9222
-python -m webscraper.ultimate_scraper --handles KPM --attach-debugger 127.0.0.1:9222 --no-profile-launch --scrape-ticket-details --db webscraper/output/tickets.sqlite
+python -m webscraper.ultimate_scraper --handles KPM --attach 9222 --attach-host 127.0.0.1 --no-profile-launch --scrape-ticket-details
 ```
+
+Notes:
+- `--attach` is port-based. If you accidentally pass `host:port` (for example `--attach 127.0.0.1:9222`), the CLI now auto-splits host and port for you.
+- `--attach-debugger host:port` is still supported for compatibility.
+- Ticket persistence defaults to `webscraper/output/tickets.sqlite`; override with `--db <path>` if needed.
+
+
+## CMD doctor helper
+
+Use the CMD doctor to validate common local setup issues:
+
+```cmd
+scripts\doctor_cmd.bat
+scripts\doctor_cmd.bat --attach 9222 --attach-host 127.0.0.1
+```
+
+It checks Edge path detection, optional attach-port reachability, `ticket-ui/package.json`, and core Python dependencies.
 
 ## Auth orchestration (PowerShell examples)
 The scraper now tries profile auth first, then programmatic login, then cookie injection.

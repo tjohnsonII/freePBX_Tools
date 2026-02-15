@@ -40,6 +40,7 @@ from webscraper.browser.edge_driver import (
 from webscraper.kb.indexer import build_kb_index as modular_build_kb_index
 from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_extract_ticket_fields
 from webscraper.errors import EdgeStartupError
+from webscraper.cli.attach_parsing import normalize_attach_args
 
 if __package__ in (None, ""):
     raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
@@ -3045,7 +3046,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Selenium ticket scraper (config-driven)")
     parser.add_argument("--url", default=default_url, help="Target URL (e.g., customers.cgi)")
     parser.add_argument("--out", default=default_out, help="Output directory")
-    parser.add_argument("--db", help="Optional SQLite database path for ticket upsert")
+    parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"), help="SQLite database path for ticket upsert (default: webscraper/output/tickets.sqlite)")
     parser.add_argument("--handles", nargs="+", default=default_handles, help="One or more customer handles")
     parser.add_argument("--handles-file", help="Path to a file containing handles (one per line; '#' for comments)")
     parser.add_argument("--show", action="store_true", help="Run browser in visible (non-headless) mode")
@@ -3059,9 +3060,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--attach",
-        type=int,
-        help="Attach to an existing Edge remote-debugging port (requires launching Edge with --remote-debugging-port; "
-        "scraper will not auto-launch a browser in attach mode)",
+        help="Attach to an existing Edge remote-debugging port (integer, e.g. 9222). "
+        "Convenience input host:port is also accepted and will auto-populate --attach-host.",
     )
     parser.add_argument(
         "--auto-attach",
@@ -3174,14 +3174,14 @@ def main() -> int:
     parser.set_defaults(dump_dom_on_fail=True)
     args = parser.parse_args()
 
-    if args.attach_debugger:
-        raw_debugger = str(args.attach_debugger).strip()
-        try:
-            host_part, port_part = raw_debugger.split(":", 1)
-            args.attach_host = host_part.strip() or "127.0.0.1"
-            args.attach = int(port_part.strip())
-        except Exception:
-            parser.error("--attach-debugger must be host:port (example 127.0.0.1:9222)")
+    try:
+        args.attach, args.attach_host = normalize_attach_args(
+            attach=args.attach,
+            attach_host=args.attach_host,
+            attach_debugger=args.attach_debugger,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.phase_logs is None:
         args.phase_logs = bool(args.show or args.save_html or args.save_screenshot)
     if args.preauth_noc_tickets is None:
