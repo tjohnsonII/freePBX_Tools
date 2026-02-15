@@ -73,12 +73,12 @@ Run with a visible browser so you can log in if needed:
 python -m webscraper.ultimate_scraper --show --handles KPM --out webscraper/output
 ```
 
-## Attach to an existing Edge session (remote debugging)
-Attach mode requires you to launch Edge with a remote debugging port first; the scraper will not auto-launch browsers in this mode.
+## Attach to an existing Edge session (remote debugging, CMD-friendly)
+Attach mode requires you to launch Edge with a remote debugging port first and log in manually.
 
-```powershell
-& "msedge.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\edge_remote_profile"
-python -m webscraper.ultimate_scraper --attach 9222 --attach-host 127.0.0.1 --handles KPM --out webscraper/output
+```cmd
+msedge.exe --remote-debugging-port=9222
+python -m webscraper.ultimate_scraper --handles KPM --attach-debugger 127.0.0.1:9222 --no-profile-launch --scrape-ticket-details --db webscraper/output/tickets.sqlite
 ```
 
 ## Auth orchestration (PowerShell examples)
@@ -190,9 +190,19 @@ If headless navigation fails due to auth, switch back to `--show` and complete l
    - `python -m pip install -r webscraper/requirements_api.txt`
 2. Run a scrape that persists tickets to SQLite:
    - `python scripts/scrape_all_handles.py --handles KPM WS7 --db webscraper/output/tickets.sqlite --out webscraper/output/scrape_runs --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --show`
-3. Start full pipeline in one command (scrape + API + UI + browser + DB stats):
-   - PowerShell: `scripts/run_ticket_pipeline.ps1 -Handles KPM,WS7`
-   - CMD fallback: `scripts\run_ticket_pipeline.cmd KPM WS7`
+3. Start full pipeline from CMD:
+   - `python scripts\run_ticket_pipeline.py --handles KPM WS7 --attach-debugger 127.0.0.1:9222 --no-profile-launch`
+   - or launcher: `scripts\run_ticket_pipeline.bat --handles KPM WS7 --attach-debugger 127.0.0.1:9222 --no-profile-launch`
+
+4. Start API manually (CMD):
+   - `set TICKETS_DB=E:\DevTools\freepbx-tools\webscraper\output\tickets.sqlite`
+   - `python -m uvicorn webscraper.ticket_api.app:app --port 8787`
+
+5. Start UI manually in CMD:
+   - `cd webscraper\ticket-ui`
+   - `set NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:8787`
+   - `npm.cmd install`
+   - `npm.cmd run dev`
 
 ### PowerShell `npm.ps1` execution-policy workaround
 If PowerShell prints `npm.ps1 cannot be loaded because running scripts is disabled`, use one of these:

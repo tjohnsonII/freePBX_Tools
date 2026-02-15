@@ -33,6 +33,8 @@ class ScrapeAllHandlesCliTests(unittest.TestCase):
             "dump_dom_on_fail": False,
             "resume": False,
             "phase_logs": False,
+            "attach_debugger": None,
+            "no_profile_launch": False,
             "child_extra_args": None,
         }
         defaults.update(overrides)

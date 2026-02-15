@@ -70,3 +70,23 @@ def test_process_batch_output_records_artifacts_when_no_tickets(tmp_path):
     assert failed == {"WS7"}
     assert status == "failed"
     assert artifact_count > 0
+
+
+def test_process_batch_output_marks_run_failure_reason_for_gateway_redirect(tmp_path):
+    module = load_module()
+    db_path = tmp_path / "tickets.sqlite"
+    init_db(str(db_path))
+    run_id = create_run(str(db_path), "run-test-3", args_dict={"test": True}, out_dir=str(tmp_path))
+
+    batch_out = tmp_path / "batch_003"
+    batch_out.mkdir(parents=True)
+    (batch_out / "redirect_debug_KPM.json").write_text(
+        json.dumps({"failure_reason": "redirect_to_gateway", "current_url": "http://10.123.203.1/"}),
+        encoding="utf-8",
+    )
+
+    module.process_batch_output(str(db_path), run_id, batch_out, ["KPM"])
+
+    conn = sqlite3.connect(db_path)
+    reason = conn.execute("SELECT failure_reason FROM runs WHERE run_id=?", (run_id,)).fetchone()[0]
+    assert reason == "redirect_to_gateway"

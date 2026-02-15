@@ -116,11 +116,14 @@ class AuthDiagnosticsBehaviorTests(unittest.TestCase):
     def test_auth_healthcheck_heuristics_url_and_selector(self) -> None:
         class _UrlAuthedDriver:
             current_url = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
+            page_source = "<html><body>Customers</body></html>"
 
             def get(self, _url: str) -> None:
                 return None
 
-            def find_elements(self, _by: str, _selector: str):
+            def find_elements(self, _by: str, selector: str):
+                if selector == "#search_results":
+                    return [object()]
                 return []
 
         class _SelectorAuthedDriver:
@@ -146,7 +149,7 @@ class AuthDiagnosticsBehaviorTests(unittest.TestCase):
 
             ok2, reason2 = is_authenticated(_SelectorAuthedDriver(), ctx)
             self.assertTrue(ok2)
-            self.assertEqual(reason2, "expected_logged_in_elements_present")
+            self.assertEqual(reason2, "authenticated_url_detected")
 
 
 if __name__ == "__main__":

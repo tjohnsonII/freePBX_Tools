@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.parse
 from typing import Tuple
 
 from selenium.webdriver.common.by import By
@@ -25,6 +26,8 @@ DEFAULT_SESSION_COOKIE_NAMES = (
     "token",
 )
 
+DEFAULT_AUTH_HOSTS = ("secure.123.net",)
+
 
 def _split_env_list(raw_value: str) -> tuple[str, ...]:
     if not raw_value:
@@ -40,6 +43,15 @@ def _auth_selectors() -> tuple[str, ...]:
 def _session_cookie_names() -> tuple[str, ...]:
     override = _split_env_list(os.environ.get("SCRAPER_AUTH_SESSION_COOKIES", ""))
     return tuple(name.lower() for name in (override or DEFAULT_SESSION_COOKIE_NAMES))
+
+
+def _expected_auth_hosts() -> tuple[str, ...]:
+    override = _split_env_list(os.environ.get("SCRAPER_AUTH_HOSTS", ""))
+    return tuple(host.lower() for host in (override or DEFAULT_AUTH_HOSTS))
+
+
+def _url_host(url: str) -> str:
+    return (urllib.parse.urlsplit(url or "").hostname or "").lower()
 
 
 def _page_source(driver) -> str:
@@ -167,10 +179,21 @@ def auth_confirmed_from_page(
     has_expected_logged_in_elements: bool,
     has_session_cookie: bool,
     has_enough_dom_content: bool,
+    expected_hosts: tuple[str, ...] | None = None,
 ) -> Tuple[bool, str]:
     lowered_url = (current_url or "").lower()
+    current_host = _url_host(current_url)
+    expected_hosts = tuple(host.lower() for host in (expected_hosts or _expected_auth_hosts()))
+    if current_host and current_host not in expected_hosts:
+        return False, f"unexpected_host:{current_host}"
+
     in_app_url = ("/cgi-bin/web_interface/admin/" in lowered_url) or ("customers.cgi" in lowered_url)
     if in_app_url and not any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
+        if has_expected_logged_in_elements:
+            return True, "authenticated_url_detected"
+        return False, "authenticated_url_missing_expected_selector"
+
+    if has_expected_logged_in_elements and current_host in expected_hosts:
         return True, "authenticated_url_detected"
 
     if any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
@@ -181,7 +204,7 @@ def auth_confirmed_from_page(
     if any(marker in source for marker in login_markers) and has_password_input:
         return False, "login_markers_present"
 
-    if has_expected_logged_in_elements:
+    if has_expected_logged_in_elements and current_host in expected_hosts:
         return True, "expected_logged_in_elements_present"
 
     if has_session_cookie:
@@ -213,6 +236,7 @@ def is_authenticated(driver, ctx: AuthContext) -> Tuple[bool, str]:
         has_expected_logged_in_elements=_has_expected_logged_in_elements(driver),
         has_session_cookie=_has_session_cookie(driver),
         has_enough_dom_content=_has_enough_dom_content(driver),
+        expected_hosts=tuple(filter(None, {_url_host(target_url), _url_host(current_url)})),
     )
     if ok:
         return True, reason

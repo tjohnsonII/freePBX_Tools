@@ -56,6 +56,19 @@ else:
     _BS4_IMPORT_ERROR = None
 
 PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_profile_tmp"))
+EXPECTED_AUTH_HOST = "secure.123.net"
+
+
+def _url_host(url: str) -> str:
+    return (urllib.parse.urlsplit(url or "").hostname or "").lower()
+
+
+def _is_expected_auth_host(url: str) -> bool:
+    return _url_host(url) == EXPECTED_AUTH_HOST
+
+
+def _is_gateway_redirect(url: str) -> bool:
+    return _url_host(url) == "10.123.203.1"
 
 
 def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
@@ -708,6 +721,7 @@ def create_edge_driver(
     edge_kill_before: bool,
     show_browser: bool,
     headless_requested: bool = False,
+    no_profile_launch: bool = False,
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -734,7 +748,7 @@ def create_edge_driver(
     resolved_edge_profile_dir = edge_profile_dir_resolved if edge_profile_env else resolved_fallback_profile_dir
     if os.path.exists(legacy_profile) and not os.path.exists(default_profile):
         print("[WARN] legacy chrome_profile detected; using edge_profile_tmp instead")
-    if resolved_edge_profile_dir:
+    if resolved_edge_profile_dir and not no_profile_launch:
         try:
             os.makedirs(resolved_edge_profile_dir, exist_ok=True)
         except Exception as e:
@@ -923,7 +937,7 @@ def create_edge_driver(
         plan.append(("ATTACH_EXPLICIT", attach))
     if auto_attach and not attach:
         plan.append(("ATTACH_AUTO", 9222))
-    if not attach_requested:
+    if not attach_requested and not no_profile_launch:
         plan.append(("LAUNCH_FALLBACK", None))
 
     edgedriver_path = _validate_path("EdgeDriver", edge_driver_env or EDGEDRIVER)
@@ -938,17 +952,16 @@ def create_edge_driver(
             debugger_address = f"{attach_host}:{attach_port}"
             probe_result = probe_edge_debugger(attach_host, attach_port, attach_timeout)
             if not probe_result["ok"]:
-                last_error = RuntimeError(f"Edge debug endpoint not reachable at {debugger_address}")
+                last_error = RuntimeError(
+                    f"Edge debug endpoint not reachable at {debugger_address}. "
+                    "Start Edge with --remote-debugging-port=9222 and login first"
+                )
                 print(f"[ATTACH] failed: {last_error}; probe={probe_result}")
                 curl_cmd = f'curl "{probe_result["url"]}"'
                 edge_bin = edge_binary_path_resolved or "msedge.exe"
-                profile_hint = os.path.join(os.environ.get("USERNAME", "C:\\Temp"), "edge_remote_profile")
                 print("[ATTACH] Troubleshooting:")
                 print(f"  curl test: {curl_cmd}")
-                print(
-                    "  PowerShell launch: "
-                    f'& "{edge_bin}" --remote-debugging-port={attach_port} --user-data-dir="{profile_hint}"'
-                )
+                print(f'  CMD launch: "{edge_bin}" --remote-debugging-port={attach_port}')
                 raise SystemExit(2)
             edge_options.add_experimental_option("debuggerAddress", debugger_address)
             print(f"[INFO] Edge args: {edge_args}")
@@ -956,17 +969,16 @@ def create_edge_driver(
                 service = EdgeService(log_output=os.path.join(output_dir, "msedgedriver.log"))
                 new_driver = webdriver.Edge(service=service, options=edge_options)
             except Exception as exc:
-                last_error = exc
-                print(f"[ATTACH] failed: {exc}; probe={probe_result}")
+                last_error = RuntimeError(
+                    f"Attach failed for {debugger_address}: {exc}. "
+                    "Start Edge with --remote-debugging-port=9222 and login first"
+                )
+                print(f"[ATTACH] failed: {last_error}; probe={probe_result}")
                 curl_cmd = f'curl "{probe_result["url"]}"'
                 edge_bin = edge_binary_path_resolved or "msedge.exe"
-                profile_hint = os.path.join(os.environ.get("USERNAME", "C:\\Temp"), "edge_remote_profile")
                 print("[ATTACH] Troubleshooting:")
                 print(f"  curl test: {curl_cmd}")
-                print(
-                    "  PowerShell launch: "
-                    f'& "{edge_bin}" --remote-debugging-port={attach_port} --user-data-dir="{profile_hint}"'
-                )
+                print(f'  CMD launch: "{edge_bin}" --remote-debugging-port={attach_port}')
                 raise SystemExit(2)
             print(f"[INFO] Driver init mode: {mode}")
             print(f"[INFO] Edge attached. Session id: {new_driver.session_id}")
@@ -1050,6 +1062,11 @@ def create_edge_driver(
 
     if last_error:
         raise last_error
+    if no_profile_launch:
+        raise RuntimeError(
+            "Attach-only mode requested, but no debugger endpoint was provided or reachable. "
+            "Start Edge with --remote-debugging-port=9222 and login first"
+        )
     raise RuntimeError("Edge driver could not be initialized.")
 
 
@@ -1528,6 +1545,8 @@ def _wait_for_ticket_ready(driver: Any, timeout: float) -> None:
 
 def _is_login_redirect(driver: Any) -> bool:
     current_url = (driver.current_url or "").lower()
+    if current_url and not _is_expected_auth_host(current_url):
+        return True
     if any(token in current_url for token in ("login", "signin", "sso", "auth")):
         return True
     try:
@@ -1871,6 +1890,8 @@ def selenium_scrape_tickets(
     preauth_pause: bool = True,
     retry_on_auth_redirect: int = 2,
     include_new_ticket_links: bool = False,
+    no_profile_launch: bool = False,
+    db_path: Optional[str] = None,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -1898,6 +1919,12 @@ def selenium_scrape_tickets(
     os.makedirs(output_dir, exist_ok=True)
     debug_dir = os.path.abspath(debug_dir or output_dir)
     os.makedirs(debug_dir, exist_ok=True)
+    db_run_id: Optional[str] = None
+    if db_path:
+        from webscraper.db import init_db as db_init_db, start_run as db_start_run
+
+        db_init_db(db_path)
+        db_run_id = db_start_run(db_path, {"handles": handles, "output_dir": output_dir})
     _write_run_metadata(output_dir, mode="selenium", run_id=os.path.basename(os.path.abspath(output_dir)))
     # Prune legacy noisy files to keep output readable
     try:
@@ -1976,6 +2003,7 @@ def selenium_scrape_tickets(
             edge_temp_profile=edge_temp_profile,
             edge_kill_before=edge_kill_before,
             show_browser=show_browser,
+            no_profile_launch=no_profile_launch,
         )
         try:
             driver.set_page_load_timeout(30)
@@ -2312,6 +2340,7 @@ def selenium_scrape_tickets(
             edge_temp_profile=edge_temp_profile,
             edge_kill_before=edge_kill_before,
             show_browser=show_browser,
+            no_profile_launch=no_profile_launch,
         )
         _post_auth_setup()
 
@@ -2336,6 +2365,7 @@ def selenium_scrape_tickets(
                 edge_temp_profile=edge_temp_profile,
                 edge_kill_before=edge_kill_before,
                 show_browser=show_browser,
+                no_profile_launch=no_profile_launch,
             )
             if effective_target_url:
                 try:
@@ -2479,6 +2509,35 @@ def selenium_scrape_tickets(
                 f"table_found={probe.get('table_found')}",
                 flush=True,
             )
+
+        def _capture_redirect_to_gateway(handle: str, reason: str) -> None:
+            anchors = driver.find_elements(By.TAG_NAME, "a")
+            first_anchors = [(a.get_attribute("href") or "").strip() for a in anchors[:50]]
+            snippet = (driver.page_source or "")[:2000]
+            payload = {
+                "handle": handle,
+                "failure_reason": reason,
+                "current_url": driver.current_url,
+                "title": driver.title,
+                "first_50_anchors": first_anchors,
+                "html_snippet": snippet,
+            }
+            path = os.path.join(debug_dir, f"redirect_debug_{handle}.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+            _write_text(os.path.join(debug_dir, f"redirect_debug_{handle}.html"), driver.page_source or "")
+            try:
+                driver.save_screenshot(os.path.join(debug_dir, f"redirect_debug_{handle}.png"))
+            except Exception:
+                pass
+
+        def _navigate_to_customers_or_fail(handle: str) -> None:
+            target_customers_url = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
+            driver.get(target_customers_url)
+            current = driver.current_url or ""
+            if _is_gateway_redirect(current) or not _is_expected_auth_host(current):
+                _capture_redirect_to_gateway(handle, "redirect_to_gateway")
+                raise RuntimeError(f"redirect_to_gateway:{current}")
 
         def search_company(driver: Any, handle: str) -> None:
             search_box = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "input#customers")))
@@ -2774,10 +2833,14 @@ def selenium_scrape_tickets(
             try:
                 _dbg(f"current_url={driver.current_url} handle={handle}")
                 t_nav = time.monotonic()
-                driver.get(url)
+                _navigate_to_customers_or_fail(handle)
                 _phase(1, "NAVIGATE", f"url={driver.current_url}", t_nav)
                 t_auth = time.monotonic()
-                _phase(2, "AUTH CHECK", f"logged_in={not _is_login_redirect(driver)}", t_auth)
+                logged_in = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+                if not logged_in:
+                    _capture_redirect_to_gateway(handle, "not_logged_in")
+                    raise RuntimeError(f"not_logged_in:{driver.current_url}")
+                _phase(2, "AUTH CHECK", f"logged_in={logged_in}", t_auth)
                 t0 = time.monotonic()
                 _phase(3, "HANDLE PAGE", f"handle={handle} url={driver.current_url}", t0)
                 search_company(driver, handle)
@@ -2848,6 +2911,11 @@ def selenium_scrape_tickets(
             while True:
                 try:
                     tickets = process_handle(handle)
+                    if db_path and db_run_id:
+                        from webscraper.db import upsert_handle as db_upsert_handle, upsert_tickets as db_upsert_tickets
+
+                        db_upsert_handle(db_path, handle, "success" if tickets else "failed", None if tickets else "no tickets parsed")
+                        db_upsert_tickets(db_path, db_run_id, handle, tickets)
                     if scrape_ticket_details_enabled:
                         summary = scrape_ticket_details(
                             driver=driver,
@@ -2925,6 +2993,10 @@ def selenium_scrape_tickets(
     except KeyboardInterrupt:
         print("[WARN] Interrupted by user (Ctrl+C). Shutting down.")
     finally:
+        if db_path and db_run_id:
+            from webscraper.db import finish_run as db_finish_run
+
+            db_finish_run(db_path, db_run_id)
         if no_quit and driver:
             print("[WARN] --no-quit set; leaving browser open.")
         elif driver and created_browser:
@@ -2973,6 +3045,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Selenium ticket scraper (config-driven)")
     parser.add_argument("--url", default=default_url, help="Target URL (e.g., customers.cgi)")
     parser.add_argument("--out", default=default_out, help="Output directory")
+    parser.add_argument("--db", help="Optional SQLite database path for ticket upsert")
     parser.add_argument("--handles", nargs="+", default=default_handles, help="One or more customer handles")
     parser.add_argument("--handles-file", help="Path to a file containing handles (one per line; '#' for comments)")
     parser.add_argument("--show", action="store_true", help="Run browser in visible (non-headless) mode")
@@ -2997,7 +3070,9 @@ def main() -> int:
         "--remote-debugging-port; scraper will not auto-launch a browser in attach mode)",
     )
     parser.add_argument("--attach-host", default="127.0.0.1", help="Edge debugger host (default 127.0.0.1)")
+    parser.add_argument("--attach-debugger", help="Attach to existing Edge debugger host:port (example 127.0.0.1:9222)")
     parser.add_argument("--attach-timeout", type=float, default=2.0, help="Timeout for Edge debugger probe (seconds)")
+    parser.add_argument("--no-profile-launch", action="store_true", help="Attach-only mode: never launch Edge with user-data-dir")
     parser.add_argument("--fallback-profile-dir", default="webscraper/edge_profile_tmp", help="Profile dir for fallback Edge launch")
     parser.add_argument("--edge-smoke-test", action="store_true", help="Run a basic Edge driver smoke test and exit")
     parser.add_argument("--target-url", default=default_target_url, help="Target URL to open after driver init")
@@ -3098,6 +3173,15 @@ def main() -> int:
     parser.add_argument("--no-dump-dom-on-fail", dest="dump_dom_on_fail", action="store_false", help="Disable fail HTML/PNG/probe artifacts")
     parser.set_defaults(dump_dom_on_fail=True)
     args = parser.parse_args()
+
+    if args.attach_debugger:
+        raw_debugger = str(args.attach_debugger).strip()
+        try:
+            host_part, port_part = raw_debugger.split(":", 1)
+            args.attach_host = host_part.strip() or "127.0.0.1"
+            args.attach = int(port_part.strip())
+        except Exception:
+            parser.error("--attach-debugger must be host:port (example 127.0.0.1:9222)")
     if args.phase_logs is None:
         args.phase_logs = bool(args.show or args.save_html or args.save_screenshot)
     if args.preauth_noc_tickets is None:
@@ -3302,6 +3386,8 @@ def main() -> int:
         preauth_pause=args.preauth_pause,
         retry_on_auth_redirect=args.retry_on_auth_redirect,
         include_new_ticket_links=args.include_new_ticket_links,
+        no_profile_launch=args.no_profile_launch,
+        db_path=args.db,
     )
     return 0
 
