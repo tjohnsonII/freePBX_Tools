@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev",
+    "dev:ui": "next dev",
+    "dev:stack": "python ../scripts/dev_ticket_stack.py",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

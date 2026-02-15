@@ -7,6 +7,8 @@ from typing import Any
 
 
 def get_conn(db_path: str) -> sqlite3.Connection:
+    db_file = Path(db_path)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
@@ -16,6 +18,43 @@ def ensure_indexes(db_path: str) -> None:
     with get_conn(db_path) as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS handles(
+                handle TEXT PRIMARY KEY,
+                first_seen_utc TEXT,
+                last_scrape_utc TEXT,
+                last_status TEXT,
+                last_error TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS runs(
+                run_id TEXT PRIMARY KEY,
+                started_utc TEXT,
+                finished_utc TEXT,
+                args_json TEXT,
+                out_dir TEXT,
+                failure_reason TEXT,
+                git_sha TEXT,
+                host TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS tickets(
+                ticket_id TEXT,
+                handle TEXT,
+                ticket_url TEXT,
+                ticket_num TEXT,
+                title TEXT,
+                subject TEXT,
+                status TEXT,
+                opened_utc TEXT,
+                created_utc TEXT,
+                updated_utc TEXT,
+                raw_json TEXT,
+                raw_row_json TEXT,
+                run_id TEXT,
+                PRIMARY KEY(ticket_id, handle),
+                UNIQUE(ticket_url, handle)
+            );
+
             CREATE TABLE IF NOT EXISTS scrape_jobs(
                 job_id TEXT PRIMARY KEY,
                 handle TEXT NOT NULL,

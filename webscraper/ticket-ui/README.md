@@ -2,17 +2,32 @@
 
 Next.js UI for browsing ticket/handle data and launching scraper jobs through the local Ticket API.
 
-## Dev run (local API default)
+## Run full stack (API + UI)
 
 ```bash
 cd webscraper/ticket-ui
 npm install
-npm run dev:local-api
+npm run dev:stack
 ```
 
-This script assumes the API is at `http://127.0.0.1:8787` and sets:
-- `TICKET_API_PROXY_TARGET=http://127.0.0.1:8787` (Next rewrite target)
-- `NEXT_PUBLIC_TICKET_API_PROXY_TARGET=http://127.0.0.1:8787` (shown in UI diagnostics)
+`dev:stack` starts:
+- FastAPI backend: `python -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload`
+- Next.js UI: `next dev` on `127.0.0.1:3000`
+
+The stack runner sets `TICKET_API_PROXY_TARGET=http://127.0.0.1:8787` automatically so Next rewrites `/api/*` to the backend.
+
+## Run UI only
+
+```bash
+cd webscraper/ticket-ui
+npm run dev:ui
+```
+
+## Run API only
+
+```bash
+python -m webscraper.ticket_api.app --reload
+```
 
 ## API proxy behavior
 
@@ -21,13 +36,13 @@ This script assumes the API is at `http://127.0.0.1:8787` and sets:
 To point the UI at another API host:
 
 ```bash
-TICKET_API_PROXY_TARGET=http://127.0.0.1:9000 NEXT_PUBLIC_TICKET_API_PROXY_TARGET=http://127.0.0.1:9000 npm run dev
+TICKET_API_PROXY_TARGET=http://127.0.0.1:9000 npm run dev:ui
 ```
 
 Optional direct browser API base (bypasses rewrites):
 
 ```bash
-NEXT_PUBLIC_API_BASE=http://127.0.0.1:8787 npm run dev
+NEXT_PUBLIC_API_BASE=http://127.0.0.1:8787 npm run dev:ui
 ```
 
 ## UI features
@@ -35,4 +50,4 @@ NEXT_PUBLIC_API_BASE=http://127.0.0.1:8787 npm run dev
 - Searchable handle dropdown backed by `GET /api/handles/all`.
 - Run scrape button posts `POST /api/scrape`.
 - Live job status/log polling via `GET /api/scrape/{jobId}`.
-- Connectivity banner with API/proxy diagnostics for common “Failed to fetch” issues.
+- Top-of-page API health banner based on `GET /api/health`.

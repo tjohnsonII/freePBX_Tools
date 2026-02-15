@@ -39,6 +39,11 @@ type ScrapeStatus = {
   error?: string;
 };
 
+type ApiHealth = {
+  status: string;
+  db_path?: string;
+};
+
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.kind === "network") {
@@ -65,8 +70,22 @@ export default function HandlesPage() {
   const [jobs, setJobs] = useState<ScrapeStatus[]>([]);
   const [jobMode, setJobMode] = useState<"latest" | "full">("latest");
   const [jobLimit, setJobLimit] = useState(20);
+  const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null);
+  const [apiHealthError, setApiHealthError] = useState<string | null>(null);
 
   const apiInfo = useMemo(() => apiBaseInfo(), []);
+
+  useEffect(() => {
+    apiGet<ApiHealth>("/api/health")
+      .then((payload) => {
+        setApiHealth(payload);
+        setApiHealthError(null);
+      })
+      .catch((e) => {
+        setApiHealth(null);
+        setApiHealthError(formatApiError(e));
+      });
+  }, []);
 
   useEffect(() => {
     apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(handleFilter)}&limit=500`)
@@ -147,6 +166,21 @@ export default function HandlesPage() {
   return (
     <main>
       <h1>Ticket History</h1>
+
+      <div style={{ border: "1px solid #2a2", padding: 12, marginBottom: 12 }}>
+        {apiHealth?.status === "ok" ? (
+          <p>
+            API OK. db_path: <code>{apiHealth.db_path || "(unknown)"}</code>
+          </p>
+        ) : (
+          <>
+            <p>API unreachable. Start it with: <code>python -m webscraper.ticket_api.app --reload</code></p>
+            <p>Proxy Target: <code>{apiInfo.proxyTarget}</code></p>
+            {apiHealthError ? <p>Last error: {apiHealthError}</p> : null}
+          </>
+        )}
+      </div>
+
       {(error || scrapeError) && (
         <div style={{ border: "1px solid #a22", padding: 12, marginBottom: 12 }}>
           <strong>API Connectivity Help</strong>
@@ -154,8 +188,7 @@ export default function HandlesPage() {
           <p>API Base: {apiInfo.browserBase}</p>
           <p>Proxy Target: {apiInfo.proxyTarget}</p>
           <p>Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787</code></p>
-          <p>Start UI: <code>cd webscraper/ticket-ui && npm run dev:local-api</code></p>
-          <p>Health: <a href="/health" target="_blank">/health</a></p>
+          <p>Start stack: <code>cd webscraper/ticket-ui && npm run dev:stack</code></p>
         </div>
       )}
 
