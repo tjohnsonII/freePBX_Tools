@@ -41,7 +41,7 @@ type ScrapeStatus = {
     errorType?: string;
     exitCode?: number | null;
     logTail?: string[];
-    command?: string[];
+    command?: string | string[];
   };
 };
 
@@ -101,18 +101,42 @@ export default function HandlesPage() {
   }, []);
 
   useEffect(() => {
-    apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200`)
-      .then((res) => {
+    let cancelled = false;
+
+    const loadHandleOptions = async () => {
+      try {
+        const res = await apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200`);
+        if (cancelled) return;
         setError(null);
         setHandleOptions(res.items);
         if (!selectedHandle && res.items.length) {
           setSelectedHandle(res.items[0]);
         }
-      })
-      .catch((e) => {
-        setError(formatApiError(e));
-        setHandleOptions([]);
-      });
+        return;
+      } catch (primaryError) {
+        try {
+          const fallback = await apiGet<{ handle: string }[]>(`/api/handles?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200&offset=0`);
+          if (cancelled) return;
+          const items = fallback.map((item) => item.handle).filter(Boolean);
+          setError(null);
+          setHandleOptions(items);
+          if (!selectedHandle && items.length) {
+            setSelectedHandle(items[0]);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          setError(formatApiError(primaryError));
+          setHandleOptions([]);
+        }
+      }
+    };
+
+    void loadHandleOptions();
+
+    return () => {
+      cancelled = true;
+    };
   }, [debouncedHandleFilter, selectedHandle]);
 
   useEffect(() => {
@@ -202,6 +226,9 @@ export default function HandlesPage() {
               Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite</code>
             </p>
             <p>
+              Start UI: <code>cd webscraper/ticket-ui && npm run dev:local-api</code>
+            </p>
+            <p>
               API Base: <code>{apiInfo.browserBase}</code>
             </p>
             <p>
@@ -225,6 +252,9 @@ export default function HandlesPage() {
           </p>
           <p>
             Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite</code>
+          </p>
+          <p>
+            Start UI: <code>cd webscraper/ticket-ui && npm run dev:local-api</code>
           </p>
           <a href="/api/health">Open /api/health</a>
         </div>
@@ -268,7 +298,7 @@ export default function HandlesPage() {
             </p>
             {job.error && <p>Error: {job.error}</p>}
             {job.resultSummary?.errorType ? <p>Failure type: {job.resultSummary.errorType}</p> : null}
-            {job.resultSummary?.command?.length ? <p>Command: <code>{job.resultSummary.command.join(" ")}</code></p> : null}
+            {job.resultSummary?.command ? <p>Command: <code>{Array.isArray(job.resultSummary.command) ? job.resultSummary.command.join(" ") : job.resultSummary.command}</code></p> : null}
             {jobLogTail.length ? <pre>{jobLogTail.join("\n")}</pre> : null}
           </div>
         );

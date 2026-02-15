@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "dev:local-api": "set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787&& next dev",
-    "dev:local-api:ps": "$env:TICKET_API_PROXY_TARGET='http://127.0.0.1:8787'; next dev"
+    "dev:local-api:ps": "powershell -NoProfile -Command \"$env:TICKET_API_PROXY_TARGET='http://127.0.0.1:8787'; npm run dev\""
   },
   "dependencies": {
     "next": "14.2.5",
