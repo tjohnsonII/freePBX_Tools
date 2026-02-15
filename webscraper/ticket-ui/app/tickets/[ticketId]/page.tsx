@@ -21,7 +21,7 @@ export default function TicketDetailPage({ params }: { params: { ticketId: strin
   const [ticket, setTicket] = useState<Ticket | null>(null);
 
   useEffect(() => {
-    apiGet<Ticket>(`/tickets/${encodeURIComponent(ticketId)}?handle=${encodeURIComponent(handle)}`)
+    apiGet<Ticket>(`/api/tickets/${encodeURIComponent(ticketId)}?handle=${encodeURIComponent(handle)}`)
       .then(setTicket)
       .catch(() => setTicket(null));
   }, [ticketId, handle]);
