@@ -41,6 +41,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dump-dom-on-fail", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--phase-logs", action="store_true")
+    parser.add_argument(
+        "--child-extra-args",
+        nargs=argparse.REMAINDER,
+        default=None,
+        help="Additional args appended verbatim to the child scraper command",
+    )
     return parser.parse_args()
 
 
@@ -103,7 +109,12 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
         if getattr(args, flag.lstrip("-").replace("-", "_")):
             cmd.append(flag)
 
-    cmd.append("--show" if args.show else "--headless")
+    if args.show:
+        cmd.append("--show")
+
+    if args.child_extra_args:
+        cmd.extend(args.child_extra_args)
+
     return cmd
 
 
