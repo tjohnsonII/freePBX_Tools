@@ -62,7 +62,9 @@ End-to-end workflow: scrape handles in batches, persist ticket history to SQLite
    - `python -m pip install -r webscraper/requirements.txt`
    - `python -m pip install -r webscraper/requirements_api.txt`
 2. **Run batch scrape into SQLite:**
-   - `python scripts/scrape_all_handles.py --handles-file customer_handles.txt --db webscraper/output/tickets.sqlite --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --max-tickets 1 --phase-logs`
+   - Quick test (direct handles): `python scripts/scrape_all_handles.py --handles KPM WS7 EO5 --db webscraper/output/tickets.sqlite --timeout-seconds 180 --max-tickets 1`
+   - Quick test (comma-separated handles): `python scripts/scrape_all_handles.py --handles "KPM,WS7,EO5" --db webscraper/output/tickets.sqlite --timeout-seconds 180 --max-tickets 1`
+   - Full run (from file, limited sample): `python scripts/scrape_all_handles.py --handles-file customer_handles.txt --max-handles 25 --db webscraper/output/tickets.sqlite --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --max-tickets 1 --phase-logs`
 3. **Start API (PowerShell or Bash):**
    - PowerShell: `./scripts/run_ticket_api.ps1 -DbPath webscraper/output/tickets.sqlite`
    - Bash: `TICKETS_DB_PATH=webscraper/output/tickets.sqlite ./scripts/run_ticket_api.sh`

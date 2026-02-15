@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,10 @@ from webscraper.db import finish_run, init_db, record_artifact, start_run, upser
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch handle scraper with SQLite persistence")
-    parser.add_argument("--handles-file", default="customer_handles.txt")
+    parser.add_argument("--handles", nargs="+", help="Handles to scrape (supports comma/whitespace separation)")
+    parser.add_argument("--handles-file", help="Path to newline-delimited handle file")
+    parser.add_argument("--max-handles", type=int, help="Limit number of handles processed")
+    parser.add_argument("--timeout-seconds", type=int, default=600)
     parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"))
     parser.add_argument("--out", default=os.path.join("webscraper", "output", "scrape_runs"))
     parser.add_argument("--batch-size", type=int, default=25)
@@ -46,6 +50,31 @@ def read_handles(path: str) -> list[str]:
     return handles
 
 
+def parse_handles_values(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    handles: list[str] = []
+    for raw in values:
+        for token in re.split(r"[\s,]+", raw.strip()):
+            if token:
+                handles.append(token)
+    return handles
+
+
+def resolve_handles(args: argparse.Namespace) -> list[str]:
+    if args.handles:
+        handles = parse_handles_values(args.handles)
+    elif args.handles_file:
+        handles = read_handles(args.handles_file)
+    else:
+        print("[ERROR] Provide either --handles or --handles-file.")
+        return []
+
+    if args.max_handles is not None:
+        handles = handles[: max(0, args.max_handles)]
+    return handles
+
+
 def chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
@@ -64,7 +93,6 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
 
     for flag in [
         "--auth-profile-only",
-        "--show",
         "--scrape-ticket-details",
         "--save-html",
         "--save-screenshot",
@@ -74,7 +102,15 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
     ]:
         if getattr(args, flag.lstrip("-").replace("-", "_")):
             cmd.append(flag)
+
+    cmd.append("--show" if args.show else "--headless")
     return cmd
+
+
+def _write_child_failure_logs(batch_out: Path, cmd: list[str], stdout: str | None, stderr: str | None) -> None:
+    (batch_out / "child_cmd.txt").write_text(subprocess.list2cmdline(cmd), encoding="utf-8")
+    (batch_out / "child_stdout.txt").write_text(stdout or "", encoding="utf-8")
+    (batch_out / "child_stderr.txt").write_text(stderr or "", encoding="utf-8")
 
 
 def _artifact_type(path: Path) -> str:
@@ -144,7 +180,7 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
 
 def main() -> int:
     args = parse_args()
-    handles = read_handles(args.handles_file)
+    handles = resolve_handles(args)
     if not handles:
         print("[ERROR] No handles found.")
         return 1
@@ -152,7 +188,7 @@ def main() -> int:
     init_db(args.db)
     run_id = start_run(args.db, vars(args))
 
-    root_out = Path(args.out) / datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    root_out = Path(args.out) / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     root_out.mkdir(parents=True, exist_ok=True)
 
     total_successes: set[str] = set()
@@ -164,17 +200,38 @@ def main() -> int:
             batch_out.mkdir(parents=True, exist_ok=True)
             cmd = build_scraper_cmd(args, batch, batch_out)
             print(f"[INFO] Running batch {i} ({len(batch)} handles)")
-            proc = subprocess.run(cmd, text=True, capture_output=True)
-            if proc.stdout:
-                print(proc.stdout)
-            if proc.stderr:
-                print(proc.stderr, file=sys.stderr)
+            print(f"[INFO] Child command: {subprocess.list2cmdline(cmd)}")
+
+            timed_out = False
+            proc: subprocess.CompletedProcess[str] | None = None
+            timeout_stdout = ""
+            timeout_stderr = ""
+            try:
+                proc = subprocess.run(cmd, text=True, capture_output=True, timeout=args.timeout_seconds)
+                if proc.stdout:
+                    print(proc.stdout)
+                if proc.stderr:
+                    print(proc.stderr, file=sys.stderr)
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                timeout_stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
+                timeout_stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
+                print(f"[ERROR] Batch {i} timed out after {args.timeout_seconds}s", file=sys.stderr)
 
             successes, failures = process_batch_output(args.db, run_id, batch_out, batch)
             total_successes.update(successes)
             total_failures.update(failures)
 
-            if proc.returncode != 0:
+            if timed_out:
+                _write_child_failure_logs(batch_out, cmd, timeout_stdout, timeout_stderr)
+                err = f"scraper timed out after {args.timeout_seconds}s"
+                for handle in set(batch) - successes:
+                    upsert_handle(args.db, handle, "failed", err)
+                    total_failures.add(handle)
+                continue
+
+            if proc and proc.returncode != 0:
+                _write_child_failure_logs(batch_out, cmd, proc.stdout, proc.stderr)
                 err = f"scraper exit code {proc.returncode}"
                 for handle in set(batch) - successes:
                     upsert_handle(args.db, handle, "failed", err)
