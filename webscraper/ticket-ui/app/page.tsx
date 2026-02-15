@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import HandleDropdown from "./components/HandleDropdown";
 import { apiGet, apiPost } from "../lib/api";
 
 type HandleSummary = {
   handle: string;
-  ticketsCount: number;
-  lastTicketAt?: string;
-  lastScrapeAt?: string;
-  status?: string;
+  last_scrape_utc?: string;
+  ticket_count: number;
+  open_count: number;
+  updated_latest_utc?: string;
 };
 
 type Ticket = {
@@ -30,35 +32,58 @@ type ScrapeStatus = {
   jobId: string;
   status: string;
   handle: string;
+  mode: "latest" | "full";
+  logs: string[];
   progress: { completed: number; total: number };
   error?: string;
 };
 
 export default function HandlesPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+
   const [handleFilter, setHandleFilter] = useState("");
   const [rows, setRows] = useState<HandleSummary[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMoreHandles, setHasMoreHandles] = useState(true);
   const [selectedHandle, setSelectedHandle] = useState("");
+  const [selectedHandles, setSelectedHandles] = useState<Set<string>>(new Set());
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
-  const [job, setJob] = useState<ScrapeStatus | null>(null);
+  const [jobs, setJobs] = useState<ScrapeStatus[]>([]);
 
-  const refreshHandles = async (query: string) => {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleFromUrl = new URLSearchParams(window.location.search).get("handle") || "";
+    if (handleFromUrl) {
+      setSelectedHandle(handleFromUrl);
+    }
+  }, []);
+
+  const fetchHandlePage = async (query: string, nextOffset: number, replace: boolean) => {
     try {
       setError(null);
-      const list = await apiGet<HandleSummary[]>(`/api/handles?q=${encodeURIComponent(query)}&limit=500`);
-      setRows(list);
+      const list = await apiGet<HandleSummary[]>(
+        `/api/handles/summary?q=${encodeURIComponent(query)}&limit=100&offset=${nextOffset}`,
+      );
+      setHasMoreHandles(list.length === 100);
+      setOffset(nextOffset + list.length);
+      setRows((prev) => (replace ? list : [...prev, ...list]));
       if (!selectedHandle && list.length > 0) {
         setSelectedHandle(list[0].handle);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setRows([]);
+      setHasMoreHandles(false);
     }
   };
 
   useEffect(() => {
-    refreshHandles(handleFilter);
+    fetchHandlePage(handleFilter, 0, true);
   }, [handleFilter]);
 
   useEffect(() => {
@@ -66,6 +91,11 @@ export default function HandlesPage() {
       setTickets([]);
       return;
     }
+
+    const nextParams = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+    nextParams.set("handle", selectedHandle);
+    router.replace(`${pathname}?${nextParams.toString()}`);
+
     apiGet<TicketResponse>(`/api/tickets?handle=${encodeURIComponent(selectedHandle)}&page=1&pageSize=100&sort=newest`)
       .then((res) => {
         setError(null);
@@ -75,34 +105,41 @@ export default function HandlesPage() {
         setError(e instanceof Error ? e.message : String(e));
         setTickets([]);
       });
-  }, [selectedHandle]);
+  }, [selectedHandle, pathname, router]);
 
   useEffect(() => {
-    if (!job?.jobId || job.status === "completed" || job.status === "failed") {
+    const activeJobs = jobs.filter((job) => job.status !== "completed" && job.status !== "failed");
+    if (!activeJobs.length) {
       return;
     }
 
     const interval = setInterval(async () => {
       try {
-        const status = await apiGet<ScrapeStatus>(`/api/scrape/${job.jobId}`);
-        setJob(status);
-        if (status.status === "completed" || status.status === "failed") {
-          refreshHandles(handleFilter);
-        }
+        const updates = await Promise.all(activeJobs.map((job) => apiGet<ScrapeStatus>(`/api/scrape/${job.jobId}`)));
+        setJobs((prev) => prev.map((existing) => updates.find((item) => item.jobId === existing.jobId) || existing));
       } catch (e) {
         setScrapeError(e instanceof Error ? e.message : String(e));
       }
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [job?.jobId, job?.status, handleFilter]);
+  }, [jobs]);
 
-  const filteredRows = useMemo(
-    () => rows.filter((row) => row.handle.toLowerCase().includes(handleFilter.toLowerCase())),
-    [rows, handleFilter],
-  );
+  const selectedSummary = useMemo(() => rows.find((row) => row.handle === selectedHandle), [rows, selectedHandle]);
 
-  const startScrape = async (mode: "latest" | "full") => {
+  const toggleHandleSelection = (handle: string) => {
+    setSelectedHandles((prev) => {
+      const next = new Set(prev);
+      if (next.has(handle)) {
+        next.delete(handle);
+      } else {
+        next.add(handle);
+      }
+      return next;
+    });
+  };
+
+  const startSingleScrape = async (mode: "latest" | "full") => {
     if (!selectedHandle) {
       setScrapeError("Select a handle first.");
       return;
@@ -115,7 +152,23 @@ export default function HandlesPage() {
         limit: mode === "latest" ? 20 : undefined,
       });
       const status = await apiGet<ScrapeStatus>(`/api/scrape/${payload.jobId}`);
-      setJob(status);
+      setJobs((prev) => [status, ...prev]);
+    } catch (e) {
+      setScrapeError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const startBatchScrape = async (mode: "latest" | "full", scrapeAll: boolean) => {
+    try {
+      setScrapeError(null);
+      const handles = scrapeAll ? null : Array.from(selectedHandles);
+      const payload = await apiPost<{ jobIds: string[]; status: string }>("/api/scrape-batch", {
+        handles,
+        mode,
+        limit: mode === "latest" ? 20 : undefined,
+      });
+      const statuses = await Promise.all(payload.jobIds.map((jobId) => apiGet<ScrapeStatus>(`/api/scrape/${jobId}`)));
+      setJobs((prev) => [...statuses, ...prev]);
     } catch (e) {
       setScrapeError(e instanceof Error ? e.message : String(e));
     }
@@ -124,67 +177,66 @@ export default function HandlesPage() {
   return (
     <main>
       <h1>Ticket History</h1>
-      <label>
-        Filter handles
-        <input
-          placeholder="Type to filter handles"
-          value={handleFilter}
-          onChange={(e) => setHandleFilter(e.target.value)}
-        />
-      </label>
 
-      <label>
-        Handle
-        <select value={selectedHandle} onChange={(e) => setSelectedHandle(e.target.value)}>
-          <option value="">Select a handle</option>
-          {filteredRows.map((h) => (
-            <option key={h.handle} value={h.handle}>
-              {h.handle} ({h.ticketsCount})
-            </option>
-          ))}
-        </select>
-      </label>
+      <HandleDropdown
+        rows={rows}
+        selectedHandle={selectedHandle}
+        search={handleFilter}
+        onSearchChange={setHandleFilter}
+        onSelect={setSelectedHandle}
+      />
+
+      {selectedSummary && (
+        <p>
+          Summary: {selectedSummary.ticket_count} tickets, {selectedSummary.open_count} open, last scrape {selectedSummary.last_scrape_utc || "-"},
+          latest update {selectedSummary.updated_latest_utc || "-"}
+        </p>
+      )}
 
       <div>
-        <button disabled={!selectedHandle} onClick={() => startScrape("latest")}>Run Scrape (Latest)</button>
-        <button disabled={!selectedHandle} onClick={() => startScrape("full")}>Run Scrape (Full)</button>
+        <button disabled={!selectedHandle} onClick={() => startSingleScrape("latest")}>Scrape latest</button>
+        <button disabled={!selectedHandle} onClick={() => startSingleScrape("full")}>Scrape full</button>
+        <button disabled={!selectedHandles.size} onClick={() => startBatchScrape("latest", false)}>Scrape latest (selected)</button>
+        <button onClick={() => startBatchScrape("latest", true)}>Scrape latest (all)</button>
       </div>
+
+      {hasMoreHandles && <button onClick={() => fetchHandlePage(handleFilter, offset, false)}>Load more handles</button>}
 
       {error && <p>{error}</p>}
       {scrapeError && <p>{scrapeError}</p>}
-      {job && (
-        <div>
+
+      <h2>Handle selection for batch scrape</h2>
+      <ul>
+        {rows.map((row) => (
+          <li key={`batch-${row.handle}`}>
+            <label>
+              <input
+                type="checkbox"
+                checked={selectedHandles.has(row.handle)}
+                onChange={() => toggleHandleSelection(row.handle)}
+              />
+              {row.handle} ({row.ticket_count})
+            </label>
+          </li>
+        ))}
+      </ul>
+
+      {jobs.map((job) => (
+        <div key={job.jobId}>
           <p>
-            Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total}) for {job.handle}
+            Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total}) for {job.handle} [{job.mode}]
           </p>
           {job.error && <p>{job.error}</p>}
+          {job.logs?.length ? <pre>{job.logs.slice(-10).join("\n")}</pre> : null}
         </div>
-      )}
-
-      <h2>Handles</h2>
-      <table>
-        <thead>
-          <tr><th>Handle</th><th>Tickets</th><th>Last Ticket</th><th>Last Scrape</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          {filteredRows.map((h) => (
-            <tr key={h.handle}>
-              <td>{h.handle}</td>
-              <td>{h.ticketsCount ?? 0}</td>
-              <td>{h.lastTicketAt || "-"}</td>
-              <td>{h.lastScrapeAt || "-"}</td>
-              <td>{h.status || "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      ))}
 
       <h2>{selectedHandle ? `Tickets for ${selectedHandle}` : "Select a handle"}</h2>
       <table>
         <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Updated</th><th>Created</th></tr></thead>
         <tbody>
           {tickets.map((t) => (
-            <tr key={`${t.ticket_id}-${t.updated_utc}`}>
+            <tr key={`${t.ticket_id}-${t.updated_utc}-${selectedHandle}`}>
               <td>{t.ticket_id}</td>
               <td>{t.title || "-"}</td>
               <td>{t.status || "-"}</td>

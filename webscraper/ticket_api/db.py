@@ -39,7 +39,9 @@ def ensure_indexes(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
+            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id_handle ON tickets(ticket_id, handle);
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_status_updated ON tickets(handle, status, updated_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_handle_created ON scrape_jobs(handle, created_utc DESC);
@@ -69,6 +71,7 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
             SELECT
                 t.handle,
                 COUNT(*) AS tickets_count,
+                SUM(CASE WHEN LOWER(COALESCE(t.status, '')) = 'open' THEN 1 ELSE 0 END) AS open_count,
                 MAX(COALESCE(t.updated_utc, t.created_utc, t.opened_utc)) AS last_ticket_at
             FROM tickets t
             GROUP BY t.handle
@@ -76,6 +79,7 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
         SELECT
             ah.handle,
             COALESCE(ts.tickets_count, 0) AS ticketsCount,
+            COALESCE(ts.open_count, 0) AS openCount,
             ts.last_ticket_at AS lastTicketAt,
             h.last_scrape_utc AS lastScrapeAt,
             h.last_status AS status
@@ -93,6 +97,42 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
         return [dict(r) for r in conn.execute(summary_query, params).fetchall()]
 
 
+def list_handles_summary(db_path: str, q: str = "", limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    query = """
+        WITH all_handles AS (
+            SELECT handle FROM handles
+            UNION
+            SELECT DISTINCT handle FROM tickets
+        ),
+        ticket_summary AS (
+            SELECT
+                t.handle,
+                COUNT(*) AS ticket_count,
+                SUM(CASE WHEN LOWER(COALESCE(t.status, '')) = 'open' THEN 1 ELSE 0 END) AS open_count,
+                MAX(COALESCE(t.updated_utc, t.created_utc, t.opened_utc)) AS updated_latest_utc
+            FROM tickets t
+            GROUP BY t.handle
+        )
+        SELECT
+            ah.handle AS handle,
+            h.last_scrape_utc AS last_scrape_utc,
+            COALESCE(ts.ticket_count, 0) AS ticket_count,
+            COALESCE(ts.open_count, 0) AS open_count,
+            ts.updated_latest_utc AS updated_latest_utc
+        FROM all_handles ah
+        LEFT JOIN handles h ON h.handle = ah.handle
+        LEFT JOIN ticket_summary ts ON ts.handle = ah.handle
+    """
+    params: list[Any] = []
+    if q:
+        query += " WHERE ah.handle LIKE ?"
+        params.append(f"%{q}%")
+    query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
+    params.extend([max(1, min(limit, 500)), max(offset, 0)])
+    with get_conn(db_path) as conn:
+        return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+
 def list_all_handles(db_path: str) -> list[str]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
@@ -106,6 +146,21 @@ def list_all_handles(db_path: str) -> list[str]:
             """
         ).fetchall()
     return [row["handle"] for row in rows]
+
+
+def handle_exists(db_path: str, handle: str) -> bool:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM (
+                SELECT handle FROM handles WHERE handle = ?
+                UNION
+                SELECT handle FROM tickets WHERE handle = ?
+            ) LIMIT 1
+            """,
+            (handle, handle),
+        ).fetchone()
+    return bool(row)
 
 
 def get_handle(db_path: str, handle: str) -> dict[str, Any] | None:
@@ -160,9 +215,9 @@ def list_tickets(
 
     where_clause = " AND ".join(where)
 
-    order_by = "COALESCE(updated_utc, created_utc, opened_utc) DESC"
+    order_by = "COALESCE(updated_utc, created_utc, opened_utc) DESC, ticket_id DESC, handle DESC"
     if sort == "oldest":
-        order_by = "COALESCE(updated_utc, created_utc, opened_utc) ASC"
+        order_by = "COALESCE(updated_utc, created_utc, opened_utc) ASC, ticket_id ASC, handle ASC"
 
     page = max(1, page)
     page_size = max(1, min(200, page_size))
