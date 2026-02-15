@@ -54,6 +54,26 @@ If you are new to this repository or returning after time away, read these in or
 
 
 
+## Ticket History Pipeline (Webscraper)
+
+End-to-end workflow: scrape handles in batches, persist ticket history to SQLite, browse/query with API + UI.
+
+1. **Install Python deps (scraper + API):**
+   - `python -m pip install -r webscraper/requirements.txt`
+   - `python -m pip install -r webscraper/requirements_api.txt`
+2. **Run batch scrape into SQLite:**
+   - `python scripts/scrape_all_handles.py --handles-file customer_handles.txt --db webscraper/output/tickets.sqlite --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --max-tickets 1 --phase-logs`
+3. **Start API (PowerShell or Bash):**
+   - PowerShell: `./scripts/run_ticket_api.ps1 -DbPath webscraper/output/tickets.sqlite`
+   - Bash: `TICKETS_DB_PATH=webscraper/output/tickets.sqlite ./scripts/run_ticket_api.sh`
+4. **Start Next.js UI:**
+   - `cd webscraper/ticket-ui`
+   - `npm install`
+   - `NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:8787 npm run dev`
+5. **Browse data:**
+   - Open `http://127.0.0.1:8788` to search handles, inspect ticket history, and view artifacts.
+
+
 # FreePBX Tools - Diagnostic & Call Simulation Suite
 
 A comprehensive suite of diagnostic and call simulation tools for FreePBX/Asterisk phone systems. This project includes both core diagnostic tools and an advanced call simulation system for validating call flow behavior.

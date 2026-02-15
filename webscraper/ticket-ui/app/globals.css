@@ -1,0 +1,7 @@
+body { font-family: Arial, sans-serif; margin: 0; padding: 1rem; }
+a { color: #0a58ca; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+input, select { margin-right: 0.5rem; padding: 0.4rem; }
+pre { background: #f4f4f4; padding: 0.75rem; overflow: auto; }
