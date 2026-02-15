@@ -81,7 +81,15 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
     db_path = get_db_path()
     final_status = "failed"
     final_error: str | None = None
-    final_result: dict[str, object] = {"handle": handle, "mode": mode, "limit": limit}
+    final_result: dict[str, object] = {
+        "handle": handle,
+        "mode": mode,
+        "limit": limit,
+        "status": "failed",
+        "errorType": "exception",
+        "exitCode": None,
+        "command": [],
+    }
     progress_completed = 0
     progress_total = 1
     started_at = _iso_now()
@@ -94,36 +102,36 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
         started_utc=started_at,
     )
 
-    out_dir = str(Path(OUTPUT_ROOT).resolve())
-    scrape_script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
-    if not scrape_script.exists():
-        error_message = f"Scrape script not found: {scrape_script}"
-        _append_job_log(job_id, error_message)
-        final_error = error_message
-        final_result.update({"error": error_message, "errorType": "missing_script"})
-        return
-
-    command = [
-        sys.executable,
-        str(scrape_script),
-        "--db",
-        db_path,
-        "--out",
-        os.path.join(out_dir, "scrape_runs"),
-        "--handles",
-        handle,
-    ]
-    if mode == "latest":
-        command.extend(["--max-tickets", str(limit or 20)])
-    elif limit:
-        command.extend(["--max-tickets", str(limit)])
-
-    resolved_command = subprocess.list2cmdline(command)
-    _append_job_log(job_id, f"Running scraper job: {resolved_command}")
-    final_result["command"] = resolved_command
-
     process: subprocess.Popen[str] | None = None
     try:
+        out_dir = str(Path(OUTPUT_ROOT).resolve())
+        scrape_script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
+        if not scrape_script.exists():
+            error_message = f"Scrape script not found: {scrape_script}"
+            _append_job_log(job_id, error_message)
+            final_error = error_message
+            final_result.update({"error": error_message, "errorType": "missing_script"})
+            return
+
+        command = [
+            sys.executable,
+            str(scrape_script),
+            "--db",
+            db_path,
+            "--out",
+            os.path.join(out_dir, "scrape_runs"),
+            "--handles",
+            handle,
+        ]
+        if mode == "latest":
+            command.extend(["--max-tickets", str(limit or 20)])
+        elif limit:
+            command.extend(["--max-tickets", str(limit)])
+
+        resolved_command = subprocess.list2cmdline(command)
+        _append_job_log(job_id, f"Running scraper job: {resolved_command}")
+        final_result["command"] = command
+
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -154,7 +162,7 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
                 process.kill()
                 process.wait(timeout=5)
             final_error = "scrape timed out"
-            final_result.update({"error": "scrape timed out", "errorType": "timeout"})
+            final_result.update({"error": "scrape timed out", "errorType": "timeout", "exitCode": None})
             return
 
         log_thread.join(timeout=5)
@@ -163,26 +171,28 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
             final_error = f"Scraper exited with code {rc}"
             final_result.update(
                 {
+                    "error": final_error,
                     "exitCode": rc,
-                    "errorType": "subprocess_exit",
-                    "logTail": JOB_LOGS.get(job_id, [])[-50:],
+                    "errorType": "exit_code",
+                    "logTail": JOB_LOGS.get(job_id, [])[-40:],
                 }
             )
             progress_completed = 1
         else:
             final_status = "completed"
-            final_result.update({"exitCode": rc})
+            final_result.update({"status": "completed", "errorType": None, "exitCode": rc, "logTail": JOB_LOGS.get(job_id, [])[-40:]})
             progress_completed = 1
     except Exception as exc:  # pragma: no cover
         _append_job_log(job_id, "Unhandled scrape exception.")
         if process is not None and process.poll() is None:
             process.terminate()
         final_error = str(exc)
-        final_result.update({"error": str(exc), "errorType": "exception"})
+        final_result.update({"error": str(exc), "errorType": "exception", "exitCode": None})
     finally:
         if final_error and "logTail" not in final_result:
             with JOB_LOCK:
-                final_result["logTail"] = JOB_LOGS.get(job_id, [])[-50:]
+                final_result["logTail"] = JOB_LOGS.get(job_id, [])[-40:]
+        final_result["status"] = final_status if not final_error else "failed"
         db.update_scrape_job(
             db_path,
             job_id,
@@ -206,10 +216,15 @@ def health() -> dict[str, object]:
     stats_payload = db.get_stats(db_path)
     return {
         "status": "ok",
+        "version": app.version,
         "db_path": db_path,
         "db_exists": Path(db_path).exists(),
-        "api_version": app.version,
-        **stats_payload,
+        "stats": {
+            "handles": stats_payload.get("total_handles", 0),
+            "tickets": stats_payload.get("total_tickets", 0),
+            "artifacts": stats_payload.get("total_artifacts", 0),
+            "last_updated_utc": stats_payload.get("last_updated_utc"),
+        },
     }
 
 
@@ -220,8 +235,9 @@ def api_health() -> dict[str, object]:
 
 @app.get("/api/handles/all")
 def api_handles_all(q: str = "", limit: int = 500):
-    handles = db.list_handle_names(get_db_path(), q=q, limit=limit)
-    return {"items": handles, "count": len(handles), "q": q, "limit": limit}
+    safe_limit = max(1, min(limit, 500))
+    handles = db.list_handle_names(get_db_path(), q=q, limit=safe_limit)
+    return {"items": handles, "count": len(handles), "q": q, "limit": safe_limit}
 
 
 @app.get("/api/handles")

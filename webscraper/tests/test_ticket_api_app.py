@@ -114,4 +114,32 @@ def test_health_includes_db_flags(tmp_path, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["db_exists"] is True
-    assert payload["total_tickets"] == 3
+    assert payload["version"]
+    assert payload["stats"]["tickets"] == 3
+
+
+def test_scrape_job_missing_script_normalized_failure(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    missing_root = tmp_path / "missing"
+    monkeypatch.setattr(appmod, "__file__", str(missing_root / "ticket_api" / "app.py"))
+
+    ticket_db.create_scrape_job(
+        db_path,
+        job_id="job-missing-script",
+        handle="ABC",
+        mode="latest",
+        ticket_limit=5,
+        status="queued",
+        created_utc="2024-01-01T00:00:00Z",
+    )
+    appmod._run_scrape_job("job-missing-script", "ABC", "latest", 5)
+    job = ticket_db.get_scrape_job(db_path, "job-missing-script")
+    assert job is not None
+    assert job["status"] == "failed"
+    result = job["result"]
+    assert result["errorType"] == "missing_script"
+    assert result["status"] == "failed"
+    assert isinstance(result["logTail"], list)

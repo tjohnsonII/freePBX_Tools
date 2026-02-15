@@ -293,3 +293,34 @@ When `POST /api/scrape` is called, the API launches:
 - `scripts/scrape_all_handles.py`
 
 The resolved command string is recorded in job logs and job result metadata.
+
+## Ticket stack local runbook (API + Next UI)
+
+Start API:
+
+```bash
+python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite
+```
+
+Start UI:
+
+```bash
+cd webscraper/ticket-ui
+npm install
+npm run dev:local-api
+```
+
+PowerShell alternative:
+
+```powershell
+npm run dev:local-api:ps
+```
+
+### Quick verification checklist
+
+- `curl http://127.0.0.1:8787/health`
+- Open `http://127.0.0.1:3000` and verify the handle dropdown is populated from `/api/handles/all`.
+- Start a scrape job in the UI, observe status + logs until completed/failed.
+- Verify API ticket results for a handle:
+  - `curl "http://127.0.0.1:8787/api/handles/<HANDLE>/tickets?page=1&pageSize=20"`
+

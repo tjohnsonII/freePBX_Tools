@@ -32,7 +32,12 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     });
 
     const text = await res.text();
-    const payload = text ? JSON.parse(text) : null;
+    let payload: any = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
 
     if (!res.ok) {
       const detail = payload?.detail || payload?.message || text || "Unknown API error";
@@ -48,7 +53,7 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
       throw new ApiRequestError("Request timed out while contacting API", "timeout");
     }
     if (error instanceof Error && error.message.includes("Failed to fetch")) {
-      throw new ApiRequestError("Failed to fetch API. Check API server and proxy config.", "network", undefined, error.message);
+      throw new ApiRequestError("Failed to fetch API (network/proxy unreachable).", "network", undefined, error.message);
     }
     if (error instanceof Error) {
       throw new ApiRequestError(error.message, "unknown", undefined, error.message);

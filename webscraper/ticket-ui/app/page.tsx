@@ -37,23 +37,30 @@ type ScrapeStatus = {
   logs: string[];
   progress: { completed: number; total: number };
   error?: string;
+  resultSummary?: {
+    errorType?: string;
+    exitCode?: number | null;
+    logTail?: string[];
+    command?: string[];
+  };
 };
 
 type ApiHealth = {
   status: string;
   db_path?: string;
+  stats?: { handles: number; tickets: number; artifacts: number; last_updated_utc?: string };
 };
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.kind === "network") {
-      return "Unable to reach API (network/proxy issue).";
+      return "Network/proxy error: UI cannot reach API target.";
     }
     if (error.kind === "timeout") {
-      return "Request timed out while waiting for API.";
+      return "Request timeout while waiting for API response.";
     }
     if (error.kind === "http") {
-      return error.message;
+      return `API HTTP error: ${error.message}`;
     }
   }
   return error instanceof Error ? error.message : String(error);
@@ -61,6 +68,7 @@ function formatApiError(error: unknown): string {
 
 export default function HandlesPage() {
   const [handleFilter, setHandleFilter] = useState("");
+  const [debouncedHandleFilter, setDebouncedHandleFilter] = useState("");
   const [handleOptions, setHandleOptions] = useState<string[]>([]);
   const [selectedHandle, setSelectedHandle] = useState("");
   const [selectedSummary, setSelectedSummary] = useState<HandleSummary | null>(null);
@@ -69,11 +77,16 @@ export default function HandlesPage() {
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScrapeStatus[]>([]);
   const [jobMode, setJobMode] = useState<"latest" | "full">("latest");
-  const [jobLimit, setJobLimit] = useState(20);
+  const [jobLimit, setJobLimit] = useState("20");
   const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null);
   const [apiHealthError, setApiHealthError] = useState<string | null>(null);
 
   const apiInfo = useMemo(() => apiBaseInfo(), []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedHandleFilter(handleFilter.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [handleFilter]);
 
   useEffect(() => {
     apiGet<ApiHealth>("/api/health")
@@ -88,8 +101,9 @@ export default function HandlesPage() {
   }, []);
 
   useEffect(() => {
-    apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(handleFilter)}&limit=500`)
+    apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200`)
       .then((res) => {
+        setError(null);
         setHandleOptions(res.items);
         if (!selectedHandle && res.items.length) {
           setSelectedHandle(res.items[0]);
@@ -99,7 +113,7 @@ export default function HandlesPage() {
         setError(formatApiError(e));
         setHandleOptions([]);
       });
-  }, [handleFilter, selectedHandle]);
+  }, [debouncedHandleFilter, selectedHandle]);
 
   useEffect(() => {
     if (!selectedHandle) {
@@ -139,7 +153,7 @@ export default function HandlesPage() {
       } catch (e) {
         setScrapeError(formatApiError(e));
       }
-    }, 1500);
+    }, 2000);
 
     return () => clearInterval(timer);
   }, [jobs]);
@@ -149,12 +163,16 @@ export default function HandlesPage() {
       setScrapeError("Select a handle first.");
       return;
     }
+
+    const parsedLimit = Number(jobLimit);
+    const limitPayload = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined;
+
     try {
       setScrapeError(null);
       const payload = await apiPost<{ jobId: string; status: string }>("/api/scrape", {
         handle: selectedHandle,
         mode: jobMode,
-        limit: jobMode === "latest" ? jobLimit : undefined,
+        limit: limitPayload,
       });
       const status = await apiGet<ScrapeStatus>(`/api/scrape/${payload.jobId}`);
       setJobs((prev) => [status, ...prev]);
@@ -169,14 +187,28 @@ export default function HandlesPage() {
 
       <div style={{ border: "1px solid #2a2", padding: 12, marginBottom: 12 }}>
         {apiHealth?.status === "ok" ? (
-          <p>
-            API OK. db_path: <code>{apiHealth.db_path || "(unknown)"}</code>
-          </p>
+          <>
+            <p>
+              API OK. db_path: <code>{apiHealth.db_path || "(unknown)"}</code>
+            </p>
+            <p>
+              Stats: {apiHealth.stats?.handles ?? 0} handles, {apiHealth.stats?.tickets ?? 0} tickets, {apiHealth.stats?.artifacts ?? 0} artifacts.
+            </p>
+          </>
         ) : (
           <>
-            <p>API unreachable. Start it with: <code>python -m webscraper.ticket_api.app --reload</code></p>
-            <p>Proxy Target: <code>{apiInfo.proxyTarget}</code></p>
+            <p>API unreachable.</p>
+            <p>
+              Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite</code>
+            </p>
+            <p>
+              API Base: <code>{apiInfo.browserBase}</code>
+            </p>
+            <p>
+              Proxy Target: <code>{apiInfo.proxyTarget}</code>
+            </p>
             {apiHealthError ? <p>Last error: {apiHealthError}</p> : null}
+            <a href="/api/health">Open /api/health</a>
           </>
         )}
       </div>
@@ -185,10 +217,16 @@ export default function HandlesPage() {
         <div style={{ border: "1px solid #a22", padding: 12, marginBottom: 12 }}>
           <strong>API Connectivity Help</strong>
           <p>{error || scrapeError}</p>
-          <p>API Base: {apiInfo.browserBase}</p>
-          <p>Proxy Target: {apiInfo.proxyTarget}</p>
-          <p>Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787</code></p>
-          <p>Start stack: <code>cd webscraper/ticket-ui && npm run dev:stack</code></p>
+          <p>
+            API Base: <code>{apiInfo.browserBase}</code>
+          </p>
+          <p>
+            Proxy Target: <code>{apiInfo.proxyTarget}</code>
+          </p>
+          <p>
+            Start API: <code>python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite</code>
+          </p>
+          <a href="/api/health">Open /api/health</a>
         </div>
       )}
 
@@ -216,20 +254,25 @@ export default function HandlesPage() {
         </label>
         <label>
           Limit
-          <input type="number" value={jobLimit} min={1} max={5000} onChange={(e) => setJobLimit(Number(e.target.value || 20))} />
+          <input type="number" value={jobLimit} min={1} max={5000} onChange={(e) => setJobLimit(e.target.value)} placeholder="optional" />
         </label>
         <button disabled={!selectedHandle} onClick={startSingleScrape}>Run scrape</button>
       </div>
 
-      {jobs.map((job) => (
-        <div key={job.jobId} style={{ border: "1px solid #888", marginTop: 10, padding: 8 }}>
-          <p>
-            Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total}) for {job.handle} [{job.mode}]
-          </p>
-          {job.error && <p>{job.error}</p>}
-          {job.logs?.length ? <pre>{job.logs.slice(-50).join("\n")}</pre> : null}
-        </div>
-      ))}
+      {jobs.map((job) => {
+        const jobLogTail = job.resultSummary?.logTail || job.logs?.slice(-40) || [];
+        return (
+          <div key={job.jobId} style={{ border: "1px solid #888", marginTop: 10, padding: 8 }}>
+            <p>
+              Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total}) for {job.handle} [{job.mode}]
+            </p>
+            {job.error && <p>Error: {job.error}</p>}
+            {job.resultSummary?.errorType ? <p>Failure type: {job.resultSummary.errorType}</p> : null}
+            {job.resultSummary?.command?.length ? <p>Command: <code>{job.resultSummary.command.join(" ")}</code></p> : null}
+            {jobLogTail.length ? <pre>{jobLogTail.join("\n")}</pre> : null}
+          </div>
+        );
+      })}
 
       <h2>{selectedHandle ? `Tickets for ${selectedHandle}` : "Select a handle"}</h2>
       <table>
