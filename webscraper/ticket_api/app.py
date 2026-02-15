@@ -213,6 +213,11 @@ def health() -> dict[str, object]:
     }
 
 
+@app.get("/api/health")
+def api_health() -> dict[str, object]:
+    return health()
+
+
 @app.get("/api/handles/all")
 def api_handles_all(q: str = "", limit: int = 500):
     handles = db.list_handle_names(get_db_path(), q=q, limit=limit)

@@ -258,29 +258,30 @@ The pipeline scripts already prefer `npm.cmd` so they work without changing glob
 
 ## Ticket stack quick run (Windows + Git Bash)
 
-### Start API (repo root)
-
-PowerShell / CMD:
-
-```powershell
-python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite
-```
-
-Git Bash:
-
-```bash
-python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite
-```
-
-### Start UI (repo root)
+### Run full stack (recommended)
 
 ```bash
 cd webscraper/ticket-ui
 npm install
-npm run dev:local-api
+npm run dev:stack
 ```
 
-### Optional combined runner
+This command starts both services and automatically sets `TICKET_API_PROXY_TARGET=http://127.0.0.1:8787` for Next rewrites.
+
+### Run UI only
+
+```bash
+cd webscraper/ticket-ui
+npm run dev:ui
+```
+
+### Run API only
+
+```bash
+python -m webscraper.ticket_api.app --reload
+```
+
+### Optional legacy combined runner
 
 ```bash
 python webscraper/dev_server.py --ticket-stack
