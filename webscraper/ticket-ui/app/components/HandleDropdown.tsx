@@ -1,29 +1,21 @@
 "use client";
 
-type HandleSummary = {
-  handle: string;
-  ticket_count: number;
-  open_count: number;
-  last_scrape_utc?: string;
-  updated_latest_utc?: string;
-};
-
 type Props = {
-  rows: HandleSummary[];
+  handles: string[];
   selectedHandle: string;
   search: string;
   onSearchChange: (next: string) => void;
   onSelect: (handle: string) => void;
 };
 
-export default function HandleDropdown({ rows, selectedHandle, search, onSearchChange, onSelect }: Props) {
+export default function HandleDropdown({ handles, selectedHandle, search, onSearchChange, onSelect }: Props) {
   return (
     <section>
       <label>
         Search handles
         <input
           value={search}
-          placeholder="Filter handles..."
+          placeholder="Type to search handles..."
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </label>
@@ -32,9 +24,9 @@ export default function HandleDropdown({ rows, selectedHandle, search, onSearchC
         Handle
         <select value={selectedHandle} onChange={(e) => onSelect(e.target.value)}>
           <option value="">Select a handle</option>
-          {rows.map((row) => (
-            <option key={row.handle} value={row.handle}>
-              {row.handle} ({row.ticket_count} tickets, {row.open_count} open)
+          {handles.map((handle) => (
+            <option key={handle} value={handle}>
+              {handle}
             </option>
           ))}
         </select>

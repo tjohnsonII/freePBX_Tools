@@ -1,5 +1,14 @@
 from webscraper.db import init_db, start_run, upsert_handle, upsert_tickets
-from webscraper.ticket_api.db import ensure_indexes, get_handle, get_stats, get_ticket, list_handles, list_tickets
+from webscraper.ticket_api.db import (
+    ensure_indexes,
+    explain_list_tickets_plan,
+    get_handle,
+    get_stats,
+    get_ticket,
+    list_handle_names,
+    list_handles,
+    list_tickets,
+)
 
 
 def test_ticket_api_queries(tmp_path):
@@ -32,6 +41,10 @@ def test_ticket_api_queries(tmp_path):
         ],
     )
 
+
+    handle_names = list_handle_names(str(db_path), q="A", limit=10)
+    assert handle_names == ["ABC"]
+
     handles = list_handles(str(db_path), q="AB")
     assert handles[0]["handle"] == "ABC"
     assert handles[0]["ticketsCount"] == 2
@@ -58,3 +71,7 @@ def test_ticket_api_queries(tmp_path):
 
     stats = get_stats(str(db_path))
     assert stats["total_tickets"] == 2
+
+    plan_rows = explain_list_tickets_plan(str(db_path), handle="ABC", status="open")
+    assert any("idx_tickets_handle_status_updated" in row or "idx_tickets_handle_updated" in row for row in plan_rows)
+

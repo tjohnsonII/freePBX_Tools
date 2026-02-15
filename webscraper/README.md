@@ -255,3 +255,40 @@ If PowerShell prints `npm.ps1 cannot be loaded because running scripts is disabl
   - `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
 
 The pipeline scripts already prefer `npm.cmd` so they work without changing global policy.
+
+## Ticket stack quick run (Windows + Git Bash)
+
+### Start API (repo root)
+
+PowerShell / CMD:
+
+```powershell
+python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite
+```
+
+Git Bash:
+
+```bash
+python -m webscraper.ticket_api.app --reload --port 8787 --db webscraper/output/tickets.sqlite
+```
+
+### Start UI (repo root)
+
+```bash
+cd webscraper/ticket-ui
+npm install
+npm run dev:local-api
+```
+
+### Optional combined runner
+
+```bash
+python webscraper/dev_server.py --ticket-stack
+```
+
+### Scraper subprocess path used by API jobs
+
+When `POST /api/scrape` is called, the API launches:
+- `scripts/scrape_all_handles.py`
+
+The resolved command string is recorded in job logs and job result metadata.
