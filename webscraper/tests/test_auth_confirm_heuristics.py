@@ -32,3 +32,16 @@ def test_logged_out_fixture_returns_false() -> None:
         has_enough_dom_content=False,
     )
     assert ok is False
+
+
+def test_gateway_redirect_host_is_rejected() -> None:
+    ok, reason = auth_confirmed_from_page(
+        current_url="http://10.123.203.1/",
+        page_source="<html><body>Gateway</body></html>",
+        has_password_input=False,
+        has_expected_logged_in_elements=True,
+        has_session_cookie=True,
+        has_enough_dom_content=True,
+    )
+    assert ok is False
+    assert reason.startswith("unexpected_host")

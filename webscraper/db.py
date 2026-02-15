@@ -44,6 +44,7 @@ def init_db(db_path: str) -> None:
                 finished_utc TEXT,
                 args_json TEXT,
                 out_dir TEXT,
+                failure_reason TEXT,
                 git_sha TEXT,
                 host TEXT
             );
@@ -52,13 +53,18 @@ def init_db(db_path: str) -> None:
                 ticket_id TEXT,
                 handle TEXT,
                 ticket_url TEXT,
+                ticket_num TEXT,
                 title TEXT,
+                subject TEXT,
                 status TEXT,
+                opened_utc TEXT,
                 created_utc TEXT,
                 updated_utc TEXT,
                 raw_json TEXT,
+                raw_row_json TEXT,
                 run_id TEXT,
                 PRIMARY KEY(ticket_id, handle),
+                UNIQUE(ticket_url, handle),
                 FOREIGN KEY(handle) REFERENCES handles(handle),
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
@@ -82,6 +88,11 @@ def init_db(db_path: str) -> None:
             """
         )
         _ensure_column(conn, "runs", "out_dir", "TEXT")
+        _ensure_column(conn, "runs", "failure_reason", "TEXT")
+        _ensure_column(conn, "tickets", "ticket_num", "TEXT")
+        _ensure_column(conn, "tickets", "subject", "TEXT")
+        _ensure_column(conn, "tickets", "opened_utc", "TEXT")
+        _ensure_column(conn, "tickets", "raw_row_json", "TEXT")
         _ensure_column(conn, "ticket_artifacts", "notes", "TEXT")
 
 
@@ -135,6 +146,14 @@ def finish_run(db_path: str, run_id: str) -> None:
         conn.execute("UPDATE runs SET finished_utc=? WHERE run_id=?", (utc_now(), run_id))
 
 
+def set_run_failure_reason(db_path: str, run_id: str, failure_reason: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE runs SET failure_reason=COALESCE(failure_reason, ?) WHERE run_id=?",
+            (failure_reason, run_id),
+        )
+
+
 def upsert_handle(db_path: str, handle: str, status: str, error: str | None = None) -> None:
     now = utc_now()
     with _connect(db_path) as conn:
@@ -151,47 +170,60 @@ def upsert_handle(db_path: str, handle: str, status: str, error: str | None = No
         )
 
 
-def _ticket_from_row(handle: str, row: dict[str, Any]) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None]:
+def _ticket_from_row(handle: str, row: dict[str, Any]) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None]:
     ticket_url = row.get("ticket_url") or row.get("url")
-    ticket_id = row.get("ticket_id")
+    ticket_id = row.get("ticket_id") or row.get("ticket_num")
+    ticket_num = row.get("ticket_num") or row.get("ticket_id")
     title = row.get("title") or row.get("subject") or row.get("page_title")
+    subject = row.get("subject") or row.get("title")
     status = row.get("status") or row.get("kind")
+    opened_utc = row.get("opened_utc") or row.get("opened") or row.get("created_utc")
     created_utc = row.get("created_utc") or row.get("extracted_at")
-    updated_utc = row.get("updated_utc") or row.get("extracted_at")
+    updated_utc = row.get("updated_utc") or row.get("updated") or row.get("last_updated") or row.get("extracted_at")
     if ticket_id is None and isinstance(ticket_url, str):
         maybe = ticket_url.rstrip("/").split("/")[-1]
         ticket_id = maybe if maybe.isdigit() else None
-    return ticket_id, ticket_url, title, status, created_utc, updated_utc
+    if ticket_id is None and isinstance(ticket_url, str) and ticket_url.strip():
+        ticket_id = f"url:{sha256(ticket_url.encode('utf-8')).hexdigest()[:16]}"
+    return ticket_id, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc
 
 
 def upsert_tickets(db_path: str, run_id: str, handle: str, tickets_list: Iterable[dict[str, Any]]) -> int:
     inserted = 0
     with _connect(db_path) as conn:
         for row in tickets_list:
-            ticket_id, ticket_url, title, status, created_utc, updated_utc = _ticket_from_row(handle, row)
+            ticket_id, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc = _ticket_from_row(handle, row)
             if not ticket_id:
                 continue
             conn.execute(
                 """
-                INSERT INTO tickets(ticket_id, handle, ticket_url, title, status, created_utc, updated_utc, raw_json, run_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tickets(ticket_id, handle, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc, raw_json, raw_row_json, run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ticket_id, handle) DO UPDATE SET
                     ticket_url=excluded.ticket_url,
+                    ticket_num=COALESCE(excluded.ticket_num, tickets.ticket_num),
                     title=COALESCE(excluded.title, tickets.title),
+                    subject=COALESCE(excluded.subject, tickets.subject),
                     status=COALESCE(excluded.status, tickets.status),
+                    opened_utc=COALESCE(excluded.opened_utc, tickets.opened_utc),
                     created_utc=COALESCE(excluded.created_utc, tickets.created_utc),
                     updated_utc=COALESCE(excluded.updated_utc, tickets.updated_utc),
                     raw_json=excluded.raw_json,
+                    raw_row_json=excluded.raw_row_json,
                     run_id=excluded.run_id
                 """,
                 (
                     str(ticket_id),
                     handle,
                     ticket_url,
+                    ticket_num,
                     title,
+                    subject,
                     status,
+                    opened_utc,
                     created_utc,
                     updated_utc,
+                    json.dumps(row, sort_keys=True),
                     json.dumps(row, sort_keys=True),
                     run_id,
                 ),

@@ -1,6 +1,6 @@
 import sqlite3
 
-from webscraper.db import finish_run, init_db, start_run, upsert_handle, upsert_tickets
+from webscraper.db import finish_run, init_db, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
 
 
 def test_db_init_and_upsert(tmp_path):
@@ -33,3 +33,35 @@ def test_db_init_and_upsert(tmp_path):
     assert handle == "success"
     assert ticket == "Sample"
     assert finished is not None
+
+
+def test_upsert_ticket_without_ticket_id_uses_ticket_url_hash(tmp_path):
+    db_path = tmp_path / "tickets.sqlite"
+    init_db(str(db_path))
+    run_id = start_run(str(db_path), {"a": 1})
+    upsert_handle(str(db_path), "KPM", "success")
+
+    count = upsert_tickets(
+        str(db_path),
+        run_id,
+        "KPM",
+        [{"ticket_url": "https://noc-tickets.123.net/ticket/abc", "subject": "Needs id fallback", "status": "open"}],
+    )
+
+    conn = sqlite3.connect(db_path)
+    stored = conn.execute("SELECT ticket_id, subject FROM tickets WHERE handle='KPM'").fetchone()
+
+    assert count == 1
+    assert stored[0].startswith("url:")
+    assert stored[1] == "Needs id fallback"
+
+
+def test_run_failure_reason_written(tmp_path):
+    db_path = tmp_path / "tickets.sqlite"
+    init_db(str(db_path))
+    run_id = start_run(str(db_path), {"a": 1})
+    set_run_failure_reason(str(db_path), run_id, "redirect_to_gateway")
+
+    conn = sqlite3.connect(db_path)
+    reason = conn.execute("SELECT failure_reason FROM runs WHERE run_id=?", (run_id,)).fetchone()[0]
+    assert reason == "redirect_to_gateway"

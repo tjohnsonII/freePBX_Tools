@@ -16,7 +16,7 @@ from typing import Any, Iterable
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from webscraper.db import finish_run, init_db, record_artifact, start_run, upsert_handle, upsert_tickets
+from webscraper.db import finish_run, init_db, record_artifact, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dump-dom-on-fail", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--phase-logs", action="store_true")
+    parser.add_argument("--attach-debugger")
+    parser.add_argument("--no-profile-launch", action="store_true")
     parser.add_argument(
         "--child-extra-args",
         nargs=argparse.REMAINDER,
@@ -105,12 +107,16 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
         "--dump-dom-on-fail",
         "--resume",
         "--phase-logs",
+        "--no-profile-launch",
     ]:
         if getattr(args, flag.lstrip("-").replace("-", "_")):
             cmd.append(flag)
 
     if args.show:
         cmd.append("--show")
+
+    if args.attach_debugger:
+        cmd.extend(["--attach-debugger", args.attach_debugger])
 
     if args.child_extra_args:
         cmd.extend(args.child_extra_args)
@@ -187,6 +193,14 @@ def _record_batch_artifacts(db_path: str, run_id: str, batch_out: Path, batch_ha
         )
 
 
+def _batch_redirected_to_gateway(batch_out: Path) -> bool:
+    for path in batch_out.glob("redirect_debug_*.json"):
+        payload = _load_ticket_json(path)
+        if isinstance(payload, dict) and payload.get("failure_reason") == "redirect_to_gateway":
+            return True
+    return False
+
+
 def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str]]:
     successes: set[str] = set()
     failures: set[str] = set()
@@ -227,6 +241,8 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
         print(f"[INFO] Handle {handle}: parsed_rows={len(rows_to_store)} upserted={inserted}")
 
     _record_batch_artifacts(db_path, run_id, batch_out, set(batch_handles))
+    if _batch_redirected_to_gateway(batch_out):
+        set_run_failure_reason(db_path, run_id, "redirect_to_gateway")
     return successes, failures
 
 
