@@ -33,8 +33,8 @@ npm run dev:local-api:ps
 
 ## Quick verification checklist
 
-1. `curl http://127.0.0.1:8787/health`
-2. Open `http://127.0.0.1:3000` and confirm handle dropdown populates.
-3. Start a scrape job from UI and watch status/logs until completion.
+1. Open `http://127.0.0.1:8787/health` (or `curl http://127.0.0.1:8787/health`) and confirm the API reports `status: ok`.
+2. Open `http://127.0.0.1:3000` and confirm the handle dropdown populates.
+3. Start a scrape job from UI and confirm job status/logs update.
 4. Confirm tickets appear in UI and API returns data:
    - `curl "http://127.0.0.1:8787/api/handles/<HANDLE>/tickets?page=1&pageSize=20"`

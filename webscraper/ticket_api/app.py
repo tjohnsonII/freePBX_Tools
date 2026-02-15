@@ -88,7 +88,8 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
         "status": "failed",
         "errorType": "exception",
         "exitCode": None,
-        "command": [],
+        "command": "",
+        "logTail": [],
     }
     progress_completed = 0
     progress_total = 1
@@ -130,7 +131,7 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
 
         resolved_command = subprocess.list2cmdline(command)
         _append_job_log(job_id, f"Running scraper job: {resolved_command}")
-        final_result["command"] = command
+        final_result["command"] = resolved_command
 
         process = subprocess.Popen(
             command,
@@ -162,7 +163,9 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
                 process.kill()
                 process.wait(timeout=5)
             final_error = "scrape timed out"
-            final_result.update({"error": "scrape timed out", "errorType": "timeout", "exitCode": None})
+            final_result.update(
+                {"error": "scrape timed out", "errorType": "timeout", "exitCode": None, "logTail": JOB_LOGS.get(job_id, [])[-40:]}
+            )
             return
 
         log_thread.join(timeout=5)
@@ -180,18 +183,19 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
             progress_completed = 1
         else:
             final_status = "completed"
-            final_result.update({"status": "completed", "errorType": None, "exitCode": rc, "logTail": JOB_LOGS.get(job_id, [])[-40:]})
+            final_result.update(
+                {"status": "completed", "errorType": None, "exitCode": rc, "logTail": JOB_LOGS.get(job_id, [])[-40:]}
+            )
             progress_completed = 1
     except Exception as exc:  # pragma: no cover
         _append_job_log(job_id, "Unhandled scrape exception.")
         if process is not None and process.poll() is None:
             process.terminate()
         final_error = str(exc)
-        final_result.update({"error": str(exc), "errorType": "exception", "exitCode": None})
+        final_result.update({"error": str(exc), "errorType": "exception", "exitCode": None, "logTail": JOB_LOGS.get(job_id, [])[-40:]})
     finally:
-        if final_error and "logTail" not in final_result:
-            with JOB_LOCK:
-                final_result["logTail"] = JOB_LOGS.get(job_id, [])[-40:]
+        with JOB_LOCK:
+            final_result["logTail"] = JOB_LOGS.get(job_id, [])[-40:]
         final_result["status"] = final_status if not final_error else "failed"
         db.update_scrape_job(
             db_path,
@@ -234,10 +238,10 @@ def api_health() -> dict[str, object]:
 
 
 @app.get("/api/handles/all")
-def api_handles_all(q: str = "", limit: int = 500):
-    safe_limit = max(1, min(limit, 500))
+def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
+    safe_limit = max(1, min(limit, 5000))
     handles = db.list_handle_names(get_db_path(), q=q, limit=safe_limit)
-    return {"items": handles, "count": len(handles), "q": q, "limit": safe_limit}
+    return {"items": handles, "count": len(handles)}
 
 
 @app.get("/api/handles")
@@ -246,7 +250,11 @@ def api_handles(q: str = "", limit: int = 200, offset: int = 0):
 
 
 @app.get("/api/handles/summary")
-def api_handles_summary(q: str = "", limit: int = 100, offset: int = 0):
+def api_handles_summary(
+    q: str = "",
+    limit: int = Query(default=200, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+):
     return db.list_handles_summary(get_db_path(), q=q, limit=limit, offset=offset)
 
 

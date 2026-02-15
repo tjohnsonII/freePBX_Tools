@@ -72,6 +72,7 @@ def ensure_indexes(db_path: str) -> None:
 
             CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
             CREATE INDEX IF NOT EXISTS idx_handles_status ON handles(last_status);
+            CREATE INDEX IF NOT EXISTS idx_handles_handle ON handles(handle);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_updated ON tickets(handle, updated_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_status_updated ON tickets(handle, status, updated_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_tickets_status_updated ON tickets(status, updated_utc DESC);
@@ -79,6 +80,7 @@ def ensure_indexes(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_ticket_id ON tickets(handle, ticket_id);
             CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_scrape_jobs_job_id ON scrape_jobs(job_id);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_handle_created ON scrape_jobs(handle, created_utc DESC);
             """
@@ -152,7 +154,7 @@ def list_handle_names(db_path: str, q: str = "", limit: int = 500) -> list[str]:
     return [str(row["handle"]) for row in rows]
 
 
-def list_handles_summary(db_path: str, q: str = "", limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
     query = """
         WITH all_handles AS (
             SELECT handle FROM handles
@@ -183,7 +185,7 @@ def list_handles_summary(db_path: str, q: str = "", limit: int = 100, offset: in
         query += " WHERE ah.handle LIKE ?"
         params.append(f"%{q}%")
     query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
-    params.extend([max(1, min(limit, 500)), max(offset, 0)])
+    params.extend([max(1, min(limit, 5000)), max(offset, 0)])
     with get_conn(db_path) as conn:
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
@@ -300,35 +302,32 @@ def _build_list_tickets_query(
     if q:
         if use_fts:
             where.append(
-                "(rowid IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?) OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)"
+                "(rowid IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?) OR ticket_id LIKE ? OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ? OR raw_row_json LIKE ?)"
             )
             like = f"%{q}%"
-            params.extend([q, like, like, like, like])
+            params.extend([q, like, like, like, like, like, like])
         else:
-            where.append("(title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
+            where.append(
+                "(ticket_id LIKE ? OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ? OR raw_row_json LIKE ?)"
+            )
             like = f"%{q}%"
-            params.extend([like, like, like, like])
+            params.extend([like, like, like, like, like, like])
+
+    use_created_sort = sort in {"created", "created_newest", "created_oldest"}
+    time_column = "created_utc" if use_created_sort else "updated_utc"
     if from_utc:
-        if sort in {"created_newest", "created_oldest"}:
-            where.append("created_utc >= ?")
-        else:
-            where.append("updated_utc >= ?")
+        where.append(f"{time_column} >= ?")
         params.append(from_utc)
     if to_utc:
-        if sort in {"created_newest", "created_oldest"}:
-            where.append("created_utc <= ?")
-        else:
-            where.append("updated_utc <= ?")
+        where.append(f"{time_column} <= ?")
         params.append(to_utc)
 
     where_clause = " AND ".join(where)
 
-    sort_col = "updated_utc"
-    if sort in {"created_newest", "created_oldest"}:
-        sort_col = "created_utc"
+    sort_col = "created_utc" if use_created_sort else "updated_utc"
 
     order_by = f"{sort_col} DESC, ticket_id DESC, handle DESC"
-    if sort == "oldest":
+    if sort in {"oldest", "updated_oldest"}:
         order_by = f"{sort_col} ASC, ticket_id ASC, handle ASC"
     if sort == "created_oldest":
         order_by = "created_utc ASC, ticket_id ASC, handle ASC"
