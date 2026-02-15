@@ -84,6 +84,9 @@ def init_db(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_tickets_handle ON tickets(handle);
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
             CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_utc);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_updated_desc ON tickets(handle, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_status_updated_desc ON tickets(handle, status, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id_handle ON tickets(ticket_id, handle);
             CREATE INDEX IF NOT EXISTS idx_artifacts_ticket ON ticket_artifacts(ticket_id, handle);
             """
         )

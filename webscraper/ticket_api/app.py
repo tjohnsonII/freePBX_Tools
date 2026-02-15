@@ -40,6 +40,12 @@ class ScrapeRequest(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=5000)
 
 
+class ScrapeBatchRequest(BaseModel):
+    handles: list[str] | None = None
+    mode: Literal["latest", "full"] = "latest"
+    limit: int | None = Field(default=None, ge=1, le=5000)
+
+
 JOB_LOGS: dict[str, list[str]] = {}
 JOB_LOCK = threading.Lock()
 
@@ -63,6 +69,14 @@ def _append_job_log(job_id: str, line: str) -> None:
             del lines[:-MAX_LOG_LINES]
 
 
+def _scraper_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    for key, value in os.environ.items():
+        if key.startswith("SCRAPER_"):
+            env[key] = value
+    return env
+
+
 def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> None:
     db_path = get_db_path()
     started_at = _iso_now()
@@ -77,6 +91,20 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
 
     out_dir = str(Path(OUTPUT_ROOT).resolve())
     scrape_script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
+    if not scrape_script.exists():
+        error_message = f"Scrape script not found: {scrape_script}"
+        _append_job_log(job_id, error_message)
+        db.update_scrape_job(
+            db_path,
+            job_id,
+            status="failed",
+            progress_completed=0,
+            progress_total=1,
+            finished_utc=_iso_now(),
+            error_message=error_message,
+            result={"error": error_message, "handle": handle, "mode": mode, "limit": limit},
+        )
+        return
 
     command = [
         sys.executable,
@@ -95,6 +123,7 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
 
     _append_job_log(job_id, "Running scraper job.")
 
+    process: subprocess.Popen[str] | None = None
     try:
         process = subprocess.Popen(
             command,
@@ -102,13 +131,44 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=_scraper_environment(),
         )
         assert process.stdout is not None
 
-        for line in process.stdout:
-            _append_job_log(job_id, line)
+        def _stream_logs() -> None:
+            assert process is not None and process.stdout is not None
+            for line in process.stdout:
+                _append_job_log(job_id, line)
 
-        rc = process.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
+        log_thread = threading.Thread(target=_stream_logs, daemon=True)
+        log_thread.start()
+
+        try:
+            rc = process.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            _append_job_log(job_id, "Scrape timed out. Terminating process.")
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                _append_job_log(job_id, "Process did not terminate in time. Killing process.")
+                process.kill()
+                process.wait(timeout=5)
+
+            db.update_scrape_job(
+                db_path,
+                job_id,
+                status="failed",
+                progress_completed=0,
+                progress_total=1,
+                finished_utc=_iso_now(),
+                error_message="scrape timed out",
+                result={"error": "scrape timed out", "handle": handle, "mode": mode, "limit": limit},
+            )
+            return
+
+        log_thread.join(timeout=5)
+
         if rc != 0:
             db.update_scrape_job(
                 db_path,
@@ -130,20 +190,10 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
                 finished_utc=_iso_now(),
                 result={"exitCode": rc, "handle": handle, "mode": mode, "limit": limit},
             )
-    except subprocess.TimeoutExpired:
-        _append_job_log(job_id, "Scrape timed out.")
-        db.update_scrape_job(
-            db_path,
-            job_id,
-            status="failed",
-            progress_completed=0,
-            progress_total=1,
-            finished_utc=_iso_now(),
-            error_message="scrape timed out",
-            result={"error": "scrape timed out", "handle": handle, "mode": mode, "limit": limit},
-        )
     except Exception as exc:  # pragma: no cover
         _append_job_log(job_id, "Unhandled scrape exception.")
+        if process is not None and process.poll() is None:
+            process.terminate()
         db.update_scrape_job(
             db_path,
             job_id,
@@ -171,6 +221,11 @@ def health() -> dict[str, object]:
 @app.get("/api/handles")
 def api_handles(q: str = "", limit: int = 200, offset: int = 0):
     return db.list_handles(get_db_path(), q=q, limit=limit, offset=offset)
+
+
+@app.get("/api/handles/summary")
+def api_handles_summary(q: str = "", limit: int = 100, offset: int = 0):
+    return db.list_handles_summary(get_db_path(), q=q, limit=limit, offset=offset)
 
 
 @app.get("/api/handles/{handle}")
@@ -269,8 +324,7 @@ def api_scrape(req: ScrapeRequest):
     if not handle:
         raise HTTPException(status_code=400, detail="handle is required")
 
-    known_handles = set(db.list_all_handles(get_db_path()))
-    if handle not in known_handles:
+    if not db.handle_exists(get_db_path(), handle):
         raise HTTPException(status_code=404, detail="Handle not found")
 
     job_id = str(uuid.uuid4())
@@ -289,6 +343,40 @@ def api_scrape(req: ScrapeRequest):
     worker.start()
 
     return {"jobId": job_id, "status": "queued"}
+
+
+@app.post("/api/scrape-batch")
+def api_scrape_batch(req: ScrapeBatchRequest):
+    input_handles = [h.strip() for h in (req.handles or []) if h and h.strip()]
+    handles = input_handles if input_handles else db.list_all_handles(get_db_path())
+    if not handles:
+        raise HTTPException(status_code=404, detail="No handles found to scrape")
+
+    known_handles = set(db.list_all_handles(get_db_path()))
+    unknown = [handle for handle in handles if handle not in known_handles]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Unknown handles: {', '.join(sorted(set(unknown)))}")
+
+    deduped_handles = sorted(set(handles))
+    created_at = _iso_now()
+    job_ids: list[str] = []
+
+    for handle in deduped_handles:
+        job_id = str(uuid.uuid4())
+        db.create_scrape_job(
+            get_db_path(),
+            job_id=job_id,
+            handle=handle,
+            mode=req.mode,
+            ticket_limit=req.limit,
+            status="queued",
+            created_utc=created_at,
+        )
+        worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
+        worker.start()
+        job_ids.append(job_id)
+
+    return {"jobIds": job_ids, "status": "queued"}
 
 
 @app.get("/api/scrape/{job_id}")
@@ -318,11 +406,10 @@ def api_scrape_status(job_id: str):
     }
 
 
-
-
 @app.get("/api/tickets/{ticket_id}")
 def api_ticket(ticket_id: str, handle: str | None = None):
     return ticket(ticket_id=ticket_id, handle=handle)
+
 
 @app.get("/tickets/{ticket_id}")
 def ticket(ticket_id: str, handle: str | None = None):
@@ -339,11 +426,10 @@ def stats():
     return db.get_stats(get_db_path())
 
 
-
-
 @app.get("/api/artifacts")
 def api_artifact(path: str):
     return artifact(path=path)
+
 
 @app.get("/artifacts")
 def artifact(path: str):
