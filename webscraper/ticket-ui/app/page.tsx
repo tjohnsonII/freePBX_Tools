@@ -48,7 +48,13 @@ type ScrapeStatus = {
 type ApiHealth = {
   status: string;
   db_path?: string;
-  stats?: { handles: number; tickets: number; artifacts: number; last_updated_utc?: string };
+  last_updated_utc?: string;
+  stats?: {
+    total_handles?: number;
+    total_tickets?: number;
+    total_artifacts?: number;
+    last_updated_utc?: string;
+  };
 };
 
 function formatApiError(error: unknown): string {
@@ -105,7 +111,7 @@ export default function HandlesPage() {
 
     const loadHandleOptions = async () => {
       try {
-        const res = await apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200`);
+        const res = await apiGet<HandleListPayload>(`/api/handles/all?q=${encodeURIComponent(debouncedHandleFilter)}&limit=500`);
         if (cancelled) return;
         setError(null);
         setHandleOptions(res.items);
@@ -115,7 +121,7 @@ export default function HandlesPage() {
         return;
       } catch (primaryError) {
         try {
-          const fallback = await apiGet<{ handle: string }[]>(`/api/handles?q=${encodeURIComponent(debouncedHandleFilter)}&limit=200&offset=0`);
+          const fallback = await apiGet<{ handle: string }[]>(`/api/handles?q=${encodeURIComponent(debouncedHandleFilter)}&limit=500&offset=0`);
           if (cancelled) return;
           const items = fallback.map((item) => item.handle).filter(Boolean);
           setError(null);
@@ -127,7 +133,7 @@ export default function HandlesPage() {
         } catch {
           if (cancelled) return;
           setError(formatApiError(primaryError));
-          setHandleOptions([]);
+          setHandleOptions((prev) => (prev.length ? prev : []));
         }
       }
     };
@@ -146,7 +152,7 @@ export default function HandlesPage() {
       return;
     }
 
-    apiGet<HandleSummary[]>(`/api/handles/summary?q=${encodeURIComponent(selectedHandle)}&limit=1&offset=0`)
+    apiGet<HandleSummary[]>(`/api/handles/summary?q=${encodeURIComponent(selectedHandle)}&limit=10&offset=0`)
       .then((rows) => {
         const exact = rows.find((row) => row.handle === selectedHandle) || null;
         setSelectedSummary(exact);
@@ -216,8 +222,9 @@ export default function HandlesPage() {
               API OK. db_path: <code>{apiHealth.db_path || "(unknown)"}</code>
             </p>
             <p>
-              Stats: {apiHealth.stats?.handles ?? 0} handles, {apiHealth.stats?.tickets ?? 0} tickets, {apiHealth.stats?.artifacts ?? 0} artifacts.
+              Stats: {apiHealth.stats?.total_handles ?? 0} handles, {apiHealth.stats?.total_tickets ?? 0} tickets, {apiHealth.stats?.total_artifacts ?? 0} artifacts.
             </p>
+            <p>Last updated: {apiHealth.last_updated_utc || apiHealth.stats?.last_updated_utc || "-"}</p>
           </>
         ) : (
           <>
