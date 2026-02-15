@@ -7,7 +7,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${proxyTarget}/:path*`,
+        destination: `${proxyTarget}/api/:path*`,
       },
     ];
   },

@@ -6,10 +6,9 @@ import subprocess
 import sys
 import threading
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,33 +28,19 @@ app = FastAPI(title="Ticket History API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 class ScrapeRequest(BaseModel):
-    handles: list[str] = Field(default_factory=list)
+    handle: str = Field(min_length=1)
     mode: Literal["latest", "full"] = "latest"
-    maxTickets: int | None = Field(default=None, ge=1, le=5000)
+    limit: int | None = Field(default=None, ge=1, le=5000)
 
 
-@dataclass
-class ScrapeJob:
-    job_id: str
-    handles: list[str]
-    mode: str
-    max_tickets: int | None
-    status: str = "queued"
-    progress: dict[str, int] = field(default_factory=lambda: {"completed": 0, "total": 0})
-    logs: list[str] = field(default_factory=list)
-    result_summary: dict[str, Any] = field(default_factory=dict)
-    started_at: str | None = None
-    finished_at: str | None = None
-
-
-JOB_STORE: dict[str, ScrapeJob] = {}
+JOB_LOGS: dict[str, list[str]] = {}
 JOB_LOCK = threading.Lock()
 
 
@@ -67,40 +52,48 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _append_job_log(job: ScrapeJob, line: str) -> None:
+def _append_job_log(job_id: str, line: str) -> None:
     line = line.strip()
     if not line:
         return
-    job.logs.append(line)
-    if len(job.logs) > MAX_LOG_LINES:
-        del job.logs[:-MAX_LOG_LINES]
+    with JOB_LOCK:
+        lines = JOB_LOGS.setdefault(job_id, [])
+        lines.append(line)
+        if len(lines) > MAX_LOG_LINES:
+            del lines[:-MAX_LOG_LINES]
 
 
-def _run_scrape_job(job: ScrapeJob) -> None:
-    job.status = "running"
-    job.started_at = _iso_now()
-    job.progress = {"completed": 0, "total": len(job.handles)}
-
+def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> None:
     db_path = get_db_path()
+    started_at = _iso_now()
+    db.update_scrape_job(
+        db_path,
+        job_id,
+        status="running",
+        progress_completed=0,
+        progress_total=1,
+        started_utc=started_at,
+    )
+
     out_dir = str(Path(OUTPUT_ROOT).resolve())
+    scrape_script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
 
     command = [
         sys.executable,
-        "-m",
-        "webscraper.ultimate_scraper_legacy",
+        str(scrape_script),
         "--db",
         db_path,
         "--out",
-        out_dir,
+        os.path.join(out_dir, "scrape_runs"),
         "--handles",
-        *job.handles,
+        handle,
     ]
-    if job.mode == "latest":
-        command.extend(["--max-tickets", str(job.max_tickets or 20)])
-    elif job.max_tickets:
-        command.extend(["--max-tickets", str(job.max_tickets)])
+    if mode == "latest":
+        command.extend(["--max-tickets", str(limit or 20)])
+    elif limit:
+        command.extend(["--max-tickets", str(limit)])
 
-    _append_job_log(job, f"Running: {' '.join(command)}")
+    _append_job_log(job_id, "Running scraper job.")
 
     try:
         process = subprocess.Popen(
@@ -113,32 +106,54 @@ def _run_scrape_job(job: ScrapeJob) -> None:
         assert process.stdout is not None
 
         for line in process.stdout:
-            _append_job_log(job, line)
-            if "handle=" in line and "PHASE" in line:
-                job.progress["completed"] = min(job.progress["completed"] + 1, job.progress["total"])
+            _append_job_log(job_id, line)
 
         rc = process.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
         if rc != 0:
-            job.status = "failed"
-            job.result_summary = {"exitCode": rc}
+            db.update_scrape_job(
+                db_path,
+                job_id,
+                status="failed",
+                progress_completed=1,
+                progress_total=1,
+                finished_utc=_iso_now(),
+                error_message=f"Scraper exited with code {rc}",
+                result={"exitCode": rc, "handle": handle, "mode": mode, "limit": limit},
+            )
         else:
-            job.status = "completed"
-            job.result_summary = {
-                "exitCode": rc,
-                "handles": job.handles,
-                "mode": job.mode,
-                "maxTickets": job.max_tickets,
-            }
+            db.update_scrape_job(
+                db_path,
+                job_id,
+                status="completed",
+                progress_completed=1,
+                progress_total=1,
+                finished_utc=_iso_now(),
+                result={"exitCode": rc, "handle": handle, "mode": mode, "limit": limit},
+            )
     except subprocess.TimeoutExpired:
-        job.status = "failed"
-        job.result_summary = {"error": "scrape timed out"}
-        _append_job_log(job, "Scrape timed out.")
+        _append_job_log(job_id, "Scrape timed out.")
+        db.update_scrape_job(
+            db_path,
+            job_id,
+            status="failed",
+            progress_completed=0,
+            progress_total=1,
+            finished_utc=_iso_now(),
+            error_message="scrape timed out",
+            result={"error": "scrape timed out", "handle": handle, "mode": mode, "limit": limit},
+        )
     except Exception as exc:  # pragma: no cover
-        job.status = "failed"
-        job.result_summary = {"error": str(exc)}
-        _append_job_log(job, f"Unhandled scrape exception: {exc}")
-    finally:
-        job.finished_at = _iso_now()
+        _append_job_log(job_id, "Unhandled scrape exception.")
+        db.update_scrape_job(
+            db_path,
+            job_id,
+            status="failed",
+            progress_completed=0,
+            progress_total=1,
+            finished_utc=_iso_now(),
+            error_message=str(exc),
+            result={"error": str(exc), "handle": handle, "mode": mode, "limit": limit},
+        )
 
 
 @app.on_event("startup")
@@ -156,6 +171,11 @@ def health() -> dict[str, object]:
 @app.get("/api/handles")
 def api_handles(q: str = "", limit: int = 200, offset: int = 0):
     return db.list_handles(get_db_path(), q=q, limit=limit, offset=offset)
+
+
+@app.get("/api/handles/{handle}")
+def api_handle_detail(handle: str):
+    return handle_detail(handle)
 
 
 @app.get("/handles")
@@ -178,8 +198,9 @@ def api_handle_tickets(
     q: str | None = None,
     from_utc: str | None = Query(None, alias="from"),
     to_utc: str | None = Query(None, alias="to"),
-    limit: int = 100,
-    offset: int = 0,
+    page: int = 1,
+    pageSize: int = 50,
+    sort: str = "newest",
 ):
     return db.list_tickets(
         get_db_path(),
@@ -188,8 +209,9 @@ def api_handle_tickets(
         q=q,
         from_utc=from_utc,
         to_utc=to_utc,
-        limit=limit,
-        offset=offset,
+        page=page,
+        page_size=pageSize,
+        sort=sort,
     )
 
 
@@ -200,8 +222,9 @@ def handle_tickets(
     q: str | None = None,
     from_utc: str | None = Query(None, alias="from"),
     to_utc: str | None = Query(None, alias="to"),
-    limit: int = 100,
-    offset: int = 0,
+    page: int = 1,
+    pageSize: int = 50,
+    sort: str = "newest",
 ):
     return db.list_tickets(
         get_db_path(),
@@ -210,49 +233,88 @@ def handle_tickets(
         q=q,
         from_utc=from_utc,
         to_utc=to_utc,
-        limit=limit,
-        offset=offset,
+        page=page,
+        page_size=pageSize,
+        sort=sort,
+    )
+
+
+@app.get("/api/tickets")
+def api_tickets(
+    handle: str | None = None,
+    q: str | None = None,
+    status: str | None = None,
+    from_utc: str | None = Query(None, alias="from"),
+    to_utc: str | None = Query(None, alias="to"),
+    page: int = 1,
+    pageSize: int = 50,
+    sort: str = "newest",
+):
+    return db.list_tickets(
+        get_db_path(),
+        handle=handle,
+        status=status,
+        q=q,
+        from_utc=from_utc,
+        to_utc=to_utc,
+        page=page,
+        page_size=pageSize,
+        sort=sort,
     )
 
 
 @app.post("/api/scrape")
 def api_scrape(req: ScrapeRequest):
-    handles = [h.strip() for h in req.handles if h.strip()]
-    if not handles:
-        handles = db.list_all_handles(get_db_path())
-    if not handles:
-        raise HTTPException(status_code=400, detail="No handles to scrape")
+    handle = req.handle.strip()
+    if not handle:
+        raise HTTPException(status_code=400, detail="handle is required")
 
-    job = ScrapeJob(
-        job_id=str(uuid.uuid4()),
-        handles=handles,
+    known_handles = set(db.list_all_handles(get_db_path()))
+    if handle not in known_handles:
+        raise HTTPException(status_code=404, detail="Handle not found")
+
+    job_id = str(uuid.uuid4())
+    created_at = _iso_now()
+    db.create_scrape_job(
+        get_db_path(),
+        job_id=job_id,
+        handle=handle,
         mode=req.mode,
-        max_tickets=req.maxTickets,
+        ticket_limit=req.limit,
+        status="queued",
+        created_utc=created_at,
     )
-    with JOB_LOCK:
-        JOB_STORE[job.job_id] = job
 
-    worker = threading.Thread(target=_run_scrape_job, args=(job,), daemon=True)
+    worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
     worker.start()
 
-    return {"jobId": job.job_id, "status": job.status}
+    return {"jobId": job_id, "status": "queued"}
 
 
 @app.get("/api/scrape/{job_id}")
 def api_scrape_status(job_id: str):
-    with JOB_LOCK:
-        job = JOB_STORE.get(job_id)
+    job = db.get_scrape_job(get_db_path(), job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    with JOB_LOCK:
+        logs = JOB_LOGS.get(job_id, [])
 
     return {
-        "jobId": job.job_id,
-        "status": job.status,
-        "progress": job.progress,
-        "logs": job.logs,
-        "resultSummary": job.result_summary,
-        "startedAt": job.started_at,
-        "finishedAt": job.finished_at,
+        "jobId": job["job_id"],
+        "status": job["status"],
+        "handle": job["handle"],
+        "mode": job["mode"],
+        "limit": job["ticket_limit"],
+        "progress": {
+            "completed": job["progress_completed"],
+            "total": job["progress_total"],
+        },
+        "logs": logs,
+        "resultSummary": job.get("result"),
+        "error": job.get("error_message"),
+        "createdAt": job["created_utc"],
+        "startedAt": job.get("started_utc"),
+        "finishedAt": job.get("finished_utc"),
     }
 
 

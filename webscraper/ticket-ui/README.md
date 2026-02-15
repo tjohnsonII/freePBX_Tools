@@ -19,6 +19,13 @@ set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787
 npm run dev
 ```
 
+Optional explicit browser API base (used by client fetches):
+
+```bash
+set NEXT_PUBLIC_API_BASE=http://127.0.0.1:8787
+npm run dev
+```
+
 Or call API directly from the browser (bypass rewrite):
 
 ```bash
@@ -27,6 +34,12 @@ npm run dev
 ```
 
 The app expects the scraper/API SQLite DB at `webscraper/output/tickets.sqlite` unless your API is configured otherwise.
+
+## UI behavior
+
+- Handle dropdown is sourced from `GET /api/handles`.
+- "Run Scrape" buttons call `POST /api/scrape` with the selected handle.
+- Scrape progress polls `GET /api/scrape/:jobId`.
 
 ## Run API + UI together
 

@@ -218,6 +218,34 @@ If headless navigation fails due to auth, switch back to `--show` and complete l
    - API: `python -m webscraper.ticket_api.app --db webscraper/output/tickets.sqlite --port 8787`
    - UI: `cd webscraper\ticket-ui && set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787 && npm.cmd run dev`
 
+### Ticket API examples
+
+Run a scrape job for one handle (async job response):
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"handle":"KPM","mode":"latest","limit":20}'
+```
+
+Poll job status:
+
+```bash
+curl "http://127.0.0.1:8787/api/scrape/<jobId>"
+```
+
+List handle metadata for dropdowns:
+
+```bash
+curl "http://127.0.0.1:8787/api/handles?limit=500"
+```
+
+Query tickets with filtering, paging, and sorting:
+
+```bash
+curl "http://127.0.0.1:8787/api/tickets?handle=KPM&q=router&status=open&page=1&pageSize=50&sort=newest"
+```
+
 ### PowerShell `npm.ps1` execution-policy workaround
 If PowerShell prints `npm.ps1 cannot be loaded because running scripts is disabled`, use one of these:
 - Run npm through `npm.cmd` directly:

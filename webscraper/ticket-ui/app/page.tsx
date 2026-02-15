@@ -21,32 +21,36 @@ type Ticket = {
 
 type TicketResponse = {
   items: Ticket[];
-  total: number;
+  totalCount: number;
+  page: number;
+  pageSize: number;
 };
 
 type ScrapeStatus = {
   jobId: string;
   status: string;
+  handle: string;
   progress: { completed: number; total: number };
-  logs: string[];
+  error?: string;
 };
 
 export default function HandlesPage() {
   const [handleFilter, setHandleFilter] = useState("");
   const [rows, setRows] = useState<HandleSummary[]>([]);
-  const [selectedHandles, setSelectedHandles] = useState<string[]>([]);
+  const [selectedHandle, setSelectedHandle] = useState("");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [job, setJob] = useState<ScrapeStatus | null>(null);
-
-  const primaryHandle = selectedHandles[0] || "";
 
   const refreshHandles = async (query: string) => {
     try {
       setError(null);
       const list = await apiGet<HandleSummary[]>(`/api/handles?q=${encodeURIComponent(query)}&limit=500`);
       setRows(list);
+      if (!selectedHandle && list.length > 0) {
+        setSelectedHandle(list[0].handle);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setRows([]);
@@ -58,11 +62,11 @@ export default function HandlesPage() {
   }, [handleFilter]);
 
   useEffect(() => {
-    if (!primaryHandle) {
+    if (!selectedHandle) {
       setTickets([]);
       return;
     }
-    apiGet<TicketResponse>(`/api/handles/${encodeURIComponent(primaryHandle)}/tickets?limit=100`)
+    apiGet<TicketResponse>(`/api/tickets?handle=${encodeURIComponent(selectedHandle)}&page=1&pageSize=100&sort=newest`)
       .then((res) => {
         setError(null);
         setTickets(res.items);
@@ -71,7 +75,7 @@ export default function HandlesPage() {
         setError(e instanceof Error ? e.message : String(e));
         setTickets([]);
       });
-  }, [primaryHandle]);
+  }, [selectedHandle]);
 
   useEffect(() => {
     if (!job?.jobId || job.status === "completed" || job.status === "failed") {
@@ -82,7 +86,7 @@ export default function HandlesPage() {
       try {
         const status = await apiGet<ScrapeStatus>(`/api/scrape/${job.jobId}`);
         setJob(status);
-        if (status.status === "completed") {
+        if (status.status === "completed" || status.status === "failed") {
           refreshHandles(handleFilter);
         }
       } catch (e) {
@@ -98,18 +102,17 @@ export default function HandlesPage() {
     [rows, handleFilter],
   );
 
-  const onSelectHandles = (values: string[]) => {
-    setSelectedHandles(values);
-    setScrapeError(null);
-  };
-
-  const startScrape = async (handles: string[], mode: "latest" | "full") => {
+  const startScrape = async (mode: "latest" | "full") => {
+    if (!selectedHandle) {
+      setScrapeError("Select a handle first.");
+      return;
+    }
     try {
       setScrapeError(null);
-      const payload = await apiPost<{ jobId: string }>("/api/scrape", {
-        handles,
+      const payload = await apiPost<{ jobId: string; status: string }>("/api/scrape", {
+        handle: selectedHandle,
         mode,
-        maxTickets: mode === "latest" ? 20 : undefined,
+        limit: mode === "latest" ? 20 : undefined,
       });
       const status = await apiGet<ScrapeStatus>(`/api/scrape/${payload.jobId}`);
       setJob(status);
@@ -122,7 +125,7 @@ export default function HandlesPage() {
     <main>
       <h1>Ticket History</h1>
       <label>
-        Search handles
+        Filter handles
         <input
           placeholder="Type to filter handles"
           value={handleFilter}
@@ -130,32 +133,21 @@ export default function HandlesPage() {
         />
       </label>
 
-      <select
-        multiple
-        size={10}
-        value={selectedHandles}
-        onChange={(e) =>
-          onSelectHandles(Array.from(e.target.selectedOptions).map((opt) => opt.value))
-        }
-      >
-        {filteredRows.map((h) => (
-          <option key={h.handle} value={h.handle}>
-            {h.handle} ({h.ticketsCount})
-          </option>
-        ))}
-      </select>
+      <label>
+        Handle
+        <select value={selectedHandle} onChange={(e) => setSelectedHandle(e.target.value)}>
+          <option value="">Select a handle</option>
+          {filteredRows.map((h) => (
+            <option key={h.handle} value={h.handle}>
+              {h.handle} ({h.ticketsCount})
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div>
-        <button disabled={selectedHandles.length === 0} onClick={() => startScrape(selectedHandles, "latest")}>Scrape Selected</button>
-        <button
-          onClick={() => {
-            if (window.confirm("Scrape all handles? This may take a while.")) {
-              startScrape(rows.map((r) => r.handle), "full");
-            }
-          }}
-        >
-          Scrape All
-        </button>
+        <button disabled={!selectedHandle} onClick={() => startScrape("latest")}>Run Scrape (Latest)</button>
+        <button disabled={!selectedHandle} onClick={() => startScrape("full")}>Run Scrape (Full)</button>
       </div>
 
       {error && <p>{error}</p>}
@@ -163,9 +155,9 @@ export default function HandlesPage() {
       {job && (
         <div>
           <p>
-            Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total})
+            Job {job.jobId}: {job.status} ({job.progress.completed}/{job.progress.total}) for {job.handle}
           </p>
-          <pre>{job.logs.slice(-8).join("\n")}</pre>
+          {job.error && <p>{job.error}</p>}
         </div>
       )}
 
@@ -187,7 +179,7 @@ export default function HandlesPage() {
         </tbody>
       </table>
 
-      <h2>{primaryHandle ? `Tickets for ${primaryHandle}` : "Select a handle"}</h2>
+      <h2>{selectedHandle ? `Tickets for ${selectedHandle}` : "Select a handle"}</h2>
       <table>
         <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Updated</th><th>Created</th></tr></thead>
         <tbody>
