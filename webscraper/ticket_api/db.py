@@ -72,18 +72,12 @@ def ensure_indexes(db_path: str) -> None:
 
             CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
             CREATE INDEX IF NOT EXISTS idx_handles_status ON handles(last_status);
-            CREATE INDEX IF NOT EXISTS idx_tickets_handle ON tickets(handle);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_updated ON tickets(handle, updated_utc DESC);
-            CREATE INDEX IF NOT EXISTS idx_tickets_handle_created ON tickets(handle, created_utc DESC);
-            CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_utc DESC);
-            CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_utc DESC);
-            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
-            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id_handle ON tickets(ticket_id, handle);
-            CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_status_updated ON tickets(handle, status, updated_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_tickets_status_updated ON tickets(status, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_created ON tickets(handle, created_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_ticket_id ON tickets(handle, ticket_id);
-            CREATE INDEX IF NOT EXISTS idx_tickets_handle_created_desc ON tickets(handle, created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_handle_created ON scrape_jobs(handle, created_utc DESC);
@@ -241,50 +235,15 @@ def list_tickets(
     page_size: int = 50,
     sort: str = "newest",
 ) -> dict[str, Any]:
-    where = ["1=1"]
-    params: list[Any] = []
-
-    if handle:
-        where.append("handle=?")
-        params.append(handle)
-
-    if status:
-        where.append("status=?")
-        params.append(status)
-    with get_conn(db_path) as conn:
-        use_fts = bool(
-            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets_fts' LIMIT 1").fetchone()
-        )
-
-    if q:
-        if use_fts:
-            where.append(
-                "(rowid IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?) OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)"
-            )
-            like = f"%{q}%"
-            params.extend([q, like, like, like, like])
-        else:
-            where.append("(title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
-            like = f"%{q}%"
-            params.extend([like, like, like, like])
-    if from_utc:
-        where.append("(updated_utc >= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) >= ?))")
-        params.extend([from_utc, from_utc])
-    if to_utc:
-        where.append("(updated_utc <= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) <= ?))")
-        params.extend([to_utc, to_utc])
-
-    where_clause = " AND ".join(where)
-
-    sort_col = "updated_utc"
-    if sort in {"created_newest", "created_oldest"}:
-        sort_col = "created_utc"
-
-    order_by = f"{sort_col} DESC, ticket_id DESC, handle DESC"
-    if sort == "oldest":
-        order_by = f"{sort_col} ASC, ticket_id ASC, handle ASC"
-    if sort == "created_oldest":
-        order_by = "created_utc ASC, ticket_id ASC, handle ASC"
+    where_clause, params, order_by = _build_list_tickets_query(
+        db_path=db_path,
+        handle=handle,
+        status=status,
+        q=q,
+        from_utc=from_utc,
+        to_utc=to_utc,
+        sort=sort,
+    )
 
     page = max(1, page)
     page_size = max(1, min(200, page_size))
@@ -313,6 +272,70 @@ def list_tickets(
     }
 
 
+def _build_list_tickets_query(
+    db_path: str,
+    *,
+    handle: str | None,
+    status: str | None,
+    q: str | None,
+    from_utc: str | None,
+    to_utc: str | None,
+    sort: str,
+) -> tuple[str, list[Any], str]:
+    where = ["1=1"]
+    params: list[Any] = []
+
+    if handle:
+        where.append("handle=?")
+        params.append(handle)
+
+    if status:
+        where.append("status=?")
+        params.append(status)
+    with get_conn(db_path) as conn:
+        use_fts = bool(
+            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets_fts' LIMIT 1").fetchone()
+        )
+
+    if q:
+        if use_fts:
+            where.append(
+                "(rowid IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?) OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)"
+            )
+            like = f"%{q}%"
+            params.extend([q, like, like, like, like])
+        else:
+            where.append("(title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
+            like = f"%{q}%"
+            params.extend([like, like, like, like])
+    if from_utc:
+        if sort in {"created_newest", "created_oldest"}:
+            where.append("created_utc >= ?")
+        else:
+            where.append("updated_utc >= ?")
+        params.append(from_utc)
+    if to_utc:
+        if sort in {"created_newest", "created_oldest"}:
+            where.append("created_utc <= ?")
+        else:
+            where.append("updated_utc <= ?")
+        params.append(to_utc)
+
+    where_clause = " AND ".join(where)
+
+    sort_col = "updated_utc"
+    if sort in {"created_newest", "created_oldest"}:
+        sort_col = "created_utc"
+
+    order_by = f"{sort_col} DESC, ticket_id DESC, handle DESC"
+    if sort == "oldest":
+        order_by = f"{sort_col} ASC, ticket_id ASC, handle ASC"
+    if sort == "created_oldest":
+        order_by = "created_utc ASC, ticket_id ASC, handle ASC"
+
+    return where_clause, params, order_by
+
+
 def explain_list_tickets_plan(
     db_path: str,
     handle: str | None = None,
@@ -322,38 +345,15 @@ def explain_list_tickets_plan(
     to_utc: str | None = None,
     sort: str = "newest",
 ) -> list[str]:
-    payload = list_tickets(
-        db_path,
+    where_clause, params, order_clause = _build_list_tickets_query(
+        db_path=db_path,
         handle=handle,
         status=status,
         q=q,
         from_utc=from_utc,
         to_utc=to_utc,
-        page=1,
-        page_size=10,
         sort=sort,
     )
-    del payload
-    where = ["1=1"]
-    params: list[Any] = []
-    if handle:
-        where.append("handle=?")
-        params.append(handle)
-    if status:
-        where.append("status=?")
-        params.append(status)
-    if q:
-        like = f"%{q}%"
-        where.append("(title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
-        params.extend([like, like, like, like])
-    if from_utc:
-        where.append("(updated_utc >= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) >= ?))")
-        params.extend([from_utc, from_utc])
-    if to_utc:
-        where.append("(updated_utc <= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) <= ?))")
-        params.extend([to_utc, to_utc])
-    where_clause = " AND ".join(where)
-    order_clause = "updated_utc DESC, ticket_id DESC, handle DESC" if sort != "oldest" else "updated_utc ASC, ticket_id ASC, handle ASC"
     with get_conn(db_path) as conn:
         rows = conn.execute(
             f"EXPLAIN QUERY PLAN SELECT * FROM tickets WHERE {where_clause} ORDER BY {order_clause} LIMIT 10",
@@ -457,12 +457,21 @@ def get_stats(db_path: str) -> dict[str, Any]:
         total_runs = conn.execute("SELECT COUNT(*) AS count FROM runs").fetchone()["count"]
         total_jobs = conn.execute("SELECT COUNT(*) AS count FROM scrape_jobs").fetchone()["count"]
         last_run = conn.execute("SELECT MAX(finished_utc) AS finished_utc FROM runs").fetchone()["finished_utc"]
+        try:
+            total_artifacts = conn.execute("SELECT COUNT(*) AS count FROM ticket_artifacts").fetchone()["count"]
+        except sqlite3.OperationalError:
+            total_artifacts = 0
+        last_updated = conn.execute(
+            "SELECT MAX(COALESCE(updated_utc, created_utc, opened_utc)) AS updated_utc FROM tickets"
+        ).fetchone()["updated_utc"]
     return {
         "total_tickets": total_tickets,
         "total_handles": total_handles,
         "total_runs": total_runs,
         "total_scrape_jobs": total_jobs,
+        "total_artifacts": total_artifacts,
         "last_run_finished_utc": last_run,
+        "last_updated_utc": last_updated,
         "counts_by_status": statuses,
     }
 
