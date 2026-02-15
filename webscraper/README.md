@@ -183,14 +183,23 @@ python -m webscraper.ultimate_scraper --help
 
 If headless navigation fails due to auth, switch back to `--show` and complete login manually.
 
-## Ticket History SQLite + API + UI Quick Start
+## Ticket History SQLite + API + UI Quick Start (Windows)
 
 1. Install deps:
    - `python -m pip install -r webscraper/requirements.txt`
    - `python -m pip install -r webscraper/requirements_api.txt`
-2. Run scraping pipeline:
-   - `python scripts/scrape_all_handles.py --handles-file customer_handles.txt --db webscraper/output/tickets.sqlite --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --max-tickets 1 --phase-logs`
-3. Run API:
-   - `python -m webscraper.ticket_api.app --db webscraper/output/tickets.sqlite --host 127.0.0.1 --port 8787 --reload`
-4. Run UI:
-   - `cd webscraper/ticket-ui && npm install && NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:8787 npm run dev`
+2. Run a scrape that persists tickets to SQLite:
+   - `python scripts/scrape_all_handles.py --handles KPM WS7 --db webscraper/output/tickets.sqlite --out webscraper/output/scrape_runs --auth-profile-only --profile-dir "E:/DevTools/freepbx-tools/webscraper/edge_profile_tmp" --profile-name "Default" --show`
+3. Start full pipeline in one command (scrape + API + UI + browser + DB stats):
+   - PowerShell: `scripts/run_ticket_pipeline.ps1 -Handles KPM,WS7`
+   - CMD fallback: `scripts\run_ticket_pipeline.cmd KPM WS7`
+
+### PowerShell `npm.ps1` execution-policy workaround
+If PowerShell prints `npm.ps1 cannot be loaded because running scripts is disabled`, use one of these:
+- Run npm through `npm.cmd` directly:
+  - `& "$env:ProgramFiles\nodejs\npm.cmd" install`
+  - `& "$env:ProgramFiles\nodejs\npm.cmd" run dev`
+- Or use a bypass for just this shell:
+  - `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+
+The pipeline scripts already prefer `npm.cmd` so they work without changing global policy.

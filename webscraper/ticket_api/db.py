@@ -12,12 +12,19 @@ def get_conn(db_path: str) -> sqlite3.Connection:
 
 
 def list_handles(db_path: str, search: str = "", limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-    query = "SELECT * FROM handles"
+    query = """
+        SELECT
+            h.*,
+            COUNT(t.ticket_id) AS ticket_count,
+            MAX(COALESCE(t.updated_utc, t.created_utc)) AS last_ticket_utc
+        FROM handles h
+        LEFT JOIN tickets t ON t.handle = h.handle
+    """
     params: list[Any] = []
     if search:
-        query += " WHERE handle LIKE ?"
+        query += " WHERE h.handle LIKE ?"
         params.append(f"%{search}%")
-    query += " ORDER BY handle LIMIT ? OFFSET ?"
+    query += " GROUP BY h.handle ORDER BY h.handle LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     with get_conn(db_path) as conn:
         return [dict(r) for r in conn.execute(query, params).fetchall()]
