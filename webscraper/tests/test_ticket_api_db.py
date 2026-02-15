@@ -1,10 +1,11 @@
 from webscraper.db import init_db, start_run, upsert_handle, upsert_tickets
-from webscraper.ticket_api.db import get_handle, get_stats, get_ticket, list_handles, list_tickets
+from webscraper.ticket_api.db import ensure_indexes, get_handle, get_stats, get_ticket, list_handles, list_tickets
 
 
 def test_ticket_api_queries(tmp_path):
     db_path = tmp_path / "tickets.sqlite"
     init_db(str(db_path))
+    ensure_indexes(str(db_path))
     run_id = start_run(str(db_path), {})
     upsert_handle(str(db_path), "ABC", "success")
     upsert_tickets(
@@ -22,14 +23,16 @@ def test_ticket_api_queries(tmp_path):
         ],
     )
 
-    handles = list_handles(str(db_path), search="AB")
+    handles = list_handles(str(db_path), q="AB")
     assert handles[0]["handle"] == "ABC"
+    assert handles[0]["ticketsCount"] == 1
 
     handle = get_handle(str(db_path), "ABC")
     assert handle is not None
 
     tickets = list_tickets(str(db_path), "ABC", q="Router")
-    assert tickets[0]["ticket_id"] == "777777777777"
+    assert tickets["items"][0]["ticket_id"] == "777777777777"
+    assert tickets["total"] == 1
 
     ticket = get_ticket(str(db_path), "777777777777", "ABC")
     assert ticket is not None

@@ -13,6 +13,10 @@ type Ticket = {
   ticket_url?: string;
 };
 
+type TicketResponse = {
+  items: Ticket[];
+};
+
 type Handle = {
   handle: string;
   last_scrape_utc?: string;
@@ -29,12 +33,12 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
   const [to, setTo] = useState("");
 
   useEffect(() => {
-    apiGet<Handle>(`/handles/${encodeURIComponent(handle)}`).then(setMeta).catch(() => setMeta(null));
+    apiGet<Handle>(`/api/handles/${encodeURIComponent(handle)}`).then(setMeta).catch(() => setMeta(null));
   }, [handle]);
 
   useEffect(() => {
     const path = `/handles/${encodeURIComponent(handle)}/tickets?status=${encodeURIComponent(status)}&q=${encodeURIComponent(q)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
-    apiGet<Ticket[]>(path).then(setTickets).catch(() => setTickets([]));
+    apiGet<TicketResponse>(`/api${path}`).then((res) => setTickets(res.items)).catch(() => setTickets([]));
   }, [handle, q, status, from, to]);
 
   return (

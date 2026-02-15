@@ -211,15 +211,12 @@ If headless navigation fails due to auth, switch back to `--show` and complete l
    - `python scripts\run_ticket_pipeline.py --handles KPM WS7 --attach-debugger 127.0.0.1:9222 --no-profile-launch`
    - or launcher: `scripts\run_ticket_pipeline.bat --handles KPM WS7 --attach-debugger 127.0.0.1:9222 --no-profile-launch`
 
-4. Start API manually (CMD):
-   - `set TICKETS_DB=E:\DevTools\freepbx-tools\webscraper\output\tickets.sqlite`
-   - `python -m uvicorn webscraper.ticket_api.app:app --port 8787`
+4. Start API + UI together (single command, CMD/PowerShell):
+   - `python webscraper/dev_server.py --ticket-stack`
 
-5. Start UI manually in CMD:
-   - `cd webscraper\ticket-ui`
-   - `set NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:8787`
-   - `npm.cmd install`
-   - `npm.cmd run dev`
+5. Or run each service manually:
+   - API: `python -m webscraper.ticket_api.app --db webscraper/output/tickets.sqlite --port 8787`
+   - UI: `cd webscraper\ticket-ui && set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787 && npm.cmd run dev`
 
 ### PowerShell `npm.ps1` execution-policy workaround
 If PowerShell prints `npm.ps1 cannot be loaded because running scripts is disabled`, use one of these:

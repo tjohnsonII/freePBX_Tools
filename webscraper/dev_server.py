@@ -1,96 +1,78 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+import os
+import subprocess
+import sys
+from typing import Sequence
 
 
-def _extracted_at() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z")
-    )
+def _run_api(host: str, port: int, db_path: str, reload: bool) -> int:
+    cmd = [
+        sys.executable,
+        "-m",
+        "webscraper.ticket_api.app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--db",
+        db_path,
+    ]
+    if reload:
+        cmd.append("--reload")
+    return subprocess.call(cmd)
 
 
-def _run_fastapi(host: str, port: int, reload: bool) -> None:
-    from fastapi import FastAPI
-    import uvicorn
+def _run_ticket_stack(host: str, api_port: int, ui_port: int, db_path: str, reload: bool) -> int:
+    api_cmd = [
+        sys.executable,
+        "-m",
+        "webscraper.ticket_api.app",
+        "--host",
+        host,
+        "--port",
+        str(api_port),
+        "--db",
+        db_path,
+    ]
+    if reload:
+        api_cmd.append("--reload")
 
-    app = FastAPI()
-    globals()["app"] = app
+    ui_env = os.environ.copy()
+    ui_env.setdefault("TICKET_API_PROXY_TARGET", f"http://127.0.0.1:{api_port}")
+    ui_env.setdefault("PORT", str(ui_port))
+    ui_cmd = ["npm", "run", "dev"]
 
-    @app.get("/health")
-    def health() -> dict[str, object]:
-        return {"ok": True, "extracted_at": _extracted_at()}
-
-    @app.on_event("startup")
-    def _announce_ready() -> None:
-        print("Webscraper dev server ready", flush=True)
-
-    print("Webscraper dev server starting", flush=True)
-    uvicorn.run("webscraper.dev_server:app", host=host, port=port, reload=reload)
-
-
-def _run_flask(host: str, port: int, reload: bool) -> None:
-    from flask import Flask, jsonify
-
-    app = Flask(__name__)
-
-    @app.get("/health")
-    def health() -> object:
-        return jsonify({"ok": True, "extracted_at": _extracted_at()})
-
-    print("Webscraper dev server starting", flush=True)
-    print("Webscraper dev server ready", flush=True)
-    app.run(host=host, port=port, debug=reload, use_reloader=reload)
+    api = subprocess.Popen(api_cmd)
+    ui = subprocess.Popen(ui_cmd, cwd=os.path.join("webscraper", "ticket-ui"), env=ui_env)
+    try:
+        ui_rc = ui.wait()
+        return ui_rc
+    finally:
+        for proc in (api, ui):
+            if proc.poll() is None:
+                proc.terminate()
 
 
-def _run_fallback(host: str, port: int) -> None:
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-    import json
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
-            if self.path != "/health":
-                self.send_response(404)
-                self.end_headers()
-                return
-            body = json.dumps({"ok": True, "extracted_at": _extracted_at()}).encode(
-                "utf-8"
-            )
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-    server = HTTPServer((host, port), Handler)
-    print("Webscraper dev server starting", flush=True)
-    print("Webscraper dev server ready", flush=True)
-    server.serve_forever()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Webscraper dev server")
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Webscraper dev launcher")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8777)
+    parser.add_argument("--api-port", type=int, default=8787)
+    parser.add_argument("--ui-port", type=int, default=3000)
+    parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"))
     parser.add_argument("--reload", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--ticket-stack",
+        action="store_true",
+        help="Run ticket API + Next.js ticket-ui together",
+    )
+    args = parser.parse_args(argv)
 
-    try:
-        _run_fastapi(args.host, args.port, args.reload)
-        return
-    except ModuleNotFoundError:
-        pass
-
-    try:
-        _run_flask(args.host, args.port, args.reload)
-        return
-    except ModuleNotFoundError:
-        pass
-
-    _run_fallback(args.host, args.port)
+    if args.ticket_stack:
+        return _run_ticket_stack(args.host, args.api_port, args.ui_port, args.db, args.reload)
+    return _run_api(args.host, args.api_port, args.db, args.reload)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

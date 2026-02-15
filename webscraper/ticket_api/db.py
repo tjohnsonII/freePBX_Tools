@@ -11,23 +11,52 @@ def get_conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def list_handles(db_path: str, search: str = "", limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-    query = """
+def ensure_indexes(db_path: str) -> None:
+    with get_conn(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_updated ON tickets(handle, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_created ON tickets(handle, created_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
+            CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
+            """
+        )
+
+
+def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
+    summary_query = """
+        WITH ticket_summary AS (
+            SELECT
+                t.handle,
+                COUNT(*) AS tickets_count,
+                MAX(COALESCE(t.updated_utc, t.created_utc, t.opened_utc)) AS last_ticket_at
+            FROM tickets t
+            GROUP BY t.handle
+        )
         SELECT
-            h.*,
-            COUNT(t.ticket_id) AS ticket_count,
-            MAX(COALESCE(t.updated_utc, t.created_utc)) AS last_ticket_utc
+            h.handle,
+            COALESCE(ts.tickets_count, 0) AS ticketsCount,
+            ts.last_ticket_at AS lastTicketAt,
+            h.last_scrape_utc AS lastScrapeAt,
+            h.last_status AS status
         FROM handles h
-        LEFT JOIN tickets t ON t.handle = h.handle
+        LEFT JOIN ticket_summary ts ON ts.handle = h.handle
     """
     params: list[Any] = []
-    if search:
-        query += " WHERE h.handle LIKE ?"
-        params.append(f"%{search}%")
-    query += " GROUP BY h.handle ORDER BY h.handle LIMIT ? OFFSET ?"
+    if q:
+        summary_query += " WHERE h.handle LIKE ?"
+        params.append(f"%{q}%")
+    summary_query += " ORDER BY h.handle LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     with get_conn(db_path) as conn:
-        return [dict(r) for r in conn.execute(query, params).fetchall()]
+        return [dict(r) for r in conn.execute(summary_query, params).fetchall()]
+
+
+def list_all_handles(db_path: str) -> list[str]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute("SELECT handle FROM handles ORDER BY handle").fetchall()
+    return [row["handle"] for row in rows]
 
 
 def get_handle(db_path: str, handle: str) -> dict[str, Any] | None:
@@ -45,26 +74,42 @@ def list_tickets(
     to_utc: str | None = None,
     limit: int = 100,
     offset: int = 0,
-) -> list[dict[str, Any]]:
-    query = "SELECT * FROM tickets WHERE handle=?"
+) -> dict[str, Any]:
+    where = ["handle=?"]
     params: list[Any] = [handle]
+
     if status:
-        query += " AND status=?"
+        where.append("status=?")
         params.append(status)
     if q:
-        query += " AND (title LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)"
+        where.append("(title LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
         like = f"%{q}%"
         params.extend([like, like, like])
     if from_utc:
-        query += " AND COALESCE(updated_utc, created_utc) >= ?"
+        where.append("COALESCE(updated_utc, created_utc, opened_utc) >= ?")
         params.append(from_utc)
     if to_utc:
-        query += " AND COALESCE(updated_utc, created_utc) <= ?"
+        where.append("COALESCE(updated_utc, created_utc, opened_utc) <= ?")
         params.append(to_utc)
-    query += " ORDER BY COALESCE(updated_utc, created_utc) DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+
+    where_clause = " AND ".join(where)
+
     with get_conn(db_path) as conn:
-        return [dict(r) for r in conn.execute(query, params).fetchall()]
+        total = conn.execute(
+            f"SELECT COUNT(*) AS count FROM tickets WHERE {where_clause}",
+            params,
+        ).fetchone()["count"]
+        rows = conn.execute(
+            f"""
+            SELECT * FROM tickets
+            WHERE {where_clause}
+            ORDER BY COALESCE(updated_utc, created_utc, opened_utc) DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        ).fetchall()
+
+    return {"items": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset}
 
 
 def get_ticket(db_path: str, ticket_id: str, handle: str | None = None) -> dict[str, Any] | None:
@@ -94,9 +139,9 @@ def get_stats(db_path: str) -> dict[str, Any]:
             row["status"] or "unknown": row["count"]
             for row in conn.execute("SELECT status, COUNT(*) AS count FROM tickets GROUP BY status")
         }
-        total_tickets = conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
-        total_handles = conn.execute("SELECT COUNT(*) FROM handles").fetchone()[0]
-        last_run = conn.execute("SELECT MAX(finished_utc) FROM runs").fetchone()[0]
+        total_tickets = conn.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
+        total_handles = conn.execute("SELECT COUNT(*) AS count FROM handles").fetchone()["count"]
+        last_run = conn.execute("SELECT MAX(finished_utc) AS finished_utc FROM runs").fetchone()["finished_utc"]
     return {
         "total_tickets": total_tickets,
         "total_handles": total_handles,
