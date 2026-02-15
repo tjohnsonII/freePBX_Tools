@@ -42,6 +42,9 @@ def ensure_indexes(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id_handle ON tickets(ticket_id, handle);
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
             CREATE INDEX IF NOT EXISTS idx_tickets_handle_status_updated ON tickets(handle, status, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_status_updated ON tickets(status, updated_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_ticket_id ON tickets(handle, ticket_id);
+            CREATE INDEX IF NOT EXISTS idx_tickets_handle_created_desc ON tickets(handle, created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_handle_created ON scrape_jobs(handle, created_utc DESC);
@@ -95,6 +98,25 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
     params.extend([limit, offset])
     with get_conn(db_path) as conn:
         return [dict(r) for r in conn.execute(summary_query, params).fetchall()]
+
+
+def list_handle_names(db_path: str, q: str = "", limit: int = 500) -> list[str]:
+    query = """
+        SELECT handle FROM (
+            SELECT handle FROM handles
+            UNION
+            SELECT handle FROM tickets
+        ) merged
+    """
+    params: list[Any] = []
+    if q:
+        query += " WHERE merged.handle LIKE ?"
+        params.append(f"%{q}%")
+    query += " ORDER BY merged.handle ASC LIMIT ?"
+    params.append(max(1, min(limit, 5000)))
+    with get_conn(db_path) as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [str(row["handle"]) for row in rows]
 
 
 def list_handles_summary(db_path: str, q: str = "", limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
@@ -207,17 +229,23 @@ def list_tickets(
             like = f"%{q}%"
             params.extend([like, like, like, like])
     if from_utc:
-        where.append("COALESCE(updated_utc, created_utc, opened_utc) >= ?")
-        params.append(from_utc)
+        where.append("(updated_utc >= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) >= ?))")
+        params.extend([from_utc, from_utc])
     if to_utc:
-        where.append("COALESCE(updated_utc, created_utc, opened_utc) <= ?")
-        params.append(to_utc)
+        where.append("(updated_utc <= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) <= ?))")
+        params.extend([to_utc, to_utc])
 
     where_clause = " AND ".join(where)
 
-    order_by = "COALESCE(updated_utc, created_utc, opened_utc) DESC, ticket_id DESC, handle DESC"
+    sort_col = "updated_utc"
+    if sort in {"created_newest", "created_oldest"}:
+        sort_col = "created_utc"
+
+    order_by = f"{sort_col} DESC, ticket_id DESC, handle DESC"
     if sort == "oldest":
-        order_by = "COALESCE(updated_utc, created_utc, opened_utc) ASC, ticket_id ASC, handle ASC"
+        order_by = f"{sort_col} ASC, ticket_id ASC, handle ASC"
+    if sort == "created_oldest":
+        order_by = "created_utc ASC, ticket_id ASC, handle ASC"
 
     page = max(1, page)
     page_size = max(1, min(200, page_size))
@@ -244,6 +272,55 @@ def list_tickets(
         "page": page,
         "pageSize": page_size,
     }
+
+
+def explain_list_tickets_plan(
+    db_path: str,
+    handle: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    from_utc: str | None = None,
+    to_utc: str | None = None,
+    sort: str = "newest",
+) -> list[str]:
+    payload = list_tickets(
+        db_path,
+        handle=handle,
+        status=status,
+        q=q,
+        from_utc=from_utc,
+        to_utc=to_utc,
+        page=1,
+        page_size=10,
+        sort=sort,
+    )
+    del payload
+    where = ["1=1"]
+    params: list[Any] = []
+    if handle:
+        where.append("handle=?")
+        params.append(handle)
+    if status:
+        where.append("status=?")
+        params.append(status)
+    if q:
+        like = f"%{q}%"
+        where.append("(title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
+        params.extend([like, like, like, like])
+    if from_utc:
+        where.append("(updated_utc >= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) >= ?))")
+        params.extend([from_utc, from_utc])
+    if to_utc:
+        where.append("(updated_utc <= ? OR (updated_utc IS NULL AND COALESCE(created_utc, opened_utc) <= ?))")
+        params.extend([to_utc, to_utc])
+    where_clause = " AND ".join(where)
+    order_clause = "updated_utc DESC, ticket_id DESC, handle DESC" if sort != "oldest" else "updated_utc ASC, ticket_id ASC, handle ASC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            f"EXPLAIN QUERY PLAN SELECT * FROM tickets WHERE {where_clause} ORDER BY {order_clause} LIMIT 10",
+            params,
+        ).fetchall()
+    return [" | ".join(str(col) for col in row) for row in rows]
 
 
 def create_scrape_job(
@@ -338,10 +415,14 @@ def get_stats(db_path: str) -> dict[str, Any]:
         }
         total_tickets = conn.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
         total_handles = conn.execute("SELECT COUNT(*) AS count FROM handles").fetchone()["count"]
+        total_runs = conn.execute("SELECT COUNT(*) AS count FROM runs").fetchone()["count"]
+        total_jobs = conn.execute("SELECT COUNT(*) AS count FROM scrape_jobs").fetchone()["count"]
         last_run = conn.execute("SELECT MAX(finished_utc) AS finished_utc FROM runs").fetchone()["finished_utc"]
     return {
         "total_tickets": total_tickets,
         "total_handles": total_handles,
+        "total_runs": total_runs,
+        "total_scrape_jobs": total_jobs,
         "last_run_finished_utc": last_run,
         "counts_by_status": statuses,
     }

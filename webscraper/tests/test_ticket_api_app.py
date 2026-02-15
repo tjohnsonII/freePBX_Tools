@@ -89,3 +89,29 @@ def test_list_tickets_paging_is_stable(tmp_path):
 
     assert [row["ticket_id"] for row in page1["items"]] == ["102", "101"]
     assert [row["ticket_id"] for row in page2["items"]] == ["100"]
+
+
+def test_handles_all_endpoint_returns_strings(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    client = TestClient(appmod.app)
+    response = client.get("/api/handles/all?q=A&limit=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"] == ["ABC"]
+    assert payload["count"] == 1
+
+
+def test_health_includes_db_flags(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    client = TestClient(appmod.app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["db_exists"] is True
+    assert payload["total_tickets"] == 3

@@ -1,5 +1,20 @@
 const BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
 
+export type ApiErrorKind = "network" | "timeout" | "http" | "unknown";
+
+export class ApiRequestError extends Error {
+  kind: ApiErrorKind;
+  status?: number;
+  detail?: string;
+  constructor(message: string, kind: ApiErrorKind, status?: number, detail?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.kind = kind;
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 type ApiOptions = RequestInit & { timeoutMs?: number };
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -21,18 +36,24 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
 
     if (!res.ok) {
       const detail = payload?.detail || payload?.message || text || "Unknown API error";
-      throw new Error(`HTTP ${res.status}: ${detail}`);
+      throw new ApiRequestError(`HTTP ${res.status}: ${detail}`, "http", res.status, detail);
     }
 
     return payload as T;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Request timed out while contacting API");
-    }
-    if (error instanceof Error) {
+    if (error instanceof ApiRequestError) {
       throw error;
     }
-    throw new Error("Unknown fetch error");
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiRequestError("Request timed out while contacting API", "timeout");
+    }
+    if (error instanceof Error && error.message.includes("Failed to fetch")) {
+      throw new ApiRequestError("Failed to fetch API. Check API server and proxy config.", "network", undefined, error.message);
+    }
+    if (error instanceof Error) {
+      throw new ApiRequestError(error.message, "unknown", undefined, error.message);
+    }
+    throw new ApiRequestError("Unknown fetch error", "unknown");
   } finally {
     clearTimeout(timeout);
   }
@@ -48,4 +69,11 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 
 export function artifactLink(path: string): string {
   return `${BASE}/api/artifacts?path=${encodeURIComponent(path)}`;
+}
+
+export function apiBaseInfo(): { browserBase: string; proxyTarget: string } {
+  return {
+    browserBase: BASE || "(same-origin via Next rewrite)",
+    proxyTarget: process.env.NEXT_PUBLIC_TICKET_API_PROXY_TARGET || "http://127.0.0.1:8787",
+  };
 }

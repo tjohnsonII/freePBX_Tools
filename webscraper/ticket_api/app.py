@@ -79,6 +79,11 @@ def _scraper_environment() -> dict[str, str]:
 
 def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> None:
     db_path = get_db_path()
+    final_status = "failed"
+    final_error: str | None = None
+    final_result: dict[str, object] = {"handle": handle, "mode": mode, "limit": limit}
+    progress_completed = 0
+    progress_total = 1
     started_at = _iso_now()
     db.update_scrape_job(
         db_path,
@@ -94,16 +99,8 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
     if not scrape_script.exists():
         error_message = f"Scrape script not found: {scrape_script}"
         _append_job_log(job_id, error_message)
-        db.update_scrape_job(
-            db_path,
-            job_id,
-            status="failed",
-            progress_completed=0,
-            progress_total=1,
-            finished_utc=_iso_now(),
-            error_message=error_message,
-            result={"error": error_message, "handle": handle, "mode": mode, "limit": limit},
-        )
+        final_error = error_message
+        final_result.update({"error": error_message, "errorType": "missing_script"})
         return
 
     command = [
@@ -121,7 +118,9 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
     elif limit:
         command.extend(["--max-tickets", str(limit)])
 
-    _append_job_log(job_id, "Running scraper job.")
+    resolved_command = subprocess.list2cmdline(command)
+    _append_job_log(job_id, f"Running scraper job: {resolved_command}")
+    final_result["command"] = resolved_command
 
     process: subprocess.Popen[str] | None = None
     try:
@@ -154,55 +153,45 @@ def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> N
                 _append_job_log(job_id, "Process did not terminate in time. Killing process.")
                 process.kill()
                 process.wait(timeout=5)
-
-            db.update_scrape_job(
-                db_path,
-                job_id,
-                status="failed",
-                progress_completed=0,
-                progress_total=1,
-                finished_utc=_iso_now(),
-                error_message="scrape timed out",
-                result={"error": "scrape timed out", "handle": handle, "mode": mode, "limit": limit},
-            )
+            final_error = "scrape timed out"
+            final_result.update({"error": "scrape timed out", "errorType": "timeout"})
             return
 
         log_thread.join(timeout=5)
 
         if rc != 0:
-            db.update_scrape_job(
-                db_path,
-                job_id,
-                status="failed",
-                progress_completed=1,
-                progress_total=1,
-                finished_utc=_iso_now(),
-                error_message=f"Scraper exited with code {rc}",
-                result={"exitCode": rc, "handle": handle, "mode": mode, "limit": limit},
+            final_error = f"Scraper exited with code {rc}"
+            final_result.update(
+                {
+                    "exitCode": rc,
+                    "errorType": "subprocess_exit",
+                    "logTail": JOB_LOGS.get(job_id, [])[-50:],
+                }
             )
+            progress_completed = 1
         else:
-            db.update_scrape_job(
-                db_path,
-                job_id,
-                status="completed",
-                progress_completed=1,
-                progress_total=1,
-                finished_utc=_iso_now(),
-                result={"exitCode": rc, "handle": handle, "mode": mode, "limit": limit},
-            )
+            final_status = "completed"
+            final_result.update({"exitCode": rc})
+            progress_completed = 1
     except Exception as exc:  # pragma: no cover
         _append_job_log(job_id, "Unhandled scrape exception.")
         if process is not None and process.poll() is None:
             process.terminate()
+        final_error = str(exc)
+        final_result.update({"error": str(exc), "errorType": "exception"})
+    finally:
+        if final_error and "logTail" not in final_result:
+            with JOB_LOCK:
+                final_result["logTail"] = JOB_LOGS.get(job_id, [])[-50:]
         db.update_scrape_job(
             db_path,
             job_id,
-            status="failed",
-            progress_completed=0,
-            progress_total=1,
+            status=final_status if not final_error else "failed",
+            progress_completed=progress_completed,
+            progress_total=progress_total,
             finished_utc=_iso_now(),
-            error_message=str(exc),
-            result={"error": str(exc), "handle": handle, "mode": mode, "limit": limit},
+            error_message=final_error,
+            result=final_result,
         )
 
 
@@ -215,7 +204,19 @@ def startup() -> None:
 def health() -> dict[str, object]:
     db_path = get_db_path()
     stats_payload = db.get_stats(db_path)
-    return {"status": "ok", "db_path": db_path, **stats_payload}
+    return {
+        "status": "ok",
+        "db_path": db_path,
+        "db_exists": Path(db_path).exists(),
+        "api_version": app.version,
+        **stats_payload,
+    }
+
+
+@app.get("/api/handles/all")
+def api_handles_all(q: str = "", limit: int = 500):
+    handles = db.list_handle_names(get_db_path(), q=q, limit=limit)
+    return {"items": handles, "count": len(handles), "q": q, "limit": limit}
 
 
 @app.get("/api/handles")
