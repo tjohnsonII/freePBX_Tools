@@ -19,6 +19,25 @@ def load_module():
 
 
 class ScrapeAllHandlesCliTests(unittest.TestCase):
+    def _build_args(self, **overrides) -> Namespace:
+        defaults = {
+            "profile_dir": None,
+            "profile_name": None,
+            "rate_limit": None,
+            "max_tickets": None,
+            "auth_profile_only": False,
+            "show": False,
+            "scrape_ticket_details": False,
+            "save_html": False,
+            "save_screenshot": False,
+            "dump_dom_on_fail": False,
+            "resume": False,
+            "phase_logs": False,
+            "child_extra_args": None,
+        }
+        defaults.update(overrides)
+        return Namespace(**defaults)
+
     def test_parse_handles_values_splits_comma_and_whitespace(self) -> None:
         module = load_module()
         handles = module.parse_handles_values(["KPM,WS7 EO5", "  AB1 , CD2\tEF3  "])
@@ -74,6 +93,33 @@ class ScrapeAllHandlesCliTests(unittest.TestCase):
             self.assertIn("KPM", flattened)
             self.assertIn("WS7", flattened)
             self.assertNotIn("EO5", flattened)
+
+    def test_build_scraper_cmd_does_not_include_headless(self) -> None:
+        module = load_module()
+        args = self._build_args()
+
+        cmd = module.build_scraper_cmd(args, ["KPM"], Path("/tmp/out"))
+
+        self.assertNotIn("--headless", cmd)
+        self.assertNotIn("--show", cmd)
+
+    def test_build_scraper_cmd_passes_show_flag_when_requested(self) -> None:
+        module = load_module()
+        args = self._build_args(show=True)
+
+        cmd = module.build_scraper_cmd(args, ["KPM"], Path("/tmp/out"))
+
+        self.assertIn("--show", cmd)
+        self.assertNotIn("--headless", cmd)
+
+    def test_build_scraper_cmd_appends_child_extra_args(self) -> None:
+        module = load_module()
+        extra_args = ["--phase-logs", "--dump-dom-on-fail"]
+        args = self._build_args(child_extra_args=extra_args)
+
+        cmd = module.build_scraper_cmd(args, ["KPM"], Path("/tmp/out"))
+
+        self.assertEqual(cmd[-len(extra_args) :], extra_args)
 
 
 if __name__ == "__main__":
