@@ -44,7 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--child-extra-args",
         nargs=argparse.REMAINDER,
-        help="Raw args appended to the child webscraper command",
+        default=None,
+        help="Additional args appended verbatim to the child scraper command",
     )
     return parser.parse_args()
 
