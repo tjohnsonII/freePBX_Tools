@@ -28,7 +28,7 @@
     },
     {
       "label": "traceroute-visualizer:dev",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -62,7 +62,7 @@
     },
     {
       "label": "traceroute-visualizer:open-browser",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "dependsOn": [
         "traceroute-visualizer:dev"
@@ -84,7 +84,7 @@
     },
     {
       "label": "polycom-yealink-mikrotik:dev",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -118,7 +118,7 @@
     },
     {
       "label": "freepbx-deploy-backend:dev",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -152,7 +152,7 @@
     },
     {
       "label": "CMD Shell (venv)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -170,7 +170,7 @@
     },
     {
       "label": "webscraper:dev",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -191,7 +191,7 @@
     },
     {
       "label": "freepbx-deploy-ui:dev",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -225,7 +225,7 @@
     },
     {
       "label": "freepbx-tools-manager:cli",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -257,7 +257,7 @@
     },
     {
       "label": "webscraper:ticket-api",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -289,7 +289,7 @@
     },
     {
       "label": "webscraper:ticket-db:init",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -308,7 +308,7 @@
     },
     {
       "label": "webscraper:ticket-api (debug)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -340,7 +340,7 @@
     },
     {
       "label": "webscraper:ticket-api (debugpy)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -372,7 +372,7 @@
     },
     {
       "label": "webscraper:ticket-ui",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -404,7 +404,7 @@
     },
     {
       "label": "ticket-ui:dev (debug)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -448,7 +448,7 @@
     },
     {
       "label": "Stop Everything",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -466,7 +466,7 @@
     },
     {
       "label": "webscraper:test all (cmd)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -484,7 +484,7 @@
     },
     {
       "label": "webscraper:test all (cmd) (live cookies)",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -502,7 +502,7 @@
     },
     {
       "label": "webscraper:venv+deps",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -520,7 +520,7 @@
     },
     {
       "label": "webscraper:smoke",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -538,7 +538,7 @@
     },
     {
       "label": "webscraper:smoke test",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -556,7 +556,7 @@
     },
     {
       "label": "webscraper:ultimate --help",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -574,7 +574,7 @@
     },
     {
       "label": "webscraper:legacy --help",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -592,7 +592,7 @@
     },
     {
       "label": "webscraper:chrome debug setup",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
@@ -610,7 +610,7 @@
     },
     {
       "label": "webscraper:cookies live",
-      "type": "shell",
+      "type": "process",
       "command": "cmd.exe",
       "dependsOn": [
         "webscraper:chrome debug setup"
