@@ -52,3 +52,4 @@ def test_ticket_api_db_migrates_legacy_tickets_schema(tmp_path):
     with sqlite3.connect(db_path) as migrated_conn:
         columns = {row[1] for row in migrated_conn.execute("PRAGMA table_info('tickets')").fetchall()}
     assert "opened_utc" in columns
+    assert "raw_row_json" in columns

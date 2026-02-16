@@ -90,7 +90,15 @@ def ensure_indexes(db_path: str) -> None:
         )
 
         tickets_columns = table_columns(conn, "tickets")
-        for expected_column in ["title", "subject", "status", "opened_utc", "created_utc", "updated_utc"]:
+        for expected_column in [
+            "title",
+            "subject",
+            "status",
+            "opened_utc",
+            "created_utc",
+            "updated_utc",
+            "raw_row_json",
+        ]:
             if expected_column not in tickets_columns:
                 conn.execute(f"ALTER TABLE tickets ADD COLUMN {expected_column} TEXT")
 
