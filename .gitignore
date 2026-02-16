@@ -173,12 +173,15 @@ traceroute-visualizer-main/backend/All_Assignments.txt
 # Webscraper runtime output / browser temp profiles
 webscraper/browser/output/
 webscraper/**/edge_tmp_profile/
-<<<<<<< HEAD
+
 
 !webscraper/ticket-ui/package.json
 !webscraper/ticket-ui/tsconfig.json
-=======
+
 webscraper/test-output/
 webscraper/ticket-discovery-output/
 webscraper/**/output/
->>>>>>> ba1696c (Merge .gitignore updates)
+
+# accidental null-file created by bad redirects/tools
+**/$null
+**/\$null
