@@ -29,11 +29,6 @@
         "8787"
       ],
       "justMyCode": false,
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      },
       "preLaunchTask": "webscraper:ticket-db:init"
     },
     {
@@ -59,36 +54,21 @@
         "--port",
         "8002"
       ],
-      "justMyCode": false,
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
+      "justMyCode": false
     },
     {
       "name": "Webscraper Ultimate Scraper (Debug)",
       "type": "debugpy",
       "request": "launch",
       "module": "webscraper.ultimate_scraper",
-      "justMyCode": false,
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
+      "justMyCode": false
     },
     {
       "name": "FreePBX Tools Manager CLI (Debug)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/freepbx_tools_manager.py",
-      "justMyCode": false,
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
+      "justMyCode": false
     },
     {
       "name": "Ticket UI (Next Dev + Edge)",
@@ -135,7 +115,8 @@
         "http://localhost:5175",
         "http://localhost:5174",
         "http://localhost:5173"
-      ]
+      ],
+      "preLaunchTask": "Start Everything + CLI"
     }
   ]
 }

@@ -33,7 +33,7 @@
       "args": [
         "/d",
         "/c",
-        "set PORT=5175 && npm.cmd run dev"
+        "npm.cmd run dev -- --port 5175"
       ],
       "problemMatcher": [
         {
@@ -123,7 +123,7 @@
       "args": [
         "/d",
         "/c",
-        "set \"PYTHON_EXE=py -3\" & if exist .venv\\Scripts\\python.exe set \"PYTHON_EXE=.venv\\Scripts\\python.exe\" & if exist .venv-backend\\Scripts\\python.exe set \"PYTHON_EXE=.venv-backend\\Scripts\\python.exe\" & if exist venv\\Scripts\\python.exe set \"PYTHON_EXE=venv\\Scripts\\python.exe\" & echo cwd: %cd% & %PYTHON_EXE% --version & %PYTHON_EXE% -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
+        "if exist .venv-backend\\Scripts\\python.exe (.venv-backend\\Scripts\\python.exe --version && .venv-backend\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else if exist .venv\\Scripts\\python.exe (.venv\\Scripts\\python.exe --version && .venv\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else if exist venv\\Scripts\\python.exe (venv\\Scripts\\python.exe --version && venv\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else (py -3 --version && py -3 -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002)"
       ],
       "problemMatcher": [
         {
@@ -262,7 +262,7 @@
       "args": [
         "/d",
         "/c",
-        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & %PYTHON_EXE% -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && %PYTHON_EXE% -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && .venv-webscraper\\Scripts\\python.exe -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite) else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite)"
       ],
       "problemMatcher": [
         {
@@ -294,7 +294,7 @@
       "args": [
         "/d",
         "/c",
-        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & %PYTHON_EXE% -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\""
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\") else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\")"
       ],
       "problemMatcher": [],
       "isBackground": false,
@@ -313,7 +313,7 @@
       "args": [
         "/d",
         "/c",
-        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & set \"TICKET_DB=webscraper\\output\\tickets.sqlite\" & %PYTHON_EXE% -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && %PYTHON_EXE% -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && .venv-webscraper\\Scripts\\python.exe -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
       ],
       "problemMatcher": [
         {
@@ -345,7 +345,7 @@
       "args": [
         "/d",
         "/c",
-        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & %PYTHON_EXE% -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
       ],
       "problemMatcher": [
         {
@@ -453,7 +453,7 @@
       "args": [
         "/d",
         "/c",
-        "for %%P in (3000 5173 5174 5175 8002) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
+        "for %%P in (3000 5173 5174 5175 8002 8787) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
