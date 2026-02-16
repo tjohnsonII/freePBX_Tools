@@ -262,7 +262,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && .venv-webscraper\\Scripts\\python.exe -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite) else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite)"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\" && .venv-webscraper\\Scripts\\python.exe -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite) else (py -3 -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\" && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite)"
       ],
       "problemMatcher": [
         {
@@ -294,7 +294,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\") else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\")"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\") else (py -3 -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\")"
       ],
       "problemMatcher": [],
       "isBackground": false,
@@ -313,7 +313,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && .venv-webscraper\\Scripts\\python.exe -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
+        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\" && .venv-webscraper\\Scripts\\python.exe -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -c ^\"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')^\" && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
       ],
       "problemMatcher": [
         {
