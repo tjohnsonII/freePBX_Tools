@@ -33,7 +33,7 @@
       "args": [
         "/d",
         "/c",
-        "npm.cmd run dev"
+        "set PORT=5175 && npm.cmd run dev"
       ],
       "problemMatcher": [
         {
@@ -71,7 +71,7 @@
       "args": [
         "/d",
         "/c",
-        "for %%U in (http://localhost:5174 http://localhost:3000 http://localhost:5173) do start \"\" \"%%U\""
+        "for %%U in (http://localhost:5174 http://localhost:5175 http://localhost:5173) do start \"\" \"%%U\""
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
@@ -434,7 +434,7 @@
       "args": [
         "/d",
         "/c",
-        "for %%P in (3000 5173 5174 8002) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
+        "for %%P in (3000 5173 5174 5175 8002) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },

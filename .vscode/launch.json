@@ -5,13 +5,10 @@
       "name": "Start Everything + CLI (F5)",
       "configurations": [
         "Ticket API (Debug)",
-        "Ticket UI (Next Dev + Edge)",
-        "Traceroute Visualizer (Next Dev + Edge)",
-        "FreePBX Deploy UI (Vite + Edge)",
-        "Polycom Yealink App (Vite + Edge)",
         "FreePBX Deploy Backend (Debug)",
         "FreePBX Tools Manager CLI (Debug)",
-        "Webscraper Ultimate Scraper (Debug)"
+        "Webscraper Ultimate Scraper (Debug)",
+        "Edge: All UIs (tabs)"
       ],
       "presentation": {
         "order": 1
@@ -21,7 +18,7 @@
   "configurations": [
     {
       "name": "Ticket API (Debug)",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
@@ -41,7 +38,7 @@
     },
     {
       "name": "Ticket API (Attach - debugpy)",
-      "type": "python",
+      "type": "debugpy",
       "request": "attach",
       "connect": {
         "host": "127.0.0.1",
@@ -57,7 +54,7 @@
     },
     {
       "name": "FreePBX Deploy Backend (Debug)",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
@@ -76,7 +73,7 @@
     },
     {
       "name": "Webscraper Ultimate Scraper (Debug)",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "webscraper.ultimate_scraper",
       "justMyCode": false,
@@ -88,7 +85,7 @@
     },
     {
       "name": "FreePBX Tools Manager CLI (Debug)",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/freepbx_tools_manager.py",
       "justMyCode": false,
@@ -100,7 +97,7 @@
     },
     {
       "name": "Ticket UI (Next Dev + Edge)",
-      "type": "pwa-msedge",
+      "type": "msedge",
       "request": "launch",
       "url": "http://localhost:3000",
       "webRoot": "${workspaceFolder}/webscraper/ticket-ui",
@@ -108,15 +105,15 @@
     },
     {
       "name": "Traceroute Visualizer (Next Dev + Edge)",
-      "type": "pwa-msedge",
+      "type": "msedge",
       "request": "launch",
-      "url": "http://localhost:3000",
+      "url": "http://localhost:5175",
       "webRoot": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main",
       "preLaunchTask": "traceroute-visualizer:dev"
     },
     {
       "name": "FreePBX Deploy UI (Vite + Edge)",
-      "type": "pwa-msedge",
+      "type": "msedge",
       "request": "launch",
       "url": "http://localhost:5174",
       "webRoot": "${workspaceFolder}/freepbx-deploy-ui",
@@ -124,11 +121,24 @@
     },
     {
       "name": "Polycom Yealink App (Vite + Edge)",
-      "type": "pwa-msedge",
+      "type": "msedge",
       "request": "launch",
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main",
       "preLaunchTask": "polycom-yealink-mikrotik:dev"
+    },
+    {
+      "name": "Edge: All UIs (tabs)",
+      "type": "msedge",
+      "request": "launch",
+      "runtimeArgs": [
+        "--user-data-dir=${workspaceFolder}/.vscode/.edge-profile",
+        "http://localhost:3000",
+        "http://localhost:5175",
+        "http://localhost:5174",
+        "http://localhost:5173"
+      ],
+      "reAttach": true
     }
   ]
 }
