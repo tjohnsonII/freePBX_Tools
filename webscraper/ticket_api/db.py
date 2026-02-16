@@ -14,6 +14,23 @@ def get_conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
+    return {str(row["name"]) for row in rows}
+
+
+def has_column(conn: sqlite3.Connection, table: str, col: str) -> bool:
+    return col in table_columns(conn, table)
+
+
+def build_last_activity_expr(cols: set[str]) -> str:
+    priority_columns = ["updated_utc", "created_utc", "opened_utc"]
+    qualified = [f"t.{column}" for column in priority_columns if column in cols]
+    if not qualified:
+        return "MAX(NULL)"
+    return f"MAX(COALESCE({', '.join(qualified)}))"
+
+
 def ensure_indexes(db_path: str) -> None:
     with get_conn(db_path) as conn:
         conn.executescript(
@@ -69,7 +86,16 @@ def ensure_indexes(db_path: str) -> None:
                 result_json TEXT,
                 created_utc TEXT NOT NULL
             );
+            """
+        )
 
+        tickets_columns = table_columns(conn, "tickets")
+        for expected_column in ["title", "subject", "status", "opened_utc", "created_utc", "updated_utc"]:
+            if expected_column not in tickets_columns:
+                conn.execute(f"ALTER TABLE tickets ADD COLUMN {expected_column} TEXT")
+
+        conn.executescript(
+            """
             CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
             CREATE INDEX IF NOT EXISTS idx_handles_status ON handles(last_status);
             CREATE INDEX IF NOT EXISTS idx_handles_handle ON handles(handle);
@@ -85,6 +111,7 @@ def ensure_indexes(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_scrape_jobs_handle_created ON scrape_jobs(handle, created_utc DESC);
             """
         )
+
         try:
             conn.execute(
                 """
@@ -99,7 +126,11 @@ def ensure_indexes(db_path: str) -> None:
 
 
 def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
-    summary_query = """
+    with get_conn(db_path) as conn:
+        tickets_columns = table_columns(conn, "tickets")
+        last_ticket_expr = build_last_activity_expr(tickets_columns)
+
+        summary_query = f"""
         WITH all_handles AS (
             SELECT handle FROM handles
             UNION
@@ -110,7 +141,7 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
                 t.handle,
                 COUNT(*) AS tickets_count,
                 SUM(CASE WHEN LOWER(COALESCE(t.status, '')) = 'open' THEN 1 ELSE 0 END) AS open_count,
-                MAX(COALESCE(t.updated_utc, t.created_utc, t.opened_utc)) AS last_ticket_at
+                {last_ticket_expr} AS last_ticket_at
             FROM tickets t
             GROUP BY t.handle
         )
@@ -125,13 +156,12 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
         LEFT JOIN handles h ON h.handle = ah.handle
         LEFT JOIN ticket_summary ts ON ts.handle = ah.handle
     """
-    params: list[Any] = []
-    if q:
-        summary_query += " WHERE ah.handle LIKE ?"
-        params.append(f"%{q}%")
-    summary_query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
-    with get_conn(db_path) as conn:
+        params: list[Any] = []
+        if q:
+            summary_query += " WHERE ah.handle LIKE ?"
+            params.append(f"%{q}%")
+        summary_query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         return [dict(r) for r in conn.execute(summary_query, params).fetchall()]
 
 
@@ -155,7 +185,11 @@ def list_handle_names(db_path: str, q: str = "", limit: int = 500) -> list[str]:
 
 
 def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
-    query = """
+    with get_conn(db_path) as conn:
+        tickets_columns = table_columns(conn, "tickets")
+        last_activity_expr = build_last_activity_expr(tickets_columns)
+
+        query = f"""
         WITH all_handles AS (
             SELECT handle FROM handles
             UNION
@@ -166,7 +200,7 @@ def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: in
                 t.handle,
                 COUNT(*) AS ticket_count,
                 SUM(CASE WHEN LOWER(COALESCE(t.status, '')) = 'open' THEN 1 ELSE 0 END) AS open_count,
-                MAX(COALESCE(t.updated_utc, t.created_utc, t.opened_utc)) AS updated_latest_utc
+                {last_activity_expr} AS updated_latest_utc
             FROM tickets t
             GROUP BY t.handle
         )
@@ -180,13 +214,12 @@ def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: in
         LEFT JOIN handles h ON h.handle = ah.handle
         LEFT JOIN ticket_summary ts ON ts.handle = ah.handle
     """
-    params: list[Any] = []
-    if q:
-        query += " WHERE ah.handle LIKE ?"
-        params.append(f"%{q}%")
-    query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
-    params.extend([max(1, min(limit, 5000)), max(offset, 0)])
-    with get_conn(db_path) as conn:
+        params: list[Any] = []
+        if q:
+            query += " WHERE ah.handle LIKE ?"
+            params.append(f"%{q}%")
+        query += " ORDER BY ah.handle LIMIT ? OFFSET ?"
+        params.extend([max(1, min(limit, 5000)), max(offset, 0)])
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
@@ -447,6 +480,8 @@ def get_artifacts(db_path: str, ticket_id: str, handle: str) -> list[dict[str, A
 
 def get_stats(db_path: str) -> dict[str, Any]:
     with get_conn(db_path) as conn:
+        tickets_columns = table_columns(conn, "tickets")
+        last_activity_expr = build_last_activity_expr(tickets_columns)
         statuses = {
             row["status"] or "unknown": row["count"]
             for row in conn.execute("SELECT status, COUNT(*) AS count FROM tickets GROUP BY status")
@@ -460,9 +495,7 @@ def get_stats(db_path: str) -> dict[str, Any]:
             total_artifacts = conn.execute("SELECT COUNT(*) AS count FROM ticket_artifacts").fetchone()["count"]
         except sqlite3.OperationalError:
             total_artifacts = 0
-        last_updated = conn.execute(
-            "SELECT MAX(COALESCE(updated_utc, created_utc, opened_utc)) AS updated_utc FROM tickets"
-        ).fetchone()["updated_utc"]
+        last_updated = conn.execute(f"SELECT {last_activity_expr} AS updated_utc FROM tickets t").fetchone()["updated_utc"]
     return {
         "total_tickets": total_tickets,
         "total_handles": total_handles,
