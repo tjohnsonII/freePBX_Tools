@@ -1,5 +1,23 @@
 {
   "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Start Everything + CLI (F5)",
+      "configurations": [
+        "Ticket API (Debug)",
+        "Ticket UI (Next Dev + Edge)",
+        "Traceroute Visualizer (Next Dev + Edge)",
+        "FreePBX Deploy UI (Vite + Edge)",
+        "Polycom Yealink App (Vite + Edge)",
+        "FreePBX Deploy Backend (Debug)",
+        "FreePBX Tools Manager CLI (Debug)",
+        "Webscraper Ultimate Scraper (Debug)"
+      ],
+      "presentation": {
+        "order": 1
+      }
+    }
+  ],
   "configurations": [
     {
       "name": "Ticket API (Debug)",
