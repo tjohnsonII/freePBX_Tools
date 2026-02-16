@@ -45,11 +45,6 @@
         "port": 5678
       },
       "justMyCode": false,
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      },
       "preLaunchTask": "webscraper:ticket-api (debugpy)"
     },
     {
