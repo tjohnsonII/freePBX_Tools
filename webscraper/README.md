@@ -324,3 +324,42 @@ npm run dev:local-api:ps
 - Verify API ticket results for a handle:
   - `curl "http://127.0.0.1:8787/api/handles/<HANDLE>/tickets?page=1&pageSize=20"`
 
+## Ticket stack quickstart (Windows)
+
+Use the repo-root helper scripts for end-to-end validation (DB -> API -> UI -> scrape job -> job status).
+
+### One-command PowerShell flow
+
+From repo root:
+
+```powershell
+cd E:\DevTools\freepbx-tools
+.\scripts\test_ticket_stack.ps1
+```
+
+This script will:
+- ensure DB indexes (`webscraper.ticket_api.db.ensure_indexes`),
+- start API on `127.0.0.1:8787`,
+- start Next.js UI with `TICKET_API_PROXY_TARGET=http://127.0.0.1:8787`,
+- run `curl.exe` smoke tests,
+- submit `POST /api/scrape` with valid JSON and poll `/api/scrape/{jobId}`.
+
+### One-command CMD flow
+
+```cmd
+scripts\test_ticket_stack.cmd
+```
+
+Smoke-only mode (assumes API/UI already running):
+
+```cmd
+scripts\test_ticket_stack.cmd --smoke-only
+```
+
+### Reliable POST /api/scrape command generation
+
+```powershell
+python scripts\print_scrape_curl.py --handle KPM --mode latest --limit 5
+```
+
+This prints a Windows-safe `curl.exe` command with correctly escaped JSON payload.
