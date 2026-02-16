@@ -131,14 +131,16 @@
       "name": "Edge: All UIs (tabs)",
       "type": "msedge",
       "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}",
+      "userDataDir": "${workspaceFolder}/.vscode/.edge-profile",
       "runtimeArgs": [
-        "--user-data-dir=${workspaceFolder}/.vscode/.edge-profile",
+        "--new-window",
         "http://localhost:3000",
         "http://localhost:5175",
         "http://localhost:5174",
         "http://localhost:5173"
-      ],
-      "reAttach": true
+      ]
     }
   ]
 }
