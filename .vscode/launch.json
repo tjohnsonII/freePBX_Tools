@@ -34,7 +34,7 @@
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       },
-      "preLaunchTask": "webscraper:ticket-api (debug)"
+      "preLaunchTask": "webscraper:ticket-db:init"
     },
     {
       "name": "Ticket API (Attach - debugpy)",

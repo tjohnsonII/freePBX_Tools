@@ -288,6 +288,25 @@
       }
     },
     {
+      "label": "webscraper:ticket-db:init",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & %PYTHON_EXE% -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\""
+      ],
+      "problemMatcher": [],
+      "isBackground": false,
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "webscraper-api-debug",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
       "label": "webscraper:ticket-api (debug)",
       "type": "shell",
       "command": "cmd.exe",
