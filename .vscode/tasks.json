@@ -288,6 +288,70 @@
       }
     },
     {
+      "label": "webscraper:ticket-api (debug)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & set \"TICKET_DB=webscraper\\output\\tickets.sqlite\" & %PYTHON_EXE% -c \"from webscraper.ticket_api import db; db.ensure_indexes(r'webscraper/output/tickets.sqlite')\" && %PYTHON_EXE% -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "INFO:\\s+Started server process",
+            "endsPattern": "INFO:\\s+Uvicorn running on"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "webscraper-api-debug",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
+      "label": "webscraper:ticket-api (debugpy)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PYTHON_EXE=py -3\" & if exist .venv-webscraper\\Scripts\\python.exe set \"PYTHON_EXE=.venv-webscraper\\Scripts\\python.exe\" & %PYTHON_EXE% -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "debugpy",
+            "endsPattern": "Waiting for client"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "webscraper-api-debug",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
       "label": "webscraper:ticket-ui",
       "type": "shell",
       "command": "cmd.exe",
@@ -315,6 +379,38 @@
       "presentation": {
         "panel": "dedicated",
         "group": "webscraper-ui",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
+      "label": "ticket-ui:dev (debug)",
+      "type": "shell",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787&& npm.cmd run dev"
+      ],
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "▲ Next\\.js",
+            "endsPattern": "Ready in"
+          }
+        }
+      ],
+      "isBackground": true,
+      "options": { "cwd": "${workspaceFolder}/webscraper/ticket-ui" },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "webscraper-ui-debug",
         "reveal": "always",
         "clear": false
       }

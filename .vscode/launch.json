@@ -1,0 +1,116 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Ticket API (Debug)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "webscraper.ticket_api.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8787"
+      ],
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "preLaunchTask": "webscraper:ticket-api (debug)"
+    },
+    {
+      "name": "Ticket API (Attach - debugpy)",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "preLaunchTask": "webscraper:ticket-api (debugpy)"
+    },
+    {
+      "name": "FreePBX Deploy Backend (Debug)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "freepbx_deploy_backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8002"
+      ],
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Webscraper Ultimate Scraper (Debug)",
+      "type": "python",
+      "request": "launch",
+      "module": "webscraper.ultimate_scraper",
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "FreePBX Tools Manager CLI (Debug)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/freepbx_tools_manager.py",
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Ticket UI (Next Dev + Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/webscraper/ticket-ui",
+      "preLaunchTask": "ticket-ui:dev (debug)"
+    },
+    {
+      "name": "Traceroute Visualizer (Next Dev + Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main",
+      "preLaunchTask": "traceroute-visualizer:dev"
+    },
+    {
+      "name": "FreePBX Deploy UI (Vite + Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:5174",
+      "webRoot": "${workspaceFolder}/freepbx-deploy-ui",
+      "preLaunchTask": "freepbx-deploy-ui:dev"
+    },
+    {
+      "name": "Polycom Yealink App (Vite + Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main",
+      "preLaunchTask": "polycom-yealink-mikrotik:dev"
+    }
+  ]
+}
