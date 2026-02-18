@@ -81,7 +81,7 @@ set "SERVICE_DIR=%~2"
 set "SERVICE_CMD=%~3"
 
 if not exist "%SERVICE_DIR%\" (
-  echo [WARN] %SERVICE_LABEL% directory not found: "%SERVICE_DIR%". Skipping.
+  echo [WARN] !SERVICE_LABEL! directory not found: "%SERVICE_DIR%". Skipping.
   exit /b 0
 )
 
@@ -91,9 +91,9 @@ echo         Cmd: %SERVICE_CMD%
 start "" cmd /k "cd /d \"%SERVICE_DIR%\" && %SERVICE_CMD%"
 if errorlevel 1 (
   set "LAUNCH_FAILED=1"
-  echo [ERROR] Failed to launch %SERVICE_LABEL% window.
+  echo [ERROR] Failed to launch !SERVICE_LABEL! window.
 ) else (
-  echo [OK] Launched %SERVICE_LABEL%.
+  echo [OK] Launched !SERVICE_LABEL!.
 )
 echo.
 exit /b 0
