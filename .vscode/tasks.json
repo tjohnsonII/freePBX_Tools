@@ -262,7 +262,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe webscraper\\ticket_api\\db_init.py && .venv-webscraper\\Scripts\\python.exe -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite) else (py -3 webscraper\\ticket_api\\db_init.py && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite)"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\ticket_api\\db_init.py\" && call \".venv-webscraper\\Scripts\\python.exe\" -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db \".\\webscraper\\output\\tickets.sqlite\") else (py -3 \".\\webscraper\\ticket_api\\db_init.py\" && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db \".\\webscraper\\output\\tickets.sqlite\")"
       ],
       "problemMatcher": [
         {
@@ -294,7 +294,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (\".venv-webscraper\\Scripts\\python.exe\" webscraper\\ticket_api\\db_init.py) else (py -3 webscraper\\ticket_api\\db_init.py)"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\ticket_api\\db_init.py\") else (py -3 \".\\webscraper\\ticket_api\\db_init.py\")"
       ],
       "problemMatcher": [],
       "isBackground": false,
@@ -313,7 +313,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe webscraper\\ticket_api\\db_init.py && .venv-webscraper\\Scripts\\python.exe -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 webscraper\\ticket_api\\db_init.py && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\ticket_api\\db_init.py\" && call \".venv-webscraper\\Scripts\\python.exe\" -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 \".\\webscraper\\ticket_api\\db_init.py\" && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
       ],
       "problemMatcher": [
         {
@@ -345,7 +345,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
       ],
       "problemMatcher": [
         {
@@ -507,7 +507,7 @@
       "args": [
         "/d",
         "/c",
-        "if not exist .venv-webscraper (py -3.12 -m venv .venv-webscraper) && .venv-webscraper\\Scripts\\python.exe -m pip install -U pip && .venv-webscraper\\Scripts\\pip.exe install -r webscraper\\requirements.txt"
+        "if not exist .venv-webscraper (py -3.12 -m venv .venv-webscraper) && if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" -m pip install -U pip && call \".venv-webscraper\\Scripts\\python.exe\" -m pip install -r \".\\webscraper\\requirements.txt\") else (py -3 -m pip install -U pip && py -3 -m pip install -r \".\\webscraper\\requirements.txt\")"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
@@ -579,7 +579,7 @@
       "args": [
         "/d",
         "/c",
-        ".venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\ticket_scraper.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\scrape_vpbx_tables.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\extract_browser_cookies.py --help"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\legacy\\ticket_scraper.py\" --help && call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\legacy\\scrape_vpbx_tables.py\" --help && call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\legacy\\extract_browser_cookies.py\" --help) else (py -3 \".\\webscraper\\legacy\\ticket_scraper.py\" --help && py -3 \".\\webscraper\\legacy\\scrape_vpbx_tables.py\" --help && py -3 \".\\webscraper\\legacy\\extract_browser_cookies.py\" --help)"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
@@ -619,7 +619,7 @@
       "args": [
         "/d",
         "/c",
-        ".venv-webscraper\\Scripts\\python.exe webscraper\\chrome_cookies_live.py"
+        "if exist \".venv-webscraper\\Scripts\\python.exe\" (call \".venv-webscraper\\Scripts\\python.exe\" \".\\webscraper\\chrome_cookies_live.py\") else (py -3 \".\\webscraper\\chrome_cookies_live.py\")"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
