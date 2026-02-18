@@ -4,23 +4,11 @@
     {
       "name": "Attach: All Services",
       "configurations": [
-        "Attach: traceroute-visualizer (9230)",
-        "Attach: freepbx-deploy-backend (9231)",
-        "Attach: freepbx-deploy-ui (9232)",
-        "Attach: PolycomYealinkMikrotikSwitchConfig (9233)"
-      ],
-      "presentation": {
-        "order": 1
-      }
-    },
-    {
-      "name": "Start Everything + CLI (F5)",
-      "configurations": [
-        "Ticket API (Debug)",
-        "FreePBX Deploy Backend (Debug)",
-        "FreePBX Tools Manager CLI (Debug)",
-        "Webscraper Ultimate Scraper (Debug)",
-        "Edge: All UIs (tabs)"
+        "Attach: traceroute (9230)",
+        "Attach: deploy-ui (9232)",
+        "Attach: polycom (9233)",
+        "Attach: deploy-backend (5678)",
+        "Attach: webscraper (5679)"
       ],
       "presentation": {
         "order": 1
@@ -29,109 +17,7 @@
   ],
   "configurations": [
     {
-      "name": "Ticket API (Debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": [
-        "webscraper.ticket_api.app:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8787"
-      ],
-      "justMyCode": false,
-      "preLaunchTask": "webscraper:ticket-db:init"
-    },
-    {
-      "name": "Ticket API (Attach - debugpy)",
-      "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "127.0.0.1",
-        "port": 5678
-      },
-      "justMyCode": false,
-      "preLaunchTask": "webscraper:ticket-api (debugpy)"
-    },
-    {
-      "name": "FreePBX Deploy Backend (Debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": [
-        "freepbx_deploy_backend.main:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8002"
-      ],
-      "justMyCode": false
-    },
-    {
-      "name": "Webscraper Ultimate Scraper (Debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "webscraper.ultimate_scraper",
-      "justMyCode": false
-    },
-    {
-      "name": "FreePBX Tools Manager CLI (Debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/freepbx_tools_manager.py",
-      "justMyCode": false
-    },
-    {
-      "name": "Ticket UI (Next Dev + Edge)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}/webscraper/ticket-ui",
-      "preLaunchTask": "ticket-ui:dev (debug)"
-    },
-    {
-      "name": "Traceroute Visualizer (Next Dev + Edge)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:5175",
-      "webRoot": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main",
-      "preLaunchTask": "traceroute-visualizer:dev"
-    },
-    {
-      "name": "FreePBX Deploy UI (Vite + Edge)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:5174",
-      "webRoot": "${workspaceFolder}/freepbx-deploy-ui",
-      "preLaunchTask": "freepbx-deploy-ui:dev"
-    },
-    {
-      "name": "Polycom Yealink App (Vite + Edge)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main",
-      "preLaunchTask": "polycom-yealink-mikrotik:dev"
-    },
-    {
-      "name": "Edge: All UIs (tabs)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}",
-      "userDataDir": "${workspaceFolder}/.vscode/.edge-profile",
-      "runtimeArgs": [
-        "--new-window",
-        "http://localhost:3000",
-        "http://localhost:5175",
-        "http://localhost:5174",
-        "http://localhost:5173"
-      ],
-      "preLaunchTask": "Start Everything + CLI"
-    },
-    {
-      "name": "Attach: traceroute-visualizer (9230)",
+      "name": "Attach: traceroute (9230)",
       "type": "node",
       "request": "attach",
       "port": 9230,
@@ -142,18 +28,7 @@
       ]
     },
     {
-      "name": "Attach: freepbx-deploy-backend (9231)",
-      "type": "node",
-      "request": "attach",
-      "port": 9231,
-      "restart": true,
-      "timeout": 30000,
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
-    },
-    {
-      "name": "Attach: freepbx-deploy-ui (9232)",
+      "name": "Attach: deploy-ui (9232)",
       "type": "node",
       "request": "attach",
       "port": 9232,
@@ -164,7 +39,7 @@
       ]
     },
     {
-      "name": "Attach: PolycomYealinkMikrotikSwitchConfig (9233)",
+      "name": "Attach: polycom (9233)",
       "type": "node",
       "request": "attach",
       "port": 9233,
@@ -173,6 +48,26 @@
       "skipFiles": [
         "<node_internals>/**"
       ]
+    },
+    {
+      "name": "Attach: deploy-backend (5678)",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "justMyCode": false
+    },
+    {
+      "name": "Attach: webscraper (5679)",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5679
+      },
+      "justMyCode": false
     }
   ]
 }

@@ -1,31 +1,16 @@
-// NOTE: VSCode tasks.json does not provide a native compound task that terminates
-// all running terminals/tasks; use the explicit Stop Everything/Stop All tasks below.
 {
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "kill: inspector ports",
+      "label": "dev: traceroute (inspect 9230)",
       "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
         "/c",
-        "for %P in (9230 9231 9232 9233 9234) do @for /f \"tokens=5\" %a in ('netstat -ano ^| findstr /r /c:\":%P .*LISTENING\"') do @taskkill /F /PID %a >nul 2>&1"
+        "set NODE_OPTIONS=--inspect=9230 && npm.cmd run dev"
       ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "dev: traceroute-visualizer (inspect 9230)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "node --inspect=9230 node_modules\\next\\dist\\bin\\next dev --port 5175"
-      ],
+      "isBackground": true,
       "problemMatcher": [
         {
           "pattern": [
@@ -40,48 +25,20 @@
           }
         }
       ],
-      "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
       }
     },
     {
-      "label": "dev: freepbx-deploy-backend (inspect 9231)",
+      "label": "dev: deploy-ui (inspect 9232)",
       "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
         "/c",
-        "set NODE_OPTIONS=--inspect=9231 && call ..\\scripts\\run_py.bat .venv-backend -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "INFO:\\s+Started server process",
-            "endsPattern": "INFO:\\s+Uvicorn running on"
-          }
-        }
+        "set NODE_OPTIONS=--inspect=9232 && npm.cmd run dev"
       ],
       "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-backend"
-      }
-    },
-    {
-      "label": "dev: freepbx-deploy-ui (inspect 9232)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "set NODE_OPTIONS=--inspect=9232 && npm.cmd run dev -- --port 5174"
-      ],
       "problemMatcher": [
         {
           "pattern": [
@@ -96,20 +53,20 @@
           }
         }
       ],
-      "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/freepbx-deploy-ui"
       }
     },
     {
-      "label": "dev: PolycomYealinkMikrotikSwitchConfig app (inspect 9233)",
+      "label": "dev: polycom app (inspect 9233)",
       "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
         "/c",
-        "set NODE_OPTIONS=--inspect=9233 && npm.cmd run dev -- --port 5173"
+        "set NODE_OPTIONS=--inspect=9233 && npm.cmd run dev"
       ],
+      "isBackground": true,
       "problemMatcher": [
         {
           "pattern": [
@@ -124,18 +81,88 @@
           }
         }
       ],
-      "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
       }
     },
     {
+      "label": "dev: deploy-backend (debugpy 5678)",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call \"${workspaceFolder}\\scripts\\run_py.bat\" .venv-backend -m debugpy --listen 5678 --wait-for-client -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "0\\.",
+            "endsPattern": "Waiting for client"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/freepbx-deploy-backend"
+      }
+    },
+    {
+      "label": "dev: webscraper (debugpy 5679)",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call scripts\\run_py.bat .venv-webscraper -m debugpy --listen 5679 --wait-for-client webscraper\\dev_server.py"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "0\\.",
+            "endsPattern": "Waiting for client"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "kill: debug ports",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "for %P in (9230 9232 9233 5678 5679) do @for /f \"tokens=5\" %a in ('netstat -ano ^| findstr /r /c:\":%P .*LISTENING\"') do @taskkill /F /PID %a >nul 2>&1"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
       "label": "start: all debug",
       "dependsOn": [
-        "dev: traceroute-visualizer (inspect 9230)",
-        "dev: freepbx-deploy-backend (inspect 9231)",
-        "dev: freepbx-deploy-ui (inspect 9232)",
-        "dev: PolycomYealinkMikrotikSwitchConfig app (inspect 9233)"
+        "dev: traceroute (inspect 9230)",
+        "dev: deploy-ui (inspect 9232)",
+        "dev: polycom app (inspect 9233)",
+        "dev: deploy-backend (debugpy 5678)",
+        "dev: webscraper (debugpy 5679)"
       ],
       "dependsOrder": "parallel",
       "problemMatcher": []
@@ -143,633 +170,11 @@
     {
       "label": "Start Everything (Debug Mode)",
       "dependsOn": [
-        "kill: inspector ports",
+        "kill: debug ports",
         "start: all debug"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
-    },
-    {
-      "label": "Start Everything + CLI",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "scripts\\start_everything.bat"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "traceroute-visualizer:dev",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "npm.cmd run dev -- --port 5175"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "▲ Next\\.js",
-            "endsPattern": "Ready in"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "traceroute-visualizer:open-browser",
-      "type": "process",
-      "command": "cmd.exe",
-      "dependsOn": [
-        "traceroute-visualizer:dev"
-      ],
-      "dependsOrder": "sequence",
-      "args": [
-        "/d",
-        "/c",
-        "for %%U in (http://localhost:5174 http://localhost:5175 http://localhost:5173) do start \"\" \"%%U\""
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "polycom-yealink-mikrotik:dev",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "npm.cmd run dev -- --port 5173"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "freepbx-deploy-backend:dev",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call ..\\scripts\\run_py.bat .venv-backend -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "INFO:\\s+Started server process",
-            "endsPattern": "INFO:\\s+Uvicorn running on"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-backend"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "CMD Shell (venv)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/k",
-        "if exist .venv-webscraper\\Scripts\\activate.bat (call .venv-webscraper\\Scripts\\activate.bat) else (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first.)"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:dev",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\run_py.bat .venv-webscraper -m webscraper.ultimate_scraper"
-      ],
-      "problemMatcher": [],
-      "isBackground": false,
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "freepbx-deploy-ui:dev",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "npm.cmd run dev -- --port 5174"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-ui"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "freepbx-tools-manager:cli",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "py -3 freepbx_tools_manager.py"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "M A N A G E R",
-            "endsPattern": "Main Menu:"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ticket-api",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\db_init.bat && call scripts\\run_py.bat .venv-webscraper -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "INFO:\\s+Started server process",
-            "endsPattern": "INFO:\\s+Uvicorn running on"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-api",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ticket-db:init",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "scripts\\db_init.bat"
-      ],
-      "problemMatcher": [],
-      "isBackground": false,
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-api-debug",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ticket-api (debug)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\db_init.bat && call scripts\\run_py.bat .venv-webscraper -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "INFO:\\s+Started server process",
-            "endsPattern": "INFO:\\s+Uvicorn running on"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-api-debug",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ticket-api (debugpy)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\run_py.bat .venv-webscraper -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "debugpy",
-            "endsPattern": "Waiting for client"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-api-debug",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ticket-ui",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787&& npm.cmd run dev"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "▲ Next\\.js",
-            "endsPattern": "Ready in"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}/webscraper/ticket-ui" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-ui",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "ticket-ui:dev (debug)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "set TICKET_API_PROXY_TARGET=http://127.0.0.1:8787&& npm.cmd run dev"
-      ],
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "▲ Next\\.js",
-            "endsPattern": "Ready in"
-          }
-        }
-      ],
-      "isBackground": true,
-      "options": { "cwd": "${workspaceFolder}/webscraper/ticket-ui" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-ui-debug",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "Stop All",
-      "dependsOn": ["Stop Everything"],
-      "dependsOrder": "parallel",
-      "problemMatcher": [],
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "Stop Everything",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "for %%P in (3000 5173 5174 5175 8002 8787) do for /f \"tokens=5\" %%A in ('netstat -ano ^| findstr /R /C:\":%%P \" ^| findstr LISTENING') do taskkill /F /PID %%A >NUL 2>&1 & for /f \"tokens=2 delims==;\" %%A in ('wmic process where \"CommandLine like '%%freepbx_tools_manager.py%%'\" get ProcessId /value ^| find \"ProcessId\"') do taskkill /F /PID %%A >NUL 2>&1"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:test all (cmd)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\test_webscraper_cmd.bat"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:test all (cmd) (live cookies)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "set WEBSCRAPER_LIVE_COOKIES=1 && call scripts\\test_webscraper_cmd.bat"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:venv+deps",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "if not exist .venv-webscraper (py -3.12 -m venv .venv-webscraper) && .venv-webscraper\\Scripts\\python.exe -m pip install -U pip && .venv-webscraper\\Scripts\\pip.exe install -r webscraper\\requirements.txt"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:smoke",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\run_py.bat .venv-webscraper -m webscraper.smoke_test"
-      ],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": [],
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:smoke test",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\test_ticket_stack.cmd --smoke-only"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "webscraper-smoke",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:ultimate --help",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call scripts\\run_py.bat .venv-webscraper -m webscraper.ultimate_scraper --help"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:legacy --help",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        ".venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\ticket_scraper.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\scrape_vpbx_tables.py --help && .venv-webscraper\\Scripts\\python.exe webscraper\\legacy\\extract_browser_cookies.py --help"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:chrome debug setup",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call webscraper\\chrome_debug_setup.bat"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "webscraper:cookies live",
-      "type": "process",
-      "command": "cmd.exe",
-      "dependsOn": [
-        "webscraper:chrome debug setup"
-      ],
-      "dependsOrder": "sequence",
-      "args": [
-        "/d",
-        "/c",
-        ".venv-webscraper\\Scripts\\python.exe webscraper\\chrome_cookies_live.py"
-      ],
-      "problemMatcher": [],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "dev",
-        "reveal": "always",
-        "clear": false
-      }
     }
   ]
 }
