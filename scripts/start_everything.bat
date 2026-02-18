@@ -88,7 +88,7 @@ if not exist "%SERVICE_DIR%\" (
 echo [START] %SERVICE_LABEL%
 echo         Dir: %SERVICE_DIR%
 echo         Cmd: %SERVICE_CMD%
-start "" cmd /k "pushd \"%SERVICE_DIR%\" ^&^& echo [RUNNING] %SERVICE_LABEL% ^&^& %SERVICE_CMD% ^& popd"
+start "" cmd /k "cd /d \"%SERVICE_DIR%\" && %SERVICE_CMD%"
 if errorlevel 1 (
   set "LAUNCH_FAILED=1"
   echo [ERROR] Failed to launch %SERVICE_LABEL% window.
