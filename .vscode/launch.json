@@ -4,10 +4,10 @@
     {
       "name": "Attach: All Services",
       "configurations": [
-        "Attach: traceroute visualizer",
-        "Attach: deploy-backend",
-        "Attach: deploy-ui",
-        "Attach: polycom app"
+        "Attach: traceroute-visualizer (9230)",
+        "Attach: freepbx-deploy-backend (9231)",
+        "Attach: freepbx-deploy-ui (9232)",
+        "Attach: PolycomYealinkMikrotikSwitchConfig (9233)"
       ],
       "presentation": {
         "order": 1
@@ -131,18 +131,7 @@
       "preLaunchTask": "Start Everything + CLI"
     },
     {
-      "name": "Attach: traceroute visualizer",
-      "type": "node",
-      "request": "attach",
-      "port": 9229,
-      "restart": true,
-      "timeout": 30000,
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
-    },
-    {
-      "name": "Attach: deploy-backend",
+      "name": "Attach: traceroute-visualizer (9230)",
       "type": "node",
       "request": "attach",
       "port": 9230,
@@ -153,7 +142,7 @@
       ]
     },
     {
-      "name": "Attach: deploy-ui",
+      "name": "Attach: freepbx-deploy-backend (9231)",
       "type": "node",
       "request": "attach",
       "port": 9231,
@@ -164,10 +153,21 @@
       ]
     },
     {
-      "name": "Attach: polycom app",
+      "name": "Attach: freepbx-deploy-ui (9232)",
       "type": "node",
       "request": "attach",
       "port": 9232,
+      "restart": true,
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Attach: PolycomYealinkMikrotikSwitchConfig (9233)",
+      "type": "node",
+      "request": "attach",
+      "port": 9233,
       "restart": true,
       "timeout": 30000,
       "skipFiles": [
