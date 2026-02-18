@@ -2,6 +2,18 @@
   "version": "0.2.0",
   "compounds": [
     {
+      "name": "Attach: All Services",
+      "configurations": [
+        "Attach: traceroute visualizer",
+        "Attach: deploy-backend",
+        "Attach: deploy-ui",
+        "Attach: polycom app"
+      ],
+      "presentation": {
+        "order": 1
+      }
+    },
+    {
       "name": "Start Everything + CLI (F5)",
       "configurations": [
         "Ticket API (Debug)",
@@ -135,7 +147,10 @@
       "request": "attach",
       "port": 9230,
       "restart": true,
-      "timeout": 30000
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     },
     {
       "name": "Attach: deploy-ui",
@@ -143,7 +158,10 @@
       "request": "attach",
       "port": 9231,
       "restart": true,
-      "timeout": 30000
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     },
     {
       "name": "Attach: polycom app",
@@ -151,15 +169,10 @@
       "request": "attach",
       "port": 9232,
       "restart": true,
-      "timeout": 30000
-    },
-    {
-      "name": "Attach: web-manager",
-      "type": "node",
-      "request": "attach",
-      "port": 9233,
-      "restart": true,
-      "timeout": 30000
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     }
   ]
 }
