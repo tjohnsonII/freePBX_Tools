@@ -123,7 +123,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-backend\\Scripts\\python.exe (.venv-backend\\Scripts\\python.exe --version && .venv-backend\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else if exist .venv\\Scripts\\python.exe (.venv\\Scripts\\python.exe --version && .venv\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else if exist venv\\Scripts\\python.exe (venv\\Scripts\\python.exe --version && venv\\Scripts\\python.exe -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002) else (py -3 --version && py -3 -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002)"
+        "call ..\\scripts\\run_py.bat .venv-backend -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002"
       ],
       "problemMatcher": [
         {
@@ -175,7 +175,7 @@
       "args": [
         "/d",
         "/c",
-        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.ultimate_scraper"
+        "call scripts\\run_py.bat .venv-webscraper -m webscraper.ultimate_scraper"
       ],
       "problemMatcher": [],
       "isBackground": false,
@@ -262,7 +262,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe webscraper\\ticket_api\\db_init.py && .venv-webscraper\\Scripts\\python.exe -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite) else (py -3 webscraper\\ticket_api\\db_init.py && py -3 -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite)"
+        "call scripts\\db_init.bat && call scripts\\run_py.bat .venv-webscraper -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\\output\\tickets.sqlite"
       ],
       "problemMatcher": [
         {
@@ -313,7 +313,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe webscraper\\ticket_api\\db_init.py && .venv-webscraper\\Scripts\\python.exe -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 webscraper\\ticket_api\\db_init.py && py -3 -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
+        "call scripts\\db_init.bat && call scripts\\run_py.bat .venv-webscraper -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
       ],
       "problemMatcher": [
         {
@@ -345,7 +345,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (.venv-webscraper\\Scripts\\python.exe -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787) else (py -3 -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787)"
+        "call scripts\\run_py.bat .venv-webscraper -m debugpy --listen 5678 --wait-for-client -m uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8787"
       ],
       "problemMatcher": [
         {
@@ -525,7 +525,7 @@
       "args": [
         "/d",
         "/c",
-        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.smoke_test"
+        "call scripts\\run_py.bat .venv-webscraper -m webscraper.smoke_test"
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
@@ -561,7 +561,7 @@
       "args": [
         "/d",
         "/c",
-        "if not exist .venv-webscraper\\Scripts\\activate.bat (echo [ERROR] Missing .venv-webscraper. Run \"webscraper:venv+deps\" first. & exit /b 1) && call .venv-webscraper\\Scripts\\activate.bat && python -m webscraper.ultimate_scraper --help"
+        "call scripts\\run_py.bat .venv-webscraper -m webscraper.ultimate_scraper --help"
       ],
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
