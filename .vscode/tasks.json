@@ -5,18 +5,13 @@
   "tasks": [
     {
       "label": "Start Everything + CLI",
-      "dependsOn": [
-        "traceroute-visualizer:dev",
-        "traceroute-visualizer:open-browser",
-        "polycom-yealink-mikrotik:dev",
-        "freepbx-deploy-backend:dev",
-        "freepbx-deploy-ui:dev",
-        "freepbx-tools-manager:cli",
-        "webscraper:dev",
-        "webscraper:ticket-api",
-        "webscraper:ticket-ui"
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "scripts\\start_everything.bat"
       ],
-      "dependsOrder": "parallel",
       "problemMatcher": [],
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": {
