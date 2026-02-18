@@ -430,6 +430,23 @@
       }
     },
     {
+      "label": "Start Everything (Debug Mode)",
+      "dependsOn": [
+        "dev: traceroute (inspect 9229)",
+        "dev: deploy-backend (inspect 9230)",
+        "dev: deploy-ui (inspect 9231)",
+        "dev: polycom app (inspect 9232)"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "group": "debug-dev",
+        "reveal": "always",
+        "clear": false
+      }
+    },
+    {
       "label": "dev: traceroute (inspect 9229)",
       "type": "process",
       "command": "cmd.exe",
@@ -505,27 +522,6 @@
       "isBackground": true,
       "options": {
         "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "debug-dev",
-        "reveal": "always",
-        "clear": false
-      }
-    },
-    {
-      "label": "dev: web-manager (inspect 9233)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "set NODE_OPTIONS=--inspect=9233 && npm.cmd run dev"
-      ],
-      "problemMatcher": [],
-      "isBackground": true,
-      "options": {
-        "cwd": "${workspaceFolder}/web-manager"
       },
       "presentation": {
         "panel": "dedicated",
