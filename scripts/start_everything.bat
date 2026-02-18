@@ -20,7 +20,9 @@ if not exist "%POLYCOM_DIR%\package.json" (
   set "POLYCOM_DIR="
   for /f "delims=" %%F in ('dir /s /b "%ROOT%\package.json" 2^>nul') do (
     findstr /i /c:"polycom" /c:"yealink" "%%F" >nul 2>&1
-    if not errorlevel 1 if not defined POLYCOM_DIR set "POLYCOM_DIR=%%~dpF"
+    if not errorlevel 1 (
+      if not defined POLYCOM_DIR call set "POLYCOM_DIR=%%~dpF"
+    )
   )
 )
 if defined POLYCOM_DIR (
