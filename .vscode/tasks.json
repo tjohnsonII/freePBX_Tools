@@ -294,7 +294,7 @@
       "args": [
         "/d",
         "/c",
-        "if exist .venv-webscraper\\Scripts\\python.exe (\".venv-webscraper\\Scripts\\python.exe\" webscraper\\ticket_api\\db_init.py) else (py -3 webscraper\\ticket_api\\db_init.py)"
+        "scripts\\db_init.bat"
       ],
       "problemMatcher": [],
       "isBackground": false,
