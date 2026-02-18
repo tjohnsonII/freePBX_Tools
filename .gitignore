@@ -185,3 +185,4 @@ webscraper/**/output/
 # accidental null-file created by bad redirects/tools
 **/$null
 **/\$null
+webscraper/ticket-ui/F5
