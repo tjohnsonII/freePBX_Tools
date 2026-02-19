@@ -7,3 +7,4 @@ requests>=2.25.0
 
 # Note: These packages are automatically installed by the install.sh script
 # For manual installation: pip3 install -r requirements.txt
+debugpy>=1.8.0
