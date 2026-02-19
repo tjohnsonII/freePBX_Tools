@@ -103,7 +103,7 @@
         "/c",
         "call",
         "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-backend",
+        "freepbx-deploy-backend\\.venv-backend",
         "-m",
         "debugpy",
         "--listen",
@@ -134,7 +134,7 @@
         }
       ],
       "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-backend"
+        "cwd": "${workspaceFolder}"
       }
     },
     {
