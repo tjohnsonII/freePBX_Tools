@@ -1,28 +1,20 @@
 @echo off
 setlocal
 
-if "%~1"=="" (
-    echo [ERROR] Missing venv folder argument.
-    echo Usage: run_py.bat ^<venv_dir^> ^<python args...^>
-    exit /b 2
+REM Usage: run_py.bat <venv-folder> <python args...>
+
+set "VENV=%~1"
+if "%VENV%"=="" (
+  echo ERROR: Missing venv folder.
+  exit /b 1
 )
 
-set "VENV_DIR=%~1"
-set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
+set "PY=%CD%\%VENV%\Scripts\python.exe"
+if not exist "%PY%" (
+  echo ERROR: Python not found: %PY%
+  exit /b 1
+)
 
 shift
-
-if "%~1"=="" (
-    echo [ERROR] Missing python arguments.
-    echo Usage: run_py.bat ^<venv_dir^> ^<python args...^>
-    exit /b 2
-)
-
-if exist "%PYTHON_EXE%" (
-    call "%PYTHON_EXE%" %*
-) else (
-    call py -3 %*
-)
-
-set "EXIT_CODE=%ERRORLEVEL%"
-endlocal & exit /b %EXIT_CODE%
+"%PY%" %*
+exit /b %ERRORLEVEL%
