@@ -13,6 +13,7 @@ from typing import TextIO
 
 API_HOST = "127.0.0.1"
 API_PORT = "8787"
+UI_PORT = "3004"
 PROXY_TARGET = f"http://{API_HOST}:{API_PORT}"
 
 
@@ -73,6 +74,7 @@ def main() -> int:
     ui_cmd = [npm_exe, "run", "dev:ui"]
 
     ui_env = os.environ.copy()
+    ui_env["PORT"] = UI_PORT
     ui_env["TICKET_API_PROXY_TARGET"] = PROXY_TARGET
     ui_env["NEXT_PUBLIC_TICKET_API_PROXY_TARGET"] = PROXY_TARGET
 
@@ -91,7 +93,7 @@ def main() -> int:
         signal.signal(signal.SIGTERM, handle_interrupt)
 
     print(f"Starting API on {PROXY_TARGET}")
-    print(f"Starting UI on http://127.0.0.1:3000 with proxy target {PROXY_TARGET}")
+    print(f"Starting UI on http://127.0.0.1:{UI_PORT} with proxy target {PROXY_TARGET}")
 
     api_proc = subprocess.Popen(
         api_cmd,

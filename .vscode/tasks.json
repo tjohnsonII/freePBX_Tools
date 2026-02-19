@@ -35,6 +35,36 @@
       }
     },
     {
+      "label": "dev: traceroute (no-inspect)",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3000"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "▲ Next\\.js",
+            "endsPattern": "Ready in"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
+      }
+    },
+    {
       "label": "dev: deploy-ui (inspect 9232)",
       "type": "process",
       "command": "npm.cmd",
@@ -65,6 +95,33 @@
       }
     },
     {
+      "label": "dev: deploy-ui (no-inspect)",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "dev"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE v",
+            "endsPattern": "Local:\\s+http://"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/freepbx-deploy-ui"
+      }
+    },
+    {
       "label": "dev: polycom app (inspect 9233)",
       "type": "process",
       "command": "npm.cmd",
@@ -92,6 +149,33 @@
         "env": {
           "NODE_OPTIONS": "--inspect=9233"
         }
+      }
+    },
+    {
+      "label": "dev: polycom app (no-inspect)",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "dev"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE v",
+            "endsPattern": "Local:\\s+http://"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
       }
     },
     {
@@ -130,6 +214,44 @@
             "activeOnStart": true,
             "beginsPattern": "0\\.",
             "endsPattern": "Waiting for client"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "dev: deploy-backend (no-wait)",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        "freepbx-deploy-backend\\.venv",
+        "-m",
+        "uvicorn",
+        "freepbx_deploy_backend.main:app",
+        "--reload",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8002"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "INFO:.*Uvicorn running on",
+            "endsPattern": "Application startup complete"
           }
         }
       ],
@@ -202,18 +324,32 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "while(-not (Test-NetConnection 127.0.0.1 -Port 3000).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3000/'"
+        "while(-not (Test-NetConnection 127.0.0.1 -Port 3004).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3004/'"
       ],
       "problemMatcher": []
     },
     {
-      "label": "kill: debug ports",
+      "label": "kill: dev ports",
       "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
         "/c",
-        "for %P in (9230 9232 9233 5678 5679 8787 3000 3001 3002) do @for /f \"tokens=5\" %a in ('netstat -ano ^| findstr /r /c:\":%P .*LISTENING\"') do @taskkill /F /PID %a >nul 2>&1"
+        "for %%P in (9230 9231 9232 9233 5678 5679) do @for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr /r /c:\":%%P .*LISTENING\"') do @taskkill /F /PID %%a >nul 2>&1"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "kill: service ports",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "for %%P in (3000 3001 3002 3003 3004 3005 3006 3007 3008 3009 3010 8787 8002) do @for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr /r /c:\":%%P .*LISTENING\"') do @taskkill /F /PID %%a >nul 2>&1"
       ],
       "problemMatcher": [],
       "options": {
@@ -223,10 +359,10 @@
     {
       "label": "Start Everything + CLI",
       "dependsOn": [
-        "dev: traceroute (inspect 9230)",
-        "dev: deploy-ui (inspect 9232)",
-        "dev: polycom app (inspect 9233)",
-        "dev: deploy-backend (debugpy 5678)",
+        "dev: traceroute (no-inspect)",
+        "dev: deploy-ui (no-inspect)",
+        "dev: polycom app (no-inspect)",
+        "dev: deploy-backend (no-wait)",
         "dev: webscraper stack",
         "dev: cli manager",
         "open: traceroute ui",
