@@ -95,7 +95,7 @@
       }
     },
     {
-      "label": "dev: deploy-backend (5678)",
+      "label": "dev: deploy-backend (debugpy 5678)",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -103,11 +103,11 @@
         "/c",
         "call",
         "${workspaceFolder}\\scripts\\run_py.bat",
-        "freepbx-deploy-backend\\.venv-backend",
+        "freepbx-deploy-backend\\.venv",
         "-m",
         "debugpy",
         "--listen",
-        "5678",
+        "127.0.0.1:5678",
         "--wait-for-client",
         "-m",
         "uvicorn",
@@ -138,7 +138,7 @@
       }
     },
     {
-      "label": "dev: webscraper (5679)",
+      "label": "dev: webscraper (debugpy 5679)",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -150,7 +150,7 @@
         "-m",
         "debugpy",
         "--listen",
-        "5679",
+        "127.0.0.1:5679",
         "--wait-for-client",
         "webscraper\\dev_server.py"
       ],
@@ -231,8 +231,8 @@
         "dev: traceroute (inspect 9230)",
         "dev: deploy-ui (inspect 9232)",
         "dev: polycom app (inspect 9233)",
-        "dev: deploy-backend (5678)",
-        "dev: webscraper (5679)",
+        "dev: deploy-backend (debugpy 5678)",
+        "dev: webscraper (debugpy 5679)",
         "dev: cli manager",
         "open: traceroute ui",
         "open: webscraper ui"
