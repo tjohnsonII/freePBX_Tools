@@ -138,7 +138,7 @@
       }
     },
     {
-      "label": "dev: webscraper (debugpy 5679)",
+      "label": "dev: webscraper stack",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -147,12 +147,7 @@
         "call",
         "${workspaceFolder}\\scripts\\run_py.bat",
         ".venv-webscraper",
-        "-m",
-        "debugpy",
-        "--listen",
-        "127.0.0.1:5679",
-        "--wait-for-client",
-        "webscraper\\dev_server.py"
+        "webscraper\\scripts\\dev_ticket_stack.py"
       ],
       "isBackground": true,
       "problemMatcher": [
@@ -164,8 +159,8 @@
           ],
           "background": {
             "activeOnStart": true,
-            "beginsPattern": "0\\.",
-            "endsPattern": "Waiting for client"
+            "beginsPattern": ".",
+            "endsPattern": "."
           }
         }
       ],
@@ -207,7 +202,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "while(-not (Test-NetConnection 127.0.0.1 -Port 8787).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:8787/'"
+        "while(-not (Test-NetConnection 127.0.0.1 -Port 3000).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3000/'"
       ],
       "problemMatcher": []
     },
@@ -218,7 +213,7 @@
       "args": [
         "/d",
         "/c",
-        "for %P in (9230 9232 9233 5678 5679) do @for /f \"tokens=5\" %a in ('netstat -ano ^| findstr /r /c:\":%P .*LISTENING\"') do @taskkill /F /PID %a >nul 2>&1"
+        "for %P in (9230 9232 9233 5678 5679 8787 3000 3001 3002) do @for /f \"tokens=5\" %a in ('netstat -ano ^| findstr /r /c:\":%P .*LISTENING\"') do @taskkill /F /PID %a >nul 2>&1"
       ],
       "problemMatcher": [],
       "options": {
@@ -232,7 +227,7 @@
         "dev: deploy-ui (inspect 9232)",
         "dev: polycom app (inspect 9233)",
         "dev: deploy-backend (debugpy 5678)",
-        "dev: webscraper (debugpy 5679)",
+        "dev: webscraper stack",
         "dev: cli manager",
         "open: traceroute ui",
         "open: webscraper ui"
