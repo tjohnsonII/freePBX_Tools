@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import subprocess
+import sqlite3
 import sys
 import threading
 import time
@@ -21,10 +22,8 @@ from pydantic import BaseModel, Field
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.ticket_api import db
-from webscraper.core.paths import scrape_batch_dir
+from webscraper.paths import runs_dir, handles_master_path, set_latest_run
 
-OUTPUT_ROOT = os.path.join("webscraper", "output")
-ARTIFACT_ROOT = os.path.join(OUTPUT_ROOT, "scrape_runs")
 SCRAPE_TIMEOUT_SECONDS = 1800
 
 app = FastAPI(title="Ticket History API", version="0.3.0")
@@ -88,12 +87,14 @@ async def request_context(request: Request, call_next):
 def _build_command(job: QueueJob) -> tuple[list[str], str, list[str]]:
     req = job.payload
     run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S")
-    out_dir = scrape_batch_dir(OUTPUT_ROOT, run_id=run_id, batch_num=1, job_id=job.job_id)
-    script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
+    out_dir_path = runs_dir() / run_id / f"job_{job.job_id}"
+    out_dir_path.mkdir(parents=True, exist_ok=True)
+    out_dir = str(out_dir_path)
+    script = Path(__file__).resolve().parents[3] / "scripts" / "scrape_all_handles.py"
     cmd = [sys.executable, str(script), "--db", db_path(), "--out", out_dir]
     handles: list[str] = []
     if req.mode == "all":
-        cmd += ["--handles-file", str((Path(__file__).resolve().parents[2] / "webscraper" / "output" / "all_handles.txt").resolve())]
+        cmd += ["--handles-file", str(handles_master_path().resolve())]
     elif req.mode == "handle":
         if not req.handle:
             raise HTTPException(status_code=400, detail="handle is required for mode=handle")
@@ -131,6 +132,7 @@ def _job_worker() -> None:
             status = "completed" if proc.returncode == 0 else "failed"
             err = None if proc.returncode == 0 else f"scraper exit code {proc.returncode}"
             summary = {"returncode": proc.returncode, "artifactsPath": out_dir}
+            set_latest_run(Path(out_dir).parent)
             if req.mode == "ticket" and req.ticketId:
                 hit = db.get_ticket(db_path(), req.ticketId, req.handle)
                 if not hit:
@@ -204,7 +206,10 @@ def api_runs(limit: int = Query(default=5, ge=1, le=100)):
 
 @app.get("/api/events/latest")
 def api_events_latest(limit: int = Query(default=50, ge=1, le=500)):
-    latest = db.get_latest_scrape_job(db_path())
+    try:
+        latest = db.get_latest_scrape_job(db_path())
+    except sqlite3.OperationalError:
+        return {"items": []}
     if not latest:
         return {"items": []}
     events = db.get_scrape_events(db_path(), latest["job_id"], limit=limit)
@@ -220,6 +225,12 @@ def api_events_latest(limit: int = Query(default=50, ge=1, le=500)):
 @app.get("/api/handles/all")
 def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
     items = db.list_handle_names(db_path(), q=q, limit=limit)
+    if not items and handles_master_path().exists():
+        raw = [ln.strip() for ln in handles_master_path().read_text(encoding="utf-8").splitlines()]
+        items = [ln for ln in raw if ln and not ln.startswith("#")]
+        if q:
+            items = [ln for ln in items if q.lower() in ln.lower()]
+        items = items[:limit]
     return {"items": items, "count": len(items)}
 
 

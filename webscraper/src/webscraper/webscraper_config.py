@@ -29,7 +29,7 @@ WEBSCRAPER_CONFIG = {
                 "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
 
             ],
-            "output_dir": "webscraper/output/",
+            "output_dir": "var/runs/",
             "credentials": {
                 "username": "REDACTED",  # If needed for login
                 "password": "REDACTED"  # pragma: allowlist secret

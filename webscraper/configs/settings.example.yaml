@@ -1,0 +1,12 @@
+# Copy to settings.yaml for local overrides (do not commit secrets)
+api:
+  host: 127.0.0.1
+  port: 8787
+scraper:
+  headless: true
+  handles_file: configs/handles/handles_master.txt
+paths:
+  runs: var/runs
+  cookies: var/cookies
+  profiles: var/profiles
+  db: var/db

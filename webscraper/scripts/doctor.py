@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from webscraper.paths import tickets_db_path, runs_dir
 import sqlite3
 from pathlib import Path
 
@@ -16,8 +17,8 @@ def find_newest_run_dir(scrape_runs_root: Path) -> Path | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Quick doctor checks for ticket scraper DB + output artifacts")
-    parser.add_argument("--db", default="webscraper/output/tickets.sqlite")
-    parser.add_argument("--output", default="webscraper/output")
+    parser.add_argument("--db", default=str(tickets_db_path()))
+    parser.add_argument("--output", default=str(runs_dir()))
     args = parser.parse_args()
 
     db_path = Path(args.db).resolve()

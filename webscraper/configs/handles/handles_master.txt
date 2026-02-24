@@ -1,0 +1,4 @@
+# Master handle list for scraper jobs.
+# One handle per line; lines beginning with # are ignored.
+KPM
+WS7

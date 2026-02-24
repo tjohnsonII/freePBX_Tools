@@ -162,7 +162,7 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
                h.last_run_id AS last_run_id,
                CASE
                  WHEN h.last_run_id IS NULL THEN NULL
-                 ELSE 'webscraper/output/scrape_runs/' || h.last_run_id || '/'
+                 ELSE 'var/runs/' || h.last_run_id || '/'
                END AS artifacts_hint
         FROM all_handles ah LEFT JOIN handles h ON h.handle=ah.handle LEFT JOIN ticket_summary ts ON ts.handle=ah.handle
         """
@@ -212,7 +212,7 @@ def get_handle_latest(db_path: str, handle: str) -> dict[str, Any] | None:
                    last_finished_utc AS finished_utc, last_run_id,
                    CASE
                      WHEN last_run_id IS NULL THEN NULL
-                     ELSE 'webscraper/output/scrape_runs/' || last_run_id || '/'
+                     ELSE 'var/runs/' || last_run_id || '/'
                    END AS artifacts_hint
             FROM handles WHERE handle=?
             """,

@@ -1,0 +1,9 @@
+# Runtime state and generated artifacts
+var/cookies/
+var/profiles/
+var/db/
+var/runs/
+var/discovery/
+
+# Local settings
+configs/settings.yaml
