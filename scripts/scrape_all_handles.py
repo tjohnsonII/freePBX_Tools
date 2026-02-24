@@ -7,8 +7,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -201,6 +203,38 @@ def _batch_redirected_to_gateway(batch_out: Path) -> bool:
     return False
 
 
+def parseTicketsFromArtifact(handle_artifacts_path: Path, job_id: str, handle: str) -> list[dict[str, Any]]:
+    tickets_path = handle_artifacts_path / "tickets_list.json"
+    if not tickets_path.exists():
+        raise FileNotFoundError(f"Missing artifact for job={job_id} handle={handle}: {tickets_path}")
+    payload = _load_ticket_json(tickets_path)
+    if not isinstance(payload, list):
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        err_path = handle_artifacts_path / f"parse_error_{ts}.json"
+        err_path.write_text(json.dumps({"payload": payload}, indent=2, default=str), encoding="utf-8")
+        raise ValueError(f"tickets_list.json parse failure for job={job_id} handle={handle}; dumped raw to {err_path}")
+
+    normalized: list[dict[str, Any]] = []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        ticket_id = row.get("ticket_id") or row.get("ticket_num")
+        normalized.append(
+            {
+                "ticket_id": str(ticket_id) if ticket_id else None,
+                "handle": handle,
+                "title": row.get("title") or row.get("subject"),
+                "status": row.get("status"),
+                "created_at": row.get("created_utc") or row.get("opened_utc"),
+                "updated_at": row.get("updated_utc") or row.get("created_utc"),
+                "raw_json": json.dumps(row, sort_keys=True),
+                "raw_text": str(row),
+                **row,
+            }
+        )
+    return normalized
+
+
 def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str]]:
     successes: set[str] = set()
     failures: set[str] = set()
@@ -219,16 +253,35 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
         handle_tickets = all_data.get(handle, [])
         detail_rows = _collect_per_ticket_rows(batch_out, handle)
         upsert_handle(db_path, handle, "processing")
-        rows_to_store = detail_rows if detail_rows else handle_tickets
+        handle_artifacts = batch_out / handle
+        handle_artifacts.mkdir(parents=True, exist_ok=True)
+        tickets_list_path = handle_artifacts / "tickets_list.json"
+        tickets_list_payload = detail_rows if detail_rows else handle_tickets
+        tickets_list_path.write_text(json.dumps(tickets_list_payload, indent=2, default=str), encoding="utf-8")
+
+        debug_log = handle_artifacts / "debug.log"
+        debug_log.write_text(
+            f"tickets_list.json exists={tickets_list_path.exists()} size={tickets_list_path.stat().st_size}\n",
+            encoding="utf-8",
+        )
+
+        try:
+            rows_to_store = parseTicketsFromArtifact(handle_artifacts, run_id, handle)
+        except Exception as exc:
+            debug_log.write_text(debug_log.read_text(encoding="utf-8") + traceback.format_exc(), encoding="utf-8")
+            rows_to_store = []
+            print(f"[ERROR] parse failure for {handle}: {exc}")
+
         inserted = upsert_tickets(db_path, run_id, handle, rows_to_store)
 
         if rows_to_store:
             upsert_handle(db_path, handle, "success")
             successes.add(handle)
         else:
-            reason = "no tickets parsed; artifacts captured"
+            reason = f"no tickets parsed; artifacts captured at {handle_artifacts}"
             upsert_handle(db_path, handle, "failed", reason)
             failures.add(handle)
+            print(f"[EVENT] handle.no_tickets handle={handle} artifacts={handle_artifacts}")
 
         ticket_root = batch_out / "tickets" / handle
         if ticket_root.exists():
@@ -236,7 +289,10 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
                 if not artifact.is_file():
                     continue
                 ticket_id = artifact.parent.name
-                record_artifact(db_path, run_id, handle, ticket_id, _artifact_type(artifact), str(artifact))
+                predictable = handle_artifacts / f"ticket_{ticket_id}{artifact.suffix or '.html'}"
+                if not predictable.exists():
+                    shutil.copy2(artifact, predictable)
+                record_artifact(db_path, run_id, handle, ticket_id, _artifact_type(artifact), str(predictable))
 
         print(f"[INFO] Handle {handle}: parsed_rows={len(rows_to_store)} upserted={inserted}")
 

@@ -363,3 +363,19 @@ python scripts\print_scrape_curl.py --handle KPM --mode latest --limit 5
 ```
 
 This prints a Windows-safe `curl.exe` command with correctly escaped JSON payload.
+
+## Diagnostics / Debugging
+
+- DB path source of truth: `webscraper/lib/db_path.py` (`TICKETS_DB_PATH` preferred; fallback is absolute `webscraper/output/tickets.sqlite`).
+- On API startup, logs now print absolute DB path, active SQLite PRAGMA values (`WAL`, `synchronous=NORMAL`, `busy_timeout=5000`), and `DB OK: handles=X tickets=Y`.
+- Debug endpoints:
+  - `GET /api/debug/db`
+  - `GET /api/debug/last-run`
+- Scrape jobs are serialized through a single in-memory queue (single active scraper process) and stream progress via SSE:
+  - `GET /api/scrape/{jobId}/events`
+- Artifact paths are predictable per job/handle:
+  - `webscraper/output/artifacts/<jobId>/<handle>/tickets_list.json`
+  - `webscraper/output/artifacts/<jobId>/<handle>/debug.log`
+- To avoid WSL/Windows confusion, run API + scraper in one environment, or explicitly set `TICKETS_DB_PATH` to an absolute path that both processes can reach.
+- Quick DB sanity command:
+  - `scripts/db_sanity.sh`
