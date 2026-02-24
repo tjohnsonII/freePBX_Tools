@@ -19,6 +19,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from webscraper.db import finish_run, init_db, record_artifact, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
+from webscraper.paths import handles_master_path, runs_dir, tickets_db_path, set_latest_run
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,8 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--handles-file", help="Path to newline-delimited handle file")
     parser.add_argument("--max-handles", type=int, help="Limit number of handles processed")
     parser.add_argument("--timeout-seconds", type=int, default=600)
-    parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"))
-    parser.add_argument("--out", default=os.path.join("webscraper", "output", "scrape_runs"))
+    parser.add_argument("--db", default=str(tickets_db_path()))
+    parser.add_argument("--out", default=str(runs_dir()))
     parser.add_argument("--batch-size", type=int, default=25)
 
     parser.add_argument("--profile-dir")
@@ -76,6 +77,8 @@ def resolve_handles(args: argparse.Namespace) -> list[str]:
         handles = parse_handles_values(args.handles)
     elif args.handles_file:
         handles = read_handles(args.handles_file)
+    elif handles_master_path().exists():
+        handles = read_handles(str(handles_master_path()))
     else:
         print("[ERROR] Provide either --handles or --handles-file.")
         return []
@@ -367,6 +370,7 @@ def main() -> int:
 
     finally:
         finish_run(args.db, run_id)
+        set_latest_run(root_out)
 
     if total_successes and not total_failures:
         return 0

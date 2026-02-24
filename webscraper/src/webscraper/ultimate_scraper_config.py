@@ -33,23 +33,25 @@ Override any of these in your environment as needed.
 
 # Default runtime settings used by ultimate_scraper.py when CLI flags are omitted
 DEFAULT_URL = "http://10.123.203.1"
-DEFAULT_OUTPUT_DIR = "webscraper/output"
+from webscraper.paths import runs_dir, cookies_dir, profiles_dir
+
+DEFAULT_OUTPUT_DIR = str(runs_dir())
 DEFAULT_HEADLESS = True
 DEFAULT_HANDLES = ["KPM"]
-DEFAULT_COOKIE_FILE = "webscraper/output/kb-run/selenium_cookies.json"
+DEFAULT_COOKIE_FILE = str(cookies_dir() / "selenium_cookies.json")
 AUTH_ORCHESTRATION = True
 
 # Auth orchestrator defaults (paths only; no secrets)
 AUTH_PROFILE_DIRS = [
-    "webscraper/edge_profile",
-    "webscraper/edge_profile_selenium",
-    "webscraper/edge_profile_fallback",
-    "webscraper/edge_profile_tmp_test",
-    "webscraper/edge_profile_tmp",
+    str(profiles_dir() / "edge"),
+    str(profiles_dir() / "edge_selenium"),
+    str(profiles_dir() / "edge_fallback"),
+    str(profiles_dir() / "edge_tmp_test"),
+    str(profiles_dir() / "edge_tmp"),
 ]
 AUTH_COOKIE_FILES = [
-    "webscraper/cookies.json",
-    "webscraper/live_cookies.json",
+    str(cookies_dir() / "cookies.json"),
+    str(cookies_dir() / "live_cookies.json"),
     "webscraper/cookies_netscape_format.txt",
 ]
 

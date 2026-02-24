@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 
 
+
 def ensure_output_dir(path: str) -> str:
     resolved = os.path.abspath(path)
     os.makedirs(resolved, exist_ok=True)
@@ -18,7 +19,7 @@ def runtime_edge_profile_dir(output_dir: str) -> str:
 
 
 def scrape_run_root(output_root: str, run_id: str) -> str:
-    return ensure_output_dir(os.path.join(output_root, "scrape_runs", run_id))
+    return ensure_output_dir(os.path.join(output_root, run_id))
 
 
 def scrape_batch_dir(output_root: str, run_id: str, batch_num: int, job_id: str) -> str:
@@ -38,27 +39,11 @@ def write_text(path: str, content: str) -> None:
 def write_run_metadata(output_dir: str, metadata: dict) -> str:
     out_dir = ensure_output_dir(output_dir)
     metadata_path = os.path.join(out_dir, "run_metadata.json")
-    payload = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        **metadata,
-    }
+    payload = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), **metadata}
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     return metadata_path
 
 
-# backwards-compatible names
 _write_text = write_text
 _write_run_metadata = write_run_metadata
-
-__all__ = [
-    "ensure_output_dir",
-    "runtime_edge_profile_dir",
-    "scrape_run_root",
-    "scrape_batch_dir",
-    "scrape_tmp_profile_dir",
-    "write_text",
-    "write_run_metadata",
-    "_write_text",
-    "_write_run_metadata",
-]

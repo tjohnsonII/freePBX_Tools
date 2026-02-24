@@ -408,3 +408,32 @@ Per-handle diagnostics are written as:
 - `page_<HANDLE>_empty.html` (when parsing returns no tickets)
 
 The scraper also writes `tickets_all.json` on every run (including empty runs), and prints one-line status per handle with deterministic failure reason.
+
+## Repository layout (current)
+
+- `src/webscraper/` - Python package source.
+- `scripts/` - local run/dev helper scripts.
+- `configs/handles/handles_master.txt` - canonical handle list.
+- `configs/settings.example.yaml` - sample runtime settings.
+- `docs/artifacts_contract.md` - run artifact contract.
+- `var/` - runtime state + generated artifacts (gitignored):
+  - `var/profiles/` browser profiles
+  - `var/cookies/` cookie files
+  - `var/db/` sqlite databases
+  - `var/runs/` scrape run artifacts
+  - `var/discovery/` discovery artifacts/db
+
+## Local API run
+
+```bash
+python -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787
+```
+
+## Credentials/cookies placement
+
+Put local cookie exports in `var/cookies/` (for example `var/cookies/cookies.json`).
+Do not commit runtime cookie files.
+
+## Output location
+
+Scrape output is written to `var/runs/<run_id>/` and the latest run id is tracked in `var/runs/latest.txt`.

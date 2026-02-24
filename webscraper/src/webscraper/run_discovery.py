@@ -11,14 +11,16 @@ def main():
     ]
 
     # Output root for artifacts and parsed data
-    out_root = os.path.join("webscraper", "ticket-discovery-output")
+    from webscraper.paths import discovery_dir, cookies_dir
+
+    out_root = str(discovery_dir())
     os.makedirs(out_root, exist_ok=True)
 
     # Allowed hosts constraint keeps crawl focused
     allowed = {"noc-tickets.123.net", "10.123.203.1", "secure.123.net"}
 
     # Use cookies if available to access authenticated content
-    cookie_path = os.path.join(os.getcwd(), "cookies.json")
+    cookie_path = str(cookies_dir() / "cookies.json")
     if not os.path.exists(cookie_path):
         cookie_path = None
 

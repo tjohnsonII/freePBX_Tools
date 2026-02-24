@@ -1,5 +1,7 @@
-"""Webscraper package exports."""
+"""Compatibility package shim for src-based webscraper layout."""
 
-from . import site_selectors as site_selectors
+from pathlib import Path
 
-__all__ = ["site_selectors"]
+_src_pkg = Path(__file__).resolve().parent / "src" / "webscraper"
+if _src_pkg.exists():
+    __path__.append(str(_src_pkg))
