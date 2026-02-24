@@ -43,6 +43,7 @@ class TicketsAllContract:
     source: str
     handles: dict[str, dict]
     summary: dict[str, int]
+    schema_version: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)

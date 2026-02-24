@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import asdict
-from pathlib import Path
 
 from webscraper.artifacts_contract import HandleArtifacts, HandleResult, TicketsAllContract, utc_now
 from webscraper.paths import latest_run_pointer_path, runs_dir
+from webscraper.utils.io_utils import make_run_id, safe_write_json
 
 
 class RunManager:
     def __init__(self, source: str, handles: list[str], requested_by: str = "cli") -> None:
-        self.run_id = f"{utc_now().replace(':', '').replace('-', '').replace('T', '_').replace('Z', '')}_{os.getpid()}"
+        self.run_id = make_run_id()
         self.run_dir = runs_dir() / self.run_id
         self.handles = handles
         self.source = source
@@ -19,11 +17,6 @@ class RunManager:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         (self.run_dir / "handles").mkdir(parents=True, exist_ok=True)
         self.state: dict[str, dict] = {}
-
-    def _safe_write_json(self, path: Path, payload: dict) -> None:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)
 
     def initialize(self) -> None:
         metadata = {
@@ -33,7 +26,7 @@ class RunManager:
             "started_utc": utc_now(),
             "total_handles": len(self.handles),
         }
-        self._safe_write_json(self.run_dir / "run_metadata.json", metadata)
+        safe_write_json(self.run_dir / "run_metadata.json", metadata)
         (self.run_dir / "handles.json").write_text("\n".join(self.handles) + "\n", encoding="utf-8")
         for handle in self.handles:
             self.state[handle] = asdict(
@@ -77,4 +70,5 @@ class RunManager:
             handles=self.state,
             summary={"total_handles": len(self.state), "ok": ok, "failed": failed},
         ).to_dict()
-        self._safe_write_json(self.run_dir / "tickets_all.json", payload)
+        payload.setdefault("schema_version", 1)
+        safe_write_json(self.run_dir / "tickets_all.json", payload)
