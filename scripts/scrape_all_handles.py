@@ -19,7 +19,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from webscraper.db import finish_run, init_db, record_artifact, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
-from webscraper.paths import handles_master_path, runs_dir, tickets_db_path, set_latest_run
+from webscraper.paths import handles_master_path, runs_dir, tickets_db_path, runtime_profile_dir
+from webscraper.run_manager import RunManager
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", default=str(tickets_db_path()))
     parser.add_argument("--out", default=str(runs_dir()))
     parser.add_argument("--batch-size", type=int, default=25)
+    parser.add_argument("--browser", choices=["edge", "chrome"], default="edge")
 
     parser.add_argument("--profile-dir")
     parser.add_argument("--profile-name")
@@ -94,8 +96,9 @@ def chunks(items: list[str], size: int) -> list[list[str]]:
 
 def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_out: Path) -> list[str]:
     cmd = [sys.executable, "-m", "webscraper.ultimate_scraper", "--handles", *batch_handles, "--out", str(batch_out)]
+    resolved_profile_dir = args.profile_dir or str(runtime_profile_dir(args.browser))
     passthrough_flags = {
-        "--profile-dir": args.profile_dir,
+        "--profile-dir": resolved_profile_dir,
         "--profile-name": args.profile_name,
         "--rate-limit": args.rate_limit,
         "--max-tickets": args.max_tickets,
@@ -122,6 +125,7 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
 
     if args.attach_debugger:
         cmd.extend(["--attach-debugger", args.attach_debugger])
+    cmd.extend(["--browser", args.browser])
 
     if args.child_extra_args:
         cmd.extend(args.child_extra_args)
@@ -238,9 +242,10 @@ def parseTicketsFromArtifact(handle_artifacts_path: Path, job_id: str, handle: s
     return normalized
 
 
-def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str]]:
+def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str], dict[str, int]]:
     successes: set[str] = set()
     failures: set[str] = set()
+    counts: dict[str, int] = {}
 
     all_data: dict[str, list[dict[str, Any]]] = {}
     json_candidates = _find_ticket_json_candidates(batch_out)
@@ -276,6 +281,7 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
             print(f"[ERROR] parse failure for {handle}: {exc}")
 
         inserted = upsert_tickets(db_path, run_id, handle, rows_to_store)
+        counts[handle] = len(rows_to_store)
 
         if rows_to_store:
             upsert_handle(db_path, handle, "success")
@@ -302,7 +308,31 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
     _record_batch_artifacts(db_path, run_id, batch_out, set(batch_handles))
     if _batch_redirected_to_gateway(batch_out):
         set_run_failure_reason(db_path, run_id, "redirect_to_gateway")
-    return successes, failures
+    return successes, failures, counts
+
+
+def _copy_if_exists(src: Path, dst: Path) -> str | None:
+    if not src.exists() or not src.is_file():
+        return None
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return str(dst)
+
+
+def collect_contract_artifacts(run_dir: Path, batch_out: Path, handle: str) -> dict[str, str | None]:
+    handle_root = run_dir / "handles" / handle
+    debug = _copy_if_exists(batch_out / f"debug_log_{handle}.txt", handle_root / "debug_log.txt")
+    html = _copy_if_exists(batch_out / f"handle_page_{handle}.html", handle_root / "handle_page.html")
+    png = _copy_if_exists(batch_out / f"handle_page_{handle}.png", handle_root / "handle_page.png")
+    probe = _copy_if_exists(batch_out / f"company_{handle}_probe.json", handle_root / "company_probe.json")
+    tickets = _copy_if_exists(batch_out / handle / "tickets_list.json", handle_root / "tickets.json")
+    return {
+        "debug_log": str(Path(debug).relative_to(run_dir)) if debug else None,
+        "handle_page_html": str(Path(html).relative_to(run_dir)) if html else None,
+        "handle_page_png": str(Path(png).relative_to(run_dir)) if png else None,
+        "company_probe_json": str(Path(probe).relative_to(run_dir)) if probe else None,
+        "tickets_json": str(Path(tickets).relative_to(run_dir)) if tickets else None,
+    }
 
 
 def main() -> int:
@@ -314,12 +344,9 @@ def main() -> int:
 
     init_db(args.db)
 
-    out_path = Path(args.out)
-    if out_path.name.startswith("batch_") or len(out_path.parts) >= 2 and out_path.parts[-2].startswith("batch_"):
-        root_out = out_path
-    else:
-        root_out = out_path / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    root_out.mkdir(parents=True, exist_ok=True)
+    run_manager = RunManager(source=f"scripts/scrape_all_handles.py:{args.browser}", handles=handles)
+    run_manager.initialize()
+    root_out = run_manager.run_dir
     run_id = start_run(args.db, vars(args))
 
     total_successes: set[str] = set()
@@ -349,9 +376,16 @@ def main() -> int:
                 timeout_stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
                 print(f"[ERROR] Batch {i} timed out after {args.timeout_seconds}s", file=sys.stderr)
 
-            successes, failures = process_batch_output(args.db, run_id, batch_out, batch)
+            successes, failures, ticket_counts = process_batch_output(args.db, run_id, batch_out, batch)
             total_successes.update(successes)
             total_failures.update(failures)
+            for handle in batch:
+                artifacts = collect_contract_artifacts(root_out, batch_out, handle)
+                run_manager.mark_started(handle)
+                if handle in successes:
+                    run_manager.update_handle(handle, "ok", None, artifacts, ticket_counts.get(handle, 0))
+                else:
+                    run_manager.update_handle(handle, "failed", "no tickets parsed", artifacts, ticket_counts.get(handle, 0))
 
             if timed_out:
                 _write_child_failure_logs(batch_out, cmd, timeout_stdout, timeout_stderr)
@@ -370,7 +404,6 @@ def main() -> int:
 
     finally:
         finish_run(args.db, run_id)
-        set_latest_run(root_out)
 
     if total_successes and not total_failures:
         return 0

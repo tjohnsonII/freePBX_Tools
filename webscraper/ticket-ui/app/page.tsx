@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import HandleDropdown from "./components/HandleDropdown";
 import { ApiRequestError, apiBaseInfo, apiGet, apiPost, getLastApiCall } from "../lib/api";
 
-type HandleRow = { handle: string; status?: string; error_message?: string; finished_utc?: string; artifacts_hint?: string };
+type HandleRow = { handle: string; status?: string; error_message?: string; finished_utc?: string; artifacts_hint?: string; ticket_count?: number };
 type Ticket = { ticket_id: string; title?: string; status?: string; updated_utc?: string };
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleLatest = { handle: string; status?: string; error_message?: string; started_utc?: string; finished_utc?: string; artifacts_hint?: string; last_run_id?: string };
@@ -33,11 +33,17 @@ export default function HandlesPage() {
   const sseRef = useRef<EventSource | null>(null);
 
   const refreshAll = async () => {
-    const hs = await apiGet<{ items: string[] }>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=500`);
-    setHandles(hs.items);
-    if (!selectedHandle && hs.items.length) setSelectedHandle(hs.items[0]);
-    const hRows = await apiGet<HandleRow[]>(`/api/handles?q=${encodeURIComponent(search)}&limit=500&offset=0`);
-    setHandlesMeta(hRows);
+    const hs = await apiGet<{ items: string[] }>(`/api/handles`);
+    const latest = await apiGet<any>(`/api/runs/latest/tickets_all`).catch(() => null);
+    const allHandles = hs.items.filter((h) => h.toLowerCase().includes(search.toLowerCase()));
+    setHandles(allHandles);
+    if (!selectedHandle && allHandles.length) setSelectedHandle(allHandles[0]);
+    const merged: HandleRow[] = allHandles.map((h) => {
+      const row = latest?.handles?.[h];
+      if (!row) return { handle: h, status: "never ran", error_message: "-", finished_utc: "-", ticket_count: 0 };
+      return { handle: h, status: row.status, error_message: row.error || "-", finished_utc: row.finished_utc || "-", ticket_count: row.ticket_count || 0 };
+    });
+    setHandlesMeta(merged);
   };
 
   useEffect(() => {
@@ -84,7 +90,7 @@ export default function HandlesPage() {
       <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
       <p>Last API call: {lastApi ? `${lastApi.url} status=${lastApi.status} ms=${lastApi.ms}` : "-"}</p>
 
-      <HandleDropdown handles={handles} selectedHandle={selectedHandle} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
+      <HandleDropdown selectedHandle={selectedHandle} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
 
       <div>
         <label>Mode
@@ -100,10 +106,10 @@ export default function HandlesPage() {
       </div>
 
       <h2>Handles</h2>
-      <table><thead><tr><th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Artifacts Hint</th><th>Actions</th></tr></thead><tbody>
+      <table><thead><tr><th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th></tr></thead><tbody>
         {handlesMeta.map((h) => (
           <tr key={h.handle}>
-            <td>{h.handle}</td><td>{h.status || "-"}</td><td>{h.error_message || "-"}</td><td>{h.finished_utc || "-"}</td><td><code>{h.artifacts_hint || "-"}</code></td>
+            <td>{h.handle}</td><td>{h.status || "never ran"}</td><td>{h.error_message || "-"}</td><td>{h.finished_utc || "-"}</td><td>{h.ticket_count ?? 0}</td>
             <td><button onClick={() => { setSelectedHandle(h.handle); setMode("handle"); }}>Scrape</button></td>
           </tr>
         ))}

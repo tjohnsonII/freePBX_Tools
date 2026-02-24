@@ -164,6 +164,7 @@ def _build_phase_logger(enabled: bool) -> logging.Logger:
 
 def _write_run_metadata(output_dir: str, mode: str, run_id: Optional[str] = None) -> None:
     os.makedirs(output_dir, exist_ok=True)
+    browser = (browser or "edge").lower()
     payload = {
         "extracted_at": _iso_utc_now(),
         "mode": mode,
@@ -723,6 +724,7 @@ def create_edge_driver(
     show_browser: bool,
     headless_requested: bool = False,
     no_profile_launch: bool = False,
+    browser: str = "edge",
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -1931,6 +1933,7 @@ def selenium_scrape_tickets(
     retry_on_auth_redirect: int = 2,
     include_new_ticket_links: bool = False,
     no_profile_launch: bool = False,
+    browser: str = "edge",
     db_path: Optional[str] = None,
 ) -> None:
     """Minimal Selenium workflow that:
@@ -1957,6 +1960,7 @@ def selenium_scrape_tickets(
     )
 
     os.makedirs(output_dir, exist_ok=True)
+    browser = (browser or "edge").lower()
     debug_dir = os.path.abspath(debug_dir or output_dir)
     os.makedirs(debug_dir, exist_ok=True)
     db_run_id: Optional[str] = None
@@ -2008,6 +2012,36 @@ def selenium_scrape_tickets(
     cookies_path: Optional[str] = None
     resolved_auth_profiles = [os.path.abspath(p) for p in (auth_profile_dirs or []) if p]
     resolved_auth_cookies = [os.path.abspath(p) for p in (auth_cookie_files or []) if p]
+    browser = (browser or "edge").lower()
+
+    def _create_driver_for_browser(auth_dump_value: bool, auth_pause_value: bool):
+        if browser == "chrome":
+            from webscraper.browser.launcher import get_driver
+            from webscraper.paths import runtime_profile_dir
+
+            chrome_profile = Path(profile_dir) if profile_dir else runtime_profile_dir("chrome")
+            drv = get_driver("chrome", headless=headless, profile_dir=chrome_profile)
+            return drv, True, False, str(chrome_profile)
+        return create_edge_driver(
+            output_dir=output_dir,
+            headless=headless,
+            headless_requested=headless_requested,
+            attach=attach,
+            auto_attach=auto_attach,
+            attach_host=attach_host,
+            attach_timeout=attach_timeout,
+            fallback_profile_dir=fallback_profile_dir,
+            profile_dir=profile_dir,
+            profile_name=resolved_profile_name,
+            auth_dump=auth_dump_value,
+            auth_pause=auth_pause_value,
+            auth_timeout=auth_timeout,
+            auth_url=effective_target_url,
+            edge_temp_profile=edge_temp_profile,
+            edge_kill_before=edge_kill_before,
+            show_browser=show_browser,
+            no_profile_launch=no_profile_launch,
+        )
 
     def run_auth_diagnostics() -> None:
         nonlocal driver, created_browser, attach_mode
@@ -2025,26 +2059,7 @@ def selenium_scrape_tickets(
             "\"https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi\" --out webscraper/output/auth_test"
         )
 
-        driver, created_browser, attach_mode, resolved_edge_profile_dir = create_edge_driver(
-            output_dir=output_dir,
-            headless=headless,
-            headless_requested=headless_requested,
-            attach=attach,
-            auto_attach=auto_attach,
-            attach_host=attach_host,
-            attach_timeout=attach_timeout,
-            fallback_profile_dir=fallback_profile_dir,
-            profile_dir=profile_dir,
-            profile_name=resolved_profile_name,
-            auth_dump=auth_dump,
-            auth_pause=auth_pause,
-            auth_timeout=auth_timeout,
-            auth_url=effective_target_url,
-            edge_temp_profile=edge_temp_profile,
-            edge_kill_before=edge_kill_before,
-            show_browser=show_browser,
-            no_profile_launch=no_profile_launch,
-        )
+        driver, created_browser, attach_mode, resolved_edge_profile_dir = _create_driver_for_browser(auth_dump, auth_pause)
         try:
             driver.set_page_load_timeout(30)
         except Exception:
@@ -2362,51 +2377,13 @@ def selenium_scrape_tickets(
 
     def initialize_driver() -> None:
         nonlocal driver, created_browser, attach_mode, cookies_path
-        driver, created_browser, attach_mode, _ = create_edge_driver(
-            output_dir=output_dir,
-            headless=headless,
-            headless_requested=headless_requested,
-            attach=attach,
-            auto_attach=auto_attach,
-            attach_host=attach_host,
-            attach_timeout=attach_timeout,
-            fallback_profile_dir=fallback_profile_dir,
-            profile_dir=profile_dir,
-            profile_name=resolved_profile_name,
-            auth_dump=auth_dump,
-            auth_pause=auth_pause,
-            auth_timeout=auth_timeout,
-            auth_url=effective_target_url,
-            edge_temp_profile=edge_temp_profile,
-            edge_kill_before=edge_kill_before,
-            show_browser=show_browser,
-            no_profile_launch=no_profile_launch,
-        )
+        driver, created_browser, attach_mode, _ = _create_driver_for_browser(auth_dump, auth_pause)
         _post_auth_setup()
 
     try:
         if edge_smoke_test:
             print("[SMOKE] Running Edge smoke test (auth orchestration disabled).")
-            driver, created_browser, attach_mode, _ = create_edge_driver(
-                output_dir=output_dir,
-                headless=headless,
-                headless_requested=headless_requested,
-                attach=attach,
-                auto_attach=auto_attach,
-                attach_host=attach_host,
-                attach_timeout=attach_timeout,
-                fallback_profile_dir=fallback_profile_dir,
-                profile_dir=profile_dir,
-                profile_name=resolved_profile_name,
-                auth_dump=False,
-                auth_pause=False,
-                auth_timeout=auth_timeout,
-                auth_url=effective_target_url,
-                edge_temp_profile=edge_temp_profile,
-                edge_kill_before=edge_kill_before,
-                show_browser=show_browser,
-                no_profile_launch=no_profile_launch,
-            )
+            driver, created_browser, attach_mode, _ = _create_driver_for_browser(False, False)
             if effective_target_url:
                 try:
                     driver.get(effective_target_url)
@@ -3185,6 +3162,7 @@ def main() -> int:
     parser.add_argument("--handles", nargs="+", default=default_handles, help="One or more customer handles")
     parser.add_argument("--handles-file", help="Path to a file containing handles (one per line; '#' for comments)")
     parser.add_argument("--show", action="store_true", help="Run browser in visible (non-headless) mode")
+    parser.add_argument("--browser", choices=["edge", "chrome"], default="edge", help="Browser engine")
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
@@ -3522,6 +3500,7 @@ def main() -> int:
         retry_on_auth_redirect=args.retry_on_auth_redirect,
         include_new_ticket_links=args.include_new_ticket_links,
         no_profile_launch=args.no_profile_launch,
+        browser=args.browser,
         db_path=args.db,
     )
     return 0

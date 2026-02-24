@@ -1,24 +1,54 @@
 # Webscraper Artifacts Contract
 
-## Run root
-- Every scrape run writes to `var/runs/<run_id>/`.
-- `var/runs/latest.txt` stores the most recent run id.
+## Run layout
 
-## Required aggregate file
-- `tickets_all.json` must be present at either:
-  - `var/runs/<run_id>/tickets_all.json`, or
-  - `var/runs/<run_id>/batch_*/tickets_all.json` for batched runs.
-- API consumers should resolve latest with `var/runs/latest.txt` then read `<run_id>/tickets_all.json` when present.
+Each scrape run writes to:
 
-## `tickets_all.json` payload
-- Object keyed by handle (`{"KPM": [...], "WS7": [...]}`), or
-- Handle envelope shape (`{"handle": "KPM", "tickets": [...]}`) for single-handle outputs.
-- Ticket rows should include `ticket_id`/`ticket_num`, `status`, and timestamp fields when available.
+```
+var/runs/<run_id>/
+  run_metadata.json
+  handles.json
+  tickets_all.json
+  handles/<HANDLE>/
+    debug_log.txt
+    handle_page.html
+    handle_page.png
+    company_probe.json
+    tickets.json
+```
 
-## Per-handle artifacts
-Within `var/runs/<run_id>/<handle>/` or nested batch directories:
-- `debug_log.txt`
-- `handle_page.html`
-- `handle_page.png`
-- `tickets_list.json`
-- optional per-ticket folders containing `ticket.json`, `ticket.html`, `ticket.png`.
+Latest run pointer (Windows-safe text pointer, not symlink):
+
+```
+var/runs/LATEST_RUN.txt
+```
+
+This file contains only `<run_id>`.
+
+## `tickets_all.json` schema
+
+Top-level keys are always present:
+- `run_id`
+- `generated_utc`
+- `source`
+- `handles`
+- `summary`
+
+`handles` is an object keyed by handle. Each handle entry includes:
+- `handle`
+- `status` (`ok` or `failed`)
+- `error` (string or null)
+- `started_utc`
+- `finished_utc`
+- `artifacts` (paths relative to run root)
+- `ticket_count`
+
+`summary` includes:
+- `total_handles`
+- `ok`
+- `failed`
+
+## Guarantees
+- `tickets_all.json` is always written for every run (including zero-ticket runs).
+- Handles are pre-seeded as `failed` + `error="not started"` and updated incrementally.
+- Writes are atomic (`.tmp` file then rename) to avoid partial JSON reads by API/UI.
