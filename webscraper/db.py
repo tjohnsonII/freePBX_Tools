@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import sqlite3
+import threading
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -18,17 +19,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+WRITE_LOCK = threading.Lock()
+
 def _connect(db_path: str) -> sqlite3.Connection:
     db_file = Path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_file)
+    conn = sqlite3.connect(db_file, timeout=5.0, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
 
 def init_db(db_path: str) -> None:
-    with _connect(db_path) as conn:
-        conn.executescript(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS handles(
                 handle TEXT PRIMARY KEY,
@@ -64,6 +71,7 @@ def init_db(db_path: str) -> None:
                 raw_row_json TEXT,
                 run_id TEXT,
                 PRIMARY KEY(ticket_id, handle),
+                UNIQUE(ticket_id),
                 UNIQUE(ticket_url, handle),
                 FOREIGN KEY(handle) REFERENCES handles(handle),
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
@@ -90,19 +98,19 @@ def init_db(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_artifacts_ticket ON ticket_artifacts(ticket_id, handle);
             """
         )
-        _ensure_column(conn, "runs", "out_dir", "TEXT")
-        _ensure_column(conn, "runs", "failure_reason", "TEXT")
-        _ensure_column(conn, "tickets", "ticket_num", "TEXT")
-        _ensure_column(conn, "tickets", "subject", "TEXT")
-        _ensure_column(conn, "tickets", "opened_utc", "TEXT")
-        _ensure_column(conn, "tickets", "raw_row_json", "TEXT")
-        _ensure_column(conn, "ticket_artifacts", "notes", "TEXT")
+            _ensure_column(conn, "runs", "out_dir", "TEXT")
+            _ensure_column(conn, "runs", "failure_reason", "TEXT")
+            _ensure_column(conn, "tickets", "ticket_num", "TEXT")
+            _ensure_column(conn, "tickets", "subject", "TEXT")
+            _ensure_column(conn, "tickets", "opened_utc", "TEXT")
+            _ensure_column(conn, "tickets", "raw_row_json", "TEXT")
+            _ensure_column(conn, "ticket_artifacts", "notes", "TEXT")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
     columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def _git_sha() -> str | None:
@@ -126,8 +134,9 @@ def create_run(
     args_dict: dict[str, Any] | None = None,
     out_dir: str | None = None,
 ) -> str:
-    with _connect(db_path) as conn:
-        conn.execute(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute(
             """
             INSERT INTO runs(run_id, started_utc, args_json, out_dir, git_sha, host)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -145,13 +154,15 @@ def create_run(
 
 
 def finish_run(db_path: str, run_id: str) -> None:
-    with _connect(db_path) as conn:
-        conn.execute("UPDATE runs SET finished_utc=? WHERE run_id=?", (utc_now(), run_id))
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute("UPDATE runs SET finished_utc=? WHERE run_id=?", (utc_now(), run_id))
 
 
 def set_run_failure_reason(db_path: str, run_id: str, failure_reason: str) -> None:
-    with _connect(db_path) as conn:
-        conn.execute(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute(
             "UPDATE runs SET failure_reason=COALESCE(failure_reason, ?) WHERE run_id=?",
             (failure_reason, run_id),
         )
@@ -159,8 +170,9 @@ def set_run_failure_reason(db_path: str, run_id: str, failure_reason: str) -> No
 
 def upsert_handle(db_path: str, handle: str, status: str, error: str | None = None) -> None:
     now = utc_now()
-    with _connect(db_path) as conn:
-        conn.execute(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute(
             """
             INSERT INTO handles(handle, first_seen_utc, last_scrape_utc, last_status, last_error)
             VALUES (?, ?, ?, ?, ?)
@@ -193,16 +205,18 @@ def _ticket_from_row(handle: str, row: dict[str, Any]) -> tuple[str | None, str 
 
 def upsert_tickets(db_path: str, run_id: str, handle: str, tickets_list: Iterable[dict[str, Any]]) -> int:
     inserted = 0
-    with _connect(db_path) as conn:
-        for row in tickets_list:
-            ticket_id, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc = _ticket_from_row(handle, row)
-            if not ticket_id:
-                continue
-            conn.execute(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            for row in tickets_list:
+                ticket_id, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc = _ticket_from_row(handle, row)
+                if not ticket_id:
+                    continue
+                conn.execute(
                 """
                 INSERT INTO tickets(ticket_id, handle, ticket_url, ticket_num, title, subject, status, opened_utc, created_utc, updated_utc, raw_json, raw_row_json, run_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(ticket_id, handle) DO UPDATE SET
+                ON CONFLICT(ticket_id) DO UPDATE SET
+                    handle=excluded.handle,
                     ticket_url=excluded.ticket_url,
                     ticket_num=COALESCE(excluded.ticket_num, tickets.ticket_num),
                     title=COALESCE(excluded.title, tickets.title),
@@ -231,7 +245,7 @@ def upsert_tickets(db_path: str, run_id: str, handle: str, tickets_list: Iterabl
                     run_id,
                 ),
             )
-            inserted += 1
+                inserted += 1
     return inserted
 
 
@@ -254,8 +268,9 @@ def record_artifact(
     except Exception:
         digest = None
 
-    with _connect(db_path) as conn:
-        conn.execute(
+    with WRITE_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute(
             """
             INSERT INTO ticket_artifacts(ticket_id, handle, artifact_type, path, sha256, created_utc, run_id, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)

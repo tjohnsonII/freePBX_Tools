@@ -1,499 +1,305 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import queue
 import subprocess
 import sys
 import threading
+import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.ticket_api import db
 
-
-DEFAULT_DB = os.path.join("webscraper", "output", "tickets.sqlite")
 OUTPUT_ROOT = os.path.join("webscraper", "output")
+ARTIFACT_ROOT = os.path.join(OUTPUT_ROOT, "artifacts")
 SCRAPE_TIMEOUT_SECONDS = 1800
-MAX_LOG_LINES = 300
 
-
-app = FastAPI(title="Ticket History API", version="0.2.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Ticket History API", version="0.3.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
 class ScrapeRequest(BaseModel):
-    handle: str = Field(min_length=1)
-    mode: Literal["latest", "full"] = "latest"
+    mode: Literal["all", "handle", "ticket"] = "handle"
+    handle: str | None = None
+    ticketId: str | None = None
     limit: int | None = Field(default=None, ge=1, le=5000)
+    dryRun: bool = False
 
 
-class ScrapeBatchRequest(BaseModel):
-    handles: list[str] | None = None
-    mode: Literal["latest", "full"] = "latest"
-    limit: int | None = Field(default=None, ge=1, le=5000)
+@dataclass
+class QueueJob:
+    job_id: str
+    payload: ScrapeRequest
 
 
-JOB_LOGS: dict[str, list[str]] = {}
-JOB_LOCK = threading.Lock()
+JOB_QUEUE: "queue.Queue[QueueJob]" = queue.Queue()
+JOB_EVENTS: dict[str, list[dict[str, Any]]] = {}
+JOB_EVENT_LOCK = threading.Lock()
 
 
-def get_db_path() -> str:
-    return os.environ.get("TICKETS_DB") or os.environ.get("TICKETS_DB_PATH", DEFAULT_DB)
+def db_path() -> str:
+    return get_tickets_db_path()
 
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _append_job_log(job_id: str, line: str) -> None:
-    line = line.strip()
-    if not line:
-        return
-    with JOB_LOCK:
-        lines = JOB_LOGS.setdefault(job_id, [])
-        lines.append(line)
-        if len(lines) > MAX_LOG_LINES:
-            del lines[:-MAX_LOG_LINES]
+def _log(msg: str, request_id: str | None = None, job_id: str | None = None) -> None:
+    rid = f" requestId={request_id}" if request_id else ""
+    jid = f" jobId={job_id}" if job_id else ""
+    print(f"[{_iso_now()}]{rid}{jid} {msg}", flush=True)
 
 
-def _scraper_environment() -> dict[str, str]:
-    env = os.environ.copy()
-    for key, value in os.environ.items():
-        if key.startswith("SCRAPER_"):
-            env[key] = value
-    return env
+def emit_job_event(job_id: str, level: str, event: str, message: str, data: dict[str, Any] | None = None) -> None:
+    payload = {"ts": _iso_now(), "level": level, "event": event, "message": message, "data": data or {}}
+    with JOB_EVENT_LOCK:
+        JOB_EVENTS.setdefault(job_id, []).append(payload)
+        JOB_EVENTS[job_id] = JOB_EVENTS[job_id][-500:]
+    db.add_scrape_event(db_path(), job_id, payload["ts"], level, event, message, payload["data"])
+    _log(f"{event}: {message}", job_id=job_id)
 
 
-def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int | None) -> None:
-    db_path = get_db_path()
-    final_status = "failed"
-    final_error: str | None = None
-    final_result: dict[str, object] = {
-        "handle": handle,
-        "mode": mode,
-        "limit": limit,
-        "status": "failed",
-        "errorType": "exception",
-        "exitCode": None,
-        "command": "",
-        "logTail": [],
-    }
-    progress_completed = 0
-    progress_total = 1
-    started_at = _iso_now()
-    db.update_scrape_job(
-        db_path,
-        job_id,
-        status="running",
-        progress_completed=0,
-        progress_total=1,
-        started_utc=started_at,
-    )
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = int((time.time() - start) * 1000)
+    _log(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)", request_id=request_id)
+    response.headers["X-Request-Id"] = request_id
+    return response
 
-    process: subprocess.Popen[str] | None = None
-    scrape_script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
-    command: list[str] = [
-        sys.executable,
-        str(scrape_script),
-        "--db",
-        db_path,
-        "--out",
-        os.path.join(str(Path(OUTPUT_ROOT).resolve()), "scrape_runs"),
-        "--handles",
-        handle,
-    ]
-    if mode == "latest":
-        command.extend(["--max-tickets", str(limit or 20)])
-    elif limit:
-        command.extend(["--max-tickets", str(limit)])
 
-    resolved_command = subprocess.list2cmdline(command)
-    _append_job_log(job_id, f"Resolved scraper command: {resolved_command}")
-    final_result["command"] = resolved_command
+def _build_command(job: QueueJob) -> tuple[list[str], str, list[str]]:
+    req = job.payload
+    out_dir = str((Path(ARTIFACT_ROOT) / job.job_id).resolve())
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
+    cmd = [sys.executable, str(script), "--db", db_path(), "--out", out_dir]
+    handles: list[str] = []
+    if req.mode == "all":
+        cmd += ["--handles-file", str((Path(__file__).resolve().parents[2] / "webscraper" / "output" / "all_handles.txt").resolve())]
+    elif req.mode == "handle":
+        if not req.handle:
+            raise HTTPException(status_code=400, detail="handle is required for mode=handle")
+        handles = [req.handle.strip()]
+        cmd += ["--handles", req.handle.strip()]
+    elif req.mode == "ticket":
+        if not req.handle or not req.ticketId:
+            raise HTTPException(status_code=400, detail="handle and ticketId are required for mode=ticket")
+        handles = [req.handle.strip()]
+        cmd += ["--handles", req.handle.strip(), "--max-tickets", str(req.limit or 50)]
+    if req.limit and req.mode != "ticket":
+        cmd += ["--max-tickets", str(req.limit)]
+    if req.dryRun:
+        cmd += ["--child-extra-args", "--dry-run"]
+    return cmd, out_dir, handles
 
-    try:
-        if not scrape_script.exists():
-            _append_job_log(job_id, f"Scrape script not found: {scrape_script}")
-            final_error = "missing scrape script"
-            final_result.update({
-                "error": final_error,
-                "errorType": "missing_script",
-            })
-            return
 
-        _append_job_log(job_id, "Running scraper job")
-
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=_scraper_environment(),
-        )
-        assert process.stdout is not None
-
-        def _stream_logs() -> None:
-            assert process is not None and process.stdout is not None
-            for line in process.stdout:
-                _append_job_log(job_id, line)
-
-        log_thread = threading.Thread(target=_stream_logs, daemon=True)
-        log_thread.start()
-
+def _job_worker() -> None:
+    while True:
+        queued = JOB_QUEUE.get()
+        job_id = queued.job_id
+        req = queued.payload
         try:
-            rc = process.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            _append_job_log(job_id, "Scrape timed out. Terminating process.")
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                _append_job_log(job_id, "Process did not terminate in time. Killing process.")
-                process.kill()
-                process.wait(timeout=5)
-            final_error = "scrape timed out"
-            final_result.update(
-                {
-                    "error": final_error,
-                    "errorType": "timeout",
-                    "exitCode": None,
-                    "logTail": JOB_LOGS.get(job_id, [])[-40:],
-                }
-            )
-            return
+            cmd, out_dir, _ = _build_command(queued)
+            db.update_scrape_job(db_path(), job_id, status="running", progress_completed=0, progress_total=1, started_utc=_iso_now())
+            emit_job_event(job_id, "info", "job.started", "Scrape job started", {"command": cmd, "artifactsPath": out_dir})
+            proc = subprocess.run(cmd, text=True, capture_output=True, timeout=SCRAPE_TIMEOUT_SECONDS)
+            if proc.stdout:
+                for line in proc.stdout.splitlines()[-100:]:
+                    emit_job_event(job_id, "info", "scrape.stdout", line)
+            if proc.stderr:
+                for line in proc.stderr.splitlines()[-100:]:
+                    emit_job_event(job_id, "warn", "scrape.stderr", line)
 
-        log_thread.join(timeout=5)
-
-        if rc != 0:
-            final_error = f"Scraper exited with code {rc}"
-            final_result.update(
-                {
-                    "error": final_error,
-                    "exitCode": rc,
-                    "errorType": "exit_code",
-                    "logTail": JOB_LOGS.get(job_id, [])[-40:],
-                }
-            )
-            progress_completed = 1
-        else:
-            final_status = "completed"
-            final_result.update(
-                {"status": "completed", "errorType": None, "exitCode": rc, "logTail": JOB_LOGS.get(job_id, [])[-40:]}
-            )
-            progress_completed = 1
-    except Exception as exc:  # pragma: no cover
-        _append_job_log(job_id, "Unhandled scrape exception.")
-        if process is not None and process.poll() is None:
-            process.terminate()
-        final_error = str(exc)
-        final_result.update({"error": str(exc), "errorType": "exception", "exitCode": None, "logTail": JOB_LOGS.get(job_id, [])[-40:]})
-    finally:
-        with JOB_LOCK:
-            final_result["logTail"] = JOB_LOGS.get(job_id, [])[-40:]
-        final_status = final_status if not final_error else "failed"
-        final_result["status"] = final_status
-        final_result.setdefault("errorType", "unknown" if final_status == "failed" else None)
-        final_result.setdefault("exitCode", None)
-        final_result["command"] = resolved_command
-        final_result["handle"] = handle
-        final_result["mode"] = mode
-        final_result["limit"] = limit
-        db.update_scrape_job(
-            db_path,
-            job_id,
-            status=final_status,
-            progress_completed=progress_completed,
-            progress_total=progress_total,
-            finished_utc=_iso_now(),
-            error_message=final_error,
-            result=final_result,
-        )
+            status = "completed" if proc.returncode == 0 else "failed"
+            err = None if proc.returncode == 0 else f"scraper exit code {proc.returncode}"
+            summary = {"returncode": proc.returncode, "artifactsPath": out_dir}
+            if req.mode == "ticket" and req.ticketId:
+                hit = db.get_ticket(db_path(), req.ticketId, req.handle)
+                if not hit:
+                    status = "failed"
+                    err = f"ticket {req.ticketId} not parsed from artifacts at {out_dir}"
+                    emit_job_event(job_id, "error", "ticket.missing", err, {"ticketId": req.ticketId, "path": out_dir})
+            db.update_scrape_job(db_path(), job_id, status=status, progress_completed=1, progress_total=1, finished_utc=_iso_now(), error_message=err, result=summary)
+            emit_job_event(job_id, "info", "job.finished", status, {"error": err})
+        except Exception as exc:
+            db.update_scrape_job(db_path(), job_id, status="failed", progress_completed=1, progress_total=1, finished_utc=_iso_now(), error_message=str(exc), result={"error": str(exc)})
+            emit_job_event(job_id, "error", "job.exception", str(exc))
+        finally:
+            JOB_QUEUE.task_done()
 
 
 @app.on_event("startup")
 def startup() -> None:
-    db.ensure_indexes(get_db_path())
+    db.ensure_indexes(db_path())
+    with db.get_conn(db_path()) as conn:
+        pragmas = {
+            "journal_mode": conn.execute("PRAGMA journal_mode;").fetchone()[0],
+            "synchronous": conn.execute("PRAGMA synchronous;").fetchone()[0],
+            "busy_timeout": conn.execute("PRAGMA busy_timeout;").fetchone()[0],
+        }
+    stats = db.get_stats(db_path())
+    _log(f"DB path: {db_path()}")
+    _log(f"SQLite PRAGMA: {json.dumps(pragmas)}")
+    _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
+    threading.Thread(target=_job_worker, daemon=True).start()
 
 
-@app.get("/health")
-def health() -> dict[str, object]:
-    db_path = get_db_path()
-    stats_payload = db.get_stats(db_path)
-    return {
-        "status": "ok",
-        "version": app.version,
-        "db_path": db_path,
-        "db_exists": Path(db_path).exists(),
-        "last_updated_utc": stats_payload.get("last_updated_utc"),
-        "stats": stats_payload,
-    }
+@app.get("/api/debug/db")
+def api_debug_db():
+    return db.get_debug_db_payload(db_path())
 
 
-@app.get("/api/health")
-def api_health() -> dict[str, object]:
-    return health()
-
-
-@app.get("/api/handles/all")
-def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
-    safe_limit = max(1, min(limit, 5000))
-    handles = db.list_handle_names(get_db_path(), q=q, limit=safe_limit)
-    return {"items": handles, "count": len(handles)}
+@app.get("/api/debug/last-run")
+def api_debug_last_run():
+    latest = db.get_latest_scrape_job(db_path())
+    if not latest:
+        return {"job": None, "events": []}
+    events = db.get_scrape_events(db_path(), latest["job_id"], limit=50)
+    return {"job": latest, "events": events}
 
 
 @app.get("/api/handles")
 def api_handles(q: str = "", limit: int = 200, offset: int = 0):
-    return db.list_handles(get_db_path(), q=q, limit=limit, offset=offset)
+    return db.list_handles(db_path(), q=q, limit=limit, offset=offset)
 
 
-@app.get("/api/handles/summary")
-def api_handles_summary(
-    q: str = "",
-    limit: int = Query(default=200, ge=1, le=5000),
-    offset: int = Query(default=0, ge=0),
-):
-    safe_limit = max(1, min(limit, 5000))
-    return db.list_handles_summary(get_db_path(), q=q, limit=safe_limit, offset=offset)
-
-
-@app.get("/api/handles/{handle}")
-def api_handle_detail(handle: str):
-    return handle_detail(handle)
-
-
-@app.get("/handles")
-def handles(search: str = "", limit: int = 50, offset: int = 0):
-    return db.list_handles(get_db_path(), q=search, limit=limit, offset=offset)
-
-
-@app.get("/handles/{handle}")
-def handle_detail(handle: str):
-    row = db.get_handle(get_db_path(), handle)
-    if not row:
-        raise HTTPException(status_code=404, detail="Handle not found")
-    return row
+@app.get("/api/handles/all")
+def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
+    items = db.list_handle_names(db_path(), q=q, limit=limit)
+    return {"items": items, "count": len(items)}
 
 
 @app.get("/api/handles/{handle}/tickets")
-def api_handle_tickets(
-    handle: str,
-    status: str | None = None,
-    q: str | None = None,
-    from_utc: str | None = Query(None, alias="from"),
-    to_utc: str | None = Query(None, alias="to"),
-    page: int = 1,
-    pageSize: int = 50,
-    sort: str = "newest",
-):
-    return db.list_tickets(
-        get_db_path(),
-        handle=handle,
-        status=status,
-        q=q,
-        from_utc=from_utc,
-        to_utc=to_utc,
-        page=page,
-        page_size=pageSize,
-        sort=sort,
-    )
-
-
-@app.get("/handles/{handle}/tickets")
-def handle_tickets(
-    handle: str,
-    status: str | None = None,
-    q: str | None = None,
-    from_utc: str | None = Query(None, alias="from"),
-    to_utc: str | None = Query(None, alias="to"),
-    page: int = 1,
-    pageSize: int = 50,
-    sort: str = "newest",
-):
-    return db.list_tickets(
-        get_db_path(),
-        handle=handle,
-        status=status,
-        q=q,
-        from_utc=from_utc,
-        to_utc=to_utc,
-        page=page,
-        page_size=pageSize,
-        sort=sort,
-    )
-
-
-@app.get("/api/tickets")
-def api_tickets(
-    handle: str | None = None,
-    q: str | None = None,
-    status: str | None = None,
-    from_utc: str | None = Query(None, alias="from"),
-    to_utc: str | None = Query(None, alias="to"),
-    page: int = 1,
-    pageSize: int = 50,
-    sort: str = "newest",
-):
-    return db.list_tickets(
-        get_db_path(),
-        handle=handle,
-        status=status,
-        q=q,
-        from_utc=from_utc,
-        to_utc=to_utc,
-        page=page,
-        page_size=pageSize,
-        sort=sort,
-    )
+def api_handle_tickets(handle: str, limit: int = 50, status: str = "any"):
+    return db.list_tickets(db_path(), handle=handle, page=1, page_size=limit, status=status)
 
 
 @app.post("/api/scrape")
 def api_scrape(req: ScrapeRequest):
-    handle = req.handle.strip()
-    if not handle:
-        raise HTTPException(status_code=400, detail="handle is required")
-
-    if not db.handle_exists(get_db_path(), handle):
+    if req.mode in {"handle", "ticket"} and req.handle and not db.handle_exists(db_path(), req.handle):
         raise HTTPException(status_code=404, detail="Handle not found")
-
     job_id = str(uuid.uuid4())
-    created_at = _iso_now()
-    db.create_scrape_job(
-        get_db_path(),
-        job_id=job_id,
-        handle=handle,
-        mode=req.mode,
-        ticket_limit=req.limit,
-        status="queued",
-        created_utc=created_at,
-    )
-
-    worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
-    worker.start()
-
-    return {"jobId": job_id, "status": "queued"}
+    db.create_scrape_job(db_path(), job_id=job_id, handle=req.handle, mode=req.mode, ticket_limit=req.limit, status="queued", created_utc=_iso_now(), ticket_id=req.ticketId)
+    JOB_QUEUE.put(QueueJob(job_id=job_id, payload=req))
+    emit_job_event(job_id, "info", "job.queued", "Job queued", {"mode": req.mode, "handle": req.handle, "ticketId": req.ticketId})
+    return {"jobId": job_id}
 
 
-@app.post("/api/scrape-batch")
-def api_scrape_batch(req: ScrapeBatchRequest):
-    input_handles = [h.strip() for h in (req.handles or []) if h and h.strip()]
-    handles = input_handles if input_handles else db.list_all_handles(get_db_path())
-    if not handles:
-        raise HTTPException(status_code=404, detail="No handles found to scrape")
-
-    known_handles = set(db.list_all_handles(get_db_path()))
-    unknown = [handle for handle in handles if handle not in known_handles]
-    if unknown:
-        raise HTTPException(status_code=404, detail=f"Unknown handles: {', '.join(sorted(set(unknown)))}")
-
-    deduped_handles = sorted(set(handles))
-    created_at = _iso_now()
-    job_ids: list[str] = []
-
-    for handle in deduped_handles:
-        job_id = str(uuid.uuid4())
-        db.create_scrape_job(
-            get_db_path(),
-            job_id=job_id,
-            handle=handle,
-            mode=req.mode,
-            ticket_limit=req.limit,
-            status="queued",
-            created_utc=created_at,
-        )
-        worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
-        worker.start()
-        job_ids.append(job_id)
-
-    return {"jobIds": job_ids, "status": "queued"}
 
 
 @app.get("/api/scrape/{job_id}")
+def api_scrape_status_legacy(job_id: str):
+    status = api_scrape_status(job_id)
+    events = db.get_scrape_events(db_path(), job_id, limit=50)
+    return {**status, "logs": [f"{e['ts_utc']} {e['event']} {e['message']}" for e in events]}
+@app.get("/api/scrape/{job_id}/status")
 def api_scrape_status(job_id: str):
-    job = db.get_scrape_job(get_db_path(), job_id)
+    job = db.get_scrape_job(db_path(), job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    with JOB_LOCK:
-        logs = JOB_LOGS.get(job_id, [])
+    return {"jobId": job["job_id"], "status": job["status"], "startedAt": job.get("started_utc"), "finishedAt": job.get("finished_utc"), "summary": job.get("result"), "error": job.get("error_message")}
 
-    return {
-        "jobId": job["job_id"],
-        "status": job["status"],
-        "handle": job["handle"],
-        "mode": job["mode"],
-        "limit": job["ticket_limit"],
-        "progress": {
-            "completed": job["progress_completed"],
-            "total": job["progress_total"],
-        },
-        "logs": logs,
-        "resultSummary": job.get("result"),
-        "error": job.get("error_message"),
-        "createdAt": job["created_utc"],
-        "startedAt": job.get("started_utc"),
-        "finishedAt": job.get("finished_utc"),
-    }
+
+@app.get("/api/scrape/{job_id}/events")
+def api_scrape_events(job_id: str):
+    def gen():
+        sent = 0
+        while True:
+            events = db.get_scrape_events(db_path(), job_id, limit=500)
+            while sent < len(events):
+                item = events[sent]
+                payload = {"ts": item["ts_utc"], "level": item["level"], "event": item["event"], "message": item["message"], "data": item.get("data")}
+                yield f"data: {json.dumps(payload)}\n\n"
+                sent += 1
+            job = db.get_scrape_job(db_path(), job_id)
+            if job and job["status"] in {"completed", "failed"} and sent >= len(events):
+                break
+            time.sleep(1)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/api/tickets")
+def api_tickets(handle: str | None = None, q: str | None = None, status: str | None = None, page: int = 1, pageSize: int = 50):
+    return db.list_tickets(db_path(), handle=handle, q=q, status=status, page=page, page_size=pageSize)
 
 
 @app.get("/api/tickets/{ticket_id}")
 def api_ticket(ticket_id: str, handle: str | None = None):
-    return ticket(ticket_id=ticket_id, handle=handle)
-
-
-@app.get("/tickets/{ticket_id}")
-def ticket(ticket_id: str, handle: str | None = None):
-    row = db.get_ticket(get_db_path(), ticket_id, handle)
+    row = db.get_ticket(db_path(), ticket_id, handle)
     if not row:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    artifacts = db.get_artifacts(get_db_path(), row["ticket_id"], row["handle"])
-    row["artifacts"] = artifacts
+    row["artifacts"] = db.get_artifacts(db_path(), row["ticket_id"], row["handle"])
     return row
-
-
-@app.get("/stats")
-def stats():
-    return db.get_stats(get_db_path())
 
 
 @app.get("/api/artifacts")
 def api_artifact(path: str):
-    return artifact(path=path)
-
-
-@app.get("/artifacts")
-def artifact(path: str):
     safe_path = db.safe_artifact_path(path, OUTPUT_ROOT)
     if not safe_path or not safe_path.exists() or not safe_path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
     return FileResponse(safe_path)
 
 
+@app.get("/api/health")
+def api_health():
+    stats_payload = db.get_stats(db_path())
+    return {"status": "ok", "version": app.version, "db_path": db_path(), "db_exists": Path(db_path()).exists(), "last_updated_utc": stats_payload.get("last_updated_utc"), "stats": stats_payload}
+
+
+
+
+@app.get("/health")
+def health():
+    return api_health()
+
+@app.get("/handles")
+def handles(search: str = "", limit: int = 50, offset: int = 0):
+    return db.list_handles(db_path(), q=search, limit=limit, offset=offset)
+
+@app.get("/handles/{handle}")
+def handle_detail(handle: str):
+    row = db.get_handle(db_path(), handle)
+    if not row:
+        raise HTTPException(status_code=404, detail="Handle not found")
+    return row
+
+@app.get("/handles/{handle}/tickets")
+def handle_tickets(handle: str, limit: int = 50, status: str = "any"):
+    return db.list_tickets(db_path(), handle=handle, page=1, page_size=limit, status=status)
+
+@app.get("/tickets/{ticket_id}")
+def ticket(ticket_id: str, handle: str | None = None):
+    return api_ticket(ticket_id=ticket_id, handle=handle)
+
+@app.get("/artifacts")
+def artifact(path: str):
+    return api_artifact(path=path)
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run ticket API")
-    parser.add_argument("--db", default=DEFAULT_DB)
+    parser.add_argument("--db", default=db_path())
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
-
-    os.environ["TICKETS_DB"] = args.db
-    os.environ["TICKETS_DB_PATH"] = args.db
-
+    os.environ["TICKETS_DB_PATH"] = str(Path(args.db).resolve())
     import uvicorn
-
     uvicorn.run("webscraper.ticket_api.app:app", host=args.host, port=args.port, reload=args.reload)
 
 

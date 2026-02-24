@@ -16,8 +16,10 @@ export class ApiRequestError extends Error {
 }
 
 type ApiOptions = RequestInit & { timeoutMs?: number };
+let lastApiCall: { url: string; status: number | null; ms: number; count?: number } | null = null;
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 30000);
   try {
@@ -40,10 +42,12 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     }
 
     if (!res.ok) {
+      lastApiCall = { url: `${BASE}${path}`, status: res.status, ms: Date.now() - started };
       const detail = payload?.detail || payload?.message || text || "Unknown API error";
       throw new ApiRequestError(`HTTP ${res.status}: ${detail}`, "http", res.status, detail);
     }
-
+    const count = Array.isArray(payload?.items) ? payload.items.length : undefined;
+    lastApiCall = { url: `${BASE}${path}`, status: res.status, ms: Date.now() - started, count };
     return payload as T;
   } catch (error) {
     if (error instanceof ApiRequestError) {
@@ -81,4 +85,8 @@ export function apiBaseInfo(): { browserBase: string; proxyTarget: string } {
     browserBase: BASE || "(same-origin via Next rewrite)",
     proxyTarget: process.env.NEXT_PUBLIC_TICKET_API_PROXY_TARGET || "http://127.0.0.1:8787",
   };
+}
+
+export function getLastApiCall() {
+  return lastApiCall;
 }
