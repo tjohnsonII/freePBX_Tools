@@ -311,7 +311,11 @@ def main() -> int:
 
     init_db(args.db)
 
-    root_out = Path(args.out) / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    out_path = Path(args.out)
+    if out_path.name.startswith("batch_") or len(out_path.parts) >= 2 and out_path.parts[-2].startswith("batch_"):
+        root_out = out_path
+    else:
+        root_out = out_path / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     root_out.mkdir(parents=True, exist_ok=True)
     run_id = start_run(args.db, vars(args))
 

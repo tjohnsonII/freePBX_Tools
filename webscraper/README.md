@@ -379,3 +379,32 @@ This prints a Windows-safe `curl.exe` command with correctly escaped JSON payloa
 - To avoid WSL/Windows confusion, run API + scraper in one environment, or explicitly set `TICKETS_DB_PATH` to an absolute path that both processes can reach.
 - Quick DB sanity command:
   - `scripts/db_sanity.sh`
+
+## Diagnostics-first scrape verification (WSL + PowerShell)
+
+WSL bash:
+
+```bash
+python -m webscraper.ultimate_scraper --handles KPM --db webscraper/output/tickets.sqlite --out webscraper/output/scrape_runs/dev_test --show --save-html
+sqlite3 webscraper/output/tickets.sqlite "select last_status, count(*) from handles group by last_status;"
+sqlite3 webscraper/output/tickets.sqlite "select count(*) from tickets;"
+find webscraper/output/scrape_runs/dev_test -name "diag_KPM_*" -print
+python -m webscraper.scripts.doctor --db webscraper/output/tickets.sqlite --output webscraper/output
+```
+
+Windows PowerShell:
+
+```powershell
+python -m webscraper.ultimate_scraper --handles KPM --db webscraper/output/tickets.sqlite --out webscraper/output/scrape_runs/dev_test --show --save-html
+sqlite3 webscraper/output/tickets.sqlite "select last_status, count(*) from handles group by last_status;"
+sqlite3 webscraper/output/tickets.sqlite "select count(*) from tickets;"
+rg --files webscraper/output/scrape_runs/dev_test | rg "diag_KPM_"
+python -m webscraper.scripts.doctor --db webscraper/output/tickets.sqlite --output webscraper/output
+```
+
+Per-handle diagnostics are written as:
+- `diag_<HANDLE>_after_load.json`
+- `diag_<HANDLE>_extract_counts.json`
+- `page_<HANDLE>_empty.html` (when parsing returns no tickets)
+
+The scraper also writes `tickets_all.json` on every run (including empty runs), and prints one-line status per handle with deterministic failure reason.

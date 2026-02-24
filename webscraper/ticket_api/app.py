@@ -21,9 +21,10 @@ from pydantic import BaseModel, Field
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.ticket_api import db
+from webscraper.core.paths import scrape_batch_dir
 
 OUTPUT_ROOT = os.path.join("webscraper", "output")
-ARTIFACT_ROOT = os.path.join(OUTPUT_ROOT, "artifacts")
+ARTIFACT_ROOT = os.path.join(OUTPUT_ROOT, "scrape_runs")
 SCRAPE_TIMEOUT_SECONDS = 1800
 
 app = FastAPI(title="Ticket History API", version="0.3.0")
@@ -86,8 +87,8 @@ async def request_context(request: Request, call_next):
 
 def _build_command(job: QueueJob) -> tuple[list[str], str, list[str]]:
     req = job.payload
-    out_dir = str((Path(ARTIFACT_ROOT) / job.job_id).resolve())
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S")
+    out_dir = scrape_batch_dir(OUTPUT_ROOT, run_id=run_id, batch_num=1, job_id=job.job_id)
     script = Path(__file__).resolve().parents[2] / "scripts" / "scrape_all_handles.py"
     cmd = [sys.executable, str(script), "--db", db_path(), "--out", out_dir]
     handles: list[str] = []
@@ -178,6 +179,42 @@ def api_debug_last_run():
 @app.get("/api/handles")
 def api_handles(q: str = "", limit: int = 200, offset: int = 0):
     return db.list_handles(db_path(), q=q, limit=limit, offset=offset)
+
+
+@app.get("/api/handles/{handle}/latest")
+def api_handle_latest(handle: str):
+    row = db.get_handle_latest(db_path(), handle)
+    if not row:
+        raise HTTPException(status_code=404, detail="Handle not found")
+    return row
+
+
+@app.get("/api/handles/{handle}/artifacts-hint")
+def api_handle_artifacts_hint(handle: str):
+    row = db.get_handle_latest(db_path(), handle)
+    if not row:
+        raise HTTPException(status_code=404, detail="Handle not found")
+    return {"handle": handle, "artifacts_hint": row.get("artifacts_hint")}
+
+
+@app.get("/api/runs")
+def api_runs(limit: int = Query(default=5, ge=1, le=100)):
+    return {"items": db.list_runs(db_path(), limit=limit)}
+
+
+@app.get("/api/events/latest")
+def api_events_latest(limit: int = Query(default=50, ge=1, le=500)):
+    latest = db.get_latest_scrape_job(db_path())
+    if not latest:
+        return {"items": []}
+    events = db.get_scrape_events(db_path(), latest["job_id"], limit=limit)
+    return {
+        "job_id": latest["job_id"],
+        "items": [
+            {"ts": e.get("ts_utc"), "level": e.get("level"), "event": e.get("event"), "message": e.get("message"), "data": e.get("data")}
+            for e in events
+        ],
+    }
 
 
 @app.get("/api/handles/all")

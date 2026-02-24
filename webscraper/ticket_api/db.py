@@ -43,7 +43,10 @@ def ensure_indexes(db_path: str) -> None:
                     first_seen_utc TEXT,
                     last_scrape_utc TEXT,
                     last_status TEXT,
-                    last_error TEXT
+                    last_error TEXT,
+                    last_started_utc TEXT,
+                    last_finished_utc TEXT,
+                    last_run_id TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS runs(
@@ -120,6 +123,11 @@ def ensure_indexes(db_path: str) -> None:
             if "ticket_id" not in scrape_columns:
                 conn.execute("ALTER TABLE scrape_jobs ADD COLUMN ticket_id TEXT")
 
+            handle_columns = table_columns(conn, "handles")
+            for handle_column in ["last_started_utc", "last_finished_utc", "last_run_id"]:
+                if handle_column not in handle_columns:
+                    conn.execute(f"ALTER TABLE handles ADD COLUMN {handle_column} TEXT")
+
             conn.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
@@ -149,7 +157,13 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
             FROM tickets t GROUP BY t.handle
         )
         SELECT ah.handle, COALESCE(ts.tickets_count,0) AS ticketsCount, COALESCE(ts.open_count,0) AS openCount,
-               ts.last_ticket_at AS lastTicketAt, h.last_scrape_utc AS lastScrapeAt, h.last_status AS status, h.last_error AS last_message
+               ts.last_ticket_at AS lastTicketAt, h.last_scrape_utc AS lastScrapeAt, h.last_status AS status, h.last_error AS last_message,
+               h.last_error AS error_message, h.last_started_utc AS started_utc, h.last_finished_utc AS finished_utc,
+               h.last_run_id AS last_run_id,
+               CASE
+                 WHEN h.last_run_id IS NULL THEN NULL
+                 ELSE 'webscraper/output/scrape_runs/' || h.last_run_id || '/'
+               END AS artifacts_hint
         FROM all_handles ah LEFT JOIN handles h ON h.handle=ah.handle LEFT JOIN ticket_summary ts ON ts.handle=ah.handle
         """
         params: list[Any] = []
@@ -188,6 +202,32 @@ def get_handle(db_path: str, handle: str) -> dict[str, Any] | None:
     with get_conn(db_path) as conn:
         row = conn.execute("SELECT * FROM handles WHERE handle=?", (handle,)).fetchone()
     return dict(row) if row else None
+
+
+def get_handle_latest(db_path: str, handle: str) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT handle, last_status AS status, last_error AS error_message, last_started_utc AS started_utc,
+                   last_finished_utc AS finished_utc, last_run_id,
+                   CASE
+                     WHEN last_run_id IS NULL THEN NULL
+                     ELSE 'webscraper/output/scrape_runs/' || last_run_id || '/'
+                   END AS artifacts_hint
+            FROM handles WHERE handle=?
+            """,
+            (handle,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_runs(db_path: str, limit: int = 5) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT run_id, failure_reason, started_utc, finished_utc FROM runs ORDER BY started_utc DESC LIMIT ?",
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def list_tickets(db_path: str, handle: str | None = None, status: str | None = None, q: str | None = None, from_utc: str | None = None, to_utc: str | None = None, page: int = 1, page_size: int = 50, sort: str = "newest") -> dict[str, Any]:
@@ -326,6 +366,21 @@ def get_debug_db_payload(db_path: str) -> dict[str, Any]:
         except sqlite3.OperationalError:
             last_handle = None
     return {"dbPathAbs": str(Path(db_path).resolve()), "tables": tables, "counts": counts, "lastTicketUpdated": last_ticket, "lastHandleRun": last_handle}
+
+
+def explain_list_tickets_plan(db_path: str, handle: str | None = None, status: str | None = None) -> list[str]:
+    where = ["1=1"]
+    params: list[Any] = []
+    if handle:
+        where.append("handle=?")
+        params.append(handle)
+    if status and status != "any":
+        where.append("status=?")
+        params.append(status)
+    sql = f"EXPLAIN QUERY PLAN SELECT * FROM tickets WHERE {' AND '.join(where)} ORDER BY updated_utc DESC LIMIT 50"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [" ".join(str(x) for x in row) for row in rows]
 
 
 def safe_artifact_path(requested_path: str, output_root: str) -> Path | None:

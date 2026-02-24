@@ -65,3 +65,29 @@ def test_run_failure_reason_written(tmp_path):
     conn = sqlite3.connect(db_path)
     reason = conn.execute("SELECT failure_reason FROM runs WHERE run_id=?", (run_id,)).fetchone()[0]
     assert reason == "redirect_to_gateway"
+
+
+def test_upsert_handle_persists_error_and_timestamps(tmp_path):
+    db_path = tmp_path / "tickets.sqlite"
+    init_db(str(db_path))
+    run_id = start_run(str(db_path), {"a": 1})
+
+    upsert_handle(
+        str(db_path),
+        "KPM",
+        "failed",
+        "no tickets parsed (selector_mismatch) url=https://noc.123.net/customers",
+        started_utc="2025-01-01T00:00:00Z",
+        finished_utc="2025-01-01T00:00:05Z",
+        run_id=run_id,
+    )
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT last_status,last_error,last_started_utc,last_finished_utc,last_run_id FROM handles WHERE handle='KPM'"
+    ).fetchone()
+    assert row[0] == "failed"
+    assert "selector_mismatch" in row[1]
+    assert row[2] == "2025-01-01T00:00:00Z"
+    assert row[3] == "2025-01-01T00:00:05Z"
+    assert row[4] == run_id
