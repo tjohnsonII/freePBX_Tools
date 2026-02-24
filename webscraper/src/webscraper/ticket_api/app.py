@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.ticket_api import db
-from webscraper.paths import runs_dir, handles_master_path, set_latest_run
+from webscraper.paths import runs_dir, handles_master_path, latest_run_pointer_path
 
 SCRAPE_TIMEOUT_SECONDS = 1800
 
@@ -41,6 +41,7 @@ class ScrapeRequest(BaseModel):
 @dataclass
 class QueueJob:
     job_id: str
+    run_id: str
     payload: ScrapeRequest
 
 
@@ -86,8 +87,8 @@ async def request_context(request: Request, call_next):
 
 def _build_command(job: QueueJob) -> tuple[list[str], str, list[str]]:
     req = job.payload
-    run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S")
-    out_dir_path = runs_dir() / run_id / f"job_{job.job_id}"
+    run_id = job.run_id
+    out_dir_path = runs_dir() / run_id
     out_dir_path.mkdir(parents=True, exist_ok=True)
     out_dir = str(out_dir_path)
     script = Path(__file__).resolve().parents[3] / "scripts" / "scrape_all_handles.py"
@@ -132,7 +133,6 @@ def _job_worker() -> None:
             status = "completed" if proc.returncode == 0 else "failed"
             err = None if proc.returncode == 0 else f"scraper exit code {proc.returncode}"
             summary = {"returncode": proc.returncode, "artifactsPath": out_dir}
-            set_latest_run(Path(out_dir).parent)
             if req.mode == "ticket" and req.ticketId:
                 hit = db.get_ticket(db_path(), req.ticketId, req.handle)
                 if not hit:
@@ -239,15 +239,52 @@ def api_handle_tickets(handle: str, limit: int = 50, status: str = "any"):
     return db.list_tickets(db_path(), handle=handle, page=1, page_size=limit, status=status)
 
 
+
+
+@app.get("/api/handles")
+def api_handles_master():
+    if not handles_master_path().exists():
+        return {"items": []}
+    raw = [ln.strip() for ln in handles_master_path().read_text(encoding="utf-8").splitlines()]
+    items = [ln for ln in raw if ln and not ln.startswith("#")]
+    return {"items": items}
+
+
+@app.get("/api/runs/latest")
+def api_runs_latest():
+    ptr = latest_run_pointer_path()
+    if not ptr.exists():
+        raise HTTPException(status_code=404, detail="No runs available yet")
+    run_id = ptr.read_text(encoding="utf-8").strip()
+    if not run_id:
+        raise HTTPException(status_code=404, detail="No runs available yet")
+    run_meta = runs_dir() / run_id / "run_metadata.json"
+    if not run_meta.exists():
+        raise HTTPException(status_code=404, detail="Latest run metadata not found")
+    return json.loads(run_meta.read_text(encoding="utf-8"))
+
+
+@app.get("/api/runs/latest/tickets_all")
+def api_runs_latest_tickets_all():
+    ptr = latest_run_pointer_path()
+    if not ptr.exists():
+        raise HTTPException(status_code=404, detail="No runs available yet")
+    run_id = ptr.read_text(encoding="utf-8").strip()
+    tickets_path = runs_dir() / run_id / "tickets_all.json"
+    if not tickets_path.exists():
+        raise HTTPException(status_code=404, detail="Latest tickets_all.json not found")
+    return json.loads(tickets_path.read_text(encoding="utf-8"))
+
 @app.post("/api/scrape")
 def api_scrape(req: ScrapeRequest):
     if req.mode in {"handle", "ticket"} and req.handle and not db.handle_exists(db_path(), req.handle):
         raise HTTPException(status_code=404, detail="Handle not found")
     job_id = str(uuid.uuid4())
+    run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}"
     db.create_scrape_job(db_path(), job_id=job_id, handle=req.handle, mode=req.mode, ticket_limit=req.limit, status="queued", created_utc=_iso_now(), ticket_id=req.ticketId)
-    JOB_QUEUE.put(QueueJob(job_id=job_id, payload=req))
-    emit_job_event(job_id, "info", "job.queued", "Job queued", {"mode": req.mode, "handle": req.handle, "ticketId": req.ticketId})
-    return {"jobId": job_id}
+    JOB_QUEUE.put(QueueJob(job_id=job_id, run_id=run_id, payload=req))
+    emit_job_event(job_id, "info", "job.queued", "Job queued", {"mode": req.mode, "handle": req.handle, "ticketId": req.ticketId, "run_id": run_id})
+    return {"jobId": job_id, "run_id": run_id}
 
 
 

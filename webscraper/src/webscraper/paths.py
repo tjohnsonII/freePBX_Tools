@@ -60,15 +60,21 @@ def new_run_dir(prefix: str = "run") -> Path:
 
 
 def set_latest_run(run_dir: Path) -> Path:
-    latest_ptr = runs_dir() / "latest.txt"
+    latest_ptr = latest_run_pointer_path()
     latest_ptr.write_text(run_dir.name + "\n", encoding="utf-8")
     return latest_ptr
 
 
+def latest_run_pointer_path() -> Path:
+    return runs_dir() / "LATEST_RUN.txt"
+
+
 def latest_run_dir() -> Path:
-    ptr = runs_dir() / "latest.txt"
-    if ptr.exists():
-        run_name = ptr.read_text(encoding="utf-8").strip()
+    ptr = latest_run_pointer_path()
+    legacy_ptr = runs_dir() / "latest.txt"
+    chosen = ptr if ptr.exists() else legacy_ptr
+    if chosen.exists():
+        run_name = chosen.read_text(encoding="utf-8").strip()
         if run_name:
             candidate = runs_dir() / run_name
             if candidate.exists():
@@ -84,7 +90,7 @@ def tickets_all_json_path(run_dir: Path | None = None) -> Path:
 
 def runtime_profile_dir(browser: str = "edge") -> Path:
     prefix = "edge" if browser.lower().startswith("edge") else "chrome"
-    return ensure_dir(profiles_dir() / f"{prefix}_runtime")
+    return ensure_dir(profiles_dir() / prefix / "default")
 
 
 def env_or_default_path(env_name: str, default: Path) -> str:
