@@ -3,6 +3,7 @@ from webscraper.ticket_api.db import (
     ensure_indexes,
     explain_list_tickets_plan,
     get_handle,
+    get_handle_latest,
     get_stats,
     get_ticket,
     list_handle_names,
@@ -16,7 +17,7 @@ def test_ticket_api_queries(tmp_path):
     init_db(str(db_path))
     ensure_indexes(str(db_path))
     run_id = start_run(str(db_path), {})
-    upsert_handle(str(db_path), "ABC", "success")
+    upsert_handle(str(db_path), "ABC", "success", run_id=run_id)
     upsert_tickets(
         str(db_path),
         run_id,
@@ -52,6 +53,10 @@ def test_ticket_api_queries(tmp_path):
 
     handle = get_handle(str(db_path), "ABC")
     assert handle is not None
+    latest = get_handle_latest(str(db_path), "ABC")
+    assert latest is not None
+    assert latest["last_run_id"] == run_id
+    assert str(latest["artifacts_hint"]).endswith(f"{run_id}/")
 
     tickets = list_tickets(str(db_path), handle="ABC", q="Router", page=1, page_size=1, sort="newest")
     assert tickets["page"] == 1
@@ -74,4 +79,3 @@ def test_ticket_api_queries(tmp_path):
 
     plan_rows = explain_list_tickets_plan(str(db_path), handle="ABC", status="open")
     assert any("idx_tickets_handle_status_updated" in row or "idx_tickets_handle_updated" in row for row in plan_rows)
-

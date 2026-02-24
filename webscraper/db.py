@@ -100,6 +100,9 @@ def init_db(db_path: str) -> None:
         )
             _ensure_column(conn, "runs", "out_dir", "TEXT")
             _ensure_column(conn, "runs", "failure_reason", "TEXT")
+            _ensure_column(conn, "handles", "last_started_utc", "TEXT")
+            _ensure_column(conn, "handles", "last_finished_utc", "TEXT")
+            _ensure_column(conn, "handles", "last_run_id", "TEXT")
             _ensure_column(conn, "tickets", "ticket_num", "TEXT")
             _ensure_column(conn, "tickets", "subject", "TEXT")
             _ensure_column(conn, "tickets", "opened_utc", "TEXT")
@@ -168,20 +171,34 @@ def set_run_failure_reason(db_path: str, run_id: str, failure_reason: str) -> No
         )
 
 
-def upsert_handle(db_path: str, handle: str, status: str, error: str | None = None) -> None:
+def upsert_handle(
+    db_path: str,
+    handle: str,
+    status: str,
+    error: str | None = None,
+    *,
+    started_utc: str | None = None,
+    finished_utc: str | None = None,
+    run_id: str | None = None,
+) -> None:
     now = utc_now()
+    started_value = started_utc or now
+    finished_value = finished_utc or now
     with WRITE_LOCK:
         with _connect(db_path) as conn:
             conn.execute(
             """
-            INSERT INTO handles(handle, first_seen_utc, last_scrape_utc, last_status, last_error)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO handles(handle, first_seen_utc, last_scrape_utc, last_status, last_error, last_started_utc, last_finished_utc, last_run_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(handle) DO UPDATE SET
                 last_scrape_utc=excluded.last_scrape_utc,
                 last_status=excluded.last_status,
-                last_error=excluded.last_error
+                last_error=excluded.last_error,
+                last_started_utc=excluded.last_started_utc,
+                last_finished_utc=excluded.last_finished_utc,
+                last_run_id=COALESCE(excluded.last_run_id, handles.last_run_id)
             """,
-            (handle, now, now, status, error),
+            (handle, now, finished_value, status, error, started_value, finished_value, run_id),
         )
 
 

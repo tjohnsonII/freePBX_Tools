@@ -4,58 +4,26 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiGet } from "../../../lib/api";
 
-type Ticket = {
-  ticket_id: string;
-  title?: string;
-  status?: string;
-  created_utc?: string;
-  updated_utc?: string;
-  ticket_url?: string;
-};
-
-type TicketResponse = {
-  items: Ticket[];
-};
-
-type Handle = {
-  handle: string;
-  last_scrape_utc?: string;
-  last_status?: string;
-};
+type Ticket = { ticket_id: string; title?: string; status?: string; created_utc?: string; updated_utc?: string; ticket_url?: string };
+type TicketResponse = { items: Ticket[] };
+type HandleLatest = { handle: string; status?: string; error_message?: string; finished_utc?: string; artifacts_hint?: string };
 
 export default function HandleDetailPage({ params }: { params: { handle: string } }) {
   const handle = decodeURIComponent(params.handle);
-  const [meta, setMeta] = useState<Handle | null>(null);
+  const [meta, setMeta] = useState<HandleLatest | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
 
   useEffect(() => {
-    apiGet<Handle>(`/api/handles/${encodeURIComponent(handle)}`).then(setMeta).catch(() => setMeta(null));
+    apiGet<HandleLatest>(`/api/handles/${encodeURIComponent(handle)}/latest`).then(setMeta).catch(() => setMeta(null));
+    apiGet<TicketResponse>(`/api/handles/${encodeURIComponent(handle)}/tickets?status=any&limit=200`).then((res) => setTickets(res.items)).catch(() => setTickets([]));
   }, [handle]);
-
-  useEffect(() => {
-    const path = `/handles/${encodeURIComponent(handle)}/tickets?status=${encodeURIComponent(status)}&q=${encodeURIComponent(q)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
-    apiGet<TicketResponse>(`/api${path}`).then((res) => setTickets(res.items)).catch(() => setTickets([]));
-  }, [handle, q, status, from, to]);
 
   return (
     <main>
       <h2>{handle}</h2>
-      <p>Last scrape: {meta?.last_scrape_utc || "-"} | Status: {meta?.last_status || "-"}</p>
-      <div>
-        <input placeholder="keyword" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="ticket_detail">ticket_detail</option>
-          <option value="open">open</option>
-          <option value="closed">closed</option>
-        </select>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-      </div>
+      <p>Status: {meta?.status || "-"} | Error: {meta?.error_message || "-"} | Last Updated: {meta?.finished_utc || "-"}</p>
+      <p>Artifacts Hint: <code>{meta?.artifacts_hint || "-"}</code></p>
+      {tickets.length === 0 ? <p>No tickets in DB for this handle.</p> : null}
       <table>
         <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Created</th><th>Updated</th><th>URL</th></tr></thead>
         <tbody>

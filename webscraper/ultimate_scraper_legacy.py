@@ -110,8 +110,8 @@ def edge_profile_dir(args: Any) -> str:
     if auth_mode and use_temp:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = f"{run_id}_{os.getpid()}"
-        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", run_id))
-        return os.path.join(base, "edge_tmp_profile")
+        out_root = os.path.abspath(getattr(args, "out", os.path.join(os.path.dirname(__file__), "output")))
+        return os.path.join(out_root, "tmp_profiles", run_id, "edge_tmp_profile")
     profile_dir_override = os.path.abspath(args.profile_dir) if getattr(args, "profile_dir", None) else None
     if profile_dir_override:
         return profile_dir_override
@@ -1107,6 +1107,45 @@ def load_cookies_json(driver: Any, path: str) -> bool:
 def _write_text(path: str, text: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+def _write_json(path: str, obj: Any) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+        print(f"[DIAG] wrote {path}", flush=True)
+    except Exception as exc:
+        print(f"[WARN] Failed to write JSON '{path}': {exc}", flush=True)
+
+
+def _diagnostic_snapshot(driver: Any, out_dir: str, handle: str, tag: str, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "tag": tag,
+        "handle": handle,
+        "ts_utc": _iso_utc_now(),
+        "url": getattr(driver, "current_url", "") or "",
+        "title": getattr(driver, "title", "") or "",
+    }
+    if extra:
+        payload.update(extra)
+    path = os.path.join(out_dir, f"diag_{handle}_{tag}.json")
+    _write_json(path, payload)
+    return payload
+
+
+def _classify_empty_reason(url: str, title: str, page_source_lower: str) -> str:
+    title_lower = (title or "").lower()
+    source = page_source_lower or ""
+    if any(token in title_lower for token in ("login", "sign in")) or "password" in source:
+        return "auth_required"
+    lowered_url = (url or "").lower()
+    if "gateway" in lowered_url or "10." in lowered_url or "redirect" in source:
+        return "redirect_gateway"
+    expected_markers = ("trouble ticket", "ticket", "customers")
+    if not any(marker in source for marker in expected_markers):
+        return "selector_mismatch"
+    return "no_tickets"
 
 
 def _ensure_http_cookies(
@@ -2790,7 +2829,51 @@ def selenium_scrape_tickets(
                 )
             return links
 
+        def _dedupe_ticket_entries(entries: List[dict[str, Optional[str]]]) -> List[dict[str, Optional[str]]]:
+            deduped: List[dict[str, Optional[str]]] = []
+            seen: set[str] = set()
+            for item in entries:
+                url = as_str(item.get("url"))
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                deduped.append(item)
+            return deduped
+
+        def _fallback_anchor_scan(page_source: str) -> List[dict[str, Optional[str]]]:
+            require_beautifulsoup()
+            soup = BeautifulSoup(page_source or "", "html.parser")
+            found: List[dict[str, Optional[str]]] = []
+            for anchor in soup.find_all("a"):
+                href = as_str(anchor.get("href"))
+                if not href:
+                    continue
+                normalized = _normalize_ticket_url(href, "")
+                if not normalized:
+                    continue
+                kind = classify_url(normalized)
+                if kind in {"ticket_detail", "new_ticket"}:
+                    found.append(build_ticket_url_entry(normalized))
+            return _dedupe_ticket_entries(found)
+
+        def _fallback_onclick_scan(page_source: str) -> List[dict[str, Optional[str]]]:
+            require_beautifulsoup()
+            soup = BeautifulSoup(page_source or "", "html.parser")
+            found: List[dict[str, Optional[str]]] = []
+            for anchor in soup.find_all("a"):
+                onclick = as_str(anchor.get("onclick"))
+                if not onclick:
+                    continue
+                normalized = _normalize_ticket_url("", onclick)
+                if not normalized:
+                    continue
+                kind = classify_url(normalized)
+                if kind in {"ticket_detail", "new_ticket"}:
+                    found.append(build_ticket_url_entry(normalized))
+            return _dedupe_ticket_entries(found)
+
         all_tickets: dict[str, List[dict[str, Optional[str]]]] = {}
+        handle_outcomes: dict[str, dict[str, str]] = {}
 
         def process_handle(handle: str) -> List[dict[str, Optional[str]]]:
             print(f"[HANDLE] Starting {handle}", flush=True)
@@ -2868,11 +2951,47 @@ def selenium_scrape_tickets(
 
                 if expand_ok:
                     t_parse = time.monotonic()
-                    tickets = extract_ticket_urls_from_company_page(driver, debug_ctx)
+                    primary_tickets = extract_ticket_urls_from_company_page(driver, debug_ctx)
+                    tickets = list(primary_tickets)
+                    extract_counts: dict[str, int] = {
+                        "primary": len(primary_tickets),
+                        "anchor_scan": 0,
+                        "onclick_scan": 0,
+                    }
+                    if not tickets:
+                        fallback_anchor = _fallback_anchor_scan(driver.page_source or "")
+                        extract_counts["anchor_scan"] = len(fallback_anchor)
+                        tickets = fallback_anchor
+                    if not tickets:
+                        fallback_onclick = _fallback_onclick_scan(driver.page_source or "")
+                        extract_counts["onclick_scan"] = len(fallback_onclick)
+                        tickets = fallback_onclick
+                    tickets = _dedupe_ticket_entries(tickets)
+                    _write_json(os.path.join(output_dir, f"diag_{handle}_extract_counts.json"), extract_counts)
                     _phase(5, "PARSE TABLE", f"rows={debug_ctx.get('table_row_count',0)} links={len(tickets)}", t_parse)
+                else:
+                    _write_json(
+                        os.path.join(output_dir, f"diag_{handle}_extract_counts.json"),
+                        {"primary": 0, "anchor_scan": 0, "onclick_scan": 0},
+                    )
+
+                _diagnostic_snapshot(
+                    driver,
+                    output_dir,
+                    handle,
+                    "after_load",
+                    extra={
+                        "counts": {
+                            "table_rows": debug_ctx.get("table_row_count", 0),
+                            "links": len(tickets),
+                            "anchors_in_table": debug_ctx.get("anchors_in_table", 0),
+                        }
+                    },
+                )
                 if not tickets:
                     print(f"[TICKET] No URLs found for {handle}", flush=True)
                     _save_handle_artifacts("parse_no_urls", debug_ctx, include_fail_artifacts=True)
+                    _write_text(os.path.join(output_dir, f"page_{handle}_empty.html"), driver.page_source or "")
 
                 if edge_smoke_test:
                     probe = _probe_company_dom(clicked_selector=as_str(debug_ctx.get("clicked_selector")))
@@ -2883,12 +3002,26 @@ def selenium_scrape_tickets(
                 out_path = os.path.join(output_dir, f"tickets_{handle}.json")
                 with open(out_path, "w", encoding="utf-8") as f:
                     json.dump({"handle": handle, "tickets": tickets}, f, indent=2)
-                print(f"[HANDLE] {handle} tickets={len(tickets)}", flush=True)
+                page_source_lower = (driver.page_source or "").lower()
+                empty_reason = _classify_empty_reason(driver.current_url or "", driver.title or "", page_source_lower)
+                debug_ctx["empty_reason"] = empty_reason
+                handle_outcomes[handle] = {
+                    "reason": "ok" if tickets else empty_reason,
+                    "url": driver.current_url or "",
+                }
+                print(
+                    f"[HANDLE] <{handle}> tickets={len(tickets)} reason={'ok' if tickets else empty_reason} url={driver.current_url}",
+                    flush=True,
+                )
             except InvalidSessionIdException as e:
                 print(f"[ERROR] Invalid session id while processing {handle}: {e}", flush=True)
                 raise
             except Exception as e:
                 print(f"[ERROR] Exception for handle {handle}: {e}", flush=True)
+                handle_outcomes[handle] = {
+                    "reason": "unknown",
+                    "url": getattr(driver, "current_url", "") or "",
+                }
                 try:
                     _save_handle_artifacts("handle_exception", debug_ctx, include_fail_artifacts=True)
                 except Exception:
@@ -2914,8 +3047,11 @@ def selenium_scrape_tickets(
                     tickets = process_handle(handle)
                     if db_path and db_run_id:
                         from webscraper.db import upsert_handle as db_upsert_handle, upsert_tickets as db_upsert_tickets
-
-                        db_upsert_handle(db_path, handle, "success" if tickets else "failed", None if tickets else "no tickets parsed")
+                        outcome = handle_outcomes.get(handle, {})
+                        reason = outcome.get("reason", "unknown")
+                        current_url = outcome.get("url", "")
+                        err = None if tickets else f"no tickets parsed ({reason}) url={current_url}"
+                        db_upsert_handle(db_path, handle, "success" if tickets else "failed", err, run_id=db_run_id)
                         db_upsert_tickets(db_path, db_run_id, handle, tickets)
                     if scrape_ticket_details_enabled:
                         summary = scrape_ticket_details(
@@ -2968,14 +3104,13 @@ def selenium_scrape_tickets(
                     raise
             if abort_run:
                 break
-        if all_tickets:
-            all_path = os.path.join(output_dir, "tickets_all.json")
-            try:
-                with open(all_path, "w", encoding="utf-8") as f:
-                    json.dump(all_tickets, f, indent=2)
-                print(f"[INFO] Wrote combined tickets to {all_path}")
-            except Exception as exc:
-                print(f"[WARN] Could not write combined tickets file: {exc}")
+        all_path = os.path.join(output_dir, "tickets_all.json")
+        try:
+            with open(all_path, "w", encoding="utf-8") as f:
+                json.dump(all_tickets, f, indent=2)
+            print(f"[INFO] Wrote combined tickets to {all_path} (handles={len(all_tickets)})")
+        except Exception as exc:
+            print(f"[WARN] Could not write combined tickets file: {exc}")
         if scrape_ticket_details_enabled:
             print(
                 "[TICKET] Overall: "
