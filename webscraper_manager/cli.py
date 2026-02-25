@@ -316,6 +316,67 @@ def _select_pytest_cwd(root: Path) -> Path:
     return root
 
 
+def ensure_editable_install_webscraper(python_exe: Path, repo_root: Path) -> tuple[str, list[str], list[str]]:
+    """Ensure the active interpreter can import ``webscraper`` before running pytest."""
+    commands: list[str] = []
+    log_lines: list[str] = []
+    check_cmd = [str(python_exe), "-c", "import webscraper"]
+    commands.append(" ".join(check_cmd))
+
+    try:
+        rc, out, err = run_subprocess(check_cmd, cwd=repo_root, timeout=90)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out while checking webscraper import") from exc
+
+    if out.strip():
+        log_lines.append(out.strip())
+    if err.strip():
+        log_lines.append(err.strip())
+
+    if rc == 0:
+        log_lines.append("webscraper import check passed; editable install already available")
+        return "already_installed", log_lines, commands
+
+    install_cmd = [str(python_exe), "-m", "pip", "install", "-e", str(repo_root / "webscraper")]
+    commands.append(" ".join(install_cmd))
+    try:
+        install_rc, install_out, install_err = run_subprocess(install_cmd, cwd=repo_root, timeout=300)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out while running editable install for webscraper") from exc
+
+    if install_out.strip():
+        log_lines.append(install_out.strip())
+    if install_err.strip():
+        log_lines.append(install_err.strip())
+
+    recheck_cmd = [str(python_exe), "-c", "import webscraper"]
+    commands.append(" ".join(recheck_cmd))
+    try:
+        recheck_rc, recheck_out, recheck_err = run_subprocess(recheck_cmd, cwd=repo_root, timeout=90)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out while re-checking webscraper import") from exc
+
+    if recheck_out.strip():
+        log_lines.append(recheck_out.strip())
+    if recheck_err.strip():
+        log_lines.append(recheck_err.strip())
+
+    if install_rc == 0 and recheck_rc == 0:
+        log_lines.append("webscraper import check failed initially; installed editable package and import now works")
+        return "installed_now", log_lines, commands
+
+    raise RuntimeError(
+        "Unable to import 'webscraper' after running editable install. "
+        "Inspect webscraper packaging (for example pyproject.toml/setup metadata) before retrying."
+    )
+
+
 def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[TestStep, str, list[str]]:
     started = time.time()
     root = find_repo_root()
@@ -663,10 +724,26 @@ def _run_test_pytest(state: AppState, timeout: int, path: str | None = None, fix
     log_lines.extend(f"subprocess: {cmd}" for cmd in dep_commands)
 
     if dep_ok:
-        step, details, commands = _run_pytest_step(path=path, timeout=timeout, python_exe=python_exe)
-        steps.append(step)
-        log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
-        log_lines.append(details)
+        install_started = time.time()
+        try:
+            install_status, install_logs, install_commands = ensure_editable_install_webscraper(python_exe=python_exe, repo_root=root)
+            steps.append(
+                _make_step(
+                    "webscraper import readiness",
+                    True,
+                    "webscraper already importable" if install_status == "already_installed" else "Installed webscraper editable package for this interpreter",
+                    install_started,
+                )
+            )
+            log_lines.extend(f"subprocess: {cmd}" for cmd in install_commands)
+            log_lines.extend(install_logs)
+            step, details, commands = _run_pytest_step(path=path, timeout=timeout, python_exe=python_exe)
+            steps.append(step)
+            log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
+            log_lines.append(details)
+        except RuntimeError as exc:
+            steps.append(_make_step("webscraper import readiness", False, str(exc), install_started))
+            log_lines.append(str(exc))
 
     total_ms = int((time.time() - started) * 1000)
     log_lines.append("\n" + _format_test_summary(steps, total_ms=total_ms, log_path=log_path, pure_json_mode=False))
@@ -712,11 +789,28 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
         failed = failed or (not dep_step.ok)
 
         if dep_ok and (keep_going or not failed):
-            pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
-            steps.append(pytest_step)
-            log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
-            log_lines.append(pytest_details)
-            failed = failed or (not pytest_step.ok)
+            install_started = time.time()
+            try:
+                install_status, install_logs, install_commands = ensure_editable_install_webscraper(python_exe=python_exe, repo_root=root)
+                install_step = _make_step(
+                    "webscraper import readiness",
+                    True,
+                    "webscraper already importable" if install_status == "already_installed" else "Installed webscraper editable package for this interpreter",
+                    install_started,
+                )
+                steps.append(install_step)
+                log_lines.extend(f"subprocess: {cmd}" for cmd in install_commands)
+                log_lines.extend(install_logs)
+                pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
+                steps.append(pytest_step)
+                log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
+                log_lines.append(pytest_details)
+                failed = failed or (not pytest_step.ok)
+            except RuntimeError as exc:
+                install_step = _make_step("webscraper import readiness", False, str(exc), install_started)
+                steps.append(install_step)
+                log_lines.append(str(exc))
+                failed = True
     elif not should_try_pytest:
         steps.append(TestStep(name="pytest", ok=True, details="No tests folder detected; skipped", duration_ms=0))
 
