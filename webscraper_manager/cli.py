@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import os
 import socket
@@ -52,6 +51,7 @@ class AppState:
     in_menu: bool = False
     pure_json_mode: bool = False
     clear_screen: bool = False
+    use_preferred_python: bool = True
 
 
 @dataclass
@@ -59,6 +59,7 @@ class Finding:
     check: str
     ok: bool
     details: str
+    warning: bool = False
 
 
 @dataclass
@@ -75,6 +76,30 @@ def _repo_root() -> Path:
 
 def find_repo_root() -> Path:
     return _repo_root()
+
+
+def get_preferred_python(repo_root: Path) -> Path:
+    first_choice = repo_root / ".venv-webscraper" / "Scripts" / "python.exe"
+    if first_choice.is_file():
+        return first_choice
+
+    second_choice = repo_root / "webscraper" / ".venv" / "Scripts" / "python.exe"
+    if second_choice.is_file():
+        return second_choice
+
+    return Path(sys.executable)
+
+
+def is_running_in_preferred_python(repo_root: Path) -> bool:
+    current = Path(sys.executable).resolve()
+    preferred = get_preferred_python(repo_root).resolve()
+    return current == preferred
+
+
+def get_runtime_python(state: AppState, repo_root: Path) -> Path:
+    if state.use_preferred_python:
+        return get_preferred_python(repo_root)
+    return Path(sys.executable)
 
 
 def ensure_manager_dirs() -> tuple[Path, Path, Path]:
@@ -146,7 +171,10 @@ def print_banner(console: Console | None) -> None:
 def print_findings_table(console: Console | None, findings: list[Finding]) -> None:
     if console is None:
         for finding in findings:
-            symbol = "OK" if finding.ok else "FAIL"
+            if finding.warning:
+                symbol = "WARN"
+            else:
+                symbol = "OK" if finding.ok else "FAIL"
             print(f"{finding.check}: {symbol} - {finding.details}")
         return
 
@@ -156,7 +184,10 @@ def print_findings_table(console: Console | None, findings: list[Finding]) -> No
     table.add_column("Details", style="bright_black")
 
     for finding in findings:
-        status = "[green]✅ OK[/green]" if finding.ok else "[red]❌ FAIL[/red]"
+        if finding.warning:
+            status = "[yellow]⚠️ WARN[/yellow]"
+        else:
+            status = "[green]✅ OK[/green]" if finding.ok else "[red]❌ FAIL[/red]"
         table.add_row(finding.check, status, finding.details)
 
     console.print(table)
@@ -180,6 +211,11 @@ def print_result_panel(console: Console | None, ok: bool, message: str) -> None:
 
 def _doctor_findings() -> list[Finding]:
     root = _repo_root()
+    current_python = Path(sys.executable)
+    preferred_python = get_preferred_python(root)
+    matches_preferred = is_running_in_preferred_python(root)
+    run_hint = f"Run with: {preferred_python} -m webscraper_manager ..."
+
     return [
         Finding("repo_root", root.exists(), f"Found repo root at {root}"),
         Finding(
@@ -192,12 +228,20 @@ def _doctor_findings() -> list[Finding]:
             (root / "webscraper" / "requirements.txt").is_file(),
             f"Expected file: {root / 'webscraper' / 'requirements.txt'}",
         ),
+        Finding("current_python", True, str(current_python)),
+        Finding("preferred_python", True, str(preferred_python)),
+        Finding(
+            "python_matches_preferred",
+            ok=matches_preferred,
+            details="Current interpreter matches preferred interpreter" if matches_preferred else run_hint,
+            warning=not matches_preferred,
+        ),
     ]
 
 
 def run_doctor(console: Console | None, state: AppState, json_out: bool) -> tuple[int, dict[str, Any] | None]:
     findings = _doctor_findings()
-    ok = all(finding.ok for finding in findings)
+    ok = all(finding.ok or finding.warning for finding in findings)
     payload = {
         "ok": ok,
         "findings": [asdict(finding) for finding in findings],
@@ -237,19 +281,19 @@ def _is_port_open(host: str, port: int, timeout_s: float = 0.5) -> bool:
         return False
 
 
-def _run_scraper_cli_probe(root: Path, timeout: int) -> tuple[bool, str, list[str]]:
+def _run_scraper_cli_probe(root: Path, timeout: int, python_exe: Path) -> tuple[bool, str, list[str]]:
     webscraper_dir = root / "webscraper"
     commands_tried: list[str] = []
     if (webscraper_dir / "__main__.py").is_file():
-        cmd = [sys.executable, "-m", "webscraper", "--help"]
+        cmd = [str(python_exe), "-m", "webscraper", "--help"]
         commands_tried.append(" ".join(cmd))
         rc, out, err = run_subprocess(cmd, cwd=root, timeout=timeout)
         text = (out + "\n" + err).strip()
         return rc == 0, text or "Ran webscraper module --help", commands_tried
 
     if (webscraper_dir / "ultimate_scraper.py").is_file():
-        dry_cmd = [sys.executable, "ultimate_scraper.py", "--dry-run"]
-        help_cmd = [sys.executable, "ultimate_scraper.py", "--help"]
+        dry_cmd = [str(python_exe), "ultimate_scraper.py", "--dry-run"]
+        help_cmd = [str(python_exe), "ultimate_scraper.py", "--help"]
         for cmd in (dry_cmd, help_cmd):
             commands_tried.append(" ".join(cmd))
             rc, out, err = run_subprocess(cmd, cwd=webscraper_dir, timeout=timeout)
@@ -272,11 +316,11 @@ def _select_pytest_cwd(root: Path) -> Path:
     return root
 
 
-def _run_pytest_step(path: str | None, timeout: int) -> tuple[TestStep, str, list[str]]:
+def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[TestStep, str, list[str]]:
     started = time.time()
     root = find_repo_root()
     commands: list[str] = []
-    cmd = [sys.executable, "-m", "pytest", "-q"]
+    cmd = [str(python_exe), "-m", "pytest", "-q"]
     if path:
         cmd.append(path)
     commands.append(" ".join(cmd))
@@ -296,34 +340,58 @@ def _run_pytest_step(path: str | None, timeout: int) -> tuple[TestStep, str, lis
         return step, step.details, commands
 
 
-def _run_smoke_steps(timeout: int, verbose: bool) -> tuple[list[TestStep], list[str], list[str]]:
+def _run_import_probe_step(timeout: int, python_exe: Path, root: Path) -> tuple[TestStep, str, list[str]]:
+    started = time.time()
+    modules = ["selenium", "requests", "bs4", "lxml"]
+    commands: list[str] = []
+    cmd = [
+        str(python_exe),
+        "-c",
+        (
+            "import importlib,sys; "
+            f"mods={modules!r}; "
+            "missing=[m for m in mods if importlib.util.find_spec(m) is None]; "
+            "print('missing=' + ','.join(missing)); "
+            "sys.exit(0 if not missing else 1)"
+        ),
+    ]
+    commands.append(" ".join(cmd))
+    try:
+        rc, out, err = run_subprocess(cmd, cwd=root, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        step = _make_step("python dependency imports", False, f"Dependency probe timed out after {timeout}s", started)
+        return step, step.details, commands
+
+    missing_line = next((line for line in out.splitlines() if line.startswith("missing=")), "missing=")
+    missing_values = missing_line.split("=", 1)[1].strip()
+    if rc == 0:
+        details = "All required imports ok"
+        return _make_step("python dependency imports", True, details, started), details, commands
+
+    details = f"Missing imports: {missing_values}" if missing_values else (out + "\n" + err).strip() or f"Dependency probe failed rc={rc}"
+    return _make_step("python dependency imports", False, details, started), details, commands
+
+
+def _run_smoke_steps(timeout: int, verbose: bool, python_exe: Path) -> tuple[list[TestStep], list[str], list[str]]:
     root = find_repo_root()
     steps: list[TestStep] = []
-    logs: list[str] = []
+    logs: list[str] = [f"[python] using {python_exe}"]
     commands: list[str] = []
 
     started = time.time()
     findings = _doctor_findings()
-    ok = all(f.ok for f in findings)
-    details = "; ".join(f"{f.check}={'ok' if f.ok else 'fail'}" for f in findings)
+    ok = all(f.ok or f.warning for f in findings)
+    details = "; ".join(f"{f.check}={'warn' if f.warning else ('ok' if f.ok else 'fail')}" for f in findings)
     steps.append(_make_step("doctor", ok, details, started))
     logs.append(f"[doctor] {details}")
 
-    started = time.time()
-    modules = ["selenium", "requests", "bs4", "lxml"]
-    missing: list[str] = []
-    for module_name in modules:
-        try:
-            importlib.import_module(module_name)
-        except Exception:
-            missing.append(module_name)
-    deps_ok = not missing
-    dep_details = "All required imports ok" if deps_ok else f"Missing imports: {', '.join(missing)}"
-    steps.append(_make_step("python dependency imports", deps_ok, dep_details, started))
+    dep_step, dep_details, dep_commands = _run_import_probe_step(timeout=timeout, python_exe=python_exe, root=root)
+    steps.append(dep_step)
+    commands.extend(dep_commands)
     logs.append(f"[deps] {dep_details}")
 
     started = time.time()
-    cli_ok, cli_details, cli_commands = _run_scraper_cli_probe(root, timeout=timeout)
+    cli_ok, cli_details, cli_commands = _run_scraper_cli_probe(root, timeout=timeout, python_exe=python_exe)
     commands.extend(cli_commands)
     steps.append(_make_step("webscraper CLI probe", cli_ok, cli_details, started))
     logs.append(f"[cli-probe] {cli_details}")
@@ -331,7 +399,7 @@ def _run_smoke_steps(timeout: int, verbose: bool) -> tuple[list[TestStep], list[
     started = time.time()
     if _is_port_open("127.0.0.1", 8787):
         cmd = [
-            sys.executable,
+            str(python_exe),
             "-c",
             (
                 "import urllib.request; "
@@ -359,7 +427,7 @@ def _run_smoke_steps(timeout: int, verbose: bool) -> tuple[list[TestStep], list[
     return steps, logs, commands
 
 
-def _run_scraper_sanity_step(timeout: int) -> tuple[TestStep, str, list[str]]:
+def _run_scraper_sanity_step(timeout: int, python_exe: Path) -> tuple[TestStep, str, list[str]]:
     started = time.time()
     root = find_repo_root()
     webscraper_dir = root / "webscraper"
@@ -369,12 +437,12 @@ def _run_scraper_sanity_step(timeout: int) -> tuple[TestStep, str, list[str]]:
         step = _make_step("scraper sanity run", True, "ultimate_scraper.py not found; skipped", started)
         return step, step.details, commands
 
-    cmd = [sys.executable, "ultimate_scraper.py", "--dry-run"]
+    cmd = [str(python_exe), "ultimate_scraper.py", "--dry-run"]
     commands.append(" ".join(cmd))
     try:
         rc, out, err = run_subprocess(cmd, cwd=webscraper_dir, timeout=timeout)
         if rc != 0:
-            help_cmd = [sys.executable, "ultimate_scraper.py", "--help"]
+            help_cmd = [str(python_exe), "ultimate_scraper.py", "--help"]
             commands.append(" ".join(help_cmd))
             rc, out, err = run_subprocess(help_cmd, cwd=webscraper_dir, timeout=timeout)
         ok = rc == 0
@@ -410,11 +478,13 @@ def _run_test_smoke(state: AppState, timeout: int) -> tuple[int, list[TestStep],
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
     log_path = day_dir / f"test_smoke_{timestamp}.log"
+    root = find_repo_root()
+    python_exe = get_runtime_python(state, root)
 
-    log_lines: list[str] = [f"command: test smoke --timeout {timeout}"]
+    log_lines: list[str] = [f"command: test smoke --timeout {timeout}", f"python: {python_exe}"]
 
     try:
-        steps, logs, commands = _run_smoke_steps(timeout=timeout, verbose=state.verbose)
+        steps, logs, commands = _run_smoke_steps(timeout=timeout, verbose=state.verbose, python_exe=python_exe)
         log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
         log_lines.extend(logs)
     except Exception as exc:
@@ -440,10 +510,12 @@ def _run_test_pytest(state: AppState, timeout: int, path: str | None = None) -> 
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
     log_path = day_dir / f"test_pytest_{timestamp}.log"
+    root = find_repo_root()
+    python_exe = get_runtime_python(state, root)
 
-    log_lines: list[str] = [f"command: test pytest --timeout {timeout} path={path or ''}".strip()]
+    log_lines: list[str] = [f"command: test pytest --timeout {timeout} path={path or ''}".strip(), f"python: {python_exe}"]
 
-    step, details, commands = _run_pytest_step(path=path, timeout=timeout)
+    step, details, commands = _run_pytest_step(path=path, timeout=timeout, python_exe=python_exe)
     log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
     log_lines.append(details)
 
@@ -463,11 +535,13 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
     log_path = day_dir / f"test_all_{timestamp}.log"
+    root = find_repo_root()
+    python_exe = get_runtime_python(state, root)
 
     steps: list[TestStep] = []
-    log_lines: list[str] = [f"command: test all --timeout {timeout} --keep-going={keep_going}"]
+    log_lines: list[str] = [f"command: test all --timeout {timeout} --keep-going={keep_going}", f"python: {python_exe}"]
 
-    smoke_steps, smoke_logs, smoke_commands = _run_smoke_steps(timeout=min(timeout, 30), verbose=state.verbose)
+    smoke_steps, smoke_logs, smoke_commands = _run_smoke_steps(timeout=min(timeout, 30), verbose=state.verbose, python_exe=python_exe)
     steps.extend(smoke_steps)
     log_lines.extend(f"subprocess: {cmd}" for cmd in smoke_commands)
     log_lines.extend(smoke_logs)
@@ -479,7 +553,7 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
     should_try_pytest = has_tests
 
     if should_try_pytest and (keep_going or not failed):
-        pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout)
+        pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
         steps.append(pytest_step)
         log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
         log_lines.append(pytest_details)
@@ -488,7 +562,7 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
         steps.append(TestStep(name="pytest", ok=True, details="No tests folder detected; skipped", duration_ms=0))
 
     if keep_going or not failed:
-        sanity_step, sanity_details, sanity_commands = _run_scraper_sanity_step(timeout=min(timeout, 45))
+        sanity_step, sanity_details, sanity_commands = _run_scraper_sanity_step(timeout=min(timeout, 45), python_exe=python_exe)
         steps.append(sanity_step)
         log_lines.extend(f"subprocess: {cmd}" for cmd in sanity_commands)
         log_lines.append(sanity_details)
@@ -559,9 +633,13 @@ def render_menu(console: Console | None, state: AppState) -> None:
     print_banner(console)
     clear_status = "ON" if state.clear_screen else "OFF"
     pure_json_status = "ON" if state.pure_json_mode else "OFF"
+    preferred_status = "ON" if state.use_preferred_python else "OFF"
+    root = find_repo_root()
+    runtime_python = get_runtime_python(state, root)
+    preferred_match = "YES" if runtime_python.resolve() == get_preferred_python(root).resolve() else "NO"
 
     if console is None:
-        print(f"\nToggles: pure_json_mode: {pure_json_status} | clear: {clear_status}")
+        print(f"\nToggles: pure_json_mode: {pure_json_status} | clear: {clear_status} | use_preferred_python: {preferred_status}")
         print("\nMenu")
         print("[1] Doctor (normal)")
         print("[2] Doctor (quiet)")
@@ -573,14 +651,16 @@ def render_menu(console: Console | None, state: AppState) -> None:
         print("[8] Pytest")
         print("[r] Refresh")
         print(f"[t] Toggle pure JSON mode (currently {pure_json_status})")
+        print(f"[p] Toggle use preferred python (currently {preferred_status})")
         print("[q] Quit")
+        print(f"\npython: {runtime_python.name} (preferred: {preferred_match})")
         return
 
     table = Table(title="Menu", box=box.ROUNDED, header_style="bold cyan")
     table.add_column("Option", justify="center", no_wrap=True)
     table.add_column("Command", style="white", no_wrap=True)
     table.add_column("Description", style="bright_black")
-    table.caption = f"pure_json_mode: {pure_json_status} | clear: {clear_status}"
+    table.caption = f"pure_json_mode: {pure_json_status} | clear: {clear_status} | use_preferred_python: {preferred_status}"
     table.add_row("1", "Doctor (normal)", "Same as: doctor")
     table.add_row("2", "Doctor (quiet)", "Same as: doctor --quiet")
     table.add_row("3", "Doctor (global quiet before command)", "Same as: --quiet doctor")
@@ -591,8 +671,10 @@ def render_menu(console: Console | None, state: AppState) -> None:
     table.add_row("8", "Pytest", "Same as: test pytest")
     table.add_row("r", "Refresh", "Redraw the menu")
     table.add_row("t", "Toggle pure JSON mode", f"Currently: {pure_json_status}")
+    table.add_row("p", "Toggle use preferred python", f"Currently: {preferred_status}")
     table.add_row("q", "Quit", "Exit menu (with confirmation)")
     console.print(table)
+    console.print(f"[bright_black]python: {runtime_python.name} (preferred: {preferred_match})[/bright_black]")
 
 
 def _run_menu_action(console: Console | None, state: AppState, choice: str) -> int:
@@ -603,6 +685,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -613,6 +696,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -623,6 +707,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -633,6 +718,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         if not state.pure_json_mode:
             print("Running: doctor --json")
@@ -645,6 +731,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         run_version(console, action_state)
         return EXIT_OK
@@ -657,6 +744,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _, _ = _run_test_smoke(action_state, timeout=30)
         return code
@@ -669,6 +757,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _, _ = _run_test_all(action_state, timeout=300, keep_going=False)
         return code
@@ -681,6 +770,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
             clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
         )
         code, _, _ = _run_test_pytest(action_state, timeout=300, path=None)
         return code
@@ -711,7 +801,7 @@ def run_menu(state: AppState) -> int:
     while True:
         render_menu(console, state)
         try:
-            choice = _read_line("\nSelect an option [1-8, r, t, q]: ")
+            choice = _read_line("\nSelect an option [1-8, r, t, p, q]: ")
         except KeyboardInterrupt:
             print()
             continue
@@ -725,13 +815,19 @@ def run_menu(state: AppState) -> int:
             print(f"pure_json_mode: {mode}")
             continue
 
+        if choice == "p":
+            state.use_preferred_python = not state.use_preferred_python
+            mode = "ON" if state.use_preferred_python else "OFF"
+            print(f"use_preferred_python: {mode}")
+            continue
+
         if choice == "q":
             if _confirm_quit():
                 return EXIT_OK
             continue
 
         if choice not in {"1", "2", "3", "4", "5", "6", "7", "8"}:
-            print("Invalid selection. Enter 1, 2, 3, 4, 5, 6, 7, 8, r, t, or q.")
+            print("Invalid selection. Enter 1, 2, 3, 4, 5, 6, 7, 8, r, t, p, or q.")
             continue
 
         try:
@@ -744,16 +840,19 @@ def run_menu(state: AppState) -> int:
         pause_for_user()
 
 
-def _build_state_from_ctx(ctx: Any, quiet: bool, verbose: bool) -> AppState:
+def _build_state_from_ctx(ctx: Any, quiet: bool, verbose: bool, use_preferred_python: bool = True) -> AppState:
     state = ctx.obj if isinstance(ctx.obj, AppState) else AppState()
 
     quiet_override = _set_flag_from_source(ctx, "quiet", quiet)
     verbose_override = _set_flag_from_source(ctx, "verbose", verbose)
+    preferred_override = _set_flag_from_source(ctx, "use_preferred_python", use_preferred_python)
 
     if quiet_override is not None:
         state.quiet = quiet_override
     if verbose_override is not None:
         state.verbose = verbose_override
+    if preferred_override is not None:
+        state.use_preferred_python = preferred_override
     return state
 
 
@@ -779,11 +878,16 @@ if TYPER_AVAILABLE:
             is_eager=True,
             help="Show version and exit.",
         ),
+        use_preferred_python: bool = typer.Option(
+            True,
+            "--use-preferred-python/--no-use-preferred-python",
+            help="Use preferred webscraper venv interpreter for subprocess actions.",
+        ),
     ) -> None:
         del version
         if ctx.resilient_parsing:
             return
-        ctx.obj = AppState(quiet=quiet, verbose=verbose)
+        ctx.obj = AppState(quiet=quiet, verbose=verbose, use_preferred_python=use_preferred_python)
 
     @app.command()
     def doctor(
@@ -792,7 +896,7 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         json_override = _set_flag_from_source(ctx, "json_output", json_output)
         use_json = bool(json_override) if json_override is not None else json_output
 
@@ -810,7 +914,7 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         code, _, _ = _run_test_smoke(state, timeout=timeout)
         raise typer.Exit(code)
 
@@ -822,7 +926,7 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         code, _, _ = _run_test_pytest(state, timeout=timeout, path=path)
         raise typer.Exit(code)
 
@@ -834,7 +938,7 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         code, _, _ = _run_test_all(state, timeout=timeout, keep_going=keep_going, pytest_path=None)
         raise typer.Exit(code)
 
@@ -853,7 +957,7 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output for menu actions."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         state.clear_screen = bool(clear_screen and not no_clear)
         code = run_menu(state)
         if code:
@@ -865,6 +969,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
 
     root = argparse.ArgumentParser(prog="webscraper_manager", description="Manage webscraper workflows")
     root.add_argument("--version", action="store_true", help="Show version and exit")
+    root.add_argument("--use-preferred-python", action=argparse.BooleanOptionalAction, default=True, help="Use preferred webscraper venv interpreter for subprocess actions")
 
     subparsers = root.add_subparsers(dest="command")
 
@@ -913,11 +1018,12 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             quiet=bool(args.quiet),
             verbose=bool(args.verbose),
             clear_screen=bool(args.clear_screen and not args.no_clear),
+            use_preferred_python=bool(args.use_preferred_python),
         )
         return run_menu(state)
 
     if args.command == "doctor":
-        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose))
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
         if should_print_banner(state, json_out=bool(args.json_output), is_help=False):
             print_banner(get_console(state))
         code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output))
@@ -925,15 +1031,15 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
 
     if args.command == "test":
         if args.test_command == "smoke":
-            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose))
+            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
             code, _, _ = _run_test_smoke(state, timeout=int(args.timeout))
             return code
         if args.test_command == "all":
-            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose))
+            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
             code, _, _ = _run_test_all(state, timeout=int(args.timeout), keep_going=bool(args.keep_going), pytest_path=None)
             return code
         if args.test_command == "pytest":
-            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose))
+            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
             code, _, _ = _run_test_pytest(state, timeout=int(args.timeout), path=args.path)
             return code
         test_parser.print_help()
