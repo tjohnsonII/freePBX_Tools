@@ -509,6 +509,11 @@ def health():
     return api_health()
 
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 @app.post("/api/scrape")
 def api_scrape_legacy(payload: dict[str, Any]):
     mode = payload.get("mode")

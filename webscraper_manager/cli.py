@@ -711,20 +711,14 @@ def _http_get_status(url: str, timeout_s: float) -> int | None:
 
 def _wait_for_api_readiness(host: str, port: int, timeout_s: int) -> tuple[bool, str]:
     deadline = time.time() + timeout_s
+    health_url = f"http://{host}:{port}/healthz"
     while time.time() < deadline:
         if _is_port_open(host, port, timeout_s=0.5):
-            health_urls = [
-                f"http://{host}:{port}/health",
-                f"http://{host}:{port}/healthz",
-                f"http://{host}:{port}/docs",
-            ]
-            for url in health_urls:
-                status = _http_get_status(url=url, timeout_s=2.0)
-                if status == 200:
-                    return True, f"health route OK: {url}"
-            return True, "no health route; tcp open OK"
+            status = _http_get_status(url=health_url, timeout_s=2.0)
+            if status == 200:
+                return True, f"health route OK: {health_url}"
         time.sleep(0.25)
-    return False, f"API did not become ready within {timeout_s}s"
+    return False, f"API did not become ready within {timeout_s}s (GET {health_url} != 200)"
 
 
 def _start_ticket_api_if_needed(python_exe: Path, root: Path) -> tuple[str, str, subprocess.Popen[str] | None, list[str]]:
@@ -735,59 +729,57 @@ def _start_ticket_api_if_needed(python_exe: Path, root: Path) -> tuple[str, str,
     if _is_port_open(host, port):
         return "already_running", "Port 8787 already open; treating API as externally running", None, commands
 
-    targets = [
-        "webscraper.ticket_api.app:app",
-        "webscraper.ticket_api.main:app",
-        "webscraper.ticket_api.api:app",
-    ]
+    target = "webscraper.ticket_api.app:app"
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    cmd = [
+        str(python_exe),
+        "-m",
+        "uvicorn",
+        target,
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    commands.append("command: " + " ".join(cmd))
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(root.resolve()),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError:
+        return "failed", "Python executable not found while starting uvicorn", None, commands
 
-    for target in targets:
-        cmd = [
-            str(python_exe),
-            "-m",
-            "uvicorn",
-            target,
-            "--host",
-            host,
-            "--port",
-            str(port),
-        ]
-        commands.append(" ".join(cmd))
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(root.resolve()),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        except FileNotFoundError:
-            return "failed", "Python executable not found while starting uvicorn", None, commands
-
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            if _is_port_open(host, port, timeout_s=0.5):
-                return "started", f"Started ticket API via {target}", proc, commands
-            if proc.poll() is not None:
-                break
-            time.sleep(0.2)
-
-        if proc.poll() is None and _is_port_open(host, port, timeout_s=0.5):
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if _is_port_open(host, port, timeout_s=0.5):
             return "started", f"Started ticket API via {target}", proc, commands
+        if proc.poll() is not None:
+            break
+        time.sleep(0.2)
 
-        try:
-            out, err = proc.communicate(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate(timeout=2)
-        failure = (out + "\n" + err).strip() or f"uvicorn exited while loading {target}"
-        commands.append(f"uvicorn-target-failed: {target}")
-        commands.append(f"uvicorn-output: {failure}")
+    if proc.poll() is None and _is_port_open(host, port, timeout_s=0.5):
+        return "started", f"Started ticket API via {target}", proc, commands
 
-    return "failed", "Unable to start ticket API with known import targets", None, commands
+    try:
+        out, err = proc.communicate(timeout=2)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate(timeout=2)
+    stdout_text = (out or "").strip()
+    stderr_text = (err or "").strip()
+    if stdout_text:
+        commands.append(f"stdout: {stdout_text}")
+    if stderr_text:
+        commands.append(f"stderr: {stderr_text}")
+    if not stdout_text and not stderr_text:
+        commands.append(f"stderr: uvicorn exited while loading {target}")
+    return "failed", f"Unable to start ticket API via {target}", None, commands
 
 
 def _stop_started_process(proc: subprocess.Popen[str] | None) -> tuple[bool, str]:
