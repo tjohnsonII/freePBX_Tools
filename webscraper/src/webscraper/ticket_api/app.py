@@ -38,6 +38,12 @@ class StartScrapeRequest(BaseModel):
     refresh_handles: bool = True
 
 
+class BatchScrapeRequest(BaseModel):
+    handles: list[str]
+    mode: str = "latest"
+    limit: int = 10
+
+
 @dataclass
 class QueueJob:
     job_id: str
@@ -242,6 +248,75 @@ def _job_worker() -> None:
             CURRENT_JOB_ID = None
 
 
+def _scrape_script_path() -> Path:
+    return Path(__file__).resolve().parents[4] / "scripts" / "scrape_all_handles.py"
+
+
+def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int) -> None:
+    script = _scrape_script_path()
+    start_ts = _iso_now()
+    db.update_scrape_job(
+        db_path(),
+        job_id,
+        status="running",
+        progress_completed=0,
+        progress_total=1,
+        started_utc=start_ts,
+        error_message=None,
+    )
+    if not script.exists():
+        result = {
+            "status": "failed",
+            "errorType": "missing_script",
+            "error": f"Missing scraper script: {script}",
+            "logTail": [],
+        }
+        db.update_scrape_job(
+            db_path(),
+            job_id,
+            status="failed",
+            progress_completed=1,
+            progress_total=1,
+            finished_utc=_iso_now(),
+            error_message=result["error"],
+            result=result,
+        )
+        return
+
+    cmd = [sys.executable, str(script), "--db", db_path(), "--handles", handle, "--mode", mode, "--limit", str(limit)]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    if proc.returncode == 0:
+        db.update_scrape_job(
+            db_path(),
+            job_id,
+            status="completed",
+            progress_completed=1,
+            progress_total=1,
+            finished_utc=_iso_now(),
+            error_message=None,
+            result={"status": "completed", "logTail": lines[-50:]},
+        )
+        return
+
+    result = {
+        "status": "failed",
+        "errorType": "scrape_failed",
+        "error": f"scraper exit code {proc.returncode}",
+        "logTail": lines[-50:],
+    }
+    db.update_scrape_job(
+        db_path(),
+        job_id,
+        status="failed",
+        progress_completed=1,
+        progress_total=1,
+        finished_utc=_iso_now(),
+        error_message=result["error"],
+        result=result,
+    )
+
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = str(uuid.uuid4())
@@ -274,6 +349,40 @@ def startup() -> None:
 def api_handles(limit: int = Query(default=500, ge=1, le=5000), offset: int = 0):
     items = db.list_handles(db_path(), limit=limit, offset=offset)
     return {"items": sorted(items, key=lambda item: item.get("last_updated_utc") or item.get("finished_utc") or "", reverse=True)}
+
+
+@app.get("/api/handles/summary")
+def api_handles_summary(q: str = "", limit: int = Query(default=200, ge=1, le=5000), offset: int = Query(default=0, ge=0)):
+    return db.list_handles_summary(db_path(), q=q, limit=limit, offset=offset)
+
+
+@app.get("/api/handles/all")
+def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
+    items = db.list_handle_names(db_path(), q=q, limit=limit)
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/scrape-batch")
+def api_scrape_batch(req: BatchScrapeRequest):
+    job_ids: list[str] = []
+    for raw_handle in req.handles:
+        handle = (raw_handle or "").strip()
+        if not handle:
+            continue
+        job_id = str(uuid.uuid4())
+        job_ids.append(job_id)
+        db.create_scrape_job(
+            db_path(),
+            job_id=job_id,
+            handle=handle,
+            mode=req.mode,
+            ticket_limit=req.limit,
+            status="queued",
+            created_utc=_iso_now(),
+        )
+        worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
+        worker.start()
+    return {"status": "queued", "jobIds": job_ids}
 
 
 @app.get("/api/events/latest")
@@ -382,6 +491,7 @@ def api_artifact(path: str):
 @app.get("/api/health")
 def api_health():
     stats_payload = db.get_stats(db_path())
+    stats_payload = {**stats_payload, "tickets": int(stats_payload.get("total_tickets", 0))}
     return {
         "status": "ok",
         "version": app.version,
