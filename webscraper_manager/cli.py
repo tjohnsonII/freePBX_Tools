@@ -6,7 +6,7 @@ import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from webscraper_manager import __version__
 
@@ -42,9 +42,9 @@ SUBTITLE_TEXT = "CLI manager for status, tests, auth, API checks, and start/stop
 class AppState:
     quiet: bool = False
     verbose: bool = False
-    no_banner: bool = False
-    color: bool = True
-    json_output: bool = False
+    in_menu: bool = False
+    pure_json_mode: bool = False
+    no_clear: bool = False
 
 
 @dataclass
@@ -59,17 +59,25 @@ def _repo_root() -> Path:
 
 
 def get_console(state: AppState) -> Console | None:
-    """Return a Rich console when available; otherwise use plain output."""
     if not RICH_AVAILABLE:
         return None
-    return Console(no_color=not state.color)
+    no_color = bool(os.environ.get("NO_COLOR"))
+    return Console(no_color=no_color)
 
 
-def print_banner(console: Console | None, state: AppState) -> None:
-    """Print a startup banner when output mode allows it."""
-    if state.quiet or state.no_banner or state.json_output:
-        return
+def should_print_banner(state: AppState, json_out: bool, is_help: bool) -> bool:
+    if is_help:
+        return False
+    if state.in_menu:
+        return False
+    if state.quiet:
+        return False
+    if json_out:
+        return False
+    return True
 
+
+def print_banner(console: Console | None) -> None:
     if console is None:
         print(f"{TITLE_TEXT}\n{SUBTITLE_TEXT}")
         return
@@ -88,20 +96,7 @@ def print_banner(console: Console | None, state: AppState) -> None:
     )
 
 
-def print_menu_banner(console: Console | None, state: AppState) -> None:
-    """Always render the menu banner, regardless of quiet/json output mode."""
-    forced = AppState(
-        quiet=False,
-        verbose=state.verbose,
-        no_banner=False,
-        color=state.color,
-        json_output=False,
-    )
-    print_banner(console, forced)
-
-
 def print_findings_table(console: Console | None, findings: list[Finding]) -> None:
-    """Print doctor findings in table format, with fallback plain text."""
     if console is None:
         for finding in findings:
             symbol = "OK" if finding.ok else "FAIL"
@@ -121,7 +116,6 @@ def print_findings_table(console: Console | None, findings: list[Finding]) -> No
 
 
 def print_result_panel(console: Console | None, ok: bool, message: str) -> None:
-    """Print final status with Rich panel when available, plain text otherwise."""
     if console is None:
         print(message)
         return
@@ -131,27 +125,6 @@ def print_result_panel(console: Console | None, ok: bool, message: str) -> None:
         Panel(
             Text(message, justify="center", style=f"bold {final_style}"),
             border_style=final_style,
-            box=box.ROUNDED,
-            padding=(0, 2),
-        )
-    )
-
-
-def print_version(state: AppState) -> None:
-    """Print version using quiet/plain behavior rules."""
-    if state.quiet or state.json_output:
-        print(__version__)
-        return
-
-    console = get_console(state)
-    if console is None:
-        print(f"webscraper_manager {__version__}")
-        return
-
-    console.print(
-        Panel(
-            Text(f"webscraper_manager {__version__}", justify="center", style="bold cyan"),
-            border_style="cyan",
             box=box.ROUNDED,
             padding=(0, 2),
         )
@@ -175,47 +148,54 @@ def _doctor_findings() -> list[Finding]:
     ]
 
 
-def run_doctor(state: AppState, json_out: bool = False) -> tuple[bool, list[Finding]]:
-    """Run doctor checks and return the result without printing."""
+def run_doctor(console: Console | None, state: AppState, json_out: bool) -> tuple[int, dict[str, Any] | None]:
     findings = _doctor_findings()
     ok = all(finding.ok for finding in findings)
-    _ = json_out
-    return ok, findings
+    payload = {
+        "ok": ok,
+        "findings": [asdict(finding) for finding in findings],
+    }
 
-
-def execute_doctor(state: AppState, json_out: bool = False, show_banner: bool = False) -> int:
-    """Execute doctor output flow using shared check logic."""
-    ok, findings = run_doctor(state, json_out=json_out)
-
-    if json_out or state.json_output:
-        payload = {
-            "ok": ok,
-            "findings": [asdict(finding) for finding in findings],
-        }
+    if json_out:
         print(json.dumps(payload, indent=2))
-    elif state.quiet:
+        return (EXIT_OK if ok else EXIT_DOCTOR_ISSUES), payload
+
+    if state.quiet:
         print("Doctor checks passed." if ok else "Doctor checks found issues.")
-    else:
-        console = get_console(state)
-        if show_banner:
-            print_banner(console, state)
-        print_findings_table(console, findings)
+        return (EXIT_OK if ok else EXIT_DOCTOR_ISSUES), None
 
-        if state.verbose:
-            message = f"Verbose: evaluated {len(findings)} checks from root: {_repo_root()}"
-            if console is None:
-                print(message)
-            else:
-                console.print(f"[bright_black]{message}[/bright_black]")
+    print_findings_table(console, findings)
 
-        final_message = "Doctor checks passed." if ok else "Doctor checks found issues."
-        print_result_panel(console, ok, final_message)
+    if state.verbose:
+        message = f"Verbose: evaluated {len(findings)} checks from root: {_repo_root()}"
+        if console is None:
+            print(message)
+        else:
+            console.print(f"[bright_black]{message}[/bright_black]")
 
-    return EXIT_OK if ok else EXIT_DOCTOR_ISSUES
+    final_message = "Doctor checks passed." if ok else "Doctor checks found issues."
+    print_result_panel(console, ok, final_message)
+    return (EXIT_OK if ok else EXIT_DOCTOR_ISSUES), None
 
 
-def _set_flag_from_source(ctx: Any, name: str, value: bool) -> Optional[bool]:
-    """Return value when explicitly set on command line; otherwise None."""
+def run_version(console: Console | None, state: AppState) -> None:
+    if state.quiet:
+        print(__version__)
+        return
+    if console is None:
+        print(__version__)
+        return
+    console.print(
+        Panel(
+            Text(f"webscraper_manager {__version__}", justify="center", style="bold cyan"),
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(0, 2),
+        )
+    )
+
+
+def _set_flag_from_source(ctx: Any, name: str, value: bool) -> bool | None:
     try:
         source = ctx.get_parameter_source(name)
         if source is not None and source.name != "DEFAULT":
@@ -226,27 +206,44 @@ def _set_flag_from_source(ctx: Any, name: str, value: bool) -> Optional[bool]:
     return None
 
 
-def _clear_screen() -> None:
-    command = "cls" if os.name == "nt" else "clear"
-    os.system(command)
+def _clear_screen(state: AppState) -> None:
+    if state.no_clear:
+        return
+    if os.name == "nt":
+        os.system("cls")
+        return
+    os.system("clear")
 
 
-def _wait_for_enter() -> None:
+def _read_line(prompt: str) -> str:
+    return input(prompt).strip().lower()
+
+
+def _confirm_quit() -> bool:
     try:
-        input("\nPress Enter to return to menu…")
+        answer = _read_line("Quit? [y/N] ")
     except KeyboardInterrupt:
-        print("\nExiting menu.")
-        raise
+        print()
+        return False
+    return answer in {"y", "yes"}
 
 
-def _menu_options_table(console: Console | None) -> None:
+def render_menu(console: Console | None, state: AppState) -> None:
+    _clear_screen(state)
+    print_banner(console)
+    clear_status = "OFF" if state.no_clear else "ON"
+    pure_json_status = "ON" if state.pure_json_mode else "OFF"
+
     if console is None:
+        print(f"\nToggles: pure_json_mode: {pure_json_status} | clear: {clear_status}")
         print("\nMenu")
-        print("[1] Doctor (normal) - Run doctor with normal output")
-        print("[2] Doctor (quiet) - Run doctor with minimal output")
-        print("[3] Doctor (global quiet before command) - Equivalent to --quiet doctor")
-        print("[4] Doctor (json) - Run doctor and print JSON only")
-        print("[5] Version - Show version")
+        print("[1] Doctor (normal)")
+        print("[2] Doctor (quiet)")
+        print("[3] Doctor (global quiet before command)")
+        print("[4] Doctor (json)")
+        print("[5] Version")
+        print("[r] Refresh")
+        print(f"[t] Toggle pure JSON mode (currently {pure_json_status})")
         print("[q] Quit")
         return
 
@@ -254,58 +251,123 @@ def _menu_options_table(console: Console | None) -> None:
     table.add_column("Option", justify="center", no_wrap=True)
     table.add_column("Command", style="white", no_wrap=True)
     table.add_column("Description", style="bright_black")
+    table.caption = f"pure_json_mode: {pure_json_status} | clear: {clear_status}"
     table.add_row("1", "Doctor (normal)", "Same as: doctor")
     table.add_row("2", "Doctor (quiet)", "Same as: doctor --quiet")
     table.add_row("3", "Doctor (global quiet before command)", "Same as: --quiet doctor")
     table.add_row("4", "Doctor (json)", "Same as: doctor --json")
     table.add_row("5", "Version", "Same as: --version")
-    table.add_row("q", "Quit", "Exit menu")
+    table.add_row("r", "Refresh", "Redraw the menu")
+    table.add_row("t", "Toggle pure JSON mode", f"Currently: {pure_json_status}")
+    table.add_row("q", "Quit", "Exit menu (with confirmation)")
     console.print(table)
 
 
+def _run_menu_action(console: Console | None, state: AppState, choice: str) -> int:
+    if choice == "1":
+        action_state = AppState(
+            quiet=False,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            no_clear=state.no_clear,
+        )
+        code, _ = run_doctor(console, action_state, json_out=False)
+        return code
+    if choice == "2":
+        action_state = AppState(
+            quiet=True,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            no_clear=state.no_clear,
+        )
+        code, _ = run_doctor(console, action_state, json_out=False)
+        return code
+    if choice == "3":
+        action_state = AppState(
+            quiet=True,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            no_clear=state.no_clear,
+        )
+        code, _ = run_doctor(console, action_state, json_out=False)
+        return code
+    if choice == "4":
+        action_state = AppState(
+            quiet=False,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            no_clear=state.no_clear,
+        )
+        if not state.pure_json_mode:
+            print("Running: doctor --json")
+        code, _ = run_doctor(console, action_state, json_out=True)
+        return code
+    if choice == "5":
+        action_state = AppState(
+            quiet=state.quiet,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            no_clear=state.no_clear,
+        )
+        run_version(console, action_state)
+        return EXIT_OK
+    return EXIT_USAGE
+
+
 def run_menu(state: AppState) -> int:
-    """Interactive menu for common commands."""
+    state.in_menu = True
     console = get_console(state)
 
     while True:
-        _clear_screen()
-        print_menu_banner(console, state)
-        _menu_options_table(console)
-
+        render_menu(console, state)
         try:
-            choice = input("\nSelect an option [1-5, q]: ").strip().lower()
+            choice = _read_line("\nSelect an option [1-5, r, t, q]: ")
         except KeyboardInterrupt:
-            print("\nExiting menu.")
-            return EXIT_OK
+            print()
+            continue
+
+        if choice == "r":
+            continue
+
+        if choice == "t":
+            state.pure_json_mode = not state.pure_json_mode
+            mode = "ON" if state.pure_json_mode else "OFF"
+            print(f"pure_json_mode: {mode}")
+            continue
 
         if choice == "q":
-            return EXIT_OK
+            if _confirm_quit():
+                return EXIT_OK
+            continue
+
+        if choice not in {"1", "2", "3", "4", "5"}:
+            print("Invalid selection. Enter 1, 2, 3, 4, 5, r, t, or q.")
+            continue
 
         try:
-            if choice == "1":
-                run_state = AppState(quiet=False, verbose=state.verbose, no_banner=False, color=state.color, json_output=False)
-                execute_doctor(run_state, show_banner=True)
-                _wait_for_enter()
-            elif choice == "2":
-                run_state = AppState(quiet=True, verbose=state.verbose, no_banner=True, color=state.color, json_output=False)
-                execute_doctor(run_state)
-                _wait_for_enter()
-            elif choice == "3":
-                run_state = AppState(quiet=True, verbose=state.verbose, no_banner=True, color=state.color, json_output=False)
-                execute_doctor(run_state)
-                _wait_for_enter()
-            elif choice == "4":
-                run_state = AppState(quiet=False, verbose=state.verbose, no_banner=True, color=state.color, json_output=True)
-                execute_doctor(run_state, json_out=True)
-                _wait_for_enter()
-            elif choice == "5":
-                print_version(state)
-                _wait_for_enter()
-            else:
-                print("Invalid selection. Enter 1, 2, 3, 4, 5, or q.")
-                _wait_for_enter()
+            _run_menu_action(console, state, choice)
         except KeyboardInterrupt:
-            return EXIT_OK
+            if not state.pure_json_mode:
+                print("Canceled.")
+            continue
+
+
+def _build_state_from_ctx(ctx: Any, quiet: bool, verbose: bool) -> AppState:
+    state = ctx.obj if isinstance(ctx.obj, AppState) else AppState()
+
+    quiet_override = _set_flag_from_source(ctx, "quiet", quiet)
+    verbose_override = _set_flag_from_source(ctx, "verbose", verbose)
+
+    if quiet_override is not None:
+        state.quiet = quiet_override
+    if verbose_override is not None:
+        state.verbose = verbose_override
+    return state
 
 
 if TYPER_AVAILABLE:
@@ -314,7 +376,7 @@ if TYPER_AVAILABLE:
     def _version_callback(value: bool) -> None:
         if not value:
             return
-        print_version(AppState(quiet=True, no_banner=True))
+        run_version(get_console(AppState(quiet=True)), AppState(quiet=True))
         raise typer.Exit(EXIT_OK)
 
     @app.callback(invoke_without_command=False)
@@ -322,12 +384,6 @@ if TYPER_AVAILABLE:
         ctx: typer.Context,
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output (no banner)."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
-        no_banner: bool = typer.Option(
-            False,
-            "--no-banner",
-            help="Suppress banner output (alias behavior of --quiet).",
-        ),
-        color: bool = typer.Option(True, "--color/--no-color", help="Enable color output."),
         version: bool = typer.Option(
             False,
             "--version",
@@ -336,32 +392,10 @@ if TYPER_AVAILABLE:
             help="Show version and exit.",
         ),
     ) -> None:
-        """webscraper_manager command group.
-
-        Global flags are defined here for `--quiet doctor` style usage. Commands also
-        define the same options for `doctor --quiet`, then merge command values over
-        callback values when explicitly provided.
-        """
         del version
         if ctx.resilient_parsing:
             return
-
-        state = AppState(
-            quiet=quiet,
-            verbose=verbose,
-            no_banner=no_banner or quiet,
-            color=color,
-            json_output="--json" in sys.argv,
-        )
-        ctx.obj = state
-
-        if (
-            ctx.invoked_subcommand
-            and ctx.invoked_subcommand != "menu"
-            and not state.no_banner
-            and not state.json_output
-        ):
-            print_banner(get_console(state), state)
+        ctx.obj = AppState(quiet=quiet, verbose=verbose)
 
     @app.command()
     def doctor(
@@ -370,105 +404,94 @@ if TYPER_AVAILABLE:
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
-        """Validate a minimal webscraper_manager setup."""
-        state = ctx.obj if isinstance(ctx.obj, AppState) else AppState()
-
-        quiet_override = _set_flag_from_source(ctx, "quiet", quiet)
-        verbose_override = _set_flag_from_source(ctx, "verbose", verbose)
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
         json_override = _set_flag_from_source(ctx, "json_output", json_output)
+        use_json = bool(json_override) if json_override is not None else json_output
 
-        if quiet_override is not None:
-            state.quiet = quiet_override
-            state.no_banner = quiet_override
-        if verbose_override is not None:
-            state.verbose = verbose_override
-        if json_override is not None:
-            state.json_output = json_override
+        if should_print_banner(state, json_out=use_json, is_help=False):
+            print_banner(get_console(state))
 
-        exit_code = execute_doctor(state)
-        if exit_code:
-            raise typer.Exit(exit_code)
+        code, _ = run_doctor(get_console(state), state, json_out=use_json)
+        if code:
+            raise typer.Exit(code)
 
     @app.command()
-    def menu(ctx: typer.Context) -> None:
-        """Open interactive command menu."""
-        state = ctx.obj if isinstance(ctx.obj, AppState) else AppState()
-        exit_code = run_menu(state)
-        if exit_code:
-            raise typer.Exit(exit_code)
+    def menu(
+        ctx: typer.Context,
+        no_clear: bool = typer.Option(False, "--no-clear", help="Do not clear the screen between menu draws."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output for menu actions."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
+        state.no_clear = no_clear
+        code = run_menu(state)
+        if code:
+            raise typer.Exit(code)
 
 
 def _argparse_fallback(argv: list[str] | None = None) -> int:
-    """Minimal CLI when Typer is unavailable (wrong interpreter/missing deps)."""
     argv = list(argv or sys.argv[1:])
-
-    quiet = False
-    verbose = False
-    normalized_argv: list[str] = []
-    for token in argv:
-        if token == "--quiet":
-            quiet = True
-            continue
-        if token == "--verbose":
-            verbose = True
-            continue
-        normalized_argv.append(token)
 
     root = argparse.ArgumentParser(prog="webscraper_manager", description="Manage webscraper workflows")
     root.add_argument("--version", action="store_true", help="Show version and exit")
 
     subparsers = root.add_subparsers(dest="command")
+
     doctor_parser = subparsers.add_parser("doctor", help="Run doctor checks")
     doctor_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
-    subparsers.add_parser("menu", help="Open interactive menu")
+    doctor_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    doctor_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
-    args = root.parse_args(normalized_argv)
+    menu_parser = subparsers.add_parser("menu", help="Open interactive menu")
+    menu_parser.add_argument("--no-clear", action="store_true", help="Do not clear the screen")
+    menu_parser.add_argument("--quiet", action="store_true", help="Minimal output for menu actions")
+    menu_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+
+    root.add_argument("--quiet", action="store_true", help="Minimal output")
+    root.add_argument("--verbose", action="store_true", help="Enable verbose output")
+
+    args = root.parse_args(argv)
+
     if args.version:
-        print_version(AppState(quiet=True, no_banner=True))
+        run_version(get_console(AppState(quiet=True)), AppState(quiet=True))
         return EXIT_OK
 
     if args.command == "menu":
-        return run_menu(AppState(quiet=quiet, verbose=verbose, no_banner=quiet))
-
-    if args.command != "doctor":
-        root.print_help()
-        return EXIT_USAGE if normalized_argv else EXIT_OK
-
-    state = AppState(
-        quiet=quiet,
-        verbose=verbose,
-        no_banner=quiet,
-        json_output=bool(args.json_output),
-    )
-
-    if not TYPER_AVAILABLE and state.verbose:
-        print(
-            "Warning: Typer is not installed in this Python environment. "
-            "Using minimal argparse fallback. Install typer with: pip install typer[all]"
+        state = AppState(
+            quiet=bool(args.quiet),
+            verbose=bool(args.verbose),
+            no_clear=bool(args.no_clear),
         )
-    if not RICH_AVAILABLE and state.verbose and not state.json_output:
-        print("Info: Rich is not installed; using plain text output. Install with: pip install rich")
+        return run_menu(state)
 
-    if not state.no_banner and not state.json_output:
-        print_banner(get_console(state), state)
-    return execute_doctor(state)
+    if args.command == "doctor":
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose))
+        if should_print_banner(state, json_out=bool(args.json_output), is_help=False):
+            print_banner(get_console(state))
+        code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output))
+        return code
+
+    root.print_help()
+    return EXIT_USAGE if argv else EXIT_OK
 
 
 def main() -> None:
+    argv = sys.argv[1:]
     if TYPER_AVAILABLE:
         app()
         return
 
-    argv = sys.argv[1:]
-    quiet_mode = "--quiet" in argv
-    json_mode = "--json" in argv
-    if not quiet_mode and not json_mode:
-        print(
-            "Warning: Typer dependency is missing; running minimal fallback CLI. "
-            "Install typer with: pip install typer[all]"
-        )
-    raise SystemExit(_argparse_fallback(argv))
+    try:
+        raise SystemExit(_argparse_fallback(argv))
+    except KeyboardInterrupt:
+        raise
 
 
 if __name__ == "__main__":
     main()
+
+# Test commands
+# python -m webscraper_manager menu
+# python -m webscraper_manager doctor --quiet
+# python -m webscraper_manager doctor --json
+# python -m webscraper_manager --version
