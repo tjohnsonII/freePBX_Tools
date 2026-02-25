@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import re
@@ -12,14 +11,28 @@ import shutil
 import subprocess
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from webscraper.db import finish_run, init_db, record_artifact, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
+from webscraper.db import (
+    export_tickets_by_handle,
+    finish_run,
+    get_handle_state,
+    init_db,
+    mark_handle_attempt,
+    mark_handle_error,
+    mark_handle_success,
+    record_artifact,
+    set_run_failure_reason,
+    start_run,
+    upsert_handle,
+    upsert_tickets,
+)
+from webscraper.handles_loader import load_handles_from_csv
 from webscraper.paths import tickets_db_path, runtime_profile_dir
 from webscraper.run_manager import RunManager
 from webscraper.utils.io import safe_write_json
@@ -27,16 +40,13 @@ from webscraper.utils.io import safe_write_json
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch handle scraper with SQLite persistence")
-    parser.add_argument("--handles", nargs="+", help="(Legacy) Handles to scrape (supports comma/whitespace separation)")
+    parser.add_argument("--handles", nargs="+", help="Optional explicit handles (comma/whitespace separated)")
     parser.add_argument("--handles-file", help="(Legacy) Path to newline-delimited handle file")
     parser.add_argument("--handle", help="Scrape a single handle (debug override)")
-    parser.add_argument("--handles-csv", default="./123NET Admin.csv", help="CSV source of truth for handles")
-    parser.add_argument(
-        "--status",
-        nargs="+",
-        default=["production_billed", "production"],
-        help="Allowed Status.1 values (comma and/or whitespace separated)",
-    )
+    parser.add_argument("--handles-csv", default="webscraper/123NET Admin.csv", help="CSV source of truth for handles")
+    parser.add_argument("--mode", choices=["incremental", "full"], default="incremental")
+    parser.add_argument("--full", action="store_true", help="Shorthand for --mode full")
+    parser.add_argument("--dry-run", action="store_true", help="Load handles and print a quick summary, then exit")
     parser.add_argument("--all-handles", action="store_true", help="Force CSV all-handles mode (default behavior)")
     parser.add_argument("--max-handles", type=int, help="Limit number of handles processed")
     parser.add_argument("--timeout-seconds", type=int, default=600)
@@ -65,7 +75,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Additional args appended verbatim to the child scraper command",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.full:
+        args.mode = "full"
+    return args
 
 
 def read_handles(path: str) -> list[str]:
@@ -88,59 +101,75 @@ def parse_handles_values(values: list[str] | None) -> list[str]:
 def resolve_handles(args: argparse.Namespace) -> list[str]:
     explicit_handle = getattr(args, "handle", None)
     if explicit_handle:
-        return [str(explicit_handle).strip().upper()]
-
-    if getattr(args, "handles", None):
+        handles = [str(explicit_handle)]
+    elif getattr(args, "handles", None):
         handles = parse_handles_values(args.handles)
     elif getattr(args, "handles_file", None):
         handles = read_handles(args.handles_file)
     else:
-        statuses = set(parse_handles_values(getattr(args, "status", None)))
-        if not statuses:
-            statuses = {"production_billed", "production"}
-        handles = load_handles_from_csv(getattr(args, "handles_csv", "./123NET Admin.csv"), statuses)
+        handles = load_handles_from_csv(getattr(args, "handles_csv", "webscraper/123NET Admin.csv"))
 
-    handles = [h.strip().upper() for h in handles if h and h.strip()]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for handle in handles:
+        value = handle.strip().upper()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+
     if args.max_handles is not None:
-        handles = handles[: max(0, args.max_handles)]
-    return handles
+        normalized = normalized[: max(0, args.max_handles)]
+    return normalized
 
 
-def _status_rank(status: str) -> int:
-    normalized = (status or "").strip().lower()
-    if normalized == "production_billed":
-        return 2
-    if normalized == "production":
-        return 1
-    return 0
+def make_run_id() -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    random_part = os.urandom(3).hex()
+    return f"{stamp}_{random_part}"
 
 
-def load_handles_from_csv(csv_path: str, allowed_statuses: set[str]) -> list[str]:
-    path = Path(csv_path)
-    if not path.exists():
-        print(f"[ERROR] Handles CSV not found: {path}")
-        return []
-
-    best_rows: dict[str, tuple[int, int]] = {}
-    statuses = {s.strip().lower() for s in allowed_statuses if s.strip()}
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if "Handle" not in (reader.fieldnames or []):
-            print(f"[ERROR] CSV is missing required column 'Handle': {path}")
-            return []
-        for row_index, row in enumerate(reader, start=1):
-            raw_handle = (row.get("Handle") or "").strip().upper()
-            if not raw_handle:
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(text, fmt)
+                break
+            except ValueError:
                 continue
-            status = (row.get("Status.1") or "").strip().lower()
-            if statuses and status not in statuses:
-                continue
-            candidate = (_status_rank(status), row_index)
-            current = best_rows.get(raw_handle)
-            if current is None or candidate[0] > current[0] or (candidate[0] == current[0] and row_index < current[1]):
-                best_rows[raw_handle] = candidate
+        else:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
-    return sorted(best_rows.keys())
+
+def _iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _first_run_cutoff() -> str:
+    return _iso_utc(datetime.now(timezone.utc) - timedelta(days=90)) or ""
+
+
+def _max_updated(rows: list[dict[str, Any]]) -> str | None:
+    latest: datetime | None = None
+    for row in rows:
+        updated = _parse_utc(row.get("updated_at") or row.get("updated_utc") or row.get("updated"))
+        if updated and (latest is None or updated > latest):
+            latest = updated
+    return _iso_utc(latest)
 
 
 def build_scraper_cmd(args: argparse.Namespace, handle: str | list[str], handle_out: Path) -> list[str]:
@@ -213,13 +242,13 @@ def _extract_handle_ticket_map(payload: Any) -> dict[str, list[dict[str, Any]]]:
     mapped: dict[str, list[dict[str, Any]]] = {}
     if isinstance(payload, dict):
         if "handle" in payload and isinstance(payload.get("tickets"), list):
-            handle = str(payload.get("handle") or "").strip()
+            handle = str(payload.get("handle") or "").strip().upper()
             if handle:
                 mapped[handle] = [row for row in payload.get("tickets", []) if isinstance(row, dict)]
             return mapped
         for handle, rows in payload.items():
             if isinstance(rows, list):
-                mapped[str(handle)] = [row for row in rows if isinstance(row, dict)]
+                mapped[str(handle).strip().upper()] = [row for row in rows if isinstance(row, dict)]
     return mapped
 
 
@@ -285,23 +314,31 @@ def parseTicketsFromArtifact(handle_artifacts_path: Path, job_id: str, handle: s
             {
                 "ticket_id": str(ticket_id) if ticket_id else None,
                 "handle": handle,
-                "title": row.get("title") or row.get("subject"),
+                "subject": row.get("subject") or row.get("title"),
                 "status": row.get("status"),
-                "created_at": row.get("created_utc") or row.get("opened_utc"),
-                "updated_at": row.get("updated_utc") or row.get("created_utc"),
+                "created_utc": row.get("created_utc") or row.get("opened_utc"),
+                "updated_utc": row.get("updated_utc") or row.get("created_utc"),
+                "url": row.get("url") or row.get("ticket_url"),
                 "raw_json": json.dumps(row, sort_keys=True),
-                "raw_text": str(row),
                 **row,
             }
         )
     return normalized
 
 
-def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handles: list[str]) -> tuple[set[str], set[str], dict[str, int]]:
+def process_batch_output(
+    db_path: str,
+    run_id: str,
+    batch_out: Path,
+    batch_handles: list[str],
+    *,
+    since_cutoff: str | None = None,
+) -> tuple[set[str], set[str], dict[str, dict[str, int | str | None]]]:
     successes: set[str] = set()
     failures: set[str] = set()
-    counts: dict[str, int] = {}
+    stats: dict[str, dict[str, int | str | None]] = {}
 
+    cutoff_dt = _parse_utc(since_cutoff)
     all_data: dict[str, list[dict[str, Any]]] = {}
     json_candidates = _find_ticket_json_candidates(batch_out)
     for candidate in json_candidates:
@@ -318,41 +355,46 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
         upsert_handle(db_path, handle, "processing")
         handle_artifacts = batch_out / handle
         handle_artifacts.mkdir(parents=True, exist_ok=True)
-        tickets_list_path = handle_artifacts / "tickets_list.json"
+
         tickets_list_payload = detail_rows if detail_rows else handle_tickets
         safe_write_json(
-            tickets_list_path,
-            {
-                "schema_version": 1,
-                "handle": handle,
-                "tickets": tickets_list_payload,
-            },
-        )
-
-        debug_log = handle_artifacts / "debug.log"
-        debug_log.write_text(
-            f"tickets_list.json exists={tickets_list_path.exists()} size={tickets_list_path.stat().st_size}\n",
-            encoding="utf-8",
+            handle_artifacts / "tickets_list.json",
+            {"schema_version": 1, "handle": handle, "tickets": tickets_list_payload},
         )
 
         try:
-            rows_to_store = parseTicketsFromArtifact(handle_artifacts, run_id, handle)
+            parsed_rows = parseTicketsFromArtifact(handle_artifacts, run_id, handle)
         except Exception as exc:
-            debug_log.write_text(debug_log.read_text(encoding="utf-8") + traceback.format_exc(), encoding="utf-8")
-            rows_to_store = []
+            (handle_artifacts / "debug.log").write_text(traceback.format_exc(), encoding="utf-8")
+            parsed_rows = []
             print(f"[ERROR] parse failure for {handle}: {exc}")
 
-        inserted = upsert_tickets(db_path, run_id, handle, rows_to_store)
-        counts[handle] = len(rows_to_store)
+        seen = len(parsed_rows)
+        filtered_rows: list[dict[str, Any]] = []
+        skipped = 0
+        for row in parsed_rows:
+            updated_dt = _parse_utc(row.get("updated_utc") or row.get("updated_at") or row.get("updated"))
+            if cutoff_dt and updated_dt and updated_dt <= cutoff_dt:
+                skipped += 1
+                continue
+            filtered_rows.append(row)
 
-        if rows_to_store:
+        upserted = upsert_tickets(db_path, run_id, handle, filtered_rows)
+        if parsed_rows:
             upsert_handle(db_path, handle, "success")
             successes.add(handle)
         else:
             reason = f"no tickets parsed; artifacts captured at {handle_artifacts}"
             upsert_handle(db_path, handle, "failed", reason)
             failures.add(handle)
-            print(f"[EVENT] handle.no_tickets handle={handle} artifacts={handle_artifacts}")
+
+        stats[handle] = {
+            "seen": seen,
+            "processed": len(filtered_rows),
+            "upserted": upserted,
+            "skipped": skipped,
+            "max_updated_utc": _max_updated(filtered_rows),
+        }
 
         ticket_root = batch_out / "tickets" / handle
         if ticket_root.exists():
@@ -365,12 +407,10 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
                     shutil.copy2(artifact, predictable)
                 record_artifact(db_path, run_id, handle, ticket_id, _artifact_type(artifact), str(predictable))
 
-        print(f"[INFO] Handle {handle}: parsed_rows={len(rows_to_store)} upserted={inserted}")
-
     _record_batch_artifacts(db_path, run_id, batch_out, set(batch_handles))
     if _batch_redirected_to_gateway(batch_out):
         set_run_failure_reason(db_path, run_id, "redirect_to_gateway")
-    return successes, failures, counts
+    return successes, failures, stats
 
 
 def _copy_if_exists(src: Path, dst: Path) -> str | None:
@@ -397,9 +437,34 @@ def collect_contract_artifacts(run_dir: Path, batch_out: Path, handle: str) -> d
     }
 
 
+def _resolve_since_for_handle(args: argparse.Namespace, db_path: str, handle: str) -> str | None:
+    if args.mode == "full":
+        return None
+    state = get_handle_state(db_path, handle)
+    if state and state.get("last_max_updated_utc"):
+        return str(state["last_max_updated_utc"])
+    return _first_run_cutoff()
+
+
+def _write_final_tickets_json(db_path: str, output_root: Path, run_id: str) -> Path:
+    payload = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "generated_utc": _iso_utc(datetime.now(timezone.utc)),
+        "handles": export_tickets_by_handle(db_path),
+    }
+    target = output_root / "tickets_all.json"
+    safe_write_json(target, payload)
+    return target
+
+
 def main() -> int:
     args = parse_args()
     handles = resolve_handles(args)
+    if args.dry_run:
+        print(f"count={len(handles)}")
+        print(f"first_10={handles[:10]}")
+        return 0
     if not handles:
         print("[ERROR] No handles found.")
         return 1
@@ -413,7 +478,9 @@ def main() -> int:
     browser = getattr(args, "browser", "edge")
     run_manager = RunManager(source=f"scripts/scrape_all_handles.py:{browser}", handles=handles)
     run_manager.initialize()
-    run_id = start_run(args.db, vars(args))
+
+    run_token = make_run_id()
+    run_id = start_run(args.db, {**vars(args), "run_token": run_token})
 
     total_successes: set[str] = set()
     total_failures: set[str] = set()
@@ -421,10 +488,13 @@ def main() -> int:
     try:
         total = len(handles)
         for idx, handle in enumerate(handles, start=1):
-            handle_out = root_out / handle
-            handle_out.mkdir(parents=True, exist_ok=True)
-            cmd = build_scraper_cmd(args, handle, handle_out)
-            print(f"[INFO] Child command: {subprocess.list2cmdline(cmd)}")
+            since = _resolve_since_for_handle(args, args.db, handle)
+            mark_handle_attempt(args.db, handle)
+            print(f"Handle {idx}/{total}: {handle} (since={since or 'FULL'})")
+
+            batch_out = root_out / f"batch_{idx:03d}"
+            batch_out.mkdir(parents=True, exist_ok=True)
+            cmd = build_scraper_cmd(args, handle, batch_out)
 
             try:
                 timed_out = False
@@ -441,48 +511,65 @@ def main() -> int:
                     timed_out = True
                     timeout_stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
                     timeout_stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
-                    print(f"[ERROR] Handle {handle} timed out after {args.timeout_seconds}s", file=sys.stderr)
 
-                processed = process_batch_output(args.db, run_id, handle_out, [handle])
-                if len(processed) == 3:
-                    successes, failures, ticket_counts = processed
-                else:
-                    successes, failures = processed
-                    ticket_counts = {}
+                successes, failures, ticket_stats = process_batch_output(
+                    args.db,
+                    run_id,
+                    batch_out,
+                    [handle],
+                    since_cutoff=since,
+                )
                 total_successes.update(successes)
                 total_failures.update(failures)
-                artifacts = collect_contract_artifacts(root_out, handle_out, handle)
+
+                stats = ticket_stats.get(handle, {"seen": 0, "processed": 0, "upserted": 0, "skipped": 0, "max_updated_utc": None})
+                print(
+                    f"seen={stats['seen']}, processed={stats['processed']}, upserted={stats['upserted']}, skipped={stats['skipped']}"
+                )
+
+                artifacts = collect_contract_artifacts(root_out, batch_out, handle)
                 run_manager.mark_started(handle)
                 if handle in successes:
-                    run_manager.update_handle(handle, "ok", None, artifacts, ticket_counts.get(handle, 0))
-                    print(f"[{idx}/{total}] Handle {handle} ... OK")
+                    run_manager.update_handle(handle, "ok", None, artifacts, int(stats.get("processed", 0)))
+                    mark_handle_success(
+                        args.db,
+                        handle,
+                        run_id=run_id,
+                        max_updated_utc=str(stats.get("max_updated_utc") or "") or None,
+                        seen_count=int(stats.get("seen", 0)),
+                        upserted_count=int(stats.get("upserted", 0)),
+                    )
                 else:
-                    run_manager.update_handle(handle, "failed", "no tickets parsed", artifacts, ticket_counts.get(handle, 0))
-                    print(f"[{idx}/{total}] Handle {handle} ... FAIL (no tickets parsed)")
+                    run_manager.update_handle(handle, "failed", "no tickets parsed", artifacts, int(stats.get("processed", 0)))
+                    mark_handle_error(args.db, handle, "no tickets parsed")
 
                 if timed_out:
-                    _write_child_failure_logs(handle_out, cmd, timeout_stdout, timeout_stderr)
+                    _write_child_failure_logs(batch_out, cmd, timeout_stdout, timeout_stderr)
                     err = f"scraper timed out after {args.timeout_seconds}s"
                     upsert_handle(args.db, handle, "failed", err)
+                    mark_handle_error(args.db, handle, err)
                     total_failures.add(handle)
-                    print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
                     continue
 
                 if proc and proc.returncode != 0:
-                    _write_child_failure_logs(handle_out, cmd, proc.stdout, proc.stderr)
+                    _write_child_failure_logs(batch_out, cmd, proc.stdout, proc.stderr)
                     err = f"scraper exit code {proc.returncode}"
                     upsert_handle(args.db, handle, "failed", err)
+                    mark_handle_error(args.db, handle, err)
                     total_failures.add(handle)
-                    print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
             except Exception as exc:
                 err = str(exc)
                 upsert_handle(args.db, handle, "failed", err)
+                mark_handle_error(args.db, handle, err)
                 total_failures.add(handle)
                 print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
                 continue
 
     finally:
         finish_run(args.db, run_id)
+
+    all_json = _write_final_tickets_json(args.db, Path(args.out), run_id)
+    print(f"[INFO] Wrote consolidated tickets JSON: {all_json}")
 
     if total_successes and not total_failures:
         return 0

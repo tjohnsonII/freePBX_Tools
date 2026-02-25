@@ -45,7 +45,7 @@ def run_wrapper_and_get_cmd(monkeypatch, tmp_path: Path, extra_argv: list[str]) 
     monkeypatch.setattr(module, "init_db", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(module, "start_run", lambda *_args, **_kwargs: "run-1")
     monkeypatch.setattr(module, "finish_run", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(module, "process_batch_output", lambda *_args, **_kwargs: ({"KPM"}, set()))
+    monkeypatch.setattr(module, "process_batch_output", lambda *_args, **_kwargs: ({"KPM"}, set(), {}))
     monkeypatch.setattr(module.subprocess, "run", fake_run)
 
     exit_code = module.main()
@@ -106,10 +106,10 @@ def test_wrapper_timeout_writes_logs_and_continues(monkeypatch, tmp_path):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=5, output="timed out stdout", stderr="timed out stderr")
         return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
-    def fake_process_batch_output(_db, _run_id, _batch_out, batch_handles):
+    def fake_process_batch_output(_db, _run_id, _batch_out, batch_handles, **_kwargs):
         if batch_handles == ["KPM"]:
-            return set(), {"KPM"}
-        return {"WS7"}, set()
+            return set(), {"KPM"}, {}
+        return {"WS7"}, set(), {}
 
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(module, "init_db", lambda *_args, **_kwargs: None)
