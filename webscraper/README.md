@@ -440,19 +440,23 @@ Scrape output is written to `var/runs/<run_id>/` and the latest run id is tracke
 
 ## Bulk scrape pipeline (Ticket History UI)
 
-- Authoritative handle list file: `webscraper/var/handles.txt` (one handle per line, `#` comments allowed).
+- Handles are discovered automatically from `https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi` (no static `handles.txt` dependency).
 - SQLite source of truth: `webscraper/var/db/tickets.sqlite`.
-- If `handles.txt` is missing/empty, API emits an error event and `/api/scrape/start` returns a clear setup error.
+- Required environment variables before starting API/job:
+  - `VPBX_BASE_URL=https://secure.123.net`
+  - `VPBX_USERNAME=<username>`
+  - `VPBX_PASSWORD=<password>`
+- If env vars are missing, `POST /api/scrape/start` returns a clear setup error and logs an error event.
 
 Start full scrape from UI:
-- Open the Ticket History page and click **Scrape / Re-scrape** (calls `POST /api/scrape/start` with `{"mode":"all"}`).
+- Open the Ticket History page and click **Scrape / Re-scrape** (calls `POST /api/scrape/start` with `{"mode":"all","refresh_handles":true}`).
 
 Start full scrape via curl:
 
 ```bash
 curl -sS -X POST "http://127.0.0.1:8787/api/scrape/start" \
   -H "Content-Type: application/json" \
-  -d '{"mode":"all","rescrape":true}'
+  -d '{"mode":"all","rescrape":true,"refresh_handles":true}'
 ```
 
 Start a single-handle scrape via curl:
@@ -460,7 +464,7 @@ Start a single-handle scrape via curl:
 ```bash
 curl -sS -X POST "http://127.0.0.1:8787/api/scrape/start" \
   -H "Content-Type: application/json" \
-  -d '{"mode":"one","handle":"KPM","rescrape":true}'
+  -d '{"mode":"one","handle":"KPM","rescrape":true,"refresh_handles":false}'
 ```
 
 Check progress and event feed:

@@ -40,6 +40,10 @@ def ensure_indexes(db_path: str) -> None:
                 """
                 CREATE TABLE IF NOT EXISTS handles(
                     handle TEXT PRIMARY KEY,
+                    name TEXT,
+                    account_status TEXT,
+                    ip TEXT,
+                    last_seen_utc TEXT,
                     first_seen_utc TEXT,
                     last_scrape_utc TEXT,
                     last_status TEXT,
@@ -61,6 +65,7 @@ def ensure_indexes(db_path: str) -> None:
                 );
 
                 CREATE TABLE IF NOT EXISTS tickets(
+                    pk TEXT,
                     ticket_id TEXT,
                     handle TEXT,
                     ticket_url TEXT,
@@ -128,6 +133,10 @@ def ensure_indexes(db_path: str) -> None:
                 if handle_column not in handle_columns:
                     conn.execute(f"ALTER TABLE handles ADD COLUMN {handle_column} TEXT")
 
+            for handle_column in ["name", "account_status", "ip", "last_seen_utc"]:
+                if handle_column not in handle_columns:
+                    conn.execute(f"ALTER TABLE handles ADD COLUMN {handle_column} TEXT")
+
             # Compatibility columns used by the Ticket History API UI.
             handle_columns = table_columns(conn, "handles")
             compat_handle_columns = {
@@ -143,6 +152,8 @@ def ensure_indexes(db_path: str) -> None:
             ticket_columns = table_columns(conn, "tickets")
             if "id" not in ticket_columns:
                 conn.execute("ALTER TABLE tickets ADD COLUMN id TEXT")
+            if "pk" not in ticket_columns:
+                conn.execute("ALTER TABLE tickets ADD COLUMN pk TEXT")
 
             conn.execute(
                 """
@@ -175,6 +186,36 @@ def ensure_handle_row(db_path: str, handle: str) -> None:
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             conn.execute("INSERT OR IGNORE INTO handles(handle) VALUES (?)", (handle,))
+
+
+def upsert_discovered_handles(db_path: str, rows: list[dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for row in rows:
+                handle = str(row.get("handle") or "").strip()
+                if not handle:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO handles(handle, name, account_status, ip, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(handle) DO UPDATE SET
+                        name=COALESCE(excluded.name, handles.name),
+                        account_status=COALESCE(excluded.account_status, handles.account_status),
+                        ip=COALESCE(excluded.ip, handles.ip),
+                        last_seen_utc=COALESCE(excluded.last_seen_utc, handles.last_seen_utc)
+                    """,
+                    (
+                        handle,
+                        row.get("name"),
+                        row.get("account_status"),
+                        row.get("ip"),
+                        row.get("last_seen_utc"),
+                    ),
+                )
+    return len(rows)
 
 
 def update_handle_progress(
@@ -224,9 +265,10 @@ def upsert_tickets_batch(db_path: str, handle: str, rows: list[dict[str, Any]], 
                     stable_id = f"{handle}:{ticket_id}"
                     conn.execute(
                         """
-                        INSERT INTO tickets(id, ticket_id, handle, created_utc, updated_utc, subject, status, raw_json)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO tickets(pk, id, ticket_id, handle, created_utc, updated_utc, subject, status, raw_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(ticket_id, handle) DO UPDATE SET
+                            pk=excluded.pk,
                             id=excluded.id,
                             created_utc=COALESCE(excluded.created_utc, tickets.created_utc),
                             updated_utc=COALESCE(excluded.updated_utc, tickets.updated_utc),
@@ -235,6 +277,7 @@ def upsert_tickets_batch(db_path: str, handle: str, rows: list[dict[str, Any]], 
                             raw_json=excluded.raw_json
                         """,
                         (
+                            stable_id,
                             stable_id,
                             ticket_id,
                             handle,
@@ -289,8 +332,11 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
             FROM tickets t GROUP BY t.handle
         )
         SELECT ah.handle, COALESCE(ts.tickets_count,0) AS ticketsCount, COALESCE(ts.open_count,0) AS openCount,
+               COALESCE(h.ticket_count, ts.tickets_count, 0) AS ticket_count,
+               h.name AS name, h.account_status AS account_status, h.ip AS ip,
                ts.last_ticket_at AS lastTicketAt, h.last_scrape_utc AS lastScrapeAt, h.last_status AS status, h.last_error AS last_message,
                h.last_error AS error_message, h.last_started_utc AS started_utc, h.last_finished_utc AS finished_utc,
+               h.last_updated_utc AS last_updated_utc, h.last_seen_utc AS last_seen_utc,
                h.last_run_id AS last_run_id,
                CASE
                  WHEN h.last_run_id IS NULL THEN NULL
@@ -479,7 +525,14 @@ def get_stats(db_path: str) -> dict[str, Any]:
         last_updated = conn.execute(
             "SELECT MAX(COALESCE(last_updated_utc, last_scrape_utc)) AS updated_utc FROM handles"
         ).fetchone()["updated_utc"]
-    return {"total_tickets": total_tickets, "total_handles": total_handles, "total_runs": total_runs, "total_scrape_jobs": total_jobs, "total_artifacts": total_artifacts, "last_updated_utc": last_updated}
+    return {
+        "total_tickets": total_tickets,
+        "total_handles": total_handles,
+        "total_runs": total_runs,
+        "total_scrape_jobs": total_jobs,
+        "total_artifacts": total_artifacts,
+        "last_updated_utc": last_updated,
+    }
 
 
 def get_debug_db_payload(db_path: str) -> dict[str, Any]:
