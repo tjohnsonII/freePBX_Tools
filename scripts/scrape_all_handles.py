@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import re
@@ -19,18 +20,28 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from webscraper.db import finish_run, init_db, record_artifact, set_run_failure_reason, start_run, upsert_handle, upsert_tickets
-from webscraper.paths import handles_master_path, runs_dir, tickets_db_path, runtime_profile_dir
+from webscraper.paths import tickets_db_path, runtime_profile_dir
 from webscraper.run_manager import RunManager
+from webscraper.utils.io import safe_write_json
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch handle scraper with SQLite persistence")
-    parser.add_argument("--handles", nargs="+", help="Handles to scrape (supports comma/whitespace separation)")
-    parser.add_argument("--handles-file", help="Path to newline-delimited handle file")
+    parser.add_argument("--handles", nargs="+", help="(Legacy) Handles to scrape (supports comma/whitespace separation)")
+    parser.add_argument("--handles-file", help="(Legacy) Path to newline-delimited handle file")
+    parser.add_argument("--handle", help="Scrape a single handle (debug override)")
+    parser.add_argument("--handles-csv", default="./123NET Admin.csv", help="CSV source of truth for handles")
+    parser.add_argument(
+        "--status",
+        nargs="+",
+        default=["production_billed", "production"],
+        help="Allowed Status.1 values (comma and/or whitespace separated)",
+    )
+    parser.add_argument("--all-handles", action="store_true", help="Force CSV all-handles mode (default behavior)")
     parser.add_argument("--max-handles", type=int, help="Limit number of handles processed")
     parser.add_argument("--timeout-seconds", type=int, default=600)
     parser.add_argument("--db", default=str(tickets_db_path()))
-    parser.add_argument("--out", default=str(runs_dir()))
+    parser.add_argument("--out", default=os.path.join("webscraper", "output"))
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--browser", choices=["edge", "chrome"], default="edge")
 
@@ -75,28 +86,68 @@ def parse_handles_values(values: list[str] | None) -> list[str]:
 
 
 def resolve_handles(args: argparse.Namespace) -> list[str]:
-    if args.handles:
-        handles = parse_handles_values(args.handles)
-    elif args.handles_file:
-        handles = read_handles(args.handles_file)
-    elif handles_master_path().exists():
-        handles = read_handles(str(handles_master_path()))
-    else:
-        print("[ERROR] Provide either --handles or --handles-file.")
-        return []
+    explicit_handle = getattr(args, "handle", None)
+    if explicit_handle:
+        return [str(explicit_handle).strip().upper()]
 
+    if getattr(args, "handles", None):
+        handles = parse_handles_values(args.handles)
+    elif getattr(args, "handles_file", None):
+        handles = read_handles(args.handles_file)
+    else:
+        statuses = set(parse_handles_values(getattr(args, "status", None)))
+        if not statuses:
+            statuses = {"production_billed", "production"}
+        handles = load_handles_from_csv(getattr(args, "handles_csv", "./123NET Admin.csv"), statuses)
+
+    handles = [h.strip().upper() for h in handles if h and h.strip()]
     if args.max_handles is not None:
         handles = handles[: max(0, args.max_handles)]
     return handles
 
 
-def chunks(items: list[str], size: int) -> list[list[str]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
+def _status_rank(status: str) -> int:
+    normalized = (status or "").strip().lower()
+    if normalized == "production_billed":
+        return 2
+    if normalized == "production":
+        return 1
+    return 0
 
 
-def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_out: Path) -> list[str]:
-    cmd = [sys.executable, "-m", "webscraper.ultimate_scraper", "--handles", *batch_handles, "--out", str(batch_out)]
-    resolved_profile_dir = args.profile_dir or str(runtime_profile_dir(args.browser))
+def load_handles_from_csv(csv_path: str, allowed_statuses: set[str]) -> list[str]:
+    path = Path(csv_path)
+    if not path.exists():
+        print(f"[ERROR] Handles CSV not found: {path}")
+        return []
+
+    best_rows: dict[str, tuple[int, int]] = {}
+    statuses = {s.strip().lower() for s in allowed_statuses if s.strip()}
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "Handle" not in (reader.fieldnames or []):
+            print(f"[ERROR] CSV is missing required column 'Handle': {path}")
+            return []
+        for row_index, row in enumerate(reader, start=1):
+            raw_handle = (row.get("Handle") or "").strip().upper()
+            if not raw_handle:
+                continue
+            status = (row.get("Status.1") or "").strip().lower()
+            if statuses and status not in statuses:
+                continue
+            candidate = (_status_rank(status), row_index)
+            current = best_rows.get(raw_handle)
+            if current is None or candidate[0] > current[0] or (candidate[0] == current[0] and row_index < current[1]):
+                best_rows[raw_handle] = candidate
+
+    return sorted(best_rows.keys())
+
+
+def build_scraper_cmd(args: argparse.Namespace, handle: str | list[str], handle_out: Path) -> list[str]:
+    handle_value = handle[0] if isinstance(handle, list) else handle
+    browser = getattr(args, "browser", "edge")
+    cmd = [sys.executable, "-m", "webscraper.ultimate_scraper", "--handles", str(handle_value), "--out", str(handle_out)]
+    resolved_profile_dir = args.profile_dir or str(runtime_profile_dir(browser))
     passthrough_flags = {
         "--profile-dir": resolved_profile_dir,
         "--profile-name": args.profile_name,
@@ -125,7 +176,7 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
 
     if args.attach_debugger:
         cmd.extend(["--attach-debugger", args.attach_debugger])
-    cmd.extend(["--browser", args.browser])
+    cmd.extend(["--browser", browser])
 
     if args.child_extra_args:
         cmd.extend(args.child_extra_args)
@@ -133,10 +184,10 @@ def build_scraper_cmd(args: argparse.Namespace, batch_handles: list[str], batch_
     return cmd
 
 
-def _write_child_failure_logs(batch_out: Path, cmd: list[str], stdout: str | None, stderr: str | None) -> None:
-    (batch_out / "child_cmd.txt").write_text(subprocess.list2cmdline(cmd), encoding="utf-8")
-    (batch_out / "child_stdout.txt").write_text(stdout or "", encoding="utf-8")
-    (batch_out / "child_stderr.txt").write_text(stderr or "", encoding="utf-8")
+def _write_child_failure_logs(handle_out: Path, cmd: list[str], stdout: str | None, stderr: str | None) -> None:
+    (handle_out / "child_cmd.txt").write_text(subprocess.list2cmdline(cmd), encoding="utf-8")
+    (handle_out / "child_stdout.txt").write_text(stdout or "", encoding="utf-8")
+    (handle_out / "child_stderr.txt").write_text(stderr or "", encoding="utf-8")
 
 
 def _artifact_type(path: Path) -> str:
@@ -215,14 +266,18 @@ def parseTicketsFromArtifact(handle_artifacts_path: Path, job_id: str, handle: s
     if not tickets_path.exists():
         raise FileNotFoundError(f"Missing artifact for job={job_id} handle={handle}: {tickets_path}")
     payload = _load_ticket_json(tickets_path)
-    if not isinstance(payload, list):
+    if isinstance(payload, dict):
+        rows_payload = payload.get("tickets")
+    else:
+        rows_payload = payload
+    if not isinstance(rows_payload, list):
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         err_path = handle_artifacts_path / f"parse_error_{ts}.json"
-        err_path.write_text(json.dumps({"payload": payload}, indent=2, default=str), encoding="utf-8")
+        safe_write_json(err_path, {"schema_version": 1, "payload": payload})
         raise ValueError(f"tickets_list.json parse failure for job={job_id} handle={handle}; dumped raw to {err_path}")
 
     normalized: list[dict[str, Any]] = []
-    for row in payload:
+    for row in rows_payload:
         if not isinstance(row, dict):
             continue
         ticket_id = row.get("ticket_id") or row.get("ticket_num")
@@ -265,7 +320,14 @@ def process_batch_output(db_path: str, run_id: str, batch_out: Path, batch_handl
         handle_artifacts.mkdir(parents=True, exist_ok=True)
         tickets_list_path = handle_artifacts / "tickets_list.json"
         tickets_list_payload = detail_rows if detail_rows else handle_tickets
-        tickets_list_path.write_text(json.dumps(tickets_list_payload, indent=2, default=str), encoding="utf-8")
+        safe_write_json(
+            tickets_list_path,
+            {
+                "schema_version": 1,
+                "handle": handle,
+                "tickets": tickets_list_payload,
+            },
+        )
 
         debug_log = handle_artifacts / "debug.log"
         debug_log.write_text(
@@ -344,63 +406,80 @@ def main() -> int:
 
     init_db(args.db)
 
-    run_manager = RunManager(source=f"scripts/scrape_all_handles.py:{args.browser}", handles=handles)
+    run_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    root_out = Path(args.out) / run_stamp
+    root_out.mkdir(parents=True, exist_ok=True)
+
+    browser = getattr(args, "browser", "edge")
+    run_manager = RunManager(source=f"scripts/scrape_all_handles.py:{browser}", handles=handles)
     run_manager.initialize()
-    root_out = run_manager.run_dir
     run_id = start_run(args.db, vars(args))
 
     total_successes: set[str] = set()
     total_failures: set[str] = set()
 
     try:
-        for i, batch in enumerate(chunks(handles, max(1, args.batch_size)), start=1):
-            batch_out = root_out / f"batch_{i:03d}"
-            batch_out.mkdir(parents=True, exist_ok=True)
-            cmd = build_scraper_cmd(args, batch, batch_out)
-            print(f"[INFO] Running batch {i} ({len(batch)} handles)")
+        total = len(handles)
+        for idx, handle in enumerate(handles, start=1):
+            handle_out = root_out / handle
+            handle_out.mkdir(parents=True, exist_ok=True)
+            cmd = build_scraper_cmd(args, handle, handle_out)
             print(f"[INFO] Child command: {subprocess.list2cmdline(cmd)}")
 
-            timed_out = False
-            proc: subprocess.CompletedProcess[str] | None = None
-            timeout_stdout = ""
-            timeout_stderr = ""
             try:
-                proc = subprocess.run(cmd, text=True, capture_output=True, timeout=args.timeout_seconds)
-                if proc.stdout:
-                    print(proc.stdout)
-                if proc.stderr:
-                    print(proc.stderr, file=sys.stderr)
-            except subprocess.TimeoutExpired as exc:
-                timed_out = True
-                timeout_stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
-                timeout_stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
-                print(f"[ERROR] Batch {i} timed out after {args.timeout_seconds}s", file=sys.stderr)
+                timed_out = False
+                proc: subprocess.CompletedProcess[str] | None = None
+                timeout_stdout = ""
+                timeout_stderr = ""
+                try:
+                    proc = subprocess.run(cmd, text=True, capture_output=True, timeout=args.timeout_seconds)
+                    if proc.stdout:
+                        print(proc.stdout)
+                    if proc.stderr:
+                        print(proc.stderr, file=sys.stderr)
+                except subprocess.TimeoutExpired as exc:
+                    timed_out = True
+                    timeout_stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
+                    timeout_stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
+                    print(f"[ERROR] Handle {handle} timed out after {args.timeout_seconds}s", file=sys.stderr)
 
-            successes, failures, ticket_counts = process_batch_output(args.db, run_id, batch_out, batch)
-            total_successes.update(successes)
-            total_failures.update(failures)
-            for handle in batch:
-                artifacts = collect_contract_artifacts(root_out, batch_out, handle)
+                processed = process_batch_output(args.db, run_id, handle_out, [handle])
+                if len(processed) == 3:
+                    successes, failures, ticket_counts = processed
+                else:
+                    successes, failures = processed
+                    ticket_counts = {}
+                total_successes.update(successes)
+                total_failures.update(failures)
+                artifacts = collect_contract_artifacts(root_out, handle_out, handle)
                 run_manager.mark_started(handle)
                 if handle in successes:
                     run_manager.update_handle(handle, "ok", None, artifacts, ticket_counts.get(handle, 0))
+                    print(f"[{idx}/{total}] Handle {handle} ... OK")
                 else:
                     run_manager.update_handle(handle, "failed", "no tickets parsed", artifacts, ticket_counts.get(handle, 0))
+                    print(f"[{idx}/{total}] Handle {handle} ... FAIL (no tickets parsed)")
 
-            if timed_out:
-                _write_child_failure_logs(batch_out, cmd, timeout_stdout, timeout_stderr)
-                err = f"scraper timed out after {args.timeout_seconds}s"
-                for handle in set(batch) - successes:
+                if timed_out:
+                    _write_child_failure_logs(handle_out, cmd, timeout_stdout, timeout_stderr)
+                    err = f"scraper timed out after {args.timeout_seconds}s"
                     upsert_handle(args.db, handle, "failed", err)
                     total_failures.add(handle)
+                    print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
+                    continue
+
+                if proc and proc.returncode != 0:
+                    _write_child_failure_logs(handle_out, cmd, proc.stdout, proc.stderr)
+                    err = f"scraper exit code {proc.returncode}"
+                    upsert_handle(args.db, handle, "failed", err)
+                    total_failures.add(handle)
+                    print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
+            except Exception as exc:
+                err = str(exc)
+                upsert_handle(args.db, handle, "failed", err)
+                total_failures.add(handle)
+                print(f"[{idx}/{total}] Handle {handle} ... FAIL ({err})")
                 continue
-
-            if proc and proc.returncode != 0:
-                _write_child_failure_logs(batch_out, cmd, proc.stdout, proc.stderr)
-                err = f"scraper exit code {proc.returncode}"
-                for handle in set(batch) - successes:
-                    upsert_handle(args.db, handle, "failed", err)
-                    total_failures.add(handle)
 
     finally:
         finish_run(args.db, run_id)

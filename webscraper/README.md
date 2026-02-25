@@ -66,6 +66,31 @@ python -m webscraper.smoke_test
 python -m webscraper.ultimate_scraper --help
 ```
 
+## Default handle behavior (no prompts)
+By default the scraper now reads handles from `./123NET Admin.csv` and scrapes **all** eligible handles.
+
+```cmd
+python -m webscraper
+```
+
+Single-handle debug override:
+
+```cmd
+python -m webscraper --handle I11
+```
+
+Alternate CSV path:
+
+```cmd
+python -m webscraper --handles-csv "E:\DevTools\freepbx-tools\webscraper\123NET Admin.csv"
+```
+
+Status filter usage (defaults are `production_billed production`):
+
+```cmd
+python -m webscraper --status production_billed production
+```
+
 ## Run (interactive)
 Run with a visible browser so you can log in if needed:
 

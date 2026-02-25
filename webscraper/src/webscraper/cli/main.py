@@ -26,6 +26,7 @@ def prepare_run_output_dir(base_out_dir: str, mode: str = "cli_dry_run") -> tupl
     run_dir = os.path.abspath(os.path.join(base_out_dir, run_id))
     os.makedirs(run_dir, exist_ok=True)
     metadata = {
+        "schema_version": 1,
         "timestamp_utc": started_utc,
         "started_utc": started_utc,
         "mode": mode,
