@@ -2977,7 +2977,7 @@ def selenium_scrape_tickets(
                 _save_handle_artifacts("handle_processed", debug_ctx, include_fail_artifacts=False)
                 all_tickets[handle] = tickets
                 out_path = os.path.join(output_dir, f"tickets_{handle}.json")
-                safe_write_json(out_path, {"handle": handle, "tickets": tickets})
+                safe_write_json(out_path, {"schema_version": 1, "handle": handle, "tickets": tickets})
                 page_source_lower = (driver.page_source or "").lower()
                 empty_reason = _classify_empty_reason(driver.current_url or "", driver.title or "", page_source_lower)
                 debug_ctx["empty_reason"] = empty_reason
