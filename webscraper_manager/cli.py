@@ -170,6 +170,14 @@ def _save_run_state(root: Path, run_state: dict[str, Any]) -> None:
     state_path.write_text(json.dumps(run_state, indent=2) + "\n", encoding="utf-8")
 
 
+def load_run_state() -> dict[str, Any]:
+    return _load_run_state(find_repo_root())
+
+
+def save_run_state(run_state: dict[str, Any]) -> None:
+    _save_run_state(find_repo_root(), run_state)
+
+
 def _is_pid_alive(pid: int | None, expected_cmd: list[str] | None = None) -> bool:
     if not pid or pid <= 0:
         return False
@@ -196,6 +204,10 @@ def _is_port_open(host: str, port: int, timeout_s: float = 0.4) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
+def is_port_open(host: str, port: int) -> bool:
+    return _is_port_open(host, port)
+
+
 def _api_ready(host: str, port: int) -> bool:
     url = f"http://{host}:{port}/healthz"
     try:
@@ -203,6 +215,20 @@ def _api_ready(host: str, port: int) -> bool:
             return int(response.status) == 200
     except (urllib_error.URLError, TimeoutError, ValueError):
         return False
+
+
+def http_health_ok(url: str) -> bool:
+    try:
+        import httpx  # type: ignore[import-not-found]
+
+        with httpx.Client(timeout=2.0) as client:
+            return int(client.get(url).status_code) == 200
+    except Exception:
+        try:
+            with urllib_request.urlopen(url, timeout=2.0) as response:
+                return int(response.status) == 200
+        except (urllib_error.URLError, TimeoutError, ValueError):
+            return False
 
 
 def _creation_flags_for_service() -> int:
@@ -411,6 +437,158 @@ def _stop_services(state: AppState, console: Console | None) -> int:
     elif not state.quiet:
         for message in messages:
             print(message)
+    return EXIT_OK
+
+
+def start_ticket_api(state: AppState, console: Console | None) -> int:
+    root = find_repo_root()
+    host = "127.0.0.1"
+    port = 8787
+    health_url = f"http://{host}:{port}/healthz"
+    python_exe = get_runtime_python(state, root)
+
+    if is_port_open(host, port):
+        message = f"Ticket API already running on {host}:{port}; not starting another process."
+        if not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_OK
+
+    _, _, day_dir = ensure_manager_dirs()
+    log_path = day_dir / f"ticket_api_{datetime.now().strftime('%H%M%S')}.log"
+    cmd = [
+        str(python_exe),
+        "-m",
+        "uvicorn",
+        "webscraper.ticket_api.app:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    with log_path.open("a", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(root),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=_creation_flags_for_service(),
+        )
+
+    deadline = time.time() + 10
+    ready = False
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            break
+        if http_health_ok(health_url):
+            ready = True
+            break
+        time.sleep(0.25)
+
+    if not ready:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        message = f"Ticket API failed readiness check within 10s (GET {health_url}). See log: {log_path}"
+        if not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_TEST_FAILED
+
+    run_state = load_run_state()
+    run_state["ticket_api"] = {
+        "pid": proc.pid,
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "port": port,
+        "log": str(log_path),
+    }
+    save_run_state(run_state)
+
+    message = f"Ticket API started (pid={proc.pid}) on {host}:{port}; log={log_path}"
+    if not state.quiet:
+        (console.print(message) if console is not None else print(message))
+    return EXIT_OK
+
+
+def stop_ticket_api(state: AppState, console: Console | None) -> int:
+    host = "127.0.0.1"
+    port = 8787
+    run_state = load_run_state()
+    api_state = run_state.get("ticket_api") if isinstance(run_state, dict) else None
+    managed_pid = int(api_state.get("pid", 0)) if isinstance(api_state, dict) and str(api_state.get("pid", "0")).isdigit() else 0
+
+    if not managed_pid:
+        if is_port_open(host, port):
+            message = "Ticket API is running but unmanaged (no manager PID found); refusing to kill unknown process."
+        else:
+            message = "Ticket API is not running (no managed PID)."
+        if not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_OK
+
+    try:
+        proc = psutil.Process(managed_pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        run_state.pop("ticket_api", None)
+        save_run_state(run_state)
+        message = f"Managed Ticket API PID {managed_pid} is already stopped; state cleaned."
+        if not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_OK
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except psutil.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+
+    run_state.pop("ticket_api", None)
+    save_run_state(run_state)
+    message = f"Stopped managed Ticket API (pid={managed_pid})."
+    if not state.quiet:
+        (console.print(message) if console is not None else print(message))
+    return EXIT_OK
+
+
+def status_ticket_api(state: AppState, console: Console | None) -> int:
+    host = "127.0.0.1"
+    port = 8787
+    health_url = f"http://{host}:{port}/healthz"
+    run_state = load_run_state()
+    api_state = run_state.get("ticket_api") if isinstance(run_state, dict) else None
+    managed = isinstance(api_state, dict)
+    pid = int(api_state.get("pid", 0)) if managed and str(api_state.get("pid", "0")).isdigit() else 0
+    log_path = str(api_state.get("log", "-")) if managed else "-"
+    listening = is_port_open(host, port)
+    health_ok = http_health_ok(health_url)
+
+    lines = [
+        f"Ticket API managed: {'yes' if managed else 'no'}",
+        f"pid: {pid if pid else '-'}",
+        f"port {port} listening: {'yes' if listening else 'no'}",
+        f"healthz: {'ok' if health_ok else 'fail'}",
+        f"log: {log_path}",
+    ]
+
+    if managed and pid and not _is_pid_alive(pid):
+        lines.append("note: managed PID is not alive")
+    elif listening and not managed:
+        lines.append("note: running but unmanaged")
+
+    if console is not None and not state.quiet:
+        for line in lines:
+            console.print(line)
+    elif not state.quiet:
+        for line in lines:
+            print(line)
     return EXIT_OK
 
 
@@ -1496,6 +1674,9 @@ def render_menu(console: Console | None, state: AppState) -> None:
         print("[7] Full Test Run (all)")
         print("[8] Pytest")
         print("[9] Fix Test Dependencies (pytest/httpx)")
+        print("[a] Ticket API: Start")
+        print("[b] Ticket API: Stop")
+        print("[c] Ticket API: Status")
         print("[r] Refresh")
         print(f"[t] Toggle pure JSON mode (currently {pure_json_status})")
         print(f"[p] Toggle use preferred python (currently {preferred_status})")
@@ -1520,6 +1701,9 @@ def render_menu(console: Console | None, state: AppState) -> None:
     table.add_row("7", "Full Test Run (all)", "Same as: test all")
     table.add_row("8", "Pytest", "Same as: test pytest")
     table.add_row("9", "Fix Test Dependencies (pytest/httpx)", "Same as: fix test-deps")
+    table.add_row("a", "Ticket API: Start", "Start API in background (managed by menu state)")
+    table.add_row("b", "Ticket API: Stop", "Stop only manager-started Ticket API PID")
+    table.add_row("c", "Ticket API: Status", "Show managed/unmanaged, pid, port, healthz, and log")
     table.add_row("r", "Refresh", "Redraw the menu")
     table.add_row("t", "Toggle pure JSON mode", f"Currently: {pure_json_status}")
     table.add_row("p", "Toggle use preferred python", f"Currently: {preferred_status}")
@@ -1654,6 +1838,12 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
         )
         code, _, _ = _run_fix_test_deps(action_state, timeout=300)
         return code
+    if choice == "a":
+        return start_ticket_api(state, console)
+    if choice == "b":
+        return stop_ticket_api(state, console)
+    if choice == "c":
+        return status_ticket_api(state, console)
     return EXIT_USAGE
 
 
@@ -1681,7 +1871,7 @@ def run_menu(state: AppState) -> int:
     while True:
         render_menu(console, state)
         try:
-            choice = _read_line("\nSelect an option [s, x, u, 1-9, r, t, p, q]: ")
+            choice = _read_line("\nSelect an option [s, x, u, 1-9, a, b, c, r, t, p, q]: ")
         except KeyboardInterrupt:
             print()
             continue
@@ -1706,8 +1896,8 @@ def run_menu(state: AppState) -> int:
                 return EXIT_OK
             continue
 
-        if choice not in {"s", "x", "u", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
-            print("Invalid selection. Enter s, x, u, 1, 2, 3, 4, 5, 6, 7, 8, 9, r, t, p, or q.")
+        if choice not in {"s", "x", "u", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c"}:
+            print("Invalid selection. Enter s, x, u, 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, r, t, p, or q.")
             continue
 
         try:
