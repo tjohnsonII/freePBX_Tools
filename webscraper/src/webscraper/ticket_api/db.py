@@ -128,6 +128,35 @@ def ensure_indexes(db_path: str) -> None:
                 if handle_column not in handle_columns:
                     conn.execute(f"ALTER TABLE handles ADD COLUMN {handle_column} TEXT")
 
+            # Compatibility columns used by the Ticket History API UI.
+            handle_columns = table_columns(conn, "handles")
+            compat_handle_columns = {
+                "status": "TEXT",
+                "error": "TEXT",
+                "last_updated_utc": "TEXT",
+                "ticket_count": "INTEGER DEFAULT 0",
+            }
+            for col, ddl in compat_handle_columns.items():
+                if col not in handle_columns:
+                    conn.execute(f"ALTER TABLE handles ADD COLUMN {col} {ddl}")
+
+            ticket_columns = table_columns(conn, "tickets")
+            if "id" not in ticket_columns:
+                conn.execute("ALTER TABLE tickets ADD COLUMN id TEXT")
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS events(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_utc TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    handle TEXT,
+                    message TEXT NOT NULL,
+                    meta_json TEXT
+                )
+                """
+            )
+
             conn.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_handles_last_scrape ON handles(last_scrape_utc);
@@ -137,8 +166,111 @@ def ensure_indexes(db_path: str) -> None:
                 CREATE INDEX IF NOT EXISTS idx_runs_finished ON runs(finished_utc DESC);
                 CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
                 CREATE INDEX IF NOT EXISTS idx_scrape_events_job_id ON scrape_job_events(job_id, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);
                 """
             )
+
+
+def ensure_handle_row(db_path: str, handle: str) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("INSERT OR IGNORE INTO handles(handle) VALUES (?)", (handle,))
+
+
+def update_handle_progress(
+    db_path: str,
+    handle: str,
+    *,
+    status: str,
+    error: str | None = None,
+    last_updated_utc: str | None = None,
+    ticket_count: int | None = None,
+    last_run_id: str | None = None,
+) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("INSERT OR IGNORE INTO handles(handle) VALUES (?)", (handle,))
+            conn.execute(
+                """
+                UPDATE handles
+                SET last_status=?, status=?,
+                    last_error=?, error=?,
+                    last_scrape_utc=COALESCE(?, last_scrape_utc),
+                    last_updated_utc=COALESCE(?, last_updated_utc),
+                    ticket_count=COALESCE(?, ticket_count),
+                    last_run_id=COALESCE(?, last_run_id)
+                WHERE handle=?
+                """,
+                (status, status, error, error, last_updated_utc, last_updated_utc, ticket_count, last_run_id, handle),
+            )
+
+
+def upsert_tickets_batch(db_path: str, handle: str, rows: list[dict[str, Any]], batch_size: int = 100) -> int:
+    if not rows:
+        return 0
+    inserted = 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for idx in range(0, len(rows), batch_size):
+                batch = rows[idx : idx + batch_size]
+                conn.execute("BEGIN")
+                for row in batch:
+                    ticket_id = str(row.get("ticket_id") or row.get("id") or "").strip()
+                    if not ticket_id:
+                        continue
+                    raw_json = row.get("raw_json")
+                    if raw_json is None:
+                        raw_json = json.dumps(row, sort_keys=True)
+                    stable_id = f"{handle}:{ticket_id}"
+                    conn.execute(
+                        """
+                        INSERT INTO tickets(id, ticket_id, handle, created_utc, updated_utc, subject, status, raw_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(ticket_id, handle) DO UPDATE SET
+                            id=excluded.id,
+                            created_utc=COALESCE(excluded.created_utc, tickets.created_utc),
+                            updated_utc=COALESCE(excluded.updated_utc, tickets.updated_utc),
+                            subject=COALESCE(excluded.subject, tickets.subject),
+                            status=COALESCE(excluded.status, tickets.status),
+                            raw_json=excluded.raw_json
+                        """,
+                        (
+                            stable_id,
+                            ticket_id,
+                            handle,
+                            row.get("created_utc") or row.get("created_on") or row.get("opened_utc"),
+                            row.get("updated_utc") or row.get("created_utc") or row.get("created_on"),
+                            row.get("subject") or row.get("title"),
+                            row.get("status"),
+                            raw_json,
+                        ),
+                    )
+                    inserted += 1
+                conn.commit()
+    return inserted
+
+
+def add_event(db_path: str, created_utc: str, level: str, handle: str | None, message: str, meta: dict[str, Any] | None = None) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                "INSERT INTO events(created_utc, level, handle, message, meta_json) VALUES (?, ?, ?, ?, ?)",
+                (created_utc, level, handle, message, json.dumps(meta, sort_keys=True) if meta else None),
+            )
+
+
+def get_latest_events(db_path: str, limit: int = 50) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, created_utc, level, handle, message, meta_json FROM events ORDER BY id DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["meta"] = json.loads(item["meta_json"]) if item.get("meta_json") else None
+        out.append(item)
+    return out
 
 
 def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
@@ -344,7 +476,9 @@ def get_stats(db_path: str) -> dict[str, Any]:
             total_artifacts = conn.execute("SELECT COUNT(*) AS count FROM ticket_artifacts").fetchone()["count"]
         except sqlite3.OperationalError:
             total_artifacts = 0
-        last_updated = conn.execute("SELECT MAX(updated_utc) AS updated_utc FROM tickets").fetchone()["updated_utc"]
+        last_updated = conn.execute(
+            "SELECT MAX(COALESCE(last_updated_utc, last_scrape_utc)) AS updated_utc FROM handles"
+        ).fetchone()["updated_utc"]
     return {"total_tickets": total_tickets, "total_handles": total_handles, "total_runs": total_runs, "total_scrape_jobs": total_jobs, "total_artifacts": total_artifacts, "last_updated_utc": last_updated}
 
 
