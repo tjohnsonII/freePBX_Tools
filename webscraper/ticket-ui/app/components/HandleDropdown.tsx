@@ -17,7 +17,8 @@ export default function HandleDropdown({ selectedHandle, search, onSearchChange,
     apiGet<{ items: string[] }>("/api/handles").then((r) => setHandles(r.items)).catch(() => setHandles([]));
   }, []);
 
-  const filtered = handles.filter((h) => h.toLowerCase().includes(search.toLowerCase()));
+  const list = Array.isArray(handles) ? handles : [];
+  const filtered = list.filter((h) => h.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <section>

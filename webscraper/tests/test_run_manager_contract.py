@@ -14,6 +14,8 @@ def test_tickets_all_written_for_handles(tmp_path, monkeypatch):
     rm.update_handle("ABC", "ok", None, {"tickets_json": "handles/ABC/tickets.json"}, 3)
 
     payload = json.loads((rm.run_dir / "tickets_all.json").read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert payload["run_id"]
     assert payload["summary"]["total_handles"] == 2
     assert payload["handles"]["ABC"]["status"] == "ok"
     assert payload["handles"]["XYZ"]["error"] == "not started"
