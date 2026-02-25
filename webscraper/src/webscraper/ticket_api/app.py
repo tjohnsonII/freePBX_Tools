@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
+from webscraper.handles_loader import load_handles
 from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
@@ -256,6 +257,13 @@ async def request_context(request: Request, call_next):
 @app.on_event("startup")
 def startup() -> None:
     db.ensure_indexes(db_path())
+    handles = load_handles()
+    if not handles:
+        _log("No handles found from CSV or handles.txt.")
+    else:
+        for handle in handles:
+            db.ensure_handle_row(db_path(), handle)
+        _log(f"Loaded {len(handles)} handles.")
     stats = db.get_stats(db_path())
     _log(f"DB path: {db_path()}")
     _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
@@ -433,6 +441,14 @@ def api_scrape_events(job_id: str):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+
+def run_api(*, host: str = "127.0.0.1", port: int = 8787, reload: bool = False, db_override: str | None = None) -> None:
+    if db_override:
+        os.environ["TICKETS_DB_PATH"] = str(Path(db_override).resolve())
+    import uvicorn
+
+    uvicorn.run("webscraper.ticket_api.app:app", host=host, port=port, reload=reload)
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run ticket API")
     parser.add_argument("--db", default=db_path())
@@ -440,10 +456,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
-    os.environ["TICKETS_DB_PATH"] = str(Path(args.db).resolve())
-    import uvicorn
-
-    uvicorn.run("webscraper.ticket_api.app:app", host=args.host, port=args.port, reload=args.reload)
+    run_api(host=args.host, port=args.port, reload=args.reload, db_override=args.db)
 
 
 if __name__ == "__main__":
