@@ -37,7 +37,7 @@ def test_process_batch_output_imports_tickets_all_into_db(tmp_path):
     }
     (batch_out / "tickets_all.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    success, failed = module.process_batch_output(str(db_path), run_id, batch_out, ["KPM"])
+    success, failed, _stats = module.process_batch_output(str(db_path), run_id, batch_out, ["KPM"])
 
     conn = sqlite3.connect(db_path)
     tickets_count = conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
@@ -60,7 +60,7 @@ def test_process_batch_output_records_artifacts_when_no_tickets(tmp_path):
     debug_dir.mkdir(parents=True)
     (debug_dir / "handle_page_WS7.html").write_text("<html>debug</html>", encoding="utf-8")
 
-    success, failed = module.process_batch_output(str(db_path), run_id, batch_out, ["WS7"])
+    success, failed, _stats = module.process_batch_output(str(db_path), run_id, batch_out, ["WS7"])
 
     conn = sqlite3.connect(db_path)
     status = conn.execute("SELECT last_status FROM handles WHERE handle='WS7'").fetchone()[0]

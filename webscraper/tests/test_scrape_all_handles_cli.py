@@ -81,7 +81,7 @@ class ScrapeAllHandlesCliTests(unittest.TestCase):
             with patch.object(sys, "argv", argv), patch.object(module, "init_db"), patch.object(
                 module, "start_run", return_value="run-1"
             ), patch.object(module, "finish_run"), patch.object(
-                module, "process_batch_output", side_effect=lambda *_args, **_kwargs: ({"KPM", "WS7"}, set())
+                module, "process_batch_output", side_effect=lambda *_args, **_kwargs: ({"KPM", "WS7"}, set(), {})
             ), patch.object(module, "subprocess") as mock_subprocess:
                 mock_subprocess.run.side_effect = fake_run
                 mock_subprocess.CompletedProcess = __import__("subprocess").CompletedProcess
