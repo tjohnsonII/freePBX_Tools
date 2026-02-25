@@ -5,43 +5,43 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+CSV_PATH = BASE_DIR / "123NET Admin.csv"
+HANDLES_TXT = BASE_DIR / "var" / "handles.txt"
 
-MIN_HANDLE_COUNT = 500
+
+def _extract_handles_from_csv(path: Path) -> list[str]:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle_file:
+        reader = csv.DictReader(handle_file)
+        fieldnames = reader.fieldnames or []
+        handle_column = next((col for col in fieldnames if "handle" in col.lower()), None)
+        if not handle_column:
+            return []
+
+        return sorted({row.get(handle_column, "").strip().upper() for row in reader if row.get(handle_column, "").strip()})
+
+
+def load_handles() -> list[str]:
+    if CSV_PATH.exists():
+        return _extract_handles_from_csv(CSV_PATH)
+
+    if HANDLES_TXT.exists():
+        return [
+            line.strip().upper()
+            for line in HANDLES_TXT.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+    return []
 
 
 def load_handles_from_csv(csv_path: str) -> list[str]:
-    """Load handles from a CSV that contains a `Handle` column.
-
-    Handles are normalized by stripping whitespace, dropping blanks, and
-    de-duplicating while preserving first-seen order. Handles are normalized to
-    uppercase to keep matching and persistence consistent.
-    """
+    """Backward-compatible explicit CSV loader."""
 
     path = Path(csv_path)
     if not path.exists():
         raise FileNotFoundError(f"Handles CSV not found: {path}")
-
-    loaded: list[str] = []
-    seen: set[str] = set()
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if "Handle" not in (reader.fieldnames or []):
-            raise ValueError(f"CSV is missing required column 'Handle': {path}")
-
-        for row in reader:
-            raw_handle = (row.get("Handle") or "").strip()
-            if not raw_handle:
-                continue
-            normalized = raw_handle.upper()
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            loaded.append(normalized)
-
-    print(f"Loaded {len(loaded)} handles from CSV")
-    if len(loaded) < MIN_HANDLE_COUNT:
-        raise RuntimeError(
-            f"Refusing to continue: loaded {len(loaded)} handles from {path}, expected at least {MIN_HANDLE_COUNT}"
-        )
-    return loaded
-
+    handles = _extract_handles_from_csv(path)
+    if not handles:
+        raise ValueError(f"CSV is missing a handle column or values: {path}")
+    return handles
