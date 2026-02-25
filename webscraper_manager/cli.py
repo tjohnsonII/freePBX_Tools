@@ -330,6 +330,11 @@ def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[
         rc, out, err = run_subprocess(cmd, cwd=cwd, timeout=timeout)
         ok = rc == 0
         details = (out + "\n" + err).strip() or f"pytest finished rc={rc}"
+        if (not ok) and "cannot import name" in details and " from " in details:
+            details = (
+                f"{details}\n"
+                "Hint: Test expects API that doesn't exist. Either update tests or add shim."
+            )
         step = _make_step("pytest", ok, details, started)
         return step, details, commands
     except FileNotFoundError:
@@ -338,6 +343,96 @@ def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[
     except subprocess.TimeoutExpired:
         step = _make_step("pytest", False, f"pytest timed out after {timeout}s", started)
         return step, step.details, commands
+
+
+def _check_test_dependencies(
+    python_exe: Path,
+    timeout: int,
+    auto_fix: bool,
+    root: Path,
+) -> tuple[TestStep, list[str], bool]:
+    started = time.time()
+    commands: list[str] = []
+    check_cmd = [str(python_exe), "-c", "import httpx"]
+    commands.append(" ".join(check_cmd))
+
+    try:
+        rc, _, _ = run_subprocess(check_cmd, cwd=root, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        step = _make_step("test deps check", False, f"Dependency check timed out after {timeout}s", started)
+        return step, commands, False
+    except FileNotFoundError:
+        step = _make_step("test deps check", False, "Python executable not found for dependency check", started)
+        return step, commands, False
+
+    if rc == 0:
+        step = _make_step("test deps check", True, "Required test dependency found: httpx", started)
+        return step, commands, True
+
+    print("Missing test dependency: httpx")
+    print("Run: webscraper_manager fix test-deps")
+
+    if not auto_fix:
+        step = _make_step(
+            "test deps check",
+            False,
+            "Missing test dependency: httpx. Run: webscraper_manager fix test-deps",
+            started,
+        )
+        return step, commands, False
+
+    install_step, install_logs, install_commands = _install_test_dependencies(python_exe=python_exe, timeout=timeout, root=root)
+    commands.extend(install_commands)
+    if install_step.ok:
+        step = _make_step("test deps check", True, "Missing dependencies were auto-installed", started)
+        commands.extend([f"install-log: {line}" for line in install_logs])
+        return step, commands, True
+
+    step = _make_step("test deps check", False, f"Auto-fix failed: {install_step.details}", started)
+    commands.extend([f"install-log: {line}" for line in install_logs])
+    return step, commands, False
+
+
+def _install_test_dependencies(python_exe: Path, timeout: int, root: Path) -> tuple[TestStep, list[str], list[str]]:
+    started = time.time()
+    cmd = [str(python_exe), "-m", "pip", "install", "httpx", "pytest"]
+    commands = [" ".join(cmd)]
+    log_lines: list[str] = []
+    try:
+        rc, out, err = run_subprocess(cmd, cwd=root, timeout=timeout)
+        if out.strip():
+            log_lines.append(out.strip())
+        if err.strip():
+            log_lines.append(err.strip())
+        ok = rc == 0
+        details = "Installed pytest/httpx" if ok else f"pip install failed rc={rc}"
+        return _make_step("fix test dependencies", ok, details, started), log_lines, commands
+    except subprocess.TimeoutExpired:
+        step = _make_step("fix test dependencies", False, f"pip install timed out after {timeout}s", started)
+        return step, log_lines, commands
+    except FileNotFoundError:
+        step = _make_step("fix test dependencies", False, "Python executable not found for pip install", started)
+        return step, log_lines, commands
+
+
+def _run_fix_test_deps(state: AppState, timeout: int = 300) -> tuple[int, list[TestStep], Path]:
+    _, _, day_dir = ensure_manager_dirs()
+    timestamp = datetime.now().strftime("%H%M%S")
+    log_path = day_dir / f"fix_test_deps_{timestamp}.log"
+    root = find_repo_root()
+    python_exe = get_runtime_python(state, root)
+
+    step, logs, commands = _install_test_dependencies(python_exe=python_exe, timeout=timeout, root=root)
+    log_lines = ["command: fix test-deps", f"python: {python_exe}"]
+    log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
+    log_lines.extend(logs)
+    write_log(log_path, "\n".join(log_lines) + "\n")
+
+    if not state.quiet:
+        print(step.details)
+        print(f"Log file: {log_path}")
+
+    return (EXIT_OK if step.ok else EXIT_TEST_FAILED), [step], log_path
 
 
 def _run_import_probe_step(timeout: int, python_exe: Path, root: Path, verbose: bool) -> tuple[TestStep, str, list[str]]:
@@ -548,7 +643,7 @@ def _run_test_smoke(state: AppState, timeout: int) -> tuple[int, list[TestStep],
     return (EXIT_OK if ok else EXIT_TEST_FAILED), steps, log_path
 
 
-def _run_test_pytest(state: AppState, timeout: int, path: str | None = None) -> tuple[int, list[TestStep], Path]:
+def _run_test_pytest(state: AppState, timeout: int, path: str | None = None, fix: bool = False) -> tuple[int, list[TestStep], Path]:
     started = time.time()
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
@@ -558,22 +653,32 @@ def _run_test_pytest(state: AppState, timeout: int, path: str | None = None) -> 
 
     log_lines: list[str] = [f"command: test pytest --timeout {timeout} path={path or ''}".strip(), f"python: {python_exe}"]
 
-    step, details, commands = _run_pytest_step(path=path, timeout=timeout, python_exe=python_exe)
-    log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
-    log_lines.append(details)
+    dep_step, dep_commands, dep_ok = _check_test_dependencies(
+        python_exe=python_exe,
+        timeout=min(timeout, 90),
+        auto_fix=fix,
+        root=root,
+    )
+    steps: list[TestStep] = [dep_step]
+    log_lines.extend(f"subprocess: {cmd}" for cmd in dep_commands)
+
+    if dep_ok:
+        step, details, commands = _run_pytest_step(path=path, timeout=timeout, python_exe=python_exe)
+        steps.append(step)
+        log_lines.extend(f"subprocess: {cmd}" for cmd in commands)
+        log_lines.append(details)
 
     total_ms = int((time.time() - started) * 1000)
-    steps = [step]
     log_lines.append("\n" + _format_test_summary(steps, total_ms=total_ms, log_path=log_path, pure_json_mode=False))
     write_log(log_path, "\n".join(log_lines) + "\n")
 
     if not state.quiet:
         print(_format_test_summary(steps, total_ms=total_ms, log_path=log_path, pure_json_mode=state.pure_json_mode))
 
-    return (EXIT_OK if step.ok else EXIT_TEST_FAILED), steps, log_path
+    return (EXIT_OK if all(step.ok for step in steps) else EXIT_TEST_FAILED), steps, log_path
 
 
-def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: str | None = None) -> tuple[int, list[TestStep], Path]:
+def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: str | None = None, fix: bool = False) -> tuple[int, list[TestStep], Path]:
     started = time.time()
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
@@ -596,11 +701,22 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
     should_try_pytest = has_tests
 
     if should_try_pytest and (keep_going or not failed):
-        pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
-        steps.append(pytest_step)
-        log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
-        log_lines.append(pytest_details)
-        failed = failed or (not pytest_step.ok)
+        dep_step, dep_commands, dep_ok = _check_test_dependencies(
+            python_exe=python_exe,
+            timeout=min(timeout, 90),
+            auto_fix=fix,
+            root=root,
+        )
+        steps.append(dep_step)
+        log_lines.extend(f"subprocess: {cmd}" for cmd in dep_commands)
+        failed = failed or (not dep_step.ok)
+
+        if dep_ok and (keep_going or not failed):
+            pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
+            steps.append(pytest_step)
+            log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
+            log_lines.append(pytest_details)
+            failed = failed or (not pytest_step.ok)
     elif not should_try_pytest:
         steps.append(TestStep(name="pytest", ok=True, details="No tests folder detected; skipped", duration_ms=0))
 
@@ -692,6 +808,7 @@ def render_menu(console: Console | None, state: AppState) -> None:
         print("[6] Test Run (smoke)")
         print("[7] Full Test Run (all)")
         print("[8] Pytest")
+        print("[9] Fix Test Dependencies (pytest/httpx)")
         print("[r] Refresh")
         print(f"[t] Toggle pure JSON mode (currently {pure_json_status})")
         print(f"[p] Toggle use preferred python (currently {preferred_status})")
@@ -712,6 +829,7 @@ def render_menu(console: Console | None, state: AppState) -> None:
     table.add_row("6", "Test Run (smoke)", "Same as: test smoke")
     table.add_row("7", "Full Test Run (all)", "Same as: test all")
     table.add_row("8", "Pytest", "Same as: test pytest")
+    table.add_row("9", "Fix Test Dependencies (pytest/httpx)", "Same as: fix test-deps")
     table.add_row("r", "Refresh", "Redraw the menu")
     table.add_row("t", "Toggle pure JSON mode", f"Currently: {pure_json_status}")
     table.add_row("p", "Toggle use preferred python", f"Currently: {preferred_status}")
@@ -817,6 +935,19 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
         )
         code, _, _ = _run_test_pytest(action_state, timeout=300, path=None)
         return code
+    if choice == "9":
+        if not state.pure_json_mode:
+            print("Running: fix test-deps")
+        action_state = AppState(
+            quiet=False,
+            verbose=state.verbose,
+            in_menu=True,
+            pure_json_mode=state.pure_json_mode,
+            clear_screen=state.clear_screen,
+            use_preferred_python=state.use_preferred_python,
+        )
+        code, _, _ = _run_fix_test_deps(action_state, timeout=300)
+        return code
     return EXIT_USAGE
 
 
@@ -844,7 +975,7 @@ def run_menu(state: AppState) -> int:
     while True:
         render_menu(console, state)
         try:
-            choice = _read_line("\nSelect an option [1-8, r, t, p, q]: ")
+            choice = _read_line("\nSelect an option [1-9, r, t, p, q]: ")
         except KeyboardInterrupt:
             print()
             continue
@@ -869,8 +1000,8 @@ def run_menu(state: AppState) -> int:
                 return EXIT_OK
             continue
 
-        if choice not in {"1", "2", "3", "4", "5", "6", "7", "8"}:
-            print("Invalid selection. Enter 1, 2, 3, 4, 5, 6, 7, 8, r, t, p, or q.")
+        if choice not in {"1", "2", "3", "4", "5", "6", "7", "8", "9"}:
+            print("Invalid selection. Enter 1, 2, 3, 4, 5, 6, 7, 8, 9, r, t, p, or q.")
             continue
 
         try:
@@ -902,6 +1033,7 @@ def _build_state_from_ctx(ctx: Any, quiet: bool, verbose: bool, use_preferred_py
 if TYPER_AVAILABLE:
     app = typer.Typer(help="Manage webscraper workflows", no_args_is_help=True)
     test_app = typer.Typer(help="Run webscraper test suites", no_args_is_help=True)
+    fix_app = typer.Typer(help="Fix common environment issues", no_args_is_help=True)
 
     def _version_callback(value: bool) -> None:
         if not value:
@@ -968,9 +1100,10 @@ if TYPER_AVAILABLE:
         timeout: int = typer.Option(300, "--timeout", min=1, help="Timeout in seconds for pytest run."),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+        fix: bool = typer.Option(False, "--fix", help="Auto-install missing pytest dependencies before running."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        code, _, _ = _run_test_pytest(state, timeout=timeout, path=path)
+        code, _, _ = _run_test_pytest(state, timeout=timeout, path=path, fix=fix)
         raise typer.Exit(code)
 
     @test_app.command("all")
@@ -980,12 +1113,26 @@ if TYPER_AVAILABLE:
         keep_going: bool = typer.Option(False, "--keep-going", help="Continue running steps after failures."),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+        fix: bool = typer.Option(False, "--fix", help="Auto-install missing pytest dependencies before running."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        code, _, _ = _run_test_all(state, timeout=timeout, keep_going=keep_going, pytest_path=None)
+        code, _, _ = _run_test_all(state, timeout=timeout, keep_going=keep_going, pytest_path=None, fix=fix)
         raise typer.Exit(code)
 
     app.add_typer(test_app, name="test")
+
+    @fix_app.command("test-deps")
+    def fix_test_deps(
+        ctx: typer.Context,
+        timeout: int = typer.Option(300, "--timeout", min=1, help="Timeout in seconds for pip install."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        code, _, _ = _run_fix_test_deps(state, timeout=timeout)
+        raise typer.Exit(code)
+
+    app.add_typer(fix_app, name="fix")
 
     @app.command()
     def menu(
@@ -1040,12 +1187,21 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     all_parser.add_argument("--keep-going", action="store_true", help="Continue despite failures")
     all_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     all_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    all_parser.add_argument("--fix", action="store_true", help="Auto-install missing pytest dependencies before running")
 
     pytest_parser = test_subparsers.add_parser("pytest", help="Run pytest")
     pytest_parser.add_argument("--path", type=str, default=None, help="Optional pytest path")
     pytest_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds")
     pytest_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     pytest_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    pytest_parser.add_argument("--fix", action="store_true", help="Auto-install missing pytest dependencies before running")
+
+    fix_parser = subparsers.add_parser("fix", help="Fix common environment issues")
+    fix_subparsers = fix_parser.add_subparsers(dest="fix_command")
+    fix_test_deps_parser = fix_subparsers.add_parser("test-deps", help="Install pytest/httpx dependencies")
+    fix_test_deps_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds")
+    fix_test_deps_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    fix_test_deps_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     root.add_argument("--quiet", action="store_true", help="Minimal output")
     root.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -1079,13 +1235,22 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             return code
         if args.test_command == "all":
             state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
-            code, _, _ = _run_test_all(state, timeout=int(args.timeout), keep_going=bool(args.keep_going), pytest_path=None)
+            code, _, _ = _run_test_all(state, timeout=int(args.timeout), keep_going=bool(args.keep_going), pytest_path=None, fix=bool(args.fix))
             return code
         if args.test_command == "pytest":
             state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
-            code, _, _ = _run_test_pytest(state, timeout=int(args.timeout), path=args.path)
+            code, _, _ = _run_test_pytest(state, timeout=int(args.timeout), path=args.path, fix=bool(args.fix))
             return code
         test_parser.print_help()
+        return EXIT_USAGE
+
+
+    if args.command == "fix":
+        if args.fix_command == "test-deps":
+            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+            code, _, _ = _run_fix_test_deps(state, timeout=int(args.timeout))
+            return code
+        fix_parser.print_help()
         return EXIT_USAGE
 
     root.print_help()
