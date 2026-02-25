@@ -42,6 +42,7 @@ except Exception:
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_DOCTOR_ISSUES = 10
+EXIT_SERVICES_UNHEALTHY = 1
 EXIT_TEST_FAILED = 30
 
 TITLE_TEXT = "FreePBX Webscraper Manager"
@@ -124,17 +125,16 @@ def _run_state_path(root: Path) -> Path:
 
 
 def _default_services_config(root: Path) -> dict[str, Any]:
-    ui_cwd = "webscraper"
-    if (root / "webscraper" / "ui").is_dir():
-        ui_cwd = "webscraper/ui"
-    elif (root / "webscraper_manager" / "ui").is_dir():
-        ui_cwd = "webscraper_manager/ui"
-
     return {
-        "api": {"enabled": True, "host": "127.0.0.1", "port": 8787},
+        "api": {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8787,
+            "target": "webscraper.ticket_api.app:app",
+        },
         "ui": {
             "enabled": True,
-            "cwd": ui_cwd,
+            "cwd": "webscraper-ui",
             "port": 3000,
             "cmd": ["npm", "run", "dev"],
         },
@@ -157,11 +157,24 @@ def _load_services_config(root: Path) -> dict[str, Any]:
 def _load_run_state(root: Path) -> dict[str, Any]:
     state_path = _run_state_path(root)
     if not state_path.exists():
-        return {"start_time": None, "services": {}}
+        return {}
     try:
-        return json.loads(state_path.read_text(encoding="utf-8"))
+        loaded = json.loads(state_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {"start_time": None, "services": {}}
+        return {}
+
+    if not isinstance(loaded, dict):
+        return {}
+
+    # Legacy compatibility: flatten {"services": {...}} into top-level entries.
+    legacy_services = loaded.get("services")
+    if isinstance(legacy_services, dict):
+        flattened: dict[str, Any] = {}
+        for service_name in ("api", "ui", "worker"):
+            if service_name in legacy_services and isinstance(legacy_services[service_name], dict):
+                flattened[service_name] = legacy_services[service_name]
+        return flattened
+    return loaded
 
 
 def _save_run_state(root: Path, run_state: dict[str, Any]) -> None:
@@ -272,57 +285,149 @@ def _resolve_service_cwd(root: Path, service_cfg: dict[str, Any]) -> Path:
     return cwd_path
 
 
+def _get_service_port(_service_name: str, cfg: dict[str, Any]) -> int | None:
+    raw_port = cfg.get("port")
+    if raw_port in (None, ""):
+        return None
+    try:
+        return int(raw_port)
+    except (TypeError, ValueError):
+        return None
+
+
+def _wait_for_tcp(host: str, port: int, timeout_s: float) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if _is_port_open(host, port):
+            return True
+        time.sleep(0.25)
+    return _is_port_open(host, port)
+
+
+def _is_service_enabled(name: str, cfg: dict[str, Any]) -> bool:
+    if name != "worker":
+        return bool(cfg.get("enabled", False))
+    if "enabled" in cfg:
+        return bool(cfg.get("enabled"))
+    return bool(cfg.get("cmd"))
+
+
+def _service_health_status(
+    service_name: str,
+    cfg: dict[str, Any],
+    state_entry: dict[str, Any],
+) -> dict[str, Any]:
+    enabled = _is_service_enabled(service_name, cfg)
+    pid = int(state_entry.get("pid", 0)) if str(state_entry.get("pid", "0")).isdigit() else 0
+    cmd = [str(part) for part in state_entry.get("cmd", [])] if isinstance(state_entry.get("cmd"), list) else None
+    alive = _is_pid_alive(pid, expected_cmd=cmd)
+
+    host = str(cfg.get("host", "127.0.0.1"))
+    port = _get_service_port(service_name, cfg)
+    port_open = bool(port and _is_port_open(host, port))
+    managed = bool(state_entry)
+    unmanaged = not managed and port_open
+    healthz_ok = _api_ready(host, port) if service_name == "api" and port else None
+
+    if not enabled:
+        healthy = True
+    elif service_name == "api":
+        healthy = bool(port_open and healthz_ok)
+    elif service_name == "ui":
+        healthy = port_open
+    else:
+        healthy = alive
+
+    return {
+        "enabled": enabled,
+        "pid": pid if managed else None,
+        "alive": alive,
+        "port": port,
+        "port_open": port_open,
+        "managed": managed,
+        "unmanaged": unmanaged,
+        "healthz_ok": healthz_ok,
+        "log": str(state_entry.get("log", "-")) if managed else "-",
+        "healthy": healthy,
+    }
+
+
 def _start_services(state: AppState, console: Console | None) -> int:
     root = find_repo_root()
     manager_dir, _, day_dir = ensure_manager_dirs()
     del manager_dir
     services_cfg = _load_services_config(root)
     run_state = _load_run_state(root)
-    run_state.setdefault("services", {})
-    run_state["start_time"] = datetime.now().isoformat(timespec="seconds")
 
     preferred_python = get_runtime_python(state, root)
     summary: list[str] = []
 
+    started_this_attempt: list[str] = []
+
+    def rollback_started() -> None:
+        for started_name in reversed(started_this_attempt):
+            started_entry = run_state.get(started_name, {}) if isinstance(run_state.get(started_name), dict) else {}
+            started_pid = int(started_entry.get("pid", 0)) if str(started_entry.get("pid", "0")).isdigit() else 0
+            if started_pid:
+                ok, detail = _stop_pid(started_pid)
+                summary.append(f"{started_name}: rollback {detail} pid={started_pid}")
+            run_state.pop(started_name, None)
+
     for service_name in ("api", "ui", "worker"):
         cfg = services_cfg.get(service_name, {})
-        if not bool(cfg.get("enabled", False)):
+        if not _is_service_enabled(service_name, cfg):
             summary.append(f"{service_name}: disabled")
             continue
 
-        existing = run_state["services"].get(service_name, {})
+        existing = run_state.get(service_name, {}) if isinstance(run_state.get(service_name, {}), dict) else {}
         existing_pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
         host = str(cfg.get("host", "127.0.0.1"))
-        port = int(cfg.get("port", 0)) if cfg.get("port") else None
+        port = _get_service_port(service_name, cfg)
         expected_cmd = [str(part) for part in existing.get("cmd", [])] if isinstance(existing.get("cmd"), list) else None
         alive = _is_pid_alive(existing_pid, expected_cmd=expected_cmd)
         port_open = bool(port and _is_port_open(host, port))
 
-        if alive or port_open:
-            status = "running" if alive else "port-open"
-            summary.append(f"{service_name}: already {status}")
-            run_state["services"][service_name] = {
-                **existing,
-                "status": "running",
-                "port": port,
-            }
+        if alive:
+            summary.append(f"{service_name}: already running (managed pid={existing_pid})")
+            run_state[service_name] = existing
+            continue
+
+        if port_open:
+            summary.append(f"{service_name}: running-unmanaged (port {port} already open)")
             continue
 
         if service_name == "api":
-            cmd = [str(preferred_python), "-m", "uvicorn", "webscraper.ticket_api.app:app", "--host", host, "--port", str(port or 8787)]
+            target = str(cfg.get("target", "webscraper.ticket_api.app:app"))
+            cmd = [str(preferred_python), "-m", "uvicorn", target, "--host", host, "--port", str(port or 8787)]
             cwd = root
         else:
             cmd = [str(part) for part in cfg.get("cmd", [])]
             if not cmd:
                 summary.append(f"{service_name}: missing cmd")
-                continue
+                rollback_started()
+                _save_run_state(root, run_state)
+                if console is not None and not state.quiet:
+                    for row in summary:
+                        console.print(row)
+                elif not state.quiet:
+                    for row in summary:
+                        print(row)
+                return EXIT_SERVICES_UNHEALTHY
             if cmd[0] in {"python", "py", "python3"}:
                 cmd[0] = str(preferred_python)
             cwd = _resolve_service_cwd(root, cfg)
 
         if not cwd.exists():
             summary.append(f"{service_name}: cwd not found ({cwd})")
-            continue
+            rollback_started()
+            _save_run_state(root, run_state)
+            if console is not None and not state.quiet:
+                for row in summary:
+                    console.print(row)
+            elif not state.quiet:
+                for row in summary:
+                    print(row)
+            return EXIT_SERVICES_UNHEALTHY
 
         log_path = day_dir / f"{service_name}_{datetime.now().strftime('%H%M%S')}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -330,21 +435,44 @@ def _start_services(state: AppState, console: Console | None) -> int:
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(cwd),
+                env=os.environ.copy(),
                 stdout=log_file,
-                stderr=subprocess.STDOUT,
+                stderr=log_file,
                 text=True,
                 creationflags=_creation_flags_for_service(),
             )
 
-        run_state["services"][service_name] = {
+        run_state[service_name] = {
             "pid": proc.pid,
             "cmd": cmd,
             "cwd": str(cwd),
-            "log_path": str(log_path),
+            "log": str(log_path),
             "port": port,
-            "status": "running",
+            "started_at": datetime.now().isoformat(timespec="seconds"),
         }
+        started_this_attempt.append(service_name)
         summary.append(f"{service_name}: started pid={proc.pid} log={log_path}")
+
+        ready = False
+        if service_name == "api" and port:
+            ready = _wait_for_tcp(host, port, timeout_s=10.0) and _api_ready(host, port)
+        elif service_name == "ui" and port:
+            ready = _wait_for_tcp(host, port, timeout_s=30.0)
+        else:
+            time.sleep(3)
+            ready = _is_pid_alive(proc.pid, expected_cmd=cmd)
+
+        if not ready:
+            summary.append(f"{service_name}: readiness failed")
+            rollback_started()
+            _save_run_state(root, run_state)
+            if console is not None and not state.quiet:
+                for row in summary:
+                    console.print(row)
+            elif not state.quiet:
+                for row in summary:
+                    print(row)
+            return EXIT_SERVICES_UNHEALTHY
 
     _save_run_state(root, run_state)
 
@@ -361,74 +489,94 @@ def _service_status_rows(state: AppState) -> tuple[list[dict[str, str]], dict[st
     root = find_repo_root()
     services_cfg = _load_services_config(root)
     run_state = _load_run_state(root)
-    state_services = run_state.get("services", {})
     rows: list[dict[str, str]] = []
+    all_enabled_healthy = True
 
     for service_name in ("api", "ui", "worker"):
         cfg = services_cfg.get(service_name, {})
-        if not bool(cfg.get("enabled", False)):
-            rows.append({"service": service_name, "pid": "-", "process": "disabled", "port": "-", "ready": "-"})
-            continue
-
-        existing = state_services.get(service_name, {})
-        pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
-        host = str(cfg.get("host", "127.0.0.1"))
-        port = int(cfg.get("port", 0)) if cfg.get("port") else None
-        expected_cmd = [str(part) for part in existing.get("cmd", [])] if isinstance(existing.get("cmd"), list) else None
-        alive = _is_pid_alive(pid, expected_cmd=expected_cmd)
-        port_open = bool(port and _is_port_open(host, port))
-        ready = _api_ready(host, port) if service_name == "api" and port else port_open if port else alive
-        process_status = "running" if alive else "dead"
+        existing = run_state.get(service_name, {}) if isinstance(run_state.get(service_name), dict) else {}
+        status = _service_health_status(service_name, cfg, existing)
+        if status["enabled"] and not status["healthy"]:
+            all_enabled_healthy = False
+        process_status = "unmanaged" if status["unmanaged"] else "running" if status["alive"] else "dead"
         rows.append(
             {
                 "service": service_name,
-                "pid": str(pid) if pid else "-",
+                "enabled": "yes" if status["enabled"] else "no",
+                "managed": "yes" if status["managed"] else ("unmanaged" if status["unmanaged"] else "no"),
+                "pid": str(status["pid"]) if status["pid"] else "-",
                 "process": process_status,
-                "port": "open" if port_open else ("closed" if port else "n/a"),
-                "ready": "ready" if ready else "not-ready",
+                "port": "open" if status["port_open"] else ("closed" if status["port"] else "n/a"),
+                "healthz": "ok" if status["healthz_ok"] else ("fail" if service_name == "api" and status["enabled"] else "n/a"),
+                "log": status["log"],
+                "healthy": "yes" if status["healthy"] else "no",
             }
         )
 
-    return rows, run_state
+    return rows, {"run_state": run_state, "all_enabled_healthy": all_enabled_healthy}
 
 
 def _print_service_status(state: AppState, console: Console | None) -> int:
-    rows, _ = _service_status_rows(state)
+    rows, status_meta = _service_status_rows(state)
     if console is None:
         for row in rows:
-            print(f"{row['service']}: pid={row['pid']} process={row['process']} port={row['port']} ready={row['ready']}")
-        return EXIT_OK
+            print(
+                f"{row['service']}: enabled={row['enabled']} managed={row['managed']} pid={row['pid']} "
+                f"alive={row['process']} port={row['port']} healthz={row['healthz']} log={row['log']} healthy={row['healthy']}"
+            )
+        return EXIT_OK if status_meta.get("all_enabled_healthy") else EXIT_SERVICES_UNHEALTHY
 
     table = Table(title="Managed services", box=box.ROUNDED, header_style="bold cyan")
     table.add_column("Service", no_wrap=True)
+    table.add_column("Enabled", no_wrap=True)
+    table.add_column("Managed", no_wrap=True)
     table.add_column("PID", no_wrap=True)
-    table.add_column("Process", no_wrap=True)
+    table.add_column("Alive", no_wrap=True)
     table.add_column("Port", no_wrap=True)
-    table.add_column("Readiness", no_wrap=True)
+    table.add_column("Healthz", no_wrap=True)
+    table.add_column("Log", overflow="fold")
+    table.add_column("Healthy", no_wrap=True)
     for row in rows:
-        table.add_row(row["service"], row["pid"], row["process"], row["port"], row["ready"])
+        table.add_row(
+            row["service"],
+            row["enabled"],
+            row["managed"],
+            row["pid"],
+            row["process"],
+            row["port"],
+            row["healthz"],
+            row["log"],
+            row["healthy"],
+        )
     console.print(table)
-    return EXIT_OK
+    return EXIT_OK if status_meta.get("all_enabled_healthy") else EXIT_SERVICES_UNHEALTHY
 
 
 def _stop_services(state: AppState, console: Console | None) -> int:
     root = find_repo_root()
+    services_cfg = _load_services_config(root)
     run_state = _load_run_state(root)
-    services = run_state.get("services", {})
     messages: list[str] = []
 
     for service_name in ("worker", "ui", "api"):
-        existing = services.get(service_name, {})
+        cfg = services_cfg.get(service_name, {})
+        existing = run_state.get(service_name, {}) if isinstance(run_state.get(service_name), dict) else {}
         pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
         if not pid:
-            messages.append(f"{service_name}: no pid")
+            host = str(cfg.get("host", "127.0.0.1"))
+            port = _get_service_port(service_name, cfg)
+            if port and _is_port_open(host, port):
+                messages.append(f"{service_name}: running-unmanaged on port {port}; not stopping")
+            else:
+                messages.append(f"{service_name}: not managed")
             continue
         ok, detail = _stop_pid(pid)
-        existing["status"] = "stopped" if ok else "stop-failed"
-        services[service_name] = existing
+        if ok:
+            run_state.pop(service_name, None)
+        else:
+            run_state[service_name] = existing
         messages.append(f"{service_name}: {detail} pid={pid}")
 
-    run_state["services"] = services
     _save_run_state(root, run_state)
 
     if console is not None and not state.quiet:
