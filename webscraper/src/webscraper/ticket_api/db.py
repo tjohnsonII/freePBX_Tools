@@ -3,21 +3,30 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 WRITE_LOCK = threading.Lock()
 
 
-def get_conn(db_path: str) -> sqlite3.Connection:
+@contextmanager
+def get_conn(db_path: str):
     db_file = Path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -354,8 +363,18 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
 
 
 def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
-    """Backwards-compatible shim"""
-    return list_handles(db_path=db_path, q=q, limit=limit, offset=offset)
+    """Backwards-compatible summary shape used by legacy tests/UI."""
+    rows = list_handles(db_path=db_path, q=q, limit=limit, offset=offset)
+    return [
+        {
+            "handle": row.get("handle"),
+            "last_scrape_utc": row.get("lastScrapeAt"),
+            "ticket_count": row.get("ticket_count", row.get("ticketsCount", 0)),
+            "open_count": row.get("openCount", 0),
+            "updated_latest_utc": row.get("lastTicketAt") or row.get("last_updated_utc"),
+        }
+        for row in rows
+    ]
 
 
 def list_handle_names(db_path: str, q: str = "", limit: int = 500) -> list[str]:

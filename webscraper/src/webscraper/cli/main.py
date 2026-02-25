@@ -6,8 +6,14 @@ import argparse
 import os
 from typing import Sequence
 
-from webscraper import ultimate_scraper_legacy as legacy
 from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
+
+
+def _legacy_main() -> int:
+    """Lazy import to keep ``python -m webscraper.cli.main --help`` dependency-light."""
+    from webscraper import ultimate_scraper_legacy as legacy
+
+    return legacy.main()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,9 +56,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if argv is not None and unknown:
         # Preserve legacy behavior for caller-provided argv by delegating unchanged args.
-        return legacy.main()
+        return _legacy_main()
 
-    return legacy.main()
+    return _legacy_main()
 
 
 if __name__ == "__main__":
