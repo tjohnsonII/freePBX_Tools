@@ -19,14 +19,14 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
-from webscraper.ticket_api import db
 from webscraper.paths import runs_dir
+from webscraper.ticket_api import db
+from webscraper.vpbx.handles import VpbxConfig, fetch_handles
 
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
-HANDLES_FILE = Path(OUTPUT_ROOT) / "handles.txt"
 
-app = FastAPI(title="Ticket History API", version="0.4.0")
+app = FastAPI(title="Ticket History API", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -34,6 +34,7 @@ class StartScrapeRequest(BaseModel):
     mode: Literal["all", "one"] = "all"
     handle: str | None = None
     rescrape: bool = False
+    refresh_handles: bool = True
 
 
 @dataclass
@@ -43,6 +44,7 @@ class QueueJob:
     mode: str
     handle: str | None
     rescrape: bool
+    refresh_handles: bool
 
 
 JOB_QUEUE: list[QueueJob] = []
@@ -64,13 +66,14 @@ def _log(msg: str, request_id: str | None = None, job_id: str | None = None) -> 
     print(f"[{_iso_now()}]{rid}{jid} {msg}", flush=True)
 
 
-def _read_handles_file() -> list[str]:
-    if not HANDLES_FILE.exists():
-        HANDLES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HANDLES_FILE.write_text("# one handle per line\n", encoding="utf-8")
-        return []
-    items = [line.strip() for line in HANDLES_FILE.read_text(encoding="utf-8").splitlines()]
-    return [line for line in items if line and not line.startswith("#")]
+def _get_required_env() -> tuple[VpbxConfig | None, str | None]:
+    base_url = (os.getenv("VPBX_BASE_URL") or "https://secure.123.net").strip()
+    username = (os.getenv("VPBX_USERNAME") or "").strip()
+    password = (os.getenv("VPBX_PASSWORD") or "").strip()
+    missing = [name for name, value in [("VPBX_USERNAME", username), ("VPBX_PASSWORD", password)] if not value]
+    if missing:
+        return None, f"Missing required environment variables: {', '.join(missing)}"
+    return VpbxConfig(base_url=base_url, username=username, password=password), None
 
 
 def _append_event(level: str, message: str, *, handle: str | None = None, job_id: str | None = None, meta: dict[str, Any] | None = None) -> None:
@@ -81,29 +84,68 @@ def _append_event(level: str, message: str, *, handle: str | None = None, job_id
     _log(message, job_id=job_id)
 
 
-def _build_command(job: QueueJob, handles: list[str]) -> list[str]:
+def _build_command(job: QueueJob, handle: str) -> list[str]:
     script = Path(__file__).resolve().parents[4] / "scripts" / "scrape_all_handles.py"
-    out_dir = runs_dir() / job.run_id
+    out_dir = runs_dir() / job.run_id / handle
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(script), "--db", db_path(), "--out", str(out_dir)]
-    if job.mode == "all":
-        cmd += ["--handles", *handles]
-    else:
-        if not job.handle:
-            raise ValueError("handle is required when mode=one")
-        cmd += ["--handles", job.handle]
+    cmd = [sys.executable, str(script), "--db", db_path(), "--out", str(out_dir), "--handles", handle]
     if job.rescrape:
         cmd.append("--resume")
     return cmd
 
 
-def _parse_progress_line(line: str) -> tuple[str | None, bool, bool]:
-    clean = line.strip()
-    handle = None
-    if "Handle " in clean and ":" in clean:
-        marker = clean.split("Handle ", 1)[1]
-        handle = marker.split(":", 1)[0].strip()
-    return handle, "[ERROR]" in clean, "[INFO] Handle" in clean
+def _discover_handles(config: VpbxConfig, job_id: str) -> list[str]:
+    _append_event("info", "Starting handle discovery from vpbx.cgi", job_id=job_id)
+    rows = fetch_handles(config)
+    count = db.upsert_discovered_handles(db_path(), rows)
+    _append_event("info", f"Discovered {count} handles from vpbx.cgi", job_id=job_id)
+    return [str(row.get("handle")) for row in rows if row.get("handle")]
+
+
+def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
+    db.ensure_handle_row(db_path(), handle)
+    db.update_handle_progress(db_path(), handle, status="running", error=None, last_updated_utc=_iso_now(), last_run_id=job.run_id)
+    _append_event("info", f"Starting handle {handle}", handle=handle, job_id=job.job_id)
+
+    cmd = _build_command(job, handle)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert proc.stdout is not None
+    error_lines = 0
+    for line in proc.stdout:
+        cleaned = line.strip()
+        if cleaned:
+            _log(f"[{handle}] {cleaned}", job_id=job.job_id)
+        if "[ERROR]" in cleaned:
+            error_lines += 1
+            _append_event("error", cleaned, handle=handle, job_id=job.job_id)
+    rc = proc.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
+
+    ticket_payload = db.list_tickets(db_path(), handle=handle, page=1, page_size=1)
+    total_for_handle = int(ticket_payload.get("totalCount") or 0)
+    if rc == 0:
+        db.update_handle_progress(
+            db_path(),
+            handle,
+            status="ok",
+            error=None,
+            ticket_count=total_for_handle,
+            last_updated_utc=_iso_now(),
+            last_run_id=job.run_id,
+        )
+        _append_event("info", f"Completed handle {handle}, total={total_for_handle}", handle=handle, job_id=job.job_id)
+    else:
+        msg = f"scraper exit code {rc}"
+        db.update_handle_progress(
+            db_path(),
+            handle,
+            status="error",
+            error=msg,
+            ticket_count=total_for_handle,
+            last_updated_utc=_iso_now(),
+            last_run_id=job.run_id,
+        )
+        _append_event("error", f"Handle {handle} failed: {msg}", handle=handle, job_id=job.job_id)
+    return rc, error_lines
 
 
 def _job_worker() -> None:
@@ -118,27 +160,28 @@ def _job_worker() -> None:
             time.sleep(0.2)
             continue
 
+        completed = 0
+        errors = 0
         try:
-            all_handles = _read_handles_file()
-            if not all_handles:
-                msg = f"Populate {HANDLES_FILE} with one handle per line before starting scrape."
-                db.update_scrape_job(
-                    db_path(),
-                    job.job_id,
-                    status="failed",
-                    progress_completed=0,
-                    progress_total=0,
-                    started_utc=_iso_now(),
-                    finished_utc=_iso_now(),
-                    error_message=msg,
-                    result={"error": msg},
-                )
-                _append_event("error", msg, job_id=job.job_id)
-                continue
+            config, err = _get_required_env()
+            if err or not config:
+                raise RuntimeError(err or "Missing VPBX configuration")
 
-            handles = all_handles if job.mode == "all" else [job.handle]  # type: ignore[list-item]
-            for handle in handles:
-                db.ensure_handle_row(db_path(), handle)
+            handles: list[str]
+            if job.refresh_handles:
+                discovered = _discover_handles(config, job.job_id)
+                handles = discovered if job.mode == "all" else [job.handle or ""]
+            elif job.mode == "all":
+                handles = db.list_all_handles(db_path())
+            else:
+                handles = [job.handle or ""]
+
+            handles = [h for h in handles if h]
+            if job.mode == "one" and job.handle and job.handle not in handles:
+                handles = [job.handle]
+
+            if not handles:
+                raise RuntimeError("No handles available to scrape. Run with refresh_handles=true and valid VPBX credentials.")
 
             db.update_scrape_job(
                 db_path(),
@@ -150,37 +193,18 @@ def _job_worker() -> None:
             )
             _append_event("info", f"Started scrape job with {len(handles)} handles", job_id=job.job_id)
 
-            cmd = _build_command(job, handles)
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-
-            completed = 0
-            errors = 0
-            current_handle: str | None = None
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                handle, is_error, is_complete = _parse_progress_line(line)
-                if handle and handle != current_handle:
-                    current_handle = handle
-                    db.update_handle_progress(db_path(), handle, status="running", last_run_id=job.run_id)
-                    _append_event("info", f"Starting handle {handle}", handle=handle, job_id=job.job_id)
-                if is_error:
+            for handle in handles:
+                try:
+                    rc, line_errors = _run_one_handle(job, handle)
+                    errors += line_errors + (1 if rc != 0 else 0)
+                except Exception as exc:  # continue to next handle by requirement
                     errors += 1
-                    _append_event("error", line.strip(), handle=current_handle, job_id=job.job_id)
-                    if current_handle:
-                        db.update_handle_progress(db_path(), current_handle, status="error", error=line.strip(), last_run_id=job.run_id)
-                if is_complete and current_handle:
-                    completed += 1
-                    ticket_payload = db.list_tickets(db_path(), handle=current_handle, page=1, page_size=1)
-                    total_for_handle = int(ticket_payload.get("totalCount") or 0)
                     db.update_handle_progress(
-                        db_path(),
-                        current_handle,
-                        status="ok",
-                        error=None,
-                        ticket_count=total_for_handle,
-                        last_updated_utc=_iso_now(),
-                        last_run_id=job.run_id,
+                        db_path(), handle, status="error", error=str(exc), last_updated_utc=_iso_now(), last_run_id=job.run_id
                     )
+                    _append_event("error", f"Handle {handle} exception: {exc}", handle=handle, job_id=job.job_id)
+                finally:
+                    completed += 1
                     db.update_scrape_job(
                         db_path(),
                         job.job_id,
@@ -188,10 +212,8 @@ def _job_worker() -> None:
                         progress_completed=completed,
                         progress_total=len(handles),
                     )
-                    _append_event("info", f"Completed handle {current_handle}, total={total_for_handle}", handle=current_handle, job_id=job.job_id)
 
-            rc = proc.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
-            final_status = "completed" if rc == 0 else "failed"
+            final_status = "completed" if errors == 0 else "failed"
             db.update_scrape_job(
                 db_path(),
                 job.job_id,
@@ -199,8 +221,8 @@ def _job_worker() -> None:
                 progress_completed=completed,
                 progress_total=len(handles),
                 finished_utc=_iso_now(),
-                error_message=None if rc == 0 else f"scraper exit code {rc}",
-                result={"returncode": rc, "errors": errors, "current_handle": current_handle},
+                error_message=None if errors == 0 else f"{errors} scrape errors",
+                result={"errors": errors},
             )
             _append_event("info", f"Job finished status={final_status}", job_id=job.job_id)
         except Exception as exc:
@@ -208,8 +230,8 @@ def _job_worker() -> None:
                 db_path(),
                 job.job_id,
                 status="failed",
-                progress_completed=0,
-                progress_total=0,
+                progress_completed=completed,
+                progress_total=max(completed, 1),
                 finished_utc=_iso_now(),
                 error_message=str(exc),
                 result={"error": str(exc)},
@@ -234,9 +256,6 @@ async def request_context(request: Request, call_next):
 @app.on_event("startup")
 def startup() -> None:
     db.ensure_indexes(db_path())
-    handles = _read_handles_file()
-    for handle in handles:
-        db.ensure_handle_row(db_path(), handle)
     stats = db.get_stats(db_path())
     _log(f"DB path: {db_path()}")
     _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
@@ -272,14 +291,13 @@ def api_scrape_start(req: StartScrapeRequest):
     if req.mode == "one" and not req.handle:
         raise HTTPException(status_code=400, detail="handle is required when mode='one'")
 
-    handles = _read_handles_file()
-    if not handles:
-        msg = f"No handles configured. Populate {HANDLES_FILE} first."
-        _append_event("error", msg)
-        raise HTTPException(status_code=400, detail=msg)
+    _, env_error = _get_required_env()
+    if env_error:
+        _append_event("error", env_error, handle=req.handle)
+        raise HTTPException(status_code=400, detail=env_error)
 
-    if req.mode == "one" and req.handle and req.handle not in handles:
-        raise HTTPException(status_code=404, detail="handle not found in handles file")
+    if req.mode == "one" and req.handle and not req.refresh_handles and not db.handle_exists(db_path(), req.handle):
+        raise HTTPException(status_code=404, detail="handle not found in DB; run with refresh_handles=true first")
 
     job_id = str(uuid.uuid4())
     run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}"
@@ -293,8 +311,10 @@ def api_scrape_start(req: StartScrapeRequest):
         created_utc=_iso_now(),
     )
     with JOB_QUEUE_LOCK:
-        JOB_QUEUE.append(QueueJob(job_id=job_id, run_id=run_id, mode=req.mode, handle=req.handle, rescrape=req.rescrape))
-    _append_event("info", f"Queued scrape job mode={req.mode}", handle=req.handle, job_id=job_id)
+        JOB_QUEUE.append(
+            QueueJob(job_id=job_id, run_id=run_id, mode=req.mode, handle=req.handle, rescrape=req.rescrape, refresh_handles=req.refresh_handles)
+        )
+    _append_event("info", f"Queued scrape job mode={req.mode} refresh_handles={req.refresh_handles}", handle=req.handle, job_id=job_id)
     return {"job_id": job_id, "started": True}
 
 
@@ -311,7 +331,6 @@ def api_scrape_status(job_id: str):
         "completed": job.get("progress_completed", 0),
         "running": CURRENT_JOB_ID == job_id,
         "errors": int(result.get("errors") or 0),
-        "current_handle": result.get("current_handle"),
         "started_utc": job.get("started_utc"),
         "finished_utc": job.get("finished_utc"),
     }
@@ -361,6 +380,8 @@ def api_health():
         "db_path": db_path(),
         "db_exists": Path(db_path()).exists(),
         "last_updated_utc": stats_payload.get("last_updated_utc"),
+        "total_handles": stats_payload.get("total_handles", 0),
+        "total_tickets": stats_payload.get("total_tickets", 0),
         "stats": stats_payload,
     }
 
@@ -377,7 +398,12 @@ def api_scrape_legacy(payload: dict[str, Any]):
         mode = "one"
     if mode not in {"all", "one"}:
         raise HTTPException(status_code=400, detail="Unsupported mode for legacy endpoint")
-    req = StartScrapeRequest(mode=mode, handle=payload.get("handle"), rescrape=bool(payload.get("rescrape")))
+    req = StartScrapeRequest(
+        mode=mode,
+        handle=payload.get("handle"),
+        rescrape=bool(payload.get("rescrape")),
+        refresh_handles=bool(payload.get("refresh_handles", True)),
+    )
     out = api_scrape_start(req)
     return {"jobId": out["job_id"], "started": out["started"]}
 
