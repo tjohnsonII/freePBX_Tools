@@ -672,40 +672,165 @@ def _run_smoke_steps(timeout: int, verbose: bool, python_exe: Path) -> tuple[lis
 def _run_scraper_sanity_step(timeout: int, python_exe: Path) -> tuple[TestStep, str, list[str]]:
     started = time.time()
     root = find_repo_root()
-    webscraper_dir = root / "webscraper"
     commands: list[str] = []
 
-    if not (webscraper_dir / "ultimate_scraper.py").is_file():
-        step = _make_step("scraper sanity run", True, "ultimate_scraper.py not found; skipped", started)
-        return step, step.details, commands
+    candidates = [
+        [str(python_exe), "-m", "webscraper", "--dry-run"],
+        [str(python_exe), "-m", "webscraper.cli.main", "--dry-run"],
+    ]
 
-    cmd = [str(python_exe), "ultimate_scraper.py", "--dry-run"]
-    commands.append(" ".join(cmd))
     try:
-        rc, out, err = run_subprocess(cmd, cwd=webscraper_dir, timeout=timeout)
-        if rc != 0:
-            help_cmd = [str(python_exe), "ultimate_scraper.py", "--help"]
-            commands.append(" ".join(help_cmd))
-            rc, out, err = run_subprocess(help_cmd, cwd=webscraper_dir, timeout=timeout)
-        ok = rc == 0
-        details = (out + "\n" + err).strip() or f"scraper sanity finished rc={rc}"
-        return _make_step("scraper sanity run", ok, details, started), details, commands
+        outputs: list[str] = []
+        for cmd in candidates:
+            commands.append(" ".join(cmd))
+            rc, out, err = run_subprocess(cmd, cwd=root, timeout=timeout)
+            details = (out + "\n" + err).strip() or f"scraper sanity finished rc={rc}"
+            outputs.append(f"$ {' '.join(cmd)}\n{details}")
+            if rc == 0:
+                return _make_step("scraper sanity run", True, details, started), "\n\n".join(outputs), commands
+
+        fail_details = "\n\n".join(outputs) if outputs else "No sanity command candidates were available"
+        return _make_step("scraper sanity run", False, fail_details, started), fail_details, commands
     except subprocess.TimeoutExpired:
         step = _make_step("scraper sanity run", False, f"scraper sanity timed out after {timeout}s", started)
         return step, step.details, commands
 
 
-def _format_test_summary(steps: list[TestStep], total_ms: int, log_path: Path, pure_json_mode: bool) -> str:
+def _http_get_status(url: str, timeout_s: float) -> int | None:
+    try:
+        import httpx  # type: ignore[import-not-found]
+    except Exception:
+        return None
+
+    try:
+        with httpx.Client(timeout=timeout_s) as client:
+            return int(client.get(url).status_code)
+    except Exception:
+        return None
+
+
+def _wait_for_api_readiness(host: str, port: int, timeout_s: int) -> tuple[bool, str]:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if _is_port_open(host, port, timeout_s=0.5):
+            health_urls = [
+                f"http://{host}:{port}/health",
+                f"http://{host}:{port}/healthz",
+                f"http://{host}:{port}/docs",
+            ]
+            for url in health_urls:
+                status = _http_get_status(url=url, timeout_s=2.0)
+                if status == 200:
+                    return True, f"health route OK: {url}"
+            return True, "no health route; tcp open OK"
+        time.sleep(0.25)
+    return False, f"API did not become ready within {timeout_s}s"
+
+
+def _start_ticket_api_if_needed(python_exe: Path, root: Path) -> tuple[str, str, subprocess.Popen[str] | None, list[str]]:
+    host = "127.0.0.1"
+    port = 8787
+    commands: list[str] = []
+
+    if _is_port_open(host, port):
+        return "already_running", "Port 8787 already open; treating API as externally running", None, commands
+
+    targets = [
+        "webscraper.ticket_api.app:app",
+        "webscraper.ticket_api.main:app",
+        "webscraper.ticket_api.api:app",
+    ]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    for target in targets:
+        cmd = [
+            str(python_exe),
+            "-m",
+            "uvicorn",
+            target,
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ]
+        commands.append(" ".join(cmd))
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(root.resolve()),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError:
+            return "failed", "Python executable not found while starting uvicorn", None, commands
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if _is_port_open(host, port, timeout_s=0.5):
+                return "started", f"Started ticket API via {target}", proc, commands
+            if proc.poll() is not None:
+                break
+            time.sleep(0.2)
+
+        if proc.poll() is None and _is_port_open(host, port, timeout_s=0.5):
+            return "started", f"Started ticket API via {target}", proc, commands
+
+        try:
+            out, err = proc.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate(timeout=2)
+        failure = (out + "\n" + err).strip() or f"uvicorn exited while loading {target}"
+        commands.append(f"uvicorn-target-failed: {target}")
+        commands.append(f"uvicorn-output: {failure}")
+
+    return "failed", "Unable to start ticket API with known import targets", None, commands
+
+
+def _stop_started_process(proc: subprocess.Popen[str] | None) -> tuple[bool, str]:
+    if proc is None:
+        return True, "No managed API process to stop"
+
+    if proc.poll() is not None:
+        return True, "Managed API process already exited"
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+        return True, "Managed API process terminated cleanly"
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+        return True, "Managed API process required kill() after terminate timeout"
+
+
+def _format_test_summary(
+    steps: list[TestStep],
+    total_ms: int,
+    log_path: Path,
+    pure_json_mode: bool,
+    status_summary: dict[str, str] | None = None,
+) -> str:
     payload = {
         "ok": all(step.ok for step in steps),
         "steps": [asdict(step) for step in steps],
         "duration_ms": total_ms,
         "log_file": str(log_path),
     }
+    if status_summary is not None:
+        payload["status_summary"] = status_summary
     if pure_json_mode:
         return json.dumps(payload, indent=2)
 
     lines = ["", "Test summary:"]
+    if status_summary is not None:
+        lines.append("- status:")
+        for key in ("api_start", "api_ready", "pytest", "sanity"):
+            if key in status_summary:
+                lines.append(f"  - {key}: {status_summary[key]}")
     for step in steps:
         symbol = "✅ PASS" if step.ok else "❌ FAIL"
         lines.append(f"- {symbol} {step.name} ({step.duration_ms}ms)")
@@ -858,6 +983,13 @@ def _run_test_all(
         f"current_python: {current_python}",
         f"preferred_python: {preferred_python}",
     ]
+    status_summary: dict[str, str] = {
+        "api_start": "failed",
+        "api_ready": "failed",
+        "pytest": "fail",
+        "sanity": "fail",
+    }
+    api_proc: subprocess.Popen[str] | None = None
 
     if current_python != preferred_python:
         if state.use_preferred_python:
@@ -881,68 +1013,115 @@ def _run_test_all(
     else:
         log_lines.append("interpreter_decision: current interpreter already matches preferred")
 
-    smoke_steps, smoke_logs, smoke_commands = _run_smoke_steps(timeout=min(timeout, 30), verbose=state.verbose, python_exe=python_exe)
-    steps.extend(smoke_steps)
-    log_lines.extend(f"subprocess: {cmd}" for cmd in smoke_commands)
-    log_lines.extend(smoke_logs)
+    failed = False
+    try:
+        smoke_steps, smoke_logs, smoke_commands = _run_smoke_steps(timeout=min(timeout, 30), verbose=state.verbose, python_exe=python_exe)
+        steps.extend(smoke_steps)
+        log_lines.extend(f"subprocess: {cmd}" for cmd in smoke_commands)
+        log_lines.extend(smoke_logs)
+        failed = any(not step.ok for step in smoke_steps)
 
-    failed = any(not step.ok for step in smoke_steps)
-
-    root = find_repo_root()
-    has_tests = (root / "tests").is_dir() or (root / "webscraper" / "tests").is_dir()
-    should_try_pytest = has_tests
-
-    if should_try_pytest and (keep_going or not failed):
-        dep_step, dep_commands, dep_ok = _check_test_dependencies(
+        api_start_status, api_start_details, api_proc, api_start_commands = _start_ticket_api_if_needed(
             python_exe=python_exe,
-            timeout=min(timeout, 90),
-            auto_fix=fix,
             root=root,
         )
-        steps.append(dep_step)
-        log_lines.extend(f"subprocess: {cmd}" for cmd in dep_commands)
-        failed = failed or (not dep_step.ok)
+        status_summary["api_start"] = api_start_status
+        log_lines.extend(f"subprocess: {cmd}" for cmd in api_start_commands)
+        log_lines.append(f"api_start: {api_start_details}")
+        steps.append(TestStep(name="ticket api startup", ok=api_start_status != "failed", details=api_start_details, duration_ms=0))
+        failed = failed or (api_start_status == "failed")
 
-        if dep_ok and (keep_going or not failed):
-            install_started = time.time()
-            try:
-                ensure_webscraper_editable_installed(python_exe=str(python_exe), repo_root=root)
-                install_logs, install_commands = getattr(ensure_webscraper_editable_installed, "_last_run", ([], []))
-                install_step = _make_step(
-                    "webscraper import readiness",
-                    True,
-                    "webscraper import OK",
-                    install_started,
-                )
-                steps.append(install_step)
-                log_lines.extend(f"subprocess: {cmd}" for cmd in install_commands)
-                log_lines.extend(install_logs)
-                pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
-                steps.append(pytest_step)
-                log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
-                log_lines.append(pytest_details)
-                failed = failed or (not pytest_step.ok)
-            except RuntimeError as exc:
-                install_step = _make_step("webscraper import readiness", False, str(exc), install_started)
-                steps.append(install_step)
-                log_lines.append(str(exc))
-                failed = True
-    elif not should_try_pytest:
-        steps.append(TestStep(name="pytest", ok=True, details="No tests folder detected; skipped", duration_ms=0))
+        api_ready_ok, api_ready_details = _wait_for_api_readiness(host="127.0.0.1", port=8787, timeout_s=10)
+        status_summary["api_ready"] = "ok" if api_ready_ok else "failed"
+        steps.append(TestStep(name="ticket api readiness", ok=api_ready_ok, details=api_ready_details, duration_ms=0))
+        log_lines.append(f"api_ready: {api_ready_details}")
+        failed = failed or (not api_ready_ok)
 
-    if keep_going or not failed:
-        sanity_step, sanity_details, sanity_commands = _run_scraper_sanity_step(timeout=min(timeout, 45), python_exe=python_exe)
-        steps.append(sanity_step)
-        log_lines.extend(f"subprocess: {cmd}" for cmd in sanity_commands)
-        log_lines.append(sanity_details)
-        failed = failed or (not sanity_step.ok)
+        has_tests = (root / "tests").is_dir() or (root / "webscraper" / "tests").is_dir()
+        should_try_pytest = has_tests
+
+        if should_try_pytest and (keep_going or not failed):
+            dep_step, dep_commands, dep_ok = _check_test_dependencies(
+                python_exe=python_exe,
+                timeout=min(timeout, 90),
+                auto_fix=fix,
+                root=root,
+            )
+            steps.append(dep_step)
+            log_lines.extend(f"subprocess: {cmd}" for cmd in dep_commands)
+            failed = failed or (not dep_step.ok)
+
+            if dep_ok and (keep_going or not failed):
+                install_started = time.time()
+                try:
+                    ensure_webscraper_editable_installed(python_exe=str(python_exe), repo_root=root)
+                    install_logs, install_commands = getattr(ensure_webscraper_editable_installed, "_last_run", ([], []))
+                    install_step = _make_step(
+                        "webscraper import readiness",
+                        True,
+                        "webscraper import OK",
+                        install_started,
+                    )
+                    steps.append(install_step)
+                    log_lines.extend(f"subprocess: {cmd}" for cmd in install_commands)
+                    log_lines.extend(install_logs)
+                    pytest_step, pytest_details, pytest_commands = _run_pytest_step(path=pytest_path, timeout=timeout, python_exe=python_exe)
+                    steps.append(pytest_step)
+                    status_summary["pytest"] = "pass" if pytest_step.ok else "fail"
+                    log_lines.extend(f"subprocess: {cmd}" for cmd in pytest_commands)
+                    log_lines.append(pytest_details)
+                    failed = failed or (not pytest_step.ok)
+                except RuntimeError as exc:
+                    install_step = _make_step("webscraper import readiness", False, str(exc), install_started)
+                    steps.append(install_step)
+                    log_lines.append(str(exc))
+                    status_summary["pytest"] = "fail"
+                    failed = True
+            else:
+                status_summary["pytest"] = "fail"
+        elif not should_try_pytest:
+            steps.append(TestStep(name="pytest", ok=True, details="No tests folder detected; skipped", duration_ms=0))
+            status_summary["pytest"] = "pass"
+        else:
+            status_summary["pytest"] = "fail"
+
+        if keep_going or not failed:
+            sanity_step, sanity_details, sanity_commands = _run_scraper_sanity_step(timeout=min(timeout, 45), python_exe=python_exe)
+            steps.append(sanity_step)
+            status_summary["sanity"] = "pass" if sanity_step.ok else "fail"
+            log_lines.extend(f"subprocess: {cmd}" for cmd in sanity_commands)
+            log_lines.append(sanity_details)
+            failed = failed or (not sanity_step.ok)
+        else:
+            status_summary["sanity"] = "fail"
+    finally:
+        shutdown_ok, shutdown_details = _stop_started_process(api_proc)
+        steps.append(TestStep(name="ticket api shutdown", ok=shutdown_ok, details=shutdown_details, duration_ms=0))
+        log_lines.append(f"api_shutdown: {shutdown_details}")
 
     total_ms = int((time.time() - started) * 1000)
-    log_lines.append("\n" + _format_test_summary(steps, total_ms=total_ms, log_path=log_path, pure_json_mode=False))
+    log_lines.append(
+        "\n"
+        + _format_test_summary(
+            steps,
+            total_ms=total_ms,
+            log_path=log_path,
+            pure_json_mode=False,
+            status_summary=status_summary,
+        )
+    )
     write_log(log_path, "\n".join(log_lines) + "\n")
 
     if not state.quiet:
-        print(_format_test_summary(steps, total_ms=total_ms, log_path=log_path, pure_json_mode=state.pure_json_mode))
+        print(
+            _format_test_summary(
+                steps,
+                total_ms=total_ms,
+                log_path=log_path,
+                pure_json_mode=state.pure_json_mode,
+                status_summary=status_summary,
+            )
+        )
 
     return (EXIT_OK if not failed else EXIT_TEST_FAILED), steps, log_path
 
