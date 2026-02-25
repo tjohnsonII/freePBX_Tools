@@ -186,3 +186,6 @@ webscraper/**/output/
 **/$null
 **/\$null
 webscraper/ticket-ui/F5
+
+# webscraper-manager runtime state
+.webscraper_manager/
