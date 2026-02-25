@@ -340,36 +340,79 @@ def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[
         return step, step.details, commands
 
 
-def _run_import_probe_step(timeout: int, python_exe: Path, root: Path) -> tuple[TestStep, str, list[str]]:
+def _run_import_probe_step(timeout: int, python_exe: Path, root: Path, verbose: bool) -> tuple[TestStep, str, list[str]]:
     started = time.time()
-    modules = ["selenium", "requests", "bs4", "lxml"]
+    modules = ["selenium", "bs4", "lxml", "requests", "websocket"]
     commands: list[str] = []
-    cmd = [
+    bulk_cmd = [
         str(python_exe),
         "-c",
-        (
-            "import importlib,sys; "
-            f"mods={modules!r}; "
-            "missing=[m for m in mods if importlib.util.find_spec(m) is None]; "
-            "print('missing=' + ','.join(missing)); "
-            "sys.exit(0 if not missing else 1)"
-        ),
+        "import selenium, bs4, lxml, requests, websocket",
     ]
-    commands.append(" ".join(cmd))
+    commands.append(" ".join(bulk_cmd))
+
+    log_lines: list[str] = []
+
+    def _error_summary(stdout: str, stderr: str, rc: int) -> str:
+        candidates = [line.strip() for line in (stderr.splitlines() + stdout.splitlines()) if line.strip()]
+        if candidates:
+            return candidates[-1]
+        return f"Command failed with exit code {rc}"
+
     try:
-        rc, out, err = run_subprocess(cmd, cwd=root, timeout=timeout)
+        rc, out, err = run_subprocess(bulk_cmd, cwd=root, timeout=timeout)
     except subprocess.TimeoutExpired:
         step = _make_step("python dependency imports", False, f"Dependency probe timed out after {timeout}s", started)
         return step, step.details, commands
 
-    missing_line = next((line for line in out.splitlines() if line.startswith("missing=")), "missing=")
-    missing_values = missing_line.split("=", 1)[1].strip()
-    if rc == 0:
-        details = "All required imports ok"
-        return _make_step("python dependency imports", True, details, started), details, commands
+    log_lines.append(f"bulk-import rc={rc}")
+    if out.strip():
+        log_lines.append("bulk-import stdout:")
+        log_lines.append(out.strip())
+    if err.strip():
+        log_lines.append("bulk-import stderr:")
+        log_lines.append(err.strip())
 
-    details = f"Missing imports: {missing_values}" if missing_values else (out + "\n" + err).strip() or f"Dependency probe failed rc={rc}"
-    return _make_step("python dependency imports", False, details, started), details, commands
+    if rc == 0:
+        details = "All required imports succeeded"
+        return _make_step("python dependency imports", True, details, started), "\n".join(log_lines), commands
+
+    failures: list[str] = []
+    traceback_chunks: list[str] = []
+    for module in modules:
+        module_cmd = [str(python_exe), "-c", f"import {module}"]
+        commands.append(" ".join(module_cmd))
+        try:
+            module_rc, module_out, module_err = run_subprocess(module_cmd, cwd=root, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            failures.append(f"{module}: TimeoutExpired: import timed out after {timeout}s")
+            log_lines.append(f"probe {module} rc=timeout")
+            continue
+
+        log_lines.append(f"probe {module} rc={module_rc}")
+        if module_out.strip():
+            log_lines.append(f"probe {module} stdout:")
+            log_lines.append(module_out.strip())
+        if module_err.strip():
+            log_lines.append(f"probe {module} stderr:")
+            log_lines.append(module_err.strip())
+
+        if module_rc != 0:
+            failures.append(f"{module}: {_error_summary(module_out, module_err, module_rc)}")
+            if module_err.strip():
+                traceback_chunks.append(f"[{module}]\n{module_err.strip()}")
+
+    if not failures:
+        fallback_error = _error_summary(out, err, rc)
+        failures.append(f"bulk import command failed: {fallback_error}")
+
+    details = f"Missing/failed imports: {'; '.join(failures)}"
+    if verbose and traceback_chunks:
+        details = f"{details}\n" + "\n\n".join(traceback_chunks)
+
+    log_lines.append("failure-summary:")
+    log_lines.append(details)
+    return _make_step("python dependency imports", False, details, started), "\n".join(log_lines), commands
 
 
 def _run_smoke_steps(timeout: int, verbose: bool, python_exe: Path) -> tuple[list[TestStep], list[str], list[str]]:
@@ -385,7 +428,7 @@ def _run_smoke_steps(timeout: int, verbose: bool, python_exe: Path) -> tuple[lis
     steps.append(_make_step("doctor", ok, details, started))
     logs.append(f"[doctor] {details}")
 
-    dep_step, dep_details, dep_commands = _run_import_probe_step(timeout=timeout, python_exe=python_exe, root=root)
+    dep_step, dep_details, dep_commands = _run_import_probe_step(timeout=timeout, python_exe=python_exe, root=root, verbose=verbose)
     steps.append(dep_step)
     commands.extend(dep_commands)
     logs.append(f"[deps] {dep_details}")
