@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,7 @@ class AppState:
     verbose: bool = False
     in_menu: bool = False
     pure_json_mode: bool = False
-    no_clear: bool = False
+    clear_screen: bool = False
 
 
 @dataclass
@@ -207,7 +208,7 @@ def _set_flag_from_source(ctx: Any, name: str, value: bool) -> bool | None:
 
 
 def _clear_screen(state: AppState) -> None:
-    if state.no_clear:
+    if not state.clear_screen:
         return
     if os.name == "nt":
         os.system("cls")
@@ -231,7 +232,7 @@ def _confirm_quit() -> bool:
 def render_menu(console: Console | None, state: AppState) -> None:
     _clear_screen(state)
     print_banner(console)
-    clear_status = "OFF" if state.no_clear else "ON"
+    clear_status = "ON" if state.clear_screen else "OFF"
     pure_json_status = "ON" if state.pure_json_mode else "OFF"
 
     if console is None:
@@ -270,7 +271,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             verbose=state.verbose,
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
-            no_clear=state.no_clear,
+            clear_screen=state.clear_screen,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -280,7 +281,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             verbose=state.verbose,
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
-            no_clear=state.no_clear,
+            clear_screen=state.clear_screen,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -290,7 +291,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             verbose=state.verbose,
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
-            no_clear=state.no_clear,
+            clear_screen=state.clear_screen,
         )
         code, _ = run_doctor(console, action_state, json_out=False)
         return code
@@ -300,7 +301,7 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             verbose=state.verbose,
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
-            no_clear=state.no_clear,
+            clear_screen=state.clear_screen,
         )
         if not state.pure_json_mode:
             print("Running: doctor --json")
@@ -312,11 +313,28 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             verbose=state.verbose,
             in_menu=True,
             pure_json_mode=state.pure_json_mode,
-            no_clear=state.no_clear,
+            clear_screen=state.clear_screen,
         )
         run_version(console, action_state)
         return EXIT_OK
     return EXIT_USAGE
+
+
+def pause_for_user() -> None:
+    print()
+    print("Press Enter to return to menu…")
+    try:
+        if not sys.stdin.isatty():
+            print("(No interactive stdin; returning to menu in 2s...)")
+            time.sleep(2)
+            return
+        input()
+    except EOFError:
+        print("(No interactive stdin; returning to menu in 2s...)")
+        time.sleep(2)
+    except KeyboardInterrupt:
+        print()
+        return
 
 
 def run_menu(state: AppState) -> int:
@@ -355,6 +373,8 @@ def run_menu(state: AppState) -> int:
             if not state.pure_json_mode:
                 print("Canceled.")
             continue
+
+        pause_for_user()
 
 
 def _build_state_from_ctx(ctx: Any, quiet: bool, verbose: bool) -> AppState:
@@ -418,12 +438,18 @@ if TYPER_AVAILABLE:
     @app.command()
     def menu(
         ctx: typer.Context,
+        clear_screen: bool = typer.Option(
+            False,
+            "--clear",
+            "--clear-screen",
+            help="Clear the screen at the start of each menu render.",
+        ),
         no_clear: bool = typer.Option(False, "--no-clear", help="Do not clear the screen between menu draws."),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output for menu actions."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose)
-        state.no_clear = no_clear
+        state.clear_screen = bool(clear_screen and not no_clear)
         code = run_menu(state)
         if code:
             raise typer.Exit(code)
@@ -443,6 +469,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     menu_parser = subparsers.add_parser("menu", help="Open interactive menu")
+    menu_parser.add_argument("--clear", "--clear-screen", action="store_true", dest="clear_screen", help="Clear the screen when drawing the menu")
     menu_parser.add_argument("--no-clear", action="store_true", help="Do not clear the screen")
     menu_parser.add_argument("--quiet", action="store_true", help="Minimal output for menu actions")
     menu_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -460,7 +487,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
         state = AppState(
             quiet=bool(args.quiet),
             verbose=bool(args.verbose),
-            no_clear=bool(args.no_clear),
+            clear_screen=bool(args.clear_screen and not args.no_clear),
         )
         return run_menu(state)
 
