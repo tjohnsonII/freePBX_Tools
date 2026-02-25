@@ -747,15 +747,50 @@ def _run_test_smoke(state: AppState, timeout: int) -> tuple[int, list[TestStep],
     return (EXIT_OK if ok else EXIT_TEST_FAILED), steps, log_path
 
 
-def _run_test_pytest(state: AppState, timeout: int, path: str | None = None, fix: bool = False) -> tuple[int, list[TestStep], Path]:
+def _run_test_pytest(
+    state: AppState,
+    timeout: int,
+    path: str | None = None,
+    fix: bool = False,
+    original_args: list[str] | None = None,
+) -> tuple[int, list[TestStep], Path]:
     started = time.time()
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
     log_path = day_dir / f"test_pytest_{timestamp}.log"
     root = find_repo_root()
     python_exe = get_runtime_python(state, root)
+    current_python = Path(sys.executable).resolve()
+    preferred_python = get_preferred_python(root).resolve()
 
-    log_lines: list[str] = [f"command: test pytest --timeout {timeout} path={path or ''}".strip(), f"python: {python_exe}"]
+    log_lines: list[str] = [
+        f"command: test pytest --timeout {timeout} path={path or ''}".strip(),
+        f"python: {python_exe}",
+        f"current_python: {current_python}",
+        f"preferred_python: {preferred_python}",
+    ]
+
+    if current_python != preferred_python:
+        if state.use_preferred_python:
+            args_for_reexec = original_args if original_args is not None else sys.argv[1:]
+            reexec_cmd = [str(preferred_python), "-m", "webscraper_manager", *args_for_reexec]
+            log_lines.append(
+                f"interpreter_decision: re-exec under preferred python ({preferred_python})"
+            )
+            log_lines.append(f"subprocess: {' '.join(reexec_cmd)}")
+            write_log(log_path, "\n".join(log_lines) + "\n")
+            completed = subprocess.run(reexec_cmd, check=False)
+            return completed.returncode, [], log_path
+
+        warning = (
+            "WARNING: use_preferred_python is OFF and current interpreter does not match preferred "
+            f"(current: {current_python}, preferred: {preferred_python})"
+        )
+        print(warning)
+        log_lines.append("interpreter_decision: mismatch allowed because use_preferred_python is OFF")
+        log_lines.append(warning)
+    else:
+        log_lines.append("interpreter_decision: current interpreter already matches preferred")
 
     dep_step, dep_commands, dep_ok = _check_test_dependencies(
         python_exe=python_exe,
@@ -799,16 +834,52 @@ def _run_test_pytest(state: AppState, timeout: int, path: str | None = None, fix
     return (EXIT_OK if all(step.ok for step in steps) else EXIT_TEST_FAILED), steps, log_path
 
 
-def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: str | None = None, fix: bool = False) -> tuple[int, list[TestStep], Path]:
+def _run_test_all(
+    state: AppState,
+    timeout: int,
+    keep_going: bool,
+    pytest_path: str | None = None,
+    fix: bool = False,
+    original_args: list[str] | None = None,
+) -> tuple[int, list[TestStep], Path]:
     started = time.time()
     _, _, day_dir = ensure_manager_dirs()
     timestamp = datetime.now().strftime("%H%M%S")
     log_path = day_dir / f"test_all_{timestamp}.log"
     root = find_repo_root()
     python_exe = get_runtime_python(state, root)
+    current_python = Path(sys.executable).resolve()
+    preferred_python = get_preferred_python(root).resolve()
 
     steps: list[TestStep] = []
-    log_lines: list[str] = [f"command: test all --timeout {timeout} --keep-going={keep_going}", f"python: {python_exe}"]
+    log_lines: list[str] = [
+        f"command: test all --timeout {timeout} --keep-going={keep_going}",
+        f"python: {python_exe}",
+        f"current_python: {current_python}",
+        f"preferred_python: {preferred_python}",
+    ]
+
+    if current_python != preferred_python:
+        if state.use_preferred_python:
+            args_for_reexec = original_args if original_args is not None else sys.argv[1:]
+            reexec_cmd = [str(preferred_python), "-m", "webscraper_manager", *args_for_reexec]
+            log_lines.append(
+                f"interpreter_decision: re-exec under preferred python ({preferred_python})"
+            )
+            log_lines.append(f"subprocess: {' '.join(reexec_cmd)}")
+            write_log(log_path, "\n".join(log_lines) + "\n")
+            completed = subprocess.run(reexec_cmd, check=False)
+            return completed.returncode, [], log_path
+
+        warning = (
+            "WARNING: use_preferred_python is OFF and current interpreter does not match preferred "
+            f"(current: {current_python}, preferred: {preferred_python})"
+        )
+        print(warning)
+        log_lines.append("interpreter_decision: mismatch allowed because use_preferred_python is OFF")
+        log_lines.append(warning)
+    else:
+        log_lines.append("interpreter_decision: current interpreter already matches preferred")
 
     smoke_steps, smoke_logs, smoke_commands = _run_smoke_steps(timeout=min(timeout, 30), verbose=state.verbose, python_exe=python_exe)
     steps.extend(smoke_steps)
@@ -1059,7 +1130,12 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             clear_screen=state.clear_screen,
             use_preferred_python=state.use_preferred_python,
         )
-        code, _, _ = _run_test_all(action_state, timeout=300, keep_going=False)
+        code, _, _ = _run_test_all(
+            action_state,
+            timeout=300,
+            keep_going=False,
+            original_args=["test", "all", "--timeout", "300"],
+        )
         return code
     if choice == "8":
         if not state.pure_json_mode:
@@ -1072,7 +1148,12 @@ def _run_menu_action(console: Console | None, state: AppState, choice: str) -> i
             clear_screen=state.clear_screen,
             use_preferred_python=state.use_preferred_python,
         )
-        code, _, _ = _run_test_pytest(action_state, timeout=300, path=None)
+        code, _, _ = _run_test_pytest(
+            action_state,
+            timeout=300,
+            path=None,
+            original_args=["test", "pytest", "--timeout", "300"],
+        )
         return code
     if choice == "9":
         if not state.pure_json_mode:
@@ -1242,7 +1323,7 @@ if TYPER_AVAILABLE:
         fix: bool = typer.Option(False, "--fix", help="Auto-install missing pytest dependencies before running."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        code, _, _ = _run_test_pytest(state, timeout=timeout, path=path, fix=fix)
+        code, _, _ = _run_test_pytest(state, timeout=timeout, path=path, fix=fix, original_args=sys.argv[1:])
         raise typer.Exit(code)
 
     @test_app.command("all")
@@ -1255,7 +1336,14 @@ if TYPER_AVAILABLE:
         fix: bool = typer.Option(False, "--fix", help="Auto-install missing pytest dependencies before running."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        code, _, _ = _run_test_all(state, timeout=timeout, keep_going=keep_going, pytest_path=None, fix=fix)
+        code, _, _ = _run_test_all(
+            state,
+            timeout=timeout,
+            keep_going=keep_going,
+            pytest_path=None,
+            fix=fix,
+            original_args=sys.argv[1:],
+        )
         raise typer.Exit(code)
 
     app.add_typer(test_app, name="test")
@@ -1374,11 +1462,24 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             return code
         if args.test_command == "all":
             state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
-            code, _, _ = _run_test_all(state, timeout=int(args.timeout), keep_going=bool(args.keep_going), pytest_path=None, fix=bool(args.fix))
+            code, _, _ = _run_test_all(
+                state,
+                timeout=int(args.timeout),
+                keep_going=bool(args.keep_going),
+                pytest_path=None,
+                fix=bool(args.fix),
+                original_args=argv,
+            )
             return code
         if args.test_command == "pytest":
             state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
-            code, _, _ = _run_test_pytest(state, timeout=int(args.timeout), path=args.path, fix=bool(args.fix))
+            code, _, _ = _run_test_pytest(
+                state,
+                timeout=int(args.timeout),
+                path=args.path,
+                fix=bool(args.fix),
+                original_args=argv,
+            )
             return code
         test_parser.print_help()
         return EXIT_USAGE
