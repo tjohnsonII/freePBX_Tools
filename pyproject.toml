@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webscraper-manager"
+version = "0.1.0"
+description = "CLI manager for FreePBX webscraper workflows"
+requires-python = ">=3.10"
+dependencies = [
+  "typer>=0.12",
+]
+
+[project.scripts]
+webscraper-manager = "webscraper_manager.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["webscraper_manager*"]
