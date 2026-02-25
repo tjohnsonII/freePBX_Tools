@@ -353,6 +353,11 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
+def list_handles_summary(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -> list[dict[str, Any]]:
+    """Backwards-compatible shim"""
+    return list_handles(db_path=db_path, q=q, limit=limit, offset=offset)
+
+
 def list_handle_names(db_path: str, q: str = "", limit: int = 500) -> list[str]:
     query = "SELECT handle FROM (SELECT handle FROM handles UNION SELECT handle FROM tickets) merged"
     params: list[Any] = []
