@@ -1,24 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiGet } from "../../lib/api";
-
 type Props = {
   selectedHandle: string;
   search: string;
+  handles: string[];
   onSearchChange: (next: string) => void;
   onSelect: (handle: string) => void;
 };
 
-export default function HandleDropdown({ selectedHandle, search, onSearchChange, onSelect }: Props) {
-  const [handles, setHandles] = useState<string[]>([]);
-
-  useEffect(() => {
-    apiGet<{ items: string[] }>("/api/handles").then((r) => setHandles(r.items)).catch(() => setHandles([]));
-  }, []);
-
+export default function HandleDropdown({ selectedHandle, search, handles, onSearchChange, onSelect }: Props) {
   const list = Array.isArray(handles) ? handles : [];
-  const filtered = list.filter((h) => h.toLowerCase().includes(search.toLowerCase()));
+  const filtered = (list ?? []).filter((h) => h.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <section>

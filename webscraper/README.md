@@ -437,3 +437,43 @@ Do not commit runtime cookie files.
 ## Output location
 
 Scrape output is written to `var/runs/<run_id>/` and the latest run id is tracked in `var/runs/latest.txt`.
+
+## Bulk scrape pipeline (Ticket History UI)
+
+- Authoritative handle list file: `webscraper/var/handles.txt` (one handle per line, `#` comments allowed).
+- SQLite source of truth: `webscraper/var/db/tickets.sqlite`.
+- If `handles.txt` is missing/empty, API emits an error event and `/api/scrape/start` returns a clear setup error.
+
+Start full scrape from UI:
+- Open the Ticket History page and click **Scrape / Re-scrape** (calls `POST /api/scrape/start` with `{"mode":"all"}`).
+
+Start full scrape via curl:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8787/api/scrape/start" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"all","rescrape":true}'
+```
+
+Start a single-handle scrape via curl:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8787/api/scrape/start" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"one","handle":"KPM","rescrape":true}'
+```
+
+Check progress and event feed:
+
+```bash
+curl -sS "http://127.0.0.1:8787/api/scrape/status?job_id=<JOB_ID>"
+curl -sS "http://127.0.0.1:8787/api/events/latest?limit=50"
+```
+
+Verify DB totals from health endpoint:
+
+```bash
+curl -sS "http://127.0.0.1:8787/api/health"
+```
+
+Look for `stats.total_tickets`, `stats.total_handles`, and `last_updated_utc`.
