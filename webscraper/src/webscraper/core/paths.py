@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 
+from webscraper.utils.io import safe_write_json
 
 
 def ensure_output_dir(path: str) -> str:
@@ -40,8 +40,7 @@ def write_run_metadata(output_dir: str, metadata: dict) -> str:
     out_dir = ensure_output_dir(output_dir)
     metadata_path = os.path.join(out_dir, "run_metadata.json")
     payload = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), **metadata}
-    with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
+    safe_write_json(metadata_path, payload)
     return metadata_path
 
 

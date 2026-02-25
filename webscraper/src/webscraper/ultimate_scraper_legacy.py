@@ -41,6 +41,8 @@ from webscraper.kb.indexer import build_kb_index as modular_build_kb_index
 from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_extract_ticket_fields
 from webscraper.errors import EdgeStartupError
 from webscraper.cli.attach_parsing import normalize_attach_args
+from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
+from webscraper.utils.schema import validate_tickets_all
 
 if __package__ in (None, ""):
     raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
@@ -162,18 +164,17 @@ def _build_phase_logger(enabled: bool) -> logging.Logger:
     return logger
 
 
-def _write_run_metadata(output_dir: str, mode: str, run_id: Optional[str] = None) -> None:
+def _write_run_metadata(output_dir: str, mode: str, run_id: Optional[str] = None, browser: str = "edge") -> None:
     os.makedirs(output_dir, exist_ok=True)
-    browser = (browser or "edge").lower()
     payload = {
         "extracted_at": _iso_utc_now(),
         "mode": mode,
+        "browser": (browser or "edge").lower(),
         "run_id": run_id,
     }
     metadata_path = os.path.join(output_dir, "run_metadata.json")
     try:
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        safe_write_json(metadata_path, payload)
         print(f"[INFO] Wrote run metadata to {metadata_path}")
     except Exception as exc:
         print(f"[WARN] Could not write run metadata: {exc}")
@@ -1114,8 +1115,7 @@ def _write_text(path: str, text: str) -> None:
 def _write_json(path: str, obj: Any) -> None:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(obj, f, indent=2, ensure_ascii=False)
+        safe_write_json(path, obj)
         print(f"[DIAG] wrote {path}", flush=True)
     except Exception as exc:
         print(f"[WARN] Failed to write JSON '{path}': {exc}", flush=True)
@@ -1960,6 +1960,7 @@ def selenium_scrape_tickets(
     )
 
     os.makedirs(output_dir, exist_ok=True)
+    run_started_utc = utc_now_iso()
     browser = (browser or "edge").lower()
     debug_dir = os.path.abspath(debug_dir or output_dir)
     os.makedirs(debug_dir, exist_ok=True)
@@ -1969,7 +1970,7 @@ def selenium_scrape_tickets(
 
         db_init_db(db_path)
         db_run_id = db_start_run(db_path, {"handles": handles, "output_dir": output_dir})
-    _write_run_metadata(output_dir, mode="selenium", run_id=os.path.basename(os.path.abspath(output_dir)))
+    _write_run_metadata(output_dir, mode="selenium", run_id=os.path.basename(os.path.abspath(output_dir)), browser=browser)
     # Prune legacy noisy files to keep output readable
     try:
         legacy_patterns = [
@@ -2367,8 +2368,7 @@ def selenium_scrape_tickets(
                 }
                 import json
                 first_json_path = os.path.join(output_dir, "first_page_summary.json")
-                with open(first_json_path, "w", encoding="utf-8") as f:
-                    json.dump(first_summary, f, indent=2)
+                safe_write_json(first_json_path, first_summary)
                 print(f"[INFO] Saved initial page summary to {first_json_path}")
             except Exception as e:
                 print(f"[WARN] Initial page scrape failed: {e}")
@@ -2977,8 +2977,7 @@ def selenium_scrape_tickets(
                 _save_handle_artifacts("handle_processed", debug_ctx, include_fail_artifacts=False)
                 all_tickets[handle] = tickets
                 out_path = os.path.join(output_dir, f"tickets_{handle}.json")
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump({"handle": handle, "tickets": tickets}, f, indent=2)
+                safe_write_json(out_path, {"handle": handle, "tickets": tickets})
                 page_source_lower = (driver.page_source or "").lower()
                 empty_reason = _classify_empty_reason(driver.current_url or "", driver.title or "", page_source_lower)
                 debug_ctx["empty_reason"] = empty_reason
@@ -3083,8 +3082,41 @@ def selenium_scrape_tickets(
                 break
         all_path = os.path.join(output_dir, "tickets_all.json")
         try:
-            with open(all_path, "w", encoding="utf-8") as f:
-                json.dump(all_tickets, f, indent=2)
+            # Keep legacy per-handle ticket map for compatibility while adding v1 contract keys.
+            handles_payload = {
+                handle: {
+                    "status": "ok" if len(all_tickets.get(handle, [])) > 0 else "failed",
+                    "error_message": None if len(all_tickets.get(handle, [])) > 0 else f"no tickets parsed ({handle_outcomes.get(handle, {}).get('reason', 'unknown')})",
+                    "tickets": all_tickets.get(handle, []),
+                    "artifacts": {"tickets_json": f"tickets_{handle}.json"},
+                    "ticket_count": len(all_tickets.get(handle, [])),
+                }
+                for handle in handles
+            }
+            finished_utc = utc_now_iso()
+            started_utc = run_started_utc
+            run_id_payload = make_run_id(
+                handle=handles[0] if len(handles) == 1 else None,
+                mode="one_handle" if len(handles) == 1 else "all_handles",
+                browser=browser,
+                base_url=effective_target_url or "",
+                started_utc=started_utc,
+                extra={"out_dir": os.path.basename(os.path.abspath(output_dir))},
+            )
+            payload = {
+                "schema_version": 1,
+                "run_id": run_id_payload,
+                "started_utc": started_utc,
+                "finished_utc": finished_utc,
+                "browser": browser,
+                "base_url": effective_target_url or "",
+                "mode": "one_handle" if len(handles) == 1 else "all_handles",
+                "handles": handles_payload,
+                "summary": {"total_handles": len(handles), "ok": sum(1 for v in handles_payload.values() if v.get("status") == "ok"), "failed": sum(1 for v in handles_payload.values() if v.get("status") != "ok")},
+                "handles_map": all_tickets,
+            }
+            validate_tickets_all(payload)
+            safe_write_json(all_path, payload)
             print(f"[INFO] Wrote combined tickets to {all_path} (handles={len(all_tickets)})")
         except Exception as exc:
             print(f"[WARN] Could not write combined tickets file: {exc}")

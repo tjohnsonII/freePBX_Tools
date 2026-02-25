@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from datetime import datetime, timezone
 from typing import Sequence
 
 from webscraper import ultimate_scraper_legacy as legacy
+from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,18 +21,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def prepare_run_output_dir(base_out_dir: str, mode: str = "cli_dry_run") -> tuple[str, dict[str, str]]:
-    run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
+    started_utc = utc_now_iso()
+    run_id = make_run_id(handle=None, mode=mode, browser="edge", base_url="", started_utc=started_utc)
     run_dir = os.path.abspath(os.path.join(base_out_dir, run_id))
     os.makedirs(run_dir, exist_ok=True)
     metadata = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": started_utc,
+        "started_utc": started_utc,
         "mode": mode,
+        "browser": "edge",
         "run_id": run_id,
         "out_dir": run_dir,
     }
     metadata_path = os.path.join(run_dir, "run_metadata.json")
-    with open(metadata_path, "w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, indent=2)
+    safe_write_json(metadata_path, metadata)
     return run_dir, metadata
 
 

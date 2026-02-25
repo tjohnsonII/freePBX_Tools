@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from webscraper.utils.io import safe_write_json
+
 
 def _safe_cookie_view(cookie: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -244,8 +246,7 @@ def write_auth_report(out_dir: str, report_dict: Dict[str, Any]) -> None:
     json_path = os.path.join(out_dir, "auth_report.json")
     summary_path = os.path.join(out_dir, "auth_summary.txt")
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(report_dict, f, indent=2)
+    safe_write_json(json_path, report_dict)
 
     cookies_count = report_dict.get("cookies", {}).get("count", 0)
     cdp_count = report_dict.get("cdp_cookies", {}).get("count", 0)

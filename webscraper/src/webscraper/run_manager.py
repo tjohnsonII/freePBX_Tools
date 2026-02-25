@@ -4,16 +4,37 @@ from dataclasses import asdict
 
 from webscraper.artifacts_contract import HandleArtifacts, HandleResult, TicketsAllContract, utc_now
 from webscraper.paths import latest_run_pointer_path, runs_dir
-from webscraper.utils.io_utils import make_run_id, safe_write_json
+from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
+from webscraper.utils.schema import validate_tickets_all
 
 
 class RunManager:
-    def __init__(self, source: str, handles: list[str], requested_by: str = "cli") -> None:
-        self.run_id = make_run_id()
-        self.run_dir = runs_dir() / self.run_id
+    def __init__(
+        self,
+        source: str,
+        handles: list[str],
+        requested_by: str = "cli",
+        *,
+        mode: str | None = None,
+        browser: str = "edge",
+        base_url: str = "",
+    ) -> None:
+        self.started_utc = utc_now_iso()
         self.handles = handles
         self.source = source
         self.requested_by = requested_by
+        self.mode = mode or ("all_handles" if len(handles) != 1 else "one_handle")
+        self.browser = browser
+        self.base_url = base_url
+        self.run_id = make_run_id(
+            handle=handles[0] if len(handles) == 1 else None,
+            mode=self.mode,
+            browser=self.browser,
+            base_url=self.base_url,
+            started_utc=self.started_utc,
+            extra={"source": source, "requested_by": requested_by},
+        )
+        self.run_dir = runs_dir() / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         (self.run_dir / "handles").mkdir(parents=True, exist_ok=True)
         self.state: dict[str, dict] = {}
@@ -23,7 +44,10 @@ class RunManager:
             "run_id": self.run_id,
             "source": self.source,
             "requested_by": self.requested_by,
-            "started_utc": utc_now(),
+            "started_utc": self.started_utc,
+            "browser": self.browser,
+            "base_url": self.base_url,
+            "mode": self.mode,
             "total_handles": len(self.handles),
         }
         safe_write_json(self.run_dir / "run_metadata.json", metadata)
@@ -70,5 +94,15 @@ class RunManager:
             handles=self.state,
             summary={"total_handles": len(self.state), "ok": ok, "failed": failed},
         ).to_dict()
-        payload.setdefault("schema_version", 1)
+        payload.update(
+            {
+                "schema_version": 1,
+                "started_utc": self.started_utc,
+                "finished_utc": utc_now_iso(),
+                "browser": self.browser,
+                "base_url": self.base_url,
+                "mode": self.mode,
+            }
+        )
+        validate_tickets_all(payload)
         safe_write_json(self.run_dir / "tickets_all.json", payload)
