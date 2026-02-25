@@ -12,6 +12,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib import error as urllib_error
+from urllib import request as urllib_request
+
+import psutil
 
 from webscraper_manager import __version__
 
@@ -109,6 +113,305 @@ def ensure_manager_dirs() -> tuple[Path, Path, Path]:
     day_dir = logs_dir / datetime.now().strftime("%Y%m%d")
     day_dir.mkdir(parents=True, exist_ok=True)
     return manager_dir, logs_dir, day_dir
+
+
+def _services_config_path(root: Path) -> Path:
+    return root / ".webscraper_manager" / "services.json"
+
+
+def _run_state_path(root: Path) -> Path:
+    return root / ".webscraper_manager" / "run_state.json"
+
+
+def _default_services_config(root: Path) -> dict[str, Any]:
+    ui_cwd = "webscraper"
+    if (root / "webscraper" / "ui").is_dir():
+        ui_cwd = "webscraper/ui"
+    elif (root / "webscraper_manager" / "ui").is_dir():
+        ui_cwd = "webscraper_manager/ui"
+
+    return {
+        "api": {"enabled": True, "host": "127.0.0.1", "port": 8787},
+        "ui": {
+            "enabled": True,
+            "cwd": ui_cwd,
+            "port": 3000,
+            "cmd": ["npm", "run", "dev"],
+        },
+        "worker": {
+            "enabled": False,
+            "cwd": "webscraper",
+            "cmd": ["python", "-m", "webscraper", "--mode", "headless"],
+        },
+    }
+
+
+def _load_services_config(root: Path) -> dict[str, Any]:
+    config_path = _services_config_path(root)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    if not config_path.exists():
+        config_path.write_text(json.dumps(_default_services_config(root), indent=2) + "\n", encoding="utf-8")
+    return json.loads(config_path.read_text(encoding="utf-8"))
+
+
+def _load_run_state(root: Path) -> dict[str, Any]:
+    state_path = _run_state_path(root)
+    if not state_path.exists():
+        return {"start_time": None, "services": {}}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"start_time": None, "services": {}}
+
+
+def _save_run_state(root: Path, run_state: dict[str, Any]) -> None:
+    state_path = _run_state_path(root)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(run_state, indent=2) + "\n", encoding="utf-8")
+
+
+def _is_pid_alive(pid: int | None, expected_cmd: list[str] | None = None) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+            return False
+        if expected_cmd:
+            cmdline = proc.cmdline()
+            if not cmdline:
+                return False
+            expected0 = Path(expected_cmd[0]).name.lower()
+            actual0 = Path(cmdline[0]).name.lower()
+            if expected0 and actual0 and expected0 != actual0:
+                return False
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+
+
+def _is_port_open(host: str, port: int, timeout_s: float = 0.4) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout_s)
+        return sock.connect_ex((host, port)) == 0
+
+
+def _api_ready(host: str, port: int) -> bool:
+    url = f"http://{host}:{port}/healthz"
+    try:
+        with urllib_request.urlopen(url, timeout=2.0) as response:
+            return int(response.status) == 200
+    except (urllib_error.URLError, TimeoutError, ValueError):
+        return False
+
+
+def _creation_flags_for_service() -> int:
+    if os.name == "nt":
+        return subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    return 0
+
+
+def _stop_pid(pid: int) -> tuple[bool, str]:
+    try:
+        proc = subprocess.Popen(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) if os.name == "nt" else None
+        if proc is not None:
+            proc.communicate(timeout=5)
+            return True, "terminated"
+    except Exception:
+        pass
+
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return True, "already-dead"
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if not _is_pid_alive(pid):
+            return True, "terminated"
+        time.sleep(0.2)
+
+    try:
+        os.kill(pid, 9)
+        return True, "killed"
+    except OSError as exc:
+        return False, f"failed: {exc}"
+
+
+def _resolve_service_cwd(root: Path, service_cfg: dict[str, Any]) -> Path:
+    cwd_value = str(service_cfg.get("cwd", "."))
+    cwd_path = Path(cwd_value)
+    if not cwd_path.is_absolute():
+        cwd_path = root / cwd_path
+    return cwd_path
+
+
+def _start_services(state: AppState, console: Console | None) -> int:
+    root = find_repo_root()
+    manager_dir, _, day_dir = ensure_manager_dirs()
+    del manager_dir
+    services_cfg = _load_services_config(root)
+    run_state = _load_run_state(root)
+    run_state.setdefault("services", {})
+    run_state["start_time"] = datetime.now().isoformat(timespec="seconds")
+
+    preferred_python = get_runtime_python(state, root)
+    summary: list[str] = []
+
+    for service_name in ("api", "ui", "worker"):
+        cfg = services_cfg.get(service_name, {})
+        if not bool(cfg.get("enabled", False)):
+            summary.append(f"{service_name}: disabled")
+            continue
+
+        existing = run_state["services"].get(service_name, {})
+        existing_pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
+        host = str(cfg.get("host", "127.0.0.1"))
+        port = int(cfg.get("port", 0)) if cfg.get("port") else None
+        expected_cmd = [str(part) for part in existing.get("cmd", [])] if isinstance(existing.get("cmd"), list) else None
+        alive = _is_pid_alive(existing_pid, expected_cmd=expected_cmd)
+        port_open = bool(port and _is_port_open(host, port))
+
+        if alive or port_open:
+            status = "running" if alive else "port-open"
+            summary.append(f"{service_name}: already {status}")
+            run_state["services"][service_name] = {
+                **existing,
+                "status": "running",
+                "port": port,
+            }
+            continue
+
+        if service_name == "api":
+            cmd = [str(preferred_python), "-m", "uvicorn", "webscraper.ticket_api.app:app", "--host", host, "--port", str(port or 8787)]
+            cwd = root
+        else:
+            cmd = [str(part) for part in cfg.get("cmd", [])]
+            if not cmd:
+                summary.append(f"{service_name}: missing cmd")
+                continue
+            if cmd[0] in {"python", "py", "python3"}:
+                cmd[0] = str(preferred_python)
+            cwd = _resolve_service_cwd(root, cfg)
+
+        if not cwd.exists():
+            summary.append(f"{service_name}: cwd not found ({cwd})")
+            continue
+
+        log_path = day_dir / f"{service_name}_{datetime.now().strftime('%H%M%S')}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+                creationflags=_creation_flags_for_service(),
+            )
+
+        run_state["services"][service_name] = {
+            "pid": proc.pid,
+            "cmd": cmd,
+            "cwd": str(cwd),
+            "log_path": str(log_path),
+            "port": port,
+            "status": "running",
+        }
+        summary.append(f"{service_name}: started pid={proc.pid} log={log_path}")
+
+    _save_run_state(root, run_state)
+
+    if console is not None and not state.quiet:
+        for row in summary:
+            console.print(row)
+    elif not state.quiet:
+        for row in summary:
+            print(row)
+    return EXIT_OK
+
+
+def _service_status_rows(state: AppState) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    root = find_repo_root()
+    services_cfg = _load_services_config(root)
+    run_state = _load_run_state(root)
+    state_services = run_state.get("services", {})
+    rows: list[dict[str, str]] = []
+
+    for service_name in ("api", "ui", "worker"):
+        cfg = services_cfg.get(service_name, {})
+        if not bool(cfg.get("enabled", False)):
+            rows.append({"service": service_name, "pid": "-", "process": "disabled", "port": "-", "ready": "-"})
+            continue
+
+        existing = state_services.get(service_name, {})
+        pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
+        host = str(cfg.get("host", "127.0.0.1"))
+        port = int(cfg.get("port", 0)) if cfg.get("port") else None
+        expected_cmd = [str(part) for part in existing.get("cmd", [])] if isinstance(existing.get("cmd"), list) else None
+        alive = _is_pid_alive(pid, expected_cmd=expected_cmd)
+        port_open = bool(port and _is_port_open(host, port))
+        ready = _api_ready(host, port) if service_name == "api" and port else port_open if port else alive
+        process_status = "running" if alive else "dead"
+        rows.append(
+            {
+                "service": service_name,
+                "pid": str(pid) if pid else "-",
+                "process": process_status,
+                "port": "open" if port_open else ("closed" if port else "n/a"),
+                "ready": "ready" if ready else "not-ready",
+            }
+        )
+
+    return rows, run_state
+
+
+def _print_service_status(state: AppState, console: Console | None) -> int:
+    rows, _ = _service_status_rows(state)
+    if console is None:
+        for row in rows:
+            print(f"{row['service']}: pid={row['pid']} process={row['process']} port={row['port']} ready={row['ready']}")
+        return EXIT_OK
+
+    table = Table(title="Managed services", box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Service", no_wrap=True)
+    table.add_column("PID", no_wrap=True)
+    table.add_column("Process", no_wrap=True)
+    table.add_column("Port", no_wrap=True)
+    table.add_column("Readiness", no_wrap=True)
+    for row in rows:
+        table.add_row(row["service"], row["pid"], row["process"], row["port"], row["ready"])
+    console.print(table)
+    return EXIT_OK
+
+
+def _stop_services(state: AppState, console: Console | None) -> int:
+    root = find_repo_root()
+    run_state = _load_run_state(root)
+    services = run_state.get("services", {})
+    messages: list[str] = []
+
+    for service_name in ("worker", "ui", "api"):
+        existing = services.get(service_name, {})
+        pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
+        if not pid:
+            messages.append(f"{service_name}: no pid")
+            continue
+        ok, detail = _stop_pid(pid)
+        existing["status"] = "stopped" if ok else "stop-failed"
+        services[service_name] = existing
+        messages.append(f"{service_name}: {detail} pid={pid}")
+
+    run_state["services"] = services
+    _save_run_state(root, run_state)
+
+    if console is not None and not state.quiet:
+        for message in messages:
+            console.print(message)
+    elif not state.quiet:
+        for message in messages:
+            print(message)
+    return EXIT_OK
 
 
 def run_subprocess(
@@ -1181,6 +1484,9 @@ def render_menu(console: Console | None, state: AppState) -> None:
     if console is None:
         print(f"\nToggles: pure_json_mode: {pure_json_status} | clear: {clear_status} | use_preferred_python: {preferred_status}")
         print("\nMenu")
+        print("[s] Start services")
+        print("[x] Stop services")
+        print("[u] Status services")
         print("[1] Doctor (normal)")
         print("[2] Doctor (quiet)")
         print("[3] Doctor (global quiet before command)")
@@ -1202,6 +1508,9 @@ def render_menu(console: Console | None, state: AppState) -> None:
     table.add_column("Command", style="white", no_wrap=True)
     table.add_column("Description", style="bright_black")
     table.caption = f"pure_json_mode: {pure_json_status} | clear: {clear_status} | use_preferred_python: {preferred_status}"
+    table.add_row("s", "Start services", "Same as: start")
+    table.add_row("x", "Stop services", "Same as: stop")
+    table.add_row("u", "Status services", "Same as: status")
     table.add_row("1", "Doctor (normal)", "Same as: doctor")
     table.add_row("2", "Doctor (quiet)", "Same as: doctor --quiet")
     table.add_row("3", "Doctor (global quiet before command)", "Same as: --quiet doctor")
@@ -1220,6 +1529,12 @@ def render_menu(console: Console | None, state: AppState) -> None:
 
 
 def _run_menu_action(console: Console | None, state: AppState, choice: str) -> int:
+    if choice == "s":
+        return _start_services(state, console)
+    if choice == "x":
+        return _stop_services(state, console)
+    if choice == "u":
+        return _print_service_status(state, console)
     if choice == "1":
         action_state = AppState(
             quiet=False,
@@ -1366,7 +1681,7 @@ def run_menu(state: AppState) -> int:
     while True:
         render_menu(console, state)
         try:
-            choice = _read_line("\nSelect an option [1-9, r, t, p, q]: ")
+            choice = _read_line("\nSelect an option [s, x, u, 1-9, r, t, p, q]: ")
         except KeyboardInterrupt:
             print()
             continue
@@ -1391,8 +1706,8 @@ def run_menu(state: AppState) -> int:
                 return EXIT_OK
             continue
 
-        if choice not in {"1", "2", "3", "4", "5", "6", "7", "8", "9"}:
-            print("Invalid selection. Enter 1, 2, 3, 4, 5, 6, 7, 8, 9, r, t, p, or q.")
+        if choice not in {"s", "x", "u", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
+            print("Invalid selection. Enter s, x, u, 1, 2, 3, 4, 5, 6, 7, 8, 9, r, t, p, or q.")
             continue
 
         try:
@@ -1472,6 +1787,43 @@ if TYPER_AVAILABLE:
         code, _ = run_doctor(get_console(state), state, json_out=use_json)
         if code:
             raise typer.Exit(code)
+
+    @app.command()
+    def start(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_start_services(state, get_console(state)))
+
+    @app.command()
+    def stop(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_services(state, get_console(state)))
+
+    @app.command()
+    def status(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_print_service_status(state, get_console(state)))
+
+    @app.command()
+    def restart(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        _stop_services(state, get_console(state))
+        raise typer.Exit(_start_services(state, get_console(state)))
 
     @test_app.command("smoke")
     def test_smoke(
@@ -1572,6 +1924,11 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     menu_parser.add_argument("--quiet", action="store_true", help="Minimal output for menu actions")
     menu_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
+    for svc_cmd in ("start", "stop", "status", "restart"):
+        svc_parser = subparsers.add_parser(svc_cmd, help=f"{svc_cmd.capitalize()} managed services")
+        svc_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+        svc_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+
     test_parser = subparsers.add_parser("test", help="Run test workflows")
     test_subparsers = test_parser.add_subparsers(dest="test_command")
 
@@ -1625,6 +1982,18 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             print_banner(get_console(state))
         code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output))
         return code
+
+    if args.command in {"start", "stop", "status", "restart"}:
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+        console = get_console(state)
+        if args.command == "start":
+            return _start_services(state, console)
+        if args.command == "stop":
+            return _stop_services(state, console)
+        if args.command == "status":
+            return _print_service_status(state, console)
+        _stop_services(state, console)
+        return _start_services(state, console)
 
     if args.command == "test":
         if args.test_command == "smoke":
