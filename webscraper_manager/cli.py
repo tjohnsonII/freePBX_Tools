@@ -111,10 +111,16 @@ def ensure_manager_dirs() -> tuple[Path, Path, Path]:
     return manager_dir, logs_dir, day_dir
 
 
-def run_subprocess(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str, str]:
+def run_subprocess(
+    cmd: list[str],
+    cwd: Path,
+    timeout: int,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
     completed = subprocess.run(
         cmd,
         cwd=str(cwd),
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -316,65 +322,102 @@ def _select_pytest_cwd(root: Path) -> Path:
     return root
 
 
-def ensure_editable_install_webscraper(python_exe: Path, repo_root: Path) -> tuple[str, list[str], list[str]]:
-    """Ensure the active interpreter can import ``webscraper`` before running pytest."""
+def ensure_webscraper_editable_installed(python_exe: str, repo_root: Path) -> None:
+    """Ensure ``webscraper`` is importable in the same interpreter used for pytest."""
+    resolved_root = repo_root.resolve()
+    resolved_python = str(Path(python_exe).resolve())
+    editable_path = (resolved_root / "webscraper").resolve()
+    env = os.environ.copy()
+    pytest_cwd = _select_pytest_cwd(resolved_root).resolve()
+    log_lines: list[str] = [
+        f"python_exe: {resolved_python}",
+        f"editable_install_path: {editable_path}",
+        f"import_check_cwd: {pytest_cwd}",
+    ]
     commands: list[str] = []
-    log_lines: list[str] = []
-    check_cmd = [str(python_exe), "-c", "import webscraper"]
-    commands.append(" ".join(check_cmd))
 
+    check_cmd = [resolved_python, "-c", "import webscraper; print(webscraper.__file__)"]
+    commands.append(" ".join(check_cmd))
     try:
-        rc, out, err = run_subprocess(check_cmd, cwd=repo_root, timeout=90)
+        check_completed = subprocess.run(
+            check_cmd,
+            cwd=str(pytest_cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=90,
+        )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+        raise RuntimeError(f"Python executable not found: {resolved_python}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Timed out while checking webscraper import") from exc
 
-    if out.strip():
-        log_lines.append(out.strip())
-    if err.strip():
-        log_lines.append(err.strip())
+    if check_completed.returncode == 0:
+        log_lines.append("webscraper import OK")
+        if check_completed.stdout.strip():
+            log_lines.append(f"import stdout: {check_completed.stdout.strip()}")
+        if check_completed.stderr.strip():
+            log_lines.append(f"import stderr: {check_completed.stderr.strip()}")
+        ensure_webscraper_editable_installed._last_run = (log_lines, commands)  # type: ignore[attr-defined]
+        return
 
-    if rc == 0:
-        log_lines.append("webscraper import check passed; editable install already available")
-        return "already_installed", log_lines, commands
-
-    install_cmd = [str(python_exe), "-m", "pip", "install", "-e", str(repo_root / "webscraper")]
+    install_cmd = [resolved_python, "-m", "pip", "install", "-e", str(editable_path)]
     commands.append(" ".join(install_cmd))
+    log_lines.append("webscraper missing; installing editable")
     try:
-        install_rc, install_out, install_err = run_subprocess(install_cmd, cwd=repo_root, timeout=300)
+        install_completed = subprocess.run(
+            install_cmd,
+            cwd=str(pytest_cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=300,
+        )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+        raise RuntimeError(f"Python executable not found: {resolved_python}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Timed out while running editable install for webscraper") from exc
 
-    if install_out.strip():
-        log_lines.append(install_out.strip())
-    if install_err.strip():
-        log_lines.append(install_err.strip())
-
-    recheck_cmd = [str(python_exe), "-c", "import webscraper"]
-    commands.append(" ".join(recheck_cmd))
     try:
-        recheck_rc, recheck_out, recheck_err = run_subprocess(recheck_cmd, cwd=repo_root, timeout=90)
+        recheck_completed = subprocess.run(
+            check_cmd,
+            cwd=str(pytest_cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=90,
+        )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Python executable not found: {python_exe}") from exc
+        raise RuntimeError(f"Python executable not found: {resolved_python}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Timed out while re-checking webscraper import") from exc
 
-    if recheck_out.strip():
-        log_lines.append(recheck_out.strip())
-    if recheck_err.strip():
-        log_lines.append(recheck_err.strip())
+    commands.append(" ".join(check_cmd))
+    if install_completed.stdout.strip():
+        log_lines.append(f"install stdout: {install_completed.stdout.strip()}")
+    if install_completed.stderr.strip():
+        log_lines.append(f"install stderr: {install_completed.stderr.strip()}")
+    if recheck_completed.stdout.strip():
+        log_lines.append(f"recheck stdout: {recheck_completed.stdout.strip()}")
+    if recheck_completed.stderr.strip():
+        log_lines.append(f"recheck stderr: {recheck_completed.stderr.strip()}")
 
-    if install_rc == 0 and recheck_rc == 0:
-        log_lines.append("webscraper import check failed initially; installed editable package and import now works")
-        return "installed_now", log_lines, commands
+    if recheck_completed.returncode != 0:
+        ensure_webscraper_editable_installed._last_run = (log_lines, commands)  # type: ignore[attr-defined]
+        raise RuntimeError(
+            "Unable to import 'webscraper' after editable install with "
+            f"python={resolved_python} path={editable_path}. "
+            f"install stdout:\n{install_completed.stdout}\n"
+            f"install stderr:\n{install_completed.stderr}\n"
+            f"import stdout:\n{recheck_completed.stdout}\n"
+            f"import stderr:\n{recheck_completed.stderr}"
+        )
 
-    raise RuntimeError(
-        "Unable to import 'webscraper' after running editable install. "
-        "Inspect webscraper packaging (for example pyproject.toml/setup metadata) before retrying."
-    )
+    log_lines.append("webscraper import OK")
+    ensure_webscraper_editable_installed._last_run = (log_lines, commands)  # type: ignore[attr-defined]
 
 
 def _run_pytest_step(path: str | None, timeout: int, python_exe: Path) -> tuple[TestStep, str, list[str]]:
@@ -726,12 +769,13 @@ def _run_test_pytest(state: AppState, timeout: int, path: str | None = None, fix
     if dep_ok:
         install_started = time.time()
         try:
-            install_status, install_logs, install_commands = ensure_editable_install_webscraper(python_exe=python_exe, repo_root=root)
+            ensure_webscraper_editable_installed(python_exe=str(python_exe), repo_root=root)
+            install_logs, install_commands = getattr(ensure_webscraper_editable_installed, "_last_run", ([], []))
             steps.append(
                 _make_step(
                     "webscraper import readiness",
                     True,
-                    "webscraper already importable" if install_status == "already_installed" else "Installed webscraper editable package for this interpreter",
+                    "webscraper import OK",
                     install_started,
                 )
             )
@@ -791,11 +835,12 @@ def _run_test_all(state: AppState, timeout: int, keep_going: bool, pytest_path: 
         if dep_ok and (keep_going or not failed):
             install_started = time.time()
             try:
-                install_status, install_logs, install_commands = ensure_editable_install_webscraper(python_exe=python_exe, repo_root=root)
+                ensure_webscraper_editable_installed(python_exe=str(python_exe), repo_root=root)
+                install_logs, install_commands = getattr(ensure_webscraper_editable_installed, "_last_run", ([], []))
                 install_step = _make_step(
                     "webscraper import readiness",
                     True,
-                    "webscraper already importable" if install_status == "already_installed" else "Installed webscraper editable package for this interpreter",
+                    "webscraper import OK",
                     install_started,
                 )
                 steps.append(install_step)
