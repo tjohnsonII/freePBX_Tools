@@ -3,17 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import ssl
 import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+
+import requests
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +45,11 @@ class BatchScrapeRequest(BaseModel):
     handles: list[str]
     mode: Literal["latest", "full"] = "latest"
     limit: int = 50
+
+
+class ValidateAuthRequest(BaseModel):
+    targets: list[str] = DEFAULT_TARGET_DOMAINS
+    timeoutSeconds: int = 10
 
 
 @dataclass
@@ -104,10 +109,120 @@ def _is_localhost_request(request: Request) -> bool:
 
 def _auth_meta_response(meta: dict[str, Any], selected_domains: list[str] | None = None) -> dict[str, Any]:
     count = int(meta.get("count") or 0)
-    domains = [str(domain) for domain in (meta.get("domains") or []) if str(domain).strip()]
+    domain_rows = [item for item in (meta.get("domains") or []) if isinstance(item, dict) and str(item.get("domain") or "").strip()]
+    domains = [str(item.get("domain")).strip().lower() for item in domain_rows]
     selected = selected_domains or DEFAULT_TARGET_DOMAINS
     detected, missing = detected_missing_domains(domains, selected)
-    return {"count": count, "domains": detected, "created_utc": meta.get("created_utc"), "stored_utc": meta.get("created_utc"), "missing_domains": missing}
+    filtered = [item for item in domain_rows if str(item.get("domain")).strip().lower() in detected]
+    return {
+        "stored": count > 0,
+        "created_utc": meta.get("created_utc"),
+        "stored_utc": meta.get("created_utc"),
+        "domains": filtered,
+        "total": count,
+        "count": count,
+        "missing_domains": missing,
+    }
+
+
+AUTH_CHECK_PATHS: dict[str, str] = {
+    "secure.123.net": "/cgi-bin/web_interface/admin/customers.cgi",
+    "noc-tickets.123.net": "/view_all",
+    "10.123.203.1": "/",
+}
+
+
+def _is_login_like(payload: str) -> bool:
+    lowered = payload.lower()
+    return any(marker in lowered for marker in ["login", "sign in", "password", "username"])
+
+
+def _target_url(domain: str) -> str:
+    path = AUTH_CHECK_PATHS.get(domain, "/")
+    scheme = "http" if domain.startswith("10.") else "https"
+    return f"{scheme}://{domain}{path}"
+
+
+def _validate_auth_targets(targets: list[str], timeout_seconds: int = 10) -> dict[str, Any]:
+    cookies = db.get_auth_cookies(db_path())
+    timeout = max(2, int(timeout_seconds or 10))
+    results: list[dict[str, Any]] = []
+    for raw in targets:
+        domain = str(raw or "").strip().lstrip(".").lower()
+        if not domain:
+            continue
+        cookie_header = cookie_header_for_domain(cookies, domain)
+        cookie_count = cookie_header.count("=") if cookie_header else 0
+        if cookie_count == 0:
+            results.append(
+                {
+                    "domain": domain,
+                    "cookieCount": 0,
+                    "ok": False,
+                    "statusCode": None,
+                    "finalUrl": None,
+                    "reason": "missing_cookies",
+                    "hint": f"Import cookies for {domain} while logged in and retry.",
+                }
+            )
+            continue
+
+        url = _target_url(domain)
+        code: int | None = None
+        final_url = url
+        reason = "ok"
+        hint = "Authenticated session is valid."
+        try:
+            response = requests.get(
+                url,
+                headers={"User-Agent": "ticket-api-auth-validator/2.0", "Cookie": cookie_header},
+                timeout=timeout,
+                allow_redirects=True,
+                verify=False,
+            )
+            code = response.status_code
+            final_url = response.url
+            if code in {401, 403}:
+                reason = "forbidden"
+                hint = f"Session for {domain} is unauthorized/forbidden; re-login and re-import cookies."
+            elif "login" in (final_url or "").lower() or _is_login_like(response.text[:2000]):
+                reason = "redirect_to_login"
+                hint = f"{domain} redirected to login. Import fresh cookies and retry."
+        except requests.RequestException as exc:
+            reason = "request_error"
+            hint = str(exc)
+
+        ok = reason == "ok" and bool(code and code < 400)
+        results.append(
+            {
+                "domain": domain,
+                "cookieCount": cookie_count,
+                "ok": ok,
+                "statusCode": code,
+                "finalUrl": final_url,
+                "reason": reason,
+                "hint": hint,
+            }
+        )
+
+    return {"ok": all(item.get("ok") for item in results), "targets": targets, "results": results}
+
+
+def _raise_auth_validation_error(job_id: str | None, handle: str | None, validation: dict[str, Any]) -> None:
+    if validation.get("ok"):
+        return
+    if job_id:
+        db.add_scrape_event(
+            db_path(),
+            job_id,
+            _iso_now(),
+            "error",
+            "auth_failed",
+            "Auth validation failed",
+            {"handle": handle, "validation": validation},
+        )
+    failed = [item for item in validation.get("results", []) if not item.get("ok")]
+    raise RuntimeError(f"Auth validation failed: {json.dumps(failed, sort_keys=True)}")
 
 
 def _auth_error_from_output(lines: list[str]) -> str | None:
@@ -169,6 +284,20 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
         if cleaned:
             output_lines.append(cleaned)
             _log(f"[{handle}] {cleaned}", job_id=job.job_id)
+            milestone: tuple[str, str] | None = None
+            lowered = cleaned.lower()
+            if "navigat" in lowered and "http" in lowered:
+                milestone = ("nav_start", cleaned)
+            elif "imported cookie auth applied" in lowered or "cookies loaded" in lowered:
+                milestone = ("cookies_loaded", cleaned)
+            elif "refresh" in lowered:
+                milestone = ("nav_refresh", cleaned)
+            elif "auth" in lowered and ("success" in lowered or "failed" in lowered):
+                milestone = ("auth_check", cleaned)
+            elif "ticket" in lowered and "loaded" in lowered:
+                milestone = ("ticket_list_loaded", cleaned)
+            if milestone:
+                db.add_scrape_event(db_path(), job.job_id, _iso_now(), "info", milestone[0], milestone[1], {"handle": handle})
             if "Attempting imported cookie auth" in cleaned:
                 _append_event("info", "Attempting imported cookie auth", handle=handle, job_id=job.job_id)
             elif cleaned.startswith("Imported cookie auth applied="):
@@ -206,6 +335,10 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
         _append_event("info", f"Completed handle {handle}, total={total_for_handle}", handle=handle, job_id=job.job_id)
     else:
         msg = _auth_error_from_output(output_lines) or f"scraper exit code {rc}"
+        auth_validation = _validate_auth_targets(DEFAULT_TARGET_DOMAINS)
+        if not auth_validation.get("ok"):
+            domain_counts = {item["domain"]: item.get("cookieCount", 0) for item in auth_validation.get("results", [])}
+            msg = f"Not authenticated. required_domains={DEFAULT_TARGET_DOMAINS} cookie_counts={domain_counts} validate={auth_validation.get('results')}"
         db.update_handle_progress(
             db_path(),
             handle,
@@ -216,13 +349,23 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
             last_run_id=job.run_id,
         )
         _append_event("error", f"Handle {handle} failed: {msg}", handle=handle, job_id=job.job_id)
+    result_payload: dict[str, Any] = {"logTail": output_lines[-20:], "stderrTail": stderr_tail[-20:]}
+    if rc != 0:
+        auth_validation = _validate_auth_targets(DEFAULT_TARGET_DOMAINS)
+        result_payload = {
+            "errorType": "auth_failed" if not auth_validation.get("ok") else "scrape_failed",
+            "error": msg,
+            "auth": auth_validation,
+            "logTail": output_lines[-20:],
+            "stderrTail": stderr_tail[-20:],
+        }
     db.update_scrape_job(
         db_path(),
         job.job_id,
         status="running",
         progress_completed=0,
         progress_total=1,
-        result={"logTail": output_lines[-20:], "stderrTail": stderr_tail[-20:]},
+        result=result_payload,
     )
     return rc, error_lines
 
@@ -270,6 +413,8 @@ def _job_worker() -> None:
                 started_utc=_iso_now(),
             )
             _append_event("info", f"Started scrape job with {len(handles)} handles", job_id=job.job_id)
+            validation = _validate_auth_targets(DEFAULT_TARGET_DOMAINS)
+            _raise_auth_validation_error(job.job_id, job.handle, validation)
 
             for handle in handles:
                 try:
@@ -292,6 +437,10 @@ def _job_worker() -> None:
                     )
 
             final_status = "completed" if errors == 0 else "failed"
+            existing_result = (db.get_scrape_job(db_path(), job.job_id) or {}).get("result") or {}
+            final_result = {**existing_result, "errors": errors}
+            if errors and "errorType" not in final_result:
+                final_result["errorType"] = "scrape_failed"
             db.update_scrape_job(
                 db_path(),
                 job.job_id,
@@ -300,13 +449,14 @@ def _job_worker() -> None:
                 progress_total=len(handles),
                 finished_utc=_iso_now(),
                 error_message=None if errors == 0 else f"{errors} scrape errors",
-                result={"errors": errors},
+                result=final_result,
             )
             _append_event("info", f"Job finished status={final_status}", job_id=job.job_id)
         except Exception as exc:
             err_msg = str(exc)
             if not err_msg:
                 err_msg = "Unhandled scrape error"
+            auth_payload = _validate_auth_targets(DEFAULT_TARGET_DOMAINS)
             db.update_scrape_job(
                 db_path(),
                 job.job_id,
@@ -314,8 +464,12 @@ def _job_worker() -> None:
                 progress_completed=completed,
                 progress_total=max(len(handles), completed, 1),
                 finished_utc=_iso_now(),
-                error_message=err_msg,
-                result={"error": err_msg},
+                error_message="Auth validation failed" if not auth_payload.get("ok") else err_msg,
+                result={
+                    "errorType": "auth_failed" if not auth_payload.get("ok") else "scrape_failed",
+                    "error": err_msg,
+                    "auth": auth_payload,
+                },
             )
             _append_event("error", f"Unhandled scrape exception: {err_msg}", job_id=job.job_id)
         finally:
@@ -478,6 +632,7 @@ def api_scrape_status(job_id: str | None = None):
         "started_utc": job.get("started_utc"),
         "finished_utc": job.get("finished_utc"),
         "error_message": job.get("error_message"),
+        "result": result,
     }
 
 
@@ -508,16 +663,34 @@ async def api_auth_import(request: Request):
     else:
         payload = (await request.body()).decode("utf-8", errors="ignore")
 
+    selected_domains = [str(domain).strip() for domain in selected_domains if str(domain).strip() and str(domain).strip() in DEFAULT_TARGET_DOMAINS]
     try:
-        cookies = normalize_cookie_input(payload, selected_domains=selected_domains)
+        try:
+            all_cookies = normalize_cookie_input(payload, selected_domains=None)
+        except ValueError:
+            all_cookies = normalize_cookie_input(payload, selected_domains=DEFAULT_TARGET_DOMAINS)
+        cookies = [
+            cookie
+            for cookie in all_cookies
+            if str(cookie.get("domain") or "") and any(str(cookie.get("domain")).endswith(domain) or str(cookie.get("domain")) == domain for domain in DEFAULT_TARGET_DOMAINS)
+        ]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     created_utc = _iso_now()
     db.replace_auth_cookies(db_path(), cookies, created_utc)
     meta = db.get_auth_cookie_status(db_path())
-    _append_event("info", f"Imported {meta['count']} auth cookies for domains={','.join(meta['domains']) or '-'}")
-    return {"ok": True, **_auth_meta_response(meta, selected_domains)}
+    imported = len(cookies)
+    ignored = max(0, len(all_cookies) - imported)
+    domain_names = [item.get("domain") for item in meta.get("domains", []) if isinstance(item, dict)]
+    _append_event("info", f"Imported {meta['count']} auth cookies for domains={','.join(domain_names) or '-'}")
+    return {
+        "ok": True,
+        "message": f"Imported {imported} cookies for target domains; ignored {ignored} cookies for other domains.",
+        "imported": imported,
+        "ignored": ignored,
+        **_auth_meta_response(meta, selected_domains),
+    }
 
 
 @app.post("/api/auth/import-cookies")
@@ -548,36 +721,11 @@ def api_auth_clear_cookies_legacy(request: Request):
 
 
 @app.post("/api/auth/validate")
-def api_auth_validate(request: Request, payload: dict[str, Any] | None = None):
+def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    selected = (payload or {}).get("selectedDomains") or DEFAULT_TARGET_DOMAINS
-    cookies = db.get_auth_cookies(db_path())
-    statuses: list[dict[str, Any]] = []
-    ssl_ctx = ssl._create_unverified_context()
-    for domain in selected:
-        d = str(domain).strip().lstrip(".").lower()
-        if not d:
-            continue
-        header = cookie_header_for_domain(cookies, d)
-        if not header:
-            statuses.append({"domain": d, "ok": False, "reason": "No matching cookies for selected domain"})
-            continue
-        url = f"https://{d}/"
-        if d.startswith("10."):
-            url = f"http://{d}/"
-        req = urllib.request.Request(url, headers={"Cookie": header, "User-Agent": "ticket-api-auth-validator/1.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=12, context=ssl_ctx) as resp:
-                code = getattr(resp, "status", 200)
-                final_url = getattr(resp, "geturl", lambda: url)()
-                ok = code < 400 and "login" not in str(final_url).lower()
-                reason = f"HTTP {code} ({final_url})"
-                statuses.append({"domain": d, "ok": ok, "reason": reason, "http_status": code})
-        except Exception as exc:
-            statuses.append({"domain": d, "ok": False, "reason": str(exc)})
-
-    return {"ok": all(item.get("ok") for item in statuses), "results": statuses}
+    targets = [str(domain).strip() for domain in payload.targets if str(domain).strip()]
+    return _validate_auth_targets(targets or DEFAULT_TARGET_DOMAINS, payload.timeoutSeconds)
 
 
 @app.get("/api/handles/{handle}/latest")

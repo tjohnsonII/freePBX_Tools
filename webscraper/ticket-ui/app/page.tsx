@@ -8,6 +8,10 @@ type Ticket = { ticket_id: string; title?: string; subject?: string; status?: st
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
+type AuthStatus = { total: number; domains: { domain: string; count: number }[]; stored_utc: string | null };
+type ValidateRow = { domain: string; cookieCount: number; ok: boolean; statusCode?: number | null; finalUrl?: string | null; reason: string; hint: string };
+type ValidateResponse = { ok: boolean; results: ValidateRow[] };
+type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
 type JobStatus = {
   job_id: string;
   status: string;
@@ -16,16 +20,16 @@ type JobStatus = {
   running: boolean;
   errors: number;
   error_message?: string;
+  result?: JobResult;
 };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
-type AuthStatus = { count: number; domains: string[]; stored_utc: string | null };
-
-const AUTH_ERROR = "Not authenticated. Import cookies in the Web UI (Auth) and retry.";
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) return error.message;
   return error instanceof Error ? error.message : String(error);
 }
+
+const VALIDATE_TARGETS = ["secure.123.net", "noc-tickets.123.net", "10.123.203.1"];
 
 export default function HandlesPage() {
   const apiInfo = useMemo(() => apiBaseInfo(), []);
@@ -39,6 +43,8 @@ export default function HandlesPage() {
   const [events, setEvents] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authValidate, setAuthValidate] = useState<ValidateResponse | null>(null);
+  const [showEvents, setShowEvents] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [cookieJson, setCookieJson] = useState("");
   const [authMessage, setAuthMessage] = useState<string | null>(null);
@@ -52,9 +58,12 @@ export default function HandlesPage() {
     if (!selectedHandle && names.length) setSelectedHandle(names[0]);
   };
 
-  const loadAuthStatus = async () => {
-    const res = await apiGet<AuthStatus>("/api/auth/status");
-    setAuthStatus(res);
+  const loadAuthStatus = async () => setAuthStatus(await apiGet<AuthStatus>("/api/auth/status"));
+
+  const runValidate = async () => {
+    const payload = await apiPost<ValidateResponse>("/api/auth/validate", { targets: VALIDATE_TARGETS, timeoutSeconds: 10 });
+    setAuthValidate(payload);
+    return payload;
   };
 
   const loadTickets = async (handle: string) => {
@@ -62,21 +71,9 @@ export default function HandlesPage() {
     setTickets(Array.isArray(res?.items) ? res.items : []);
   };
 
-  useEffect(() => {
-    loadHandles().catch((e) => setError(formatApiError(e)));
-  }, [search]);
-
-  useEffect(() => {
-    loadAuthStatus().catch(() => setAuthStatus(null));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedHandle) {
-      setTickets([]);
-      return;
-    }
-    loadTickets(selectedHandle).catch(() => setTickets([]));
-  }, [selectedHandle]);
+  useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
+  useEffect(() => { loadAuthStatus().catch(() => setAuthStatus(null)); }, []);
+  useEffect(() => { if (selectedHandle) loadTickets(selectedHandle).catch(() => setTickets([])); else setTickets([]); }, [selectedHandle]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -84,46 +81,33 @@ export default function HandlesPage() {
       apiGet<JobStatus>(`/api/scrape/status?job_id=${encodeURIComponent(jobId)}`)
         .then((status) => {
           setJobStatus(status);
-          if ((status.status === "completed" || status.status === "failed") && selectedHandle) {
-            loadTickets(selectedHandle).catch(() => undefined);
-          }
+          if ((status.status === "completed" || status.status === "failed") && selectedHandle) loadTickets(selectedHandle).catch(() => undefined);
         })
         .catch(() => undefined);
-      apiGet<EventsResponse>(`/api/events/latest?limit=50&job_id=${encodeURIComponent(jobId)}`)
-        .then((res) => {
-          const items = Array.isArray(res?.items) ? res.items : [];
-          setEvents(items.map((e) => `${e.ts} [${e.level}] ${e.handle ?? "-"}: ${e.message}`));
-        })
-        .catch(() => undefined);
+      if (showEvents) {
+        apiGet<EventsResponse>(`/api/events/latest?limit=50&job_id=${encodeURIComponent(jobId)}`)
+          .then((res) => {
+            const items = Array.isArray(res?.items) ? res.items : [];
+            setEvents(items.map((e) => `${e.ts} [${e.level}] ${e.handle ?? "-"}: ${e.message}`));
+          })
+          .catch(() => undefined);
+      }
     }, 2000);
     return () => clearInterval(timer);
-  }, [jobId, selectedHandle]);
+  }, [jobId, selectedHandle, showEvents]);
 
   const saveImportedCookies = async () => {
     setError(null);
     setAuthMessage(null);
     const trimmed = cookieJson.trim();
-    if (!trimmed) {
-      setError("Paste cookie data first.");
-      return;
-    }
+    if (!trimmed) return setError("Paste cookie data first.");
 
-    let saved: AuthStatus;
-    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
-        setError("Cookies must be valid JSON.");
-        return;
-      }
-      saved = await apiPost<{ ok: boolean } & AuthStatus>("/api/auth/import-cookies", parsed);
-    } else {
-      saved = await apiPostText<{ ok: boolean } & AuthStatus>("/api/auth/import-cookies", cookieJson, "text/plain");
-    }
+    const saved = trimmed.startsWith("[") || trimmed.startsWith("{")
+      ? await apiPost<{ message?: string }>("/api/auth/import-cookies", JSON.parse(trimmed))
+      : await apiPostText<{ message?: string }>("/api/auth/import-cookies", cookieJson, "text/plain");
 
     await loadAuthStatus();
-    setAuthMessage(`Saved ${saved.count} cookies for domains: ${saved.domains.join(", ") || "-"}`);
+    setAuthMessage(saved.message || "Cookies imported.");
     setCookieJson("");
     setShowImportModal(false);
   };
@@ -133,16 +117,19 @@ export default function HandlesPage() {
     setAuthMessage(null);
     await apiPost<{ ok: boolean }>("/api/auth/clear-cookies", {});
     await loadAuthStatus();
+    setAuthValidate(null);
     setAuthMessage("Imported cookies cleared.");
   };
 
   const startScrapeSelected = async () => {
     try {
-      if (!selectedHandle) {
-        setError("Select a handle first.");
+      if (!selectedHandle) return setError("Select a handle first.");
+      setError(null);
+      const validation = await runValidate();
+      if (!validation.ok) {
+        setError("Auth validation failed. Review details below and fix cookies before scraping.");
         return;
       }
-      setError(null);
       const response = await apiPost<{ job_id: string }>("/api/scrape/start", {
         mode: "one",
         handle: selectedHandle,
@@ -157,116 +144,67 @@ export default function HandlesPage() {
     }
   };
 
-  const showAuthCallout = (error || jobStatus?.error_message || "").includes("Not authenticated");
+  const jobError = jobStatus?.result?.error || jobStatus?.error_message;
 
   return (
     <main>
-      <p>
-        API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code>
-      </p>
-
+      <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {authMessage && <p style={{ color: "#165c2d" }}>{authMessage}</p>}
-      {showAuthCallout && (
-        <div style={{ background: "#fff3cd", padding: "10px", marginBottom: "10px" }}>
-          <p style={{ marginTop: 0 }}>{AUTH_ERROR}</p>
-          <button onClick={() => setShowImportModal(true)}>Open Auth</button>
-        </div>
-      )}
 
-      <section style={{ border: "1px solid #ddd", padding: "12px", marginBottom: "14px" }}>
+      <section style={{ border: "1px solid #ddd", padding: 12, marginBottom: 14 }}>
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
-        <p>
-          Status:{" "}
-          <span
-            style={{
-              background: (authStatus?.count || 0) > 0 ? "#d1fae5" : "#fee2e2",
-              color: (authStatus?.count || 0) > 0 ? "#065f46" : "#7f1d1d",
-              padding: "4px 8px",
-              borderRadius: "999px",
-              fontWeight: 600,
-            }}
-          >
-            {(authStatus?.count || 0) > 0 ? "Ready" : "No Imported Cookies"}
-          </span>
-        </p>
-        <p>
-          Count: {authStatus?.count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"} | Stored: {authStatus?.stored_utc || "-"}
-        </p>
-        <div>
-          <button onClick={() => setShowImportModal(true)}>Import Cookies</button>
-          <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>
-            Clear Cookies
-          </button>
-        </div>
+        <p>Count: {authStatus?.total ?? 0} | Domains: {(authStatus?.domains || []).map((d) => `${d.domain} (${d.count})`).join(", ") || "-"}</p>
+        <button onClick={() => setShowImportModal(true)}>Import Cookies</button>
+        <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
+        <button onClick={runValidate} style={{ marginLeft: 8 }}>Validate Auth</button>
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
-
-      <div>
-        <button onClick={startScrapeSelected} disabled={!selectedHandle}>
-          Scrape Selected Handle
-        </button>
-      </div>
+      <div><button onClick={startScrapeSelected} disabled={!selectedHandle}>Scrape Selected Handle</button></div>
 
       {jobStatus && (
         <section>
           <h3>Job status</h3>
-          <p>
-            Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}
-          </p>
-          {jobStatus.error_message && <p style={{ color: "#a22" }}>{jobStatus.error_message}</p>}
+          <p>Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}</p>
         </section>
       )}
 
+      {(jobStatus?.status === "failed" || authValidate?.ok === false) && (
+        <section style={{ border: "2px solid #dc2626", background: "#fee2e2", padding: 12, marginTop: 12 }}>
+          <h3 style={{ marginTop: 0 }}>Scrape failure details</h3>
+          <p><strong>Summary:</strong> {jobError || "Auth validation failed"}</p>
+          <table>
+            <thead><tr><th>Domain</th><th>Cookies</th><th>Status</th><th>Final URL</th><th>Reason</th><th>Hint</th></tr></thead>
+            <tbody>
+              {((jobStatus?.result?.auth?.results || authValidate?.results || [])).map((item) => (
+                <tr key={item.domain}>
+                  <td>{item.domain}</td><td>{item.cookieCount}</td><td>{item.statusCode ?? "-"}</td><td>{item.finalUrl || "-"}</td><td>{item.reason}</td><td>{item.hint}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <details><summary>logTail</summary><pre>{(jobStatus?.result?.logTail || []).join("\n") || "-"}</pre></details>
+          <details><summary>stderrTail</summary><pre>{(jobStatus?.result?.stderrTail || []).join("\n") || "-"}</pre></details>
+          <button onClick={() => setShowEvents((v) => !v)}>{showEvents ? "Hide" : "Open"} latest scrape_job_events</button>
+        </section>
+      )}
+
+      {showEvents && <pre style={{ maxHeight: 260, overflow: "auto" }}>{events.join("\n")}</pre>}
 
       <section style={{ marginTop: 14 }}>
         <h3>Handles</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {handleRows.map((row) => (
-              <tr key={row.handle}>
-                <td>{row.handle}</td>
-                <td>{row.status || "-"}</td>
-                <td>{row.error || "-"}</td>
-                <td>{row.last_updated_utc || "-"}</td>
-                <td>{row.ticket_count ?? 0}</td>
-                <td><button onClick={() => setSelectedHandle(row.handle)}>Select</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <table><thead><tr><th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th></tr></thead><tbody>
+          {handleRows.map((row) => (
+            <tr key={row.handle}><td>{row.handle}</td><td>{row.status || "-"}</td><td>{row.error || "-"}</td><td>{row.last_updated_utc || "-"}</td><td>{row.ticket_count ?? 0}</td><td><button onClick={() => setSelectedHandle(row.handle)}>Select</button></td></tr>
+          ))}
+        </tbody></table>
       </section>
 
       <h2>{selectedHandle ? `Tickets for ${selectedHandle}` : "Select a handle"}</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Title</th>
-            <th>Status</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tickets.map((t) => (
-            <tr key={`${t.ticket_id}-${t.updated_utc}`}>
-              <td>{t.ticket_id}</td>
-              <td>{t.title || t.subject || "-"}</td>
-              <td>{t.status || "-"}</td>
-              <td>{t.updated_utc || "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h3>Latest events</h3>
-      <pre style={{ maxHeight: 260, overflow: "auto" }}>{events.join("\n")}</pre>
+      <table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Updated</th></tr></thead><tbody>
+        {tickets.map((t) => (<tr key={`${t.ticket_id}-${t.updated_utc}`}><td>{t.ticket_id}</td><td>{t.title || t.subject || "-"}</td><td>{t.status || "-"}</td><td>{t.updated_utc || "-"}</td></tr>))}
+      </tbody></table>
 
       {showImportModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "grid", placeItems: "center" }}>
@@ -274,12 +212,7 @@ export default function HandlesPage() {
             <h3>Import Cookies</h3>
             <p>Paste JSON or Netscape cookie.txt format.</p>
             <textarea rows={16} style={{ width: "100%" }} value={cookieJson} onChange={(e) => setCookieJson(e.target.value)} />
-            <div style={{ marginTop: 8 }}>
-              <button onClick={saveImportedCookies}>Save</button>
-              <button onClick={() => setShowImportModal(false)} style={{ marginLeft: 8 }}>
-                Cancel
-              </button>
-            </div>
+            <div style={{ marginTop: 8 }}><button onClick={saveImportedCookies}>Save</button><button onClick={() => setShowImportModal(false)} style={{ marginLeft: 8 }}>Cancel</button></div>
           </div>
         </div>
       )}
