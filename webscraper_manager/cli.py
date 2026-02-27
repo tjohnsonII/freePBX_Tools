@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -296,6 +297,44 @@ def _resolve_service_cwd(root: Path, service_cfg: dict[str, Any]) -> Path:
     return cwd_path
 
 
+def resolve_runner(runner: str) -> str | None:
+    """Resolve a package runner executable that subprocess/CreateProcess can execute."""
+    if os.name != "nt":
+        found = shutil.which(runner)
+        return str(Path(found).resolve()) if found else None
+
+    if runner.lower() == "npm":
+        cmd_candidate = shutil.which("npm.cmd")
+        if cmd_candidate:
+            return str(Path(cmd_candidate).resolve())
+
+        appdata = os.environ.get("AppData") or os.environ.get("APPDATA") or ""
+        fallbacks = [
+            r"E:\DevTools\nodejs\npm.cmd",
+            r"C:\Program Files\nodejs\npm.cmd",
+        ]
+        if appdata:
+            fallbacks.append(str(Path(appdata) / "npm" / "npm.cmd"))
+
+        for candidate in fallbacks:
+            if Path(candidate).is_file():
+                return str(Path(candidate).resolve())
+
+    found = shutil.which(runner)
+    if found and not found.lower().endswith(".ps1"):
+        return str(Path(found).resolve())
+    return None
+
+
+def _has_ps1_runner_only(runner: str) -> bool:
+    if os.name != "nt":
+        return False
+    ps1 = shutil.which(f"{runner}.ps1")
+    cmd = shutil.which(f"{runner}.cmd")
+    exe = shutil.which(f"{runner}.exe")
+    return bool(ps1 and not cmd and not exe)
+
+
 def _get_service_port(_service_name: str, cfg: dict[str, Any]) -> int | None:
     raw_port = cfg.get("port")
     if raw_port in (None, ""):
@@ -443,6 +482,16 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
                 if service_name == "api":
                     api_failed = True
                 continue
+            if service_name == "ui":
+                runner = resolve_runner(cmd[0])
+                if not runner:
+                    summary.append(
+                        "ui: failed to resolve npm.cmd runner. "
+                        "On domain machines, use npm.cmd not npm."
+                    )
+                    failed_services.append(service_name)
+                    continue
+                cmd[0] = runner
             if cmd[0] in {"python", "py", "python3"}:
                 cmd[0] = str(preferred_python)
             cwd = _resolve_service_cwd(root, cfg)
@@ -463,16 +512,29 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
 
         log_path = day_dir / f"{service_name}_{datetime.now().strftime('%H%M%S')}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as log_file:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(cwd),
-                env=os.environ.copy(),
-                stdout=log_file,
-                stderr=log_file,
-                text=True,
-                creationflags=_creation_flags_for_service(),
-            )
+        try:
+            with log_path.open("a", encoding="utf-8") as log_file:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(cwd),
+                    env=os.environ.copy(),
+                    stdout=log_file,
+                    stderr=log_file,
+                    text=True,
+                    creationflags=_creation_flags_for_service(),
+                )
+        except (FileNotFoundError, OSError):
+            if service_name == "ui":
+                summary.append(
+                    f"ui: failed to start. cmd={cmd} cwd={cwd}. "
+                    "On domain machines, use npm.cmd not npm."
+                )
+            else:
+                summary.append(f"{service_name}: failed to start. cmd={cmd} cwd={cwd}")
+            failed_services.append(service_name)
+            if service_name == "api":
+                api_failed = True
+            continue
 
         run_state[service_name] = {
             "pid": proc.pid,
@@ -949,6 +1011,10 @@ def _doctor_findings() -> list[Finding]:
 
     import_probe_ok = True
     import_probe_details = "Skipped: preferred webscraper python not found"
+    ui_runner = resolve_runner("npm")
+    ui_runner_ok = bool(ui_runner)
+    ui_runner_details = ui_runner or "npm.cmd not found"
+    ui_ps1_only = _has_ps1_runner_only("npm")
     if preferred_python.is_file():
         probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests"]
         try:
@@ -989,6 +1055,17 @@ def _doctor_findings() -> list[Finding]:
             "ui_dir",
             (root / "webscraper" / "ticket-ui").is_dir(),
             f"Expected directory: {root / 'webscraper' / 'ticket-ui'}",
+        ),
+        Finding("ui_runner", ui_runner_ok, ui_runner_details),
+        Finding(
+            "ui_runner_ps1_only",
+            ok=not ui_ps1_only,
+            details=(
+                "Only npm.ps1 found (blocked by execution policy on many domain-joined Windows hosts)"
+                if ui_ps1_only
+                else "npm.cmd/.exe available or npm runner not ps1-only"
+            ),
+            warning=ui_ps1_only,
         ),
         Finding("current_python", True, str(current_python)),
         Finding("preferred_python", True, str(preferred_python)),
