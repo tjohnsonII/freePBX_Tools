@@ -4,31 +4,28 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from webscraper.auth.imported_cookies import load_imported_cookies
+from webscraper.lib.db_path import get_tickets_db_path
+from webscraper.ticket_api import db as ticket_api_db
+from webscraper.ticket_api.auth import cookie_to_selenium
 
 
 def _host_matches_domain(host: str, domain: str) -> bool:
     clean_host = (host or "").strip().lower()
-    clean_domain = (domain or "").strip().lower()
+    clean_domain = (domain or "").strip().lower().lstrip(".")
     if not clean_host or not clean_domain:
         return False
-    cookie_domain = clean_domain.lstrip(".")
-    return clean_host == cookie_domain or clean_host.endswith(f".{cookie_domain}")
+    return clean_host == clean_domain or clean_host.endswith(f".{clean_domain}")
 
 
-def _selenium_cookie(cookie: dict[str, Any]) -> dict[str, Any]:
-    normalized_domain = str(cookie.get("domain") or "").strip().lstrip(".")
-    safe_cookie = {
-        key: cookie[key]
-        for key in ("name", "value", "path", "secure", "httpOnly", "expiry", "sameSite")
-        if key in cookie
-    }
-    if normalized_domain:
-        safe_cookie["domain"] = normalized_domain
-    return safe_cookie
+def load_all_imported_cookies() -> list[dict[str, Any]]:
+    cookies = ticket_api_db.get_auth_cookies(get_tickets_db_path())
+    if cookies:
+        return cookies
+    return load_imported_cookies()
 
 
 def inject_imported_cookies(driver: Any, base_urls: list[str]) -> dict[str, Any]:
-    cookies = load_imported_cookies()
+    cookies = load_all_imported_cookies()
     applied = 0
     skipped = 0
     errors = 0
@@ -57,27 +54,20 @@ def inject_imported_cookies(driver: Any, base_urls: list[str]) -> dict[str, Any]
             if scheme == "http" and bool(cookie.get("secure")):
                 skipped += 1
                 continue
-            safe_cookie = _selenium_cookie(cookie)
+            safe_cookie = cookie_to_selenium(cookie)
             domains.add(cookie_domain)
             try:
                 driver.add_cookie(safe_cookie)
                 applied += 1
             except Exception:
                 errors += 1
-                continue
 
         try:
             driver.refresh()
         except Exception:
             errors += 1
 
-    return {
-        "applied": applied,
-        "skipped": skipped,
-        "domains": sorted(domain for domain in domains if domain),
-        "hosts": sorted(hosts),
-        "errors": errors,
-    }
+    return {"applied": applied, "skipped": skipped, "domains": sorted(d for d in domains if d), "hosts": sorted(hosts), "errors": errors}
 
 
-__all__ = ["inject_imported_cookies"]
+__all__ = ["inject_imported_cookies", "load_all_imported_cookies"]

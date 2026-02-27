@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import ssl
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -20,7 +22,7 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
-from webscraper.auth.imported_cookies import clear_imported_cookies, get_imported_cookie_meta, save_imported_cookies
+from webscraper.ticket_api.auth import DEFAULT_TARGET_DOMAINS, cookie_header_for_domain, detected_missing_domains, normalize_cookie_input
 from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
@@ -41,6 +43,8 @@ class StartScrapeRequest(BaseModel):
 
 class BatchScrapeRequest(BaseModel):
     handles: list[str]
+    mode: Literal["latest", "full"] = "latest"
+    limit: int = 50
 
 
 @dataclass
@@ -51,6 +55,8 @@ class QueueJob:
     handle: str | None
     rescrape: bool
     refresh_handles: bool
+    scrape_mode: str = "incremental"
+    ticket_limit: int = 50
 
 
 JOB_QUEUE: list[QueueJob] = []
@@ -96,10 +102,12 @@ def _is_localhost_request(request: Request) -> bool:
     return host in LOCALHOST_ONLY
 
 
-def _auth_meta_response(meta: dict[str, Any]) -> dict[str, Any]:
+def _auth_meta_response(meta: dict[str, Any], selected_domains: list[str] | None = None) -> dict[str, Any]:
     count = int(meta.get("count") or 0)
     domains = [str(domain) for domain in (meta.get("domains") or []) if str(domain).strip()]
-    return {"count": count, "domains": domains, "stored_utc": meta.get("stored_utc")}
+    selected = selected_domains or DEFAULT_TARGET_DOMAINS
+    detected, missing = detected_missing_domains(domains, selected)
+    return {"count": count, "domains": detected, "created_utc": meta.get("created_utc"), "stored_utc": meta.get("created_utc"), "missing_domains": missing}
 
 
 def _auth_error_from_output(lines: list[str]) -> str | None:
@@ -107,15 +115,32 @@ def _auth_error_from_output(lines: list[str]) -> str | None:
     for line in lines:
         lowered = line.lower()
         if any(marker in lowered for marker in auth_markers):
-            return "Not authenticated. Import cookies in the Web UI (Auth) and retry."
+            return "Not authenticated for secure.123.net (missing cookies or expired session)."
     return None
+
+
+def map_batch_mode(mode: str) -> str:
+    return "full" if mode == "full" else "incremental"
 
 
 def _build_command(job: QueueJob, handle: str) -> list[str]:
     script = Path(__file__).resolve().parents[4] / "scripts" / "scrape_all_handles.py"
     out_dir = runs_dir() / job.run_id / handle
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(script), "--db", db_path(), "--out", str(out_dir), "--handles", handle]
+    cmd = [
+        sys.executable,
+        str(script),
+        "--db",
+        db_path(),
+        "--out",
+        str(out_dir),
+        "--handles",
+        handle,
+        "--mode",
+        job.scrape_mode,
+        "--max-tickets",
+        str(max(1, int(job.ticket_limit or 1))),
+    ]
     if job.rescrape:
         cmd.append("--resume")
     return cmd
@@ -135,7 +160,7 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
     _append_event("info", f"Starting handle {handle}", handle=handle, job_id=job.job_id)
 
     cmd = _build_command(job, handle)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert proc.stdout is not None
     error_lines = 0
     output_lines: list[str] = []
@@ -156,6 +181,15 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
             error_lines += 1
             _append_event("error", cleaned, handle=handle, job_id=job.job_id)
     rc = proc.wait(timeout=SCRAPE_TIMEOUT_SECONDS)
+    stderr_tail: list[str] = []
+    if proc.stderr is not None:
+        for raw in proc.stderr.read().splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            stderr_tail.append(line)
+            output_lines.append(line)
+            _log(f"[{handle}][stderr] {line}", job_id=job.job_id)
 
     ticket_payload = db.list_tickets(db_path(), handle=handle, page=1, page_size=1)
     total_for_handle = int(ticket_payload.get("totalCount") or 0)
@@ -182,6 +216,14 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
             last_run_id=job.run_id,
         )
         _append_event("error", f"Handle {handle} failed: {msg}", handle=handle, job_id=job.job_id)
+    db.update_scrape_job(
+        db_path(),
+        job.job_id,
+        status="running",
+        progress_completed=0,
+        progress_total=1,
+        result={"logTail": output_lines[-20:], "stderrTail": stderr_tail[-20:]},
+    )
     return rc, error_lines
 
 
@@ -328,6 +370,7 @@ def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000))
 @app.post("/api/scrape-batch")
 def api_scrape_batch(req: BatchScrapeRequest):
     job_ids: list[str] = []
+    mapped_mode = map_batch_mode(req.mode)
     for raw_handle in req.handles:
         handle = (raw_handle or "").strip()
         if not handle:
@@ -338,14 +381,25 @@ def api_scrape_batch(req: BatchScrapeRequest):
             db_path(),
             job_id=job_id,
             handle=handle,
-            mode="one",
-            ticket_limit=None,
+            mode=req.mode,
+            ticket_limit=req.limit,
             status="queued",
             created_utc=_iso_now(),
         )
         with JOB_QUEUE_LOCK:
-            JOB_QUEUE.append(QueueJob(job_id=job_id, run_id=datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}", mode="one", handle=handle, rescrape=False, refresh_handles=False))
-        _append_event("info", "Queued scrape job from /api/scrape-batch", handle=handle, job_id=job_id)
+            JOB_QUEUE.append(
+                QueueJob(
+                    job_id=job_id,
+                    run_id=datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}",
+                    mode="one",
+                    handle=handle,
+                    rescrape=False,
+                    refresh_handles=False,
+                    scrape_mode=mapped_mode,
+                    ticket_limit=req.limit,
+                )
+            )
+        _append_event("info", f"Queued scrape job from /api/scrape-batch mode={mapped_mode} max={req.limit}", handle=handle, job_id=job_id)
     return {"status": "queued", "jobIds": job_ids}
 
 
@@ -427,41 +481,103 @@ def api_scrape_status(job_id: str | None = None):
     }
 
 
-@app.post("/api/auth/import-cookies")
-async def api_auth_import_cookies(request: Request):
+@app.post("/api/auth/import")
+async def api_auth_import(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
 
+    payload: Any = None
+    selected_domains = DEFAULT_TARGET_DOMAINS
     content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     if content_type == "application/json":
-        payload: Any = await request.json()
-    elif content_type in {"text/plain", "application/octet-stream", ""}:
-        payload = (await request.body()).decode("utf-8", errors="ignore")
+        body = await request.json()
+        if isinstance(body, dict):
+            payload = body.get("cookies") if body.get("cookies") is not None else body.get("text", body)
+            selected_domains = body.get("selectedDomains") or selected_domains
+        else:
+            payload = body
+    elif content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        selected_domains = form.getlist("selectedDomains") or selected_domains
+        upload = form.get("file")
+        text = form.get("text")
+        if upload is not None and hasattr(upload, "read"):
+            payload = (await upload.read()).decode("utf-8", errors="ignore")
+        else:
+            payload = str(text or "")
     else:
-        raise HTTPException(status_code=415, detail="Unsupported content type")
+        payload = (await request.body()).decode("utf-8", errors="ignore")
 
     try:
-        meta = save_imported_cookies(payload)
+        cookies = normalize_cookie_input(payload, selected_domains=selected_domains)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    created_utc = _iso_now()
+    db.replace_auth_cookies(db_path(), cookies, created_utc)
+    meta = db.get_auth_cookie_status(db_path())
     _append_event("info", f"Imported {meta['count']} auth cookies for domains={','.join(meta['domains']) or '-'}")
-    return {"ok": True, **_auth_meta_response(meta)}
+    return {"ok": True, **_auth_meta_response(meta, selected_domains)}
+
+
+@app.post("/api/auth/import-cookies")
+async def api_auth_import_cookies_legacy(request: Request):
+    return await api_auth_import(request)
 
 
 @app.get("/api/auth/status")
-def api_auth_status(request: Request):
+def api_auth_status(request: Request, selectedDomains: str | None = None):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    return _auth_meta_response(get_imported_cookie_meta())
+    selected = [d.strip() for d in (selectedDomains or "").split(",") if d.strip()] if selectedDomains else DEFAULT_TARGET_DOMAINS
+    return _auth_meta_response(db.get_auth_cookie_status(db_path()), selected)
+
+
+@app.post("/api/auth/clear")
+def api_auth_clear(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    db.clear_auth_cookies(db_path())
+    _append_event("info", "Cleared imported auth cookies")
+    return {"ok": True}
 
 
 @app.post("/api/auth/clear-cookies")
-def api_auth_clear_cookies(request: Request):
+def api_auth_clear_cookies_legacy(request: Request):
+    return api_auth_clear(request)
+
+
+@app.post("/api/auth/validate")
+def api_auth_validate(request: Request, payload: dict[str, Any] | None = None):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    clear_imported_cookies()
-    _append_event("info", "Cleared imported auth cookies")
-    return {"ok": True}
+    selected = (payload or {}).get("selectedDomains") or DEFAULT_TARGET_DOMAINS
+    cookies = db.get_auth_cookies(db_path())
+    statuses: list[dict[str, Any]] = []
+    ssl_ctx = ssl._create_unverified_context()
+    for domain in selected:
+        d = str(domain).strip().lstrip(".").lower()
+        if not d:
+            continue
+        header = cookie_header_for_domain(cookies, d)
+        if not header:
+            statuses.append({"domain": d, "ok": False, "reason": "No matching cookies for selected domain"})
+            continue
+        url = f"https://{d}/"
+        if d.startswith("10."):
+            url = f"http://{d}/"
+        req = urllib.request.Request(url, headers={"Cookie": header, "User-Agent": "ticket-api-auth-validator/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=12, context=ssl_ctx) as resp:
+                code = getattr(resp, "status", 200)
+                final_url = getattr(resp, "geturl", lambda: url)()
+                ok = code < 400 and "login" not in str(final_url).lower()
+                reason = f"HTTP {code} ({final_url})"
+                statuses.append({"domain": d, "ok": ok, "reason": reason, "http_status": code})
+        except Exception as exc:
+            statuses.append({"domain": d, "ok": False, "reason": str(exc)})
+
+    return {"ok": all(item.get("ok") for item in statuses), "results": statuses}
 
 
 @app.get("/api/handles/{handle}/latest")
