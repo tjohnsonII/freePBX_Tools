@@ -138,6 +138,8 @@ cookies*.txt
 cookies*.json
 *cookies*
 *_cookies*
+!webscraper/src/webscraper/auth/imported_cookies.py
+!webscraper/tests/test_imported_cookies.py
 *token*
 *jwt*
 *.db
