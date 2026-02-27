@@ -140,6 +140,8 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
             _log(f"[{handle}] {cleaned}", job_id=job.job_id)
             if "Attempting imported cookie auth" in cleaned:
                 _append_event("info", "Attempting imported cookie auth", handle=handle, job_id=job.job_id)
+            elif cleaned.startswith("Imported cookie auth applied="):
+                _append_event("info", cleaned, handle=handle, job_id=job.job_id)
             elif "Imported cookie auth successful" in cleaned or "Imported cookie auth succeeded" in cleaned:
                 _append_event("info", "Imported cookie auth succeeded", handle=handle, job_id=job.job_id)
             elif "Imported cookie auth failed" in cleaned:
@@ -433,7 +435,9 @@ async def api_auth_import_cookies(request: Request):
 
 
 @app.get("/api/auth/status")
-def api_auth_status():
+def api_auth_status(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
     return get_imported_cookie_meta()
 
 
