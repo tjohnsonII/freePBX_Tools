@@ -19,7 +19,7 @@ type JobStatus = {
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
 type AuthStatus = { hasImportedCookies: boolean; count: number; domains: string[]; stored_utc: string | null };
 
-const AUTH_ERROR = "Authentication required. Import cookies.";
+const AUTH_ERROR = "Not authenticated. Import cookies in the Web UI (Auth) and retry.";
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) return error.message;
@@ -151,7 +151,12 @@ export default function HandlesPage() {
 
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {authMessage && <p style={{ color: "#165c2d" }}>{authMessage}</p>}
-      {showAuthCallout && <p style={{ background: "#fff3cd", padding: "10px" }}>{AUTH_ERROR}</p>}
+      {showAuthCallout && (
+        <div style={{ background: "#fff3cd", padding: "10px", marginBottom: "10px" }}>
+          <p style={{ marginTop: 0 }}>{AUTH_ERROR}</p>
+          <button onClick={() => setShowImportModal(true)}>Open Auth</button>
+        </div>
+      )}
 
       <section style={{ border: "1px solid #ddd", padding: "12px", marginBottom: "14px" }}>
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
@@ -166,10 +171,12 @@ export default function HandlesPage() {
               fontWeight: 600,
             }}
           >
-            {authStatus?.hasImportedCookies ? "Imported Cookies Present" : "No Imported Cookies"}
+            {authStatus?.hasImportedCookies ? "Ready" : "No Imported Cookies"}
           </span>
         </p>
-        <p>Count: {authStatus?.count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
+        <p>
+          Count: {authStatus?.count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"} | Stored: {authStatus?.stored_utc || "-"}
+        </p>
         <div>
           <button onClick={() => setShowImportModal(true)}>Import Cookies</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>

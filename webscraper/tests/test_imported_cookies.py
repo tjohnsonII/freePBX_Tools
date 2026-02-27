@@ -49,3 +49,18 @@ def test_clear_cookies(tmp_path, monkeypatch):
     imported_cookies.clear_imported_cookies()
     assert not store_path.exists()
     assert imported_cookies.get_imported_cookie_meta()["hasImportedCookies"] is False
+
+
+def test_domain_inferred_from_host_only(tmp_path, monkeypatch):
+    store_path = tmp_path / "auth" / "imported_cookies.json"
+    monkeypatch.setattr(imported_cookies, "_IMPORTED_COOKIES_PATH", store_path)
+    imported_cookies.save_imported_cookies(
+        {
+            "cookies": [
+                {"name": "a", "value": "1", "hostOnly": "secure.123.net", "extra": "drop-me"},
+            ]
+        }
+    )
+    loaded = imported_cookies.load_imported_cookies()
+    assert loaded[0]["domain"] == "secure.123.net"
+    assert "extra" not in loaded[0]
