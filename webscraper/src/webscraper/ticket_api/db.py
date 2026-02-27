@@ -606,10 +606,12 @@ def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
         row = conn.execute(
             "SELECT COUNT(*) AS count, MAX(created_utc) AS created_utc FROM auth_cookies"
         ).fetchone()
-        domains = conn.execute("SELECT DISTINCT domain FROM auth_cookies ORDER BY domain ASC").fetchall()
+        domains = conn.execute(
+            "SELECT domain, COUNT(*) AS count FROM auth_cookies GROUP BY domain ORDER BY domain ASC"
+        ).fetchall()
     return {
         "count": int(row["count"] if row else 0),
-        "domains": [str(item["domain"]) for item in domains],
+        "domains": [{"domain": str(item["domain"]), "count": int(item["count"])} for item in domains],
         "created_utc": row["created_utc"] if row else None,
     }
 
