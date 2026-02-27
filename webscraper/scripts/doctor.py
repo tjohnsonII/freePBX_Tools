@@ -1,9 +1,28 @@
 from __future__ import annotations
 
 import argparse
-from webscraper.paths import tickets_db_path, runs_dir
+import importlib.util
 import sqlite3
+import sys
 from pathlib import Path
+
+from webscraper.paths import runs_dir, tickets_db_path
+
+
+DEPENDENCY_SETS: dict[str, list[tuple[str, str]]] = {
+    "ticket-api": [
+        ("fastapi", "fastapi>=0.115.0"),
+        ("uvicorn", "uvicorn[standard]>=0.30.0"),
+        ("multipart", "python-multipart>=0.0.9"),
+    ],
+    "webscraper-core": [
+        ("requests", "requests>=2.31.0"),
+        ("bs4", "beautifulsoup4>=4.12.0"),
+        ("lxml", "lxml>=4.9.0"),
+        ("selenium", "selenium>=4.20.0"),
+        ("websocket", "websocket-client>=1.7.0"),
+    ],
+}
 
 
 def find_newest_run_dir(scrape_runs_root: Path) -> Path | None:
@@ -15,11 +34,31 @@ def find_newest_run_dir(scrape_runs_root: Path) -> Path | None:
     return max(dirs, key=lambda p: p.stat().st_mtime)
 
 
+def run_pip_check() -> int:
+    overall_missing = False
+    for app_name, checks in DEPENDENCY_SETS.items():
+        missing = [requirement for module, requirement in checks if importlib.util.find_spec(module) is None]
+        if not missing:
+            print(f"[OK] {app_name}: dependencies installed")
+            continue
+        overall_missing = True
+        joined = " ".join(missing)
+        print(f"[FAIL] {app_name}: missing dependencies")
+        for requirement in missing:
+            print(f"  - {requirement}")
+        print(f"  Install: {sys.executable} -m pip install {joined}")
+    return 1 if overall_missing else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Quick doctor checks for ticket scraper DB + output artifacts")
     parser.add_argument("--db", default=str(tickets_db_path()))
     parser.add_argument("--output", default=str(runs_dir()))
+    parser.add_argument("--pip-check", action="store_true", help="Validate package dependencies and print install commands")
     args = parser.parse_args()
+
+    if args.pip_check:
+        return run_pip_check()
 
     db_path = Path(args.db).resolve()
     output_root = Path(args.output).resolve()

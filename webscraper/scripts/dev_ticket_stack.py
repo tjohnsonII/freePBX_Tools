@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import threading
+import importlib.util
 from pathlib import Path
 from typing import TextIO
 
@@ -60,6 +61,12 @@ def main() -> int:
         return 1
 
     npm_exe = "npm.cmd" if os.name == "nt" else "npm"
+
+    if importlib.util.find_spec("multipart") is None:
+        print(
+            "[WARN] Missing dependency python-multipart. Install: "
+            f"{sys.executable} -m pip install python-multipart"
+        )
 
     api_cmd = [
         sys.executable,

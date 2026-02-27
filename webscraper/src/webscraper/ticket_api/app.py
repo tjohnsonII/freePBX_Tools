@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -79,6 +80,14 @@ JOB_QUEUE: list[QueueJob] = []
 JOB_QUEUE_LOCK = threading.Lock()
 CURRENT_JOB_ID: str | None = None
 LOCALHOST_ONLY = {"127.0.0.1", "::1"}
+
+
+def _has_python_multipart() -> bool:
+    return importlib.util.find_spec("multipart") is not None
+
+
+def _missing_python_multipart_message() -> str:
+    return f"Missing dependency python-multipart. Install: {sys.executable} -m pip install python-multipart"
 
 
 def db_path() -> str:
@@ -647,89 +656,109 @@ def api_scrape_status(job_id: str | None = None):
     }
 
 
-@app.post("/api/auth/import-cookies")
-async def api_auth_import_cookies(
-    request: Request,
-    file: UploadFile | None = File(default=None),
-    domain: str | None = Form(default=None),
-):
-    if not _is_localhost_request(request):
-        raise HTTPException(status_code=403, detail="localhost requests only")
-    if file is None:
-        raise HTTPException(status_code=400, detail="Missing upload file in form field 'file'")
+if _has_python_multipart():
 
-    filename = file.filename or ""
-    extension = Path(filename).suffix.lower()
-    if extension not in {".json", ".txt"}:
-        raise HTTPException(status_code=400, detail="Unsupported file extension. Allowed: .json, .txt")
+    @app.post("/api/auth/import-cookies")
+    async def api_auth_import_cookies(
+        request: Request,
+        file: UploadFile | None = File(default=None),
+        domain: str | None = Form(default=None),
+    ):
+        if not _is_localhost_request(request):
+            raise HTTPException(status_code=403, detail="localhost requests only")
+        if file is None:
+            raise HTTPException(status_code=400, detail="Missing upload file in form field 'file'")
 
-    raw_bytes = await file.read()
-    if not raw_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        filename = file.filename or ""
+        extension = Path(filename).suffix.lower()
+        if extension not in {".json", ".txt"}:
+            raise HTTPException(status_code=400, detail="Unsupported file extension. Allowed: .json, .txt")
 
-    try:
-        text_payload = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
+        raw_bytes = await file.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
         try:
-            text_payload = raw_bytes.decode("latin-1")
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Unable to decode file bytes: {exc}") from exc
+            text_payload = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                text_payload = raw_bytes.decode("latin-1")
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Unable to decode file bytes: {exc}") from exc
 
-    target_domains = get_target_domains()
-    default_domain = (domain or get_default_cookie_domain() or "").strip().lstrip(".").lower() or None
-    _log(
-        "Cookie import attempt"
-        f" contentType={file.content_type or '-'} filename={filename or '-'} bytes={len(raw_bytes)}"
-        f" targets={','.join(target_domains)} defaultDomain={default_domain or '-'}"
-    )
-
-    try:
-        parsed, format_used = parse_cookies(text_payload, filename or "upload.txt", default_domain)
-    except ValueError as exc:
-        _log(f"Cookie import parse failed filename={filename or '-'} detail={exc}")
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    kept: list[CookieNormalized] = filter_cookies_for_domains(parsed, target_domains)
-    domain_sample = ", ".join(cookie_domain_summary(parsed)) or "-"
-    _log(
-        "Cookie import parsed"
-        f" format={format_used} totalParsed={len(parsed)} totalKept={len(kept)} topDomains={domain_sample}"
-    )
-
-    if not parsed:
-        raise HTTPException(status_code=400, detail="Parsed 0 cookies from uploaded file")
-    if not kept:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Parsed {len(parsed)} cookies but 0 matched target domains: {', '.join(target_domains)}",
+        target_domains = get_target_domains()
+        default_domain = (domain or get_default_cookie_domain() or "").strip().lstrip(".").lower() or None
+        _log(
+            "Cookie import attempt"
+            f" contentType={file.content_type or '-'} filename={filename or '-'} bytes={len(raw_bytes)}"
+            f" targets={','.join(target_domains)} defaultDomain={default_domain or '-'}"
         )
 
-    created_utc = _iso_now()
-    metadata = {
-        "imported_at": created_utc,
-        "source_filename": filename,
-        "format_used": format_used,
-        "total_parsed": len(parsed),
-        "total_kept": len(kept),
-        "target_domains": target_domains,
-    }
-    save_imported_cookies(kept, metadata)
-    db.replace_auth_cookies(db_path(), [cookie.model_dump() for cookie in kept], created_utc)
-    _append_event("info", f"Imported {len(kept)} auth cookies using {format_used} from {filename}")
+        try:
+            parsed, format_used = parse_cookies(text_payload, filename or "upload.txt", default_domain)
+        except ValueError as exc:
+            _log(f"Cookie import parse failed filename={filename or '-'} detail={exc}")
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return {
-        "ok": True,
-        "format_used": format_used,
-        "source_filename": filename,
-        "total_parsed": len(parsed),
-        "total_kept": len(kept),
-        "target_domains": target_domains,
-    }
+        kept: list[CookieNormalized] = filter_cookies_for_domains(parsed, target_domains)
+        domain_sample = ", ".join(cookie_domain_summary(parsed)) or "-"
+        _log(
+            "Cookie import parsed"
+            f" format={format_used} totalParsed={len(parsed)} totalKept={len(kept)} topDomains={domain_sample}"
+        )
+
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Parsed 0 cookies from uploaded file")
+        if not kept:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Parsed {len(parsed)} cookies but 0 matched target domains: {', '.join(target_domains)}",
+            )
+
+        created_utc = _iso_now()
+        metadata = {
+            "imported_at": created_utc,
+            "source_filename": filename,
+            "format_used": format_used,
+            "total_parsed": len(parsed),
+            "total_kept": len(kept),
+            "target_domains": target_domains,
+        }
+        save_imported_cookies(kept, metadata)
+        db.replace_auth_cookies(db_path(), [cookie.model_dump() for cookie in kept], created_utc)
+        _append_event("info", f"Imported {len(kept)} auth cookies using {format_used} from {filename}")
+
+        return {
+            "ok": True,
+            "format_used": format_used,
+            "source_filename": filename,
+            "total_parsed": len(parsed),
+            "total_kept": len(kept),
+            "target_domains": target_domains,
+        }
 
 
-@app.post("/api/auth/import")
-async def api_auth_import_legacy(request: Request, file: UploadFile | None = File(default=None), domain: str | None = Form(default=None)):
-    return await api_auth_import_cookies(request, file=file, domain=domain)
+    @app.post("/api/auth/import")
+    async def api_auth_import_legacy(
+        request: Request,
+        file: UploadFile | None = File(default=None),
+        domain: str | None = Form(default=None),
+    ):
+        return await api_auth_import_cookies(request, file=file, domain=domain)
+
+else:
+
+    @app.on_event("startup")
+    async def _log_missing_multipart_startup() -> None:
+        _log(_missing_python_multipart_message())
+
+    @app.post("/api/auth/import-cookies")
+    async def api_auth_import_cookies_unavailable() -> dict[str, str]:
+        raise HTTPException(status_code=503, detail=_missing_python_multipart_message())
+
+    @app.post("/api/auth/import")
+    async def api_auth_import_legacy_unavailable() -> dict[str, str]:
+        raise HTTPException(status_code=503, detail=_missing_python_multipart_message())
 
 
 @app.get("/api/auth/status")
@@ -885,13 +914,50 @@ def run_api(*, host: str = "127.0.0.1", port: int = 8787, reload: bool = False, 
 
     uvicorn.run("webscraper.ticket_api.app:app", host=host, port=port, reload=reload)
 
+
+def _pip_check_required_deps() -> list[tuple[str, str, bool]]:
+    checks = [
+        ("fastapi", "fastapi>=0.115.0"),
+        ("uvicorn", "uvicorn[standard]>=0.30.0"),
+        ("multipart", "python-multipart>=0.0.9"),
+    ]
+    return [(module, requirement, importlib.util.find_spec(module) is not None) for module, requirement in checks]
+
+
+def pip_check_command() -> int:
+    missing = [(module, requirement) for module, requirement, ok in _pip_check_required_deps() if not ok]
+    if not missing:
+        print("[OK] All ticket API dependencies are installed.")
+        return 0
+
+    print("[FAIL] Missing required dependencies:")
+    for module, requirement in missing:
+        print(f"  - {module}: {requirement}")
+    requirements = " ".join(requirement for _, requirement in missing)
+    print(f"Install: {sys.executable} -m pip install {requirements}")
+    return 1
+
+
+def doctor_command() -> int:
+    if _has_python_multipart():
+        print("[OK] python-multipart is installed.")
+        return 0
+    print(f"[FAIL] {_missing_python_multipart_message()}", file=sys.stderr)
+    return 1
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run ticket API")
     parser.add_argument("--db", default=db_path())
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument("--doctor", action="store_true", help="Validate API runtime dependencies and exit")
+    parser.add_argument("--pip-check", action="store_true", help="Print missing dependencies and pip install command")
     args = parser.parse_args()
+    if args.pip_check:
+        raise SystemExit(pip_check_command())
+    if args.doctor:
+        raise SystemExit(doctor_command())
     run_api(host=args.host, port=args.port, reload=args.reload, db_override=args.db)
 
 
