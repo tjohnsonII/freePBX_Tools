@@ -42,6 +42,7 @@ EXIT_USAGE = 2
 EXIT_DOCTOR_ISSUES = 10
 EXIT_SERVICES_UNHEALTHY = 1
 EXIT_TEST_FAILED = 30
+MANAGER_RUNTIME_MODULES = ["typer", "rich", "psutil", "packaging"]
 
 TITLE_TEXT = "FreePBX Webscraper Manager"
 SUBTITLE_TEXT = "CLI manager for status, tests, auth, API checks, and start/stop"
@@ -518,7 +519,7 @@ def _service_status_rows(state: AppState) -> tuple[list[dict[str, str]], dict[st
 
 def _print_service_status(state: AppState, console: Console | None) -> int:
     rows, status_meta = _service_status_rows(state)
-    if console is None:
+    if console is None or not sys.stdout.isatty():
         for row in rows:
             print(
                 f"{row['service']}: enabled={row['enabled']} managed={row['managed']} pid={row['pid']} "
@@ -850,11 +851,67 @@ def _doctor_findings() -> list[Finding]:
     root = _repo_root()
     current_python = Path(sys.executable)
     preferred_python = get_preferred_python(root)
+    manager_python = root / ".venv-web-manager" / "Scripts" / "python.exe"
     matches_preferred = is_running_in_preferred_python(root)
     run_hint = f"Run with: {preferred_python} -m webscraper_manager ..."
+    manager_requirements = root / "webscraper_manager" / "requirements.txt"
+    conflicting_dir = root / "webscraper-manager"
+    manager_deps_missing: list[str] = []
+
+    for module in MANAGER_RUNTIME_MODULES:
+        try:
+            __import__(module)
+        except ImportError:
+            manager_deps_missing.append(module)
+
+    if manager_deps_missing:
+        dep_ok = False
+        dep_details = f"Missing imports: {', '.join(manager_deps_missing)}"
+    else:
+        dep_ok = True
+        dep_details = "All manager runtime dependencies importable"
+
+    preferred_pip_check_ok = True
+    preferred_pip_check_details = "Skipped: preferred webscraper python not found"
+    if preferred_python.is_file():
+        cmd = [str(preferred_python), "-m", "pip", "check"]
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=20, check=False)
+            output = (completed.stdout or completed.stderr or "").strip()
+            preferred_pip_check_ok = completed.returncode == 0
+            preferred_pip_check_details = output or ("pip check passed" if preferred_pip_check_ok else "pip check failed")
+        except Exception as exc:
+            preferred_pip_check_ok = False
+            preferred_pip_check_details = f"pip check failed to run: {exc}"
+
+    import_probe_ok = True
+    import_probe_details = "Skipped: preferred webscraper python not found"
+    if preferred_python.is_file():
+        probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests"]
+        try:
+            probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=20, check=False)
+            import_probe_ok = probe.returncode == 0
+            if import_probe_ok:
+                import_probe_details = "selenium/bs4/lxml/requests import check passed"
+            else:
+                combined = (probe.stderr or probe.stdout or "import check failed").strip()
+                import_probe_details = combined.splitlines()[-1] if combined else "import check failed"
+        except Exception as exc:
+            import_probe_ok = False
+            import_probe_details = f"import check failed to run: {exc}"
 
     return [
         Finding("repo_root", root.exists(), f"Found repo root at {root}"),
+        Finding(
+            "manager_requirements",
+            manager_requirements.is_file(),
+            f"Expected file: {manager_requirements}",
+        ),
+        Finding(
+            "manager_venv_python",
+            manager_python.is_file(),
+            f"Expected file: {manager_python}",
+        ),
         Finding(
             "webscraper_dir",
             (root / "webscraper").is_dir(),
@@ -867,6 +924,30 @@ def _doctor_findings() -> list[Finding]:
         ),
         Finding("current_python", True, str(current_python)),
         Finding("preferred_python", True, str(preferred_python)),
+        Finding(
+            "preferred_python_exists",
+            preferred_python.is_file(),
+            f"Expected file: {preferred_python}",
+        ),
+        Finding("manager_runtime_deps", dep_ok, dep_details),
+        Finding(
+            "legacy_conflict_dir",
+            not conflicting_dir.exists(),
+            f"Conflicting legacy directory exists: {conflicting_dir}",
+            warning=conflicting_dir.exists(),
+        ),
+        Finding(
+            "webscraper_pip_check",
+            preferred_pip_check_ok,
+            preferred_pip_check_details,
+            warning=not preferred_pip_check_ok,
+        ),
+        Finding(
+            "webscraper_import_probe",
+            import_probe_ok,
+            import_probe_details,
+            warning=not import_probe_ok,
+        ),
         Finding(
             "python_matches_preferred",
             ok=matches_preferred,
@@ -1168,6 +1249,59 @@ def _run_fix_test_deps(state: AppState, timeout: int = 300) -> tuple[int, list[T
         print(f"Log file: {log_path}")
 
     return (EXIT_OK if step.ok else EXIT_TEST_FAILED), [step], log_path
+
+
+def _run_fix_deps(state: AppState, timeout: int = 300, run_pip_check: bool = True) -> tuple[int, list[TestStep], Path]:
+    _, _, day_dir = ensure_manager_dirs()
+    timestamp = datetime.now().strftime("%H%M%S")
+    log_path = day_dir / f"fix_deps_{timestamp}.log"
+    root = find_repo_root()
+    python_exe = get_runtime_python(state, root)
+    requirements_path = root / "webscraper_manager" / "requirements.txt"
+    steps: list[TestStep] = []
+    log_lines = ["command: fix deps", f"python: {python_exe}", f"requirements: {requirements_path}"]
+
+    if not requirements_path.is_file():
+        step = TestStep("fix deps", False, f"Missing requirements file: {requirements_path}", 0)
+        steps.append(step)
+        write_log(log_path, "\n".join(log_lines + [step.details]) + "\n")
+        if not state.quiet:
+            print(step.details)
+            print(f"Log file: {log_path}")
+        return EXIT_TEST_FAILED, steps, log_path
+
+    started = time.time()
+    install_cmd = [str(python_exe), "-m", "pip", "install", "-r", str(requirements_path)]
+    log_lines.append(f"subprocess: {' '.join(install_cmd)}")
+    rc, out, err = run_subprocess(install_cmd, cwd=root, timeout=timeout)
+    if out.strip():
+        log_lines.append(out.strip())
+    if err.strip():
+        log_lines.append(err.strip())
+    install_ok = rc == 0
+    steps.append(_make_step("fix deps", install_ok, "Installed manager requirements" if install_ok else f"pip install failed rc={rc}", started))
+
+    if install_ok and run_pip_check:
+        check_started = time.time()
+        check_cmd = [str(python_exe), "-m", "pip", "check"]
+        log_lines.append(f"subprocess: {' '.join(check_cmd)}")
+        check_rc, check_out, check_err = run_subprocess(check_cmd, cwd=root, timeout=timeout)
+        if check_out.strip():
+            log_lines.append(check_out.strip())
+        if check_err.strip():
+            log_lines.append(check_err.strip())
+        steps.append(_make_step("pip check", check_rc == 0, "pip check passed" if check_rc == 0 else f"pip check failed rc={check_rc}", check_started))
+
+    write_log(log_path, "\n".join(log_lines) + "\n")
+    overall_ok = all(step.ok for step in steps)
+    if not state.quiet:
+        print("fix deps completed." if overall_ok else "fix deps found issues.")
+        for step in steps:
+            status = "OK" if step.ok else "FAIL"
+            print(f"- {step.name}: {status} ({step.details})")
+        print(f"Log file: {log_path}")
+
+    return (EXIT_OK if overall_ok else EXIT_TEST_FAILED), steps, log_path
 
 
 def _run_import_probe_step(timeout: int, python_exe: Path, root: Path, verbose: bool) -> tuple[TestStep, str, list[str]]:
@@ -1801,7 +1935,8 @@ def _confirm_quit() -> bool:
 
 def render_menu(console: Console | None, state: AppState) -> None:
     _clear_screen(state)
-    print_banner(console)
+    menu_console = console if sys.stdout.isatty() else None
+    print_banner(menu_console)
     clear_status = "ON" if state.clear_screen else "OFF"
     pure_json_status = "ON" if state.pure_json_mode else "OFF"
     preferred_status = "ON" if state.use_preferred_python else "OFF"
@@ -1809,7 +1944,7 @@ def render_menu(console: Console | None, state: AppState) -> None:
     runtime_python = get_runtime_python(state, root)
     preferred_match = "YES" if runtime_python.resolve() == get_preferred_python(root).resolve() else "NO"
 
-    if console is None:
+    if menu_console is None:
         print(f"\nToggles: pure_json_mode: {pure_json_status} | clear: {clear_status} | use_preferred_python: {preferred_status}")
         print("\nMenu")
         print("[s] Start services")
@@ -1858,8 +1993,8 @@ def render_menu(console: Console | None, state: AppState) -> None:
     table.add_row("t", "Toggle pure JSON mode", f"Currently: {pure_json_status}")
     table.add_row("p", "Toggle use preferred python", f"Currently: {preferred_status}")
     table.add_row("q", "Quit", "Exit menu (with confirmation)")
-    console.print(table)
-    console.print(f"[bright_black]python: {runtime_python.name} (preferred: {preferred_match})[/bright_black]")
+    menu_console.print(table)
+    menu_console.print(f"[bright_black]python: {runtime_python.name} (preferred: {preferred_match})[/bright_black]")
 
 
 def _run_menu_action(console: Console | None, state: AppState, choice: str) -> int:
@@ -2222,6 +2357,18 @@ if TYPER_AVAILABLE:
         code, _, _ = _run_fix_test_deps(state, timeout=timeout)
         raise typer.Exit(code)
 
+    @fix_app.command("deps")
+    def fix_deps(
+        ctx: typer.Context,
+        timeout: int = typer.Option(300, "--timeout", min=1, help="Timeout in seconds for pip commands."),
+        no_check: bool = typer.Option(False, "--no-check", help="Skip pip check after install."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        code, _, _ = _run_fix_deps(state, timeout=timeout, run_pip_check=not no_check)
+        raise typer.Exit(code)
+
     app.add_typer(fix_app, name="fix")
 
     @app.command()
@@ -2297,6 +2444,11 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     fix_test_deps_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds")
     fix_test_deps_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     fix_test_deps_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    fix_deps_parser = fix_subparsers.add_parser("deps", help="Install manager dependencies from requirements.txt")
+    fix_deps_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds")
+    fix_deps_parser.add_argument("--no-check", action="store_true", help="Skip pip check")
+    fix_deps_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    fix_deps_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     root.add_argument("--quiet", action="store_true", help="Minimal output")
     root.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -2369,6 +2521,10 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
         if args.fix_command == "test-deps":
             state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
             code, _, _ = _run_fix_test_deps(state, timeout=int(args.timeout))
+            return code
+        if args.fix_command == "deps":
+            state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+            code, _, _ = _run_fix_deps(state, timeout=int(args.timeout), run_pip_check=not bool(args.no_check))
             return code
         fix_parser.print_help()
         return EXIT_USAGE
