@@ -856,6 +856,7 @@ def _doctor_findings() -> list[Finding]:
     run_hint = f"Run with: {preferred_python} -m webscraper_manager ..."
     manager_requirements = root / "webscraper_manager" / "requirements.txt"
     conflicting_dir = root / "webscraper-manager"
+    conflicting_dir_exists = conflicting_dir.exists()
     manager_deps_missing: list[str] = []
 
     for module in MANAGER_RUNTIME_MODULES:
@@ -932,9 +933,13 @@ def _doctor_findings() -> list[Finding]:
         Finding("manager_runtime_deps", dep_ok, dep_details),
         Finding(
             "legacy_conflict_dir",
-            not conflicting_dir.exists(),
-            f"Conflicting legacy directory exists: {conflicting_dir}",
-            warning=conflicting_dir.exists(),
+            not conflicting_dir_exists,
+            (
+                f"Conflicting legacy directory exists: {conflicting_dir} (rename or delete to avoid ambiguity)"
+                if conflicting_dir_exists
+                else "No conflicting legacy directory found"
+            ),
+            warning=conflicting_dir_exists,
         ),
         Finding(
             "webscraper_pip_check",
