@@ -2282,7 +2282,7 @@ def selenium_scrape_tickets(
 
             logged_in_after_import = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
             if not logged_in_after_import:
-                raise RuntimeError("Not authenticated. Import cookies in the Web UI (Auth) and retry.")
+                raise RuntimeError("Not authenticated for secure.123.net (missing cookies or expired session).")
 
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
@@ -2514,7 +2514,7 @@ def selenium_scrape_tickets(
                         pass
                     if not (secure_ok or noc_ok):
                         print("[AUTH] Imported cookie fallback unavailable or failed.")
-                        raise RuntimeError("Not authenticated. Import cookies in the Web UI (Auth) and retry.")
+                        raise RuntimeError("Not authenticated for secure.123.net (missing cookies or expired session).")
                     if meta.get("applied", 0) > 0:
                         print("Imported cookie auth succeeded")
                 else:

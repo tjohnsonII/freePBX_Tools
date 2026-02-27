@@ -117,6 +117,19 @@ def ensure_indexes(db_path: str) -> None:
                     message TEXT,
                     data_json TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS auth_cookies(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    path TEXT NOT NULL DEFAULT '/',
+                    secure INTEGER NOT NULL DEFAULT 0,
+                    http_only INTEGER NOT NULL DEFAULT 0,
+                    expires_utc TEXT,
+                    same_site TEXT,
+                    created_utc TEXT NOT NULL
+                );
                 """
             )
 
@@ -187,6 +200,7 @@ def ensure_indexes(db_path: str) -> None:
                 CREATE INDEX IF NOT EXISTS idx_scrape_jobs_created ON scrape_jobs(created_utc DESC);
                 CREATE INDEX IF NOT EXISTS idx_scrape_events_job_id ON scrape_job_events(job_id, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);
+                CREATE INDEX IF NOT EXISTS idx_auth_cookies_domain_name ON auth_cookies(domain, name);
                 """
             )
 
@@ -534,6 +548,70 @@ def get_artifacts(db_path: str, ticket_id: str, handle: str) -> list[dict[str, A
         except sqlite3.OperationalError:
             return []
     return [dict(r) for r in rows]
+
+
+def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_utc: str) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("DELETE FROM auth_cookies")
+            for cookie in cookies:
+                conn.execute(
+                    """
+                    INSERT INTO auth_cookies(domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        cookie.get("domain"),
+                        cookie.get("name"),
+                        cookie.get("value"),
+                        cookie.get("path") or "/",
+                        1 if cookie.get("secure") else 0,
+                        1 if cookie.get("httpOnly") else 0,
+                        cookie.get("expires_utc"),
+                        cookie.get("sameSite"),
+                        created_utc,
+                    ),
+                )
+
+
+def clear_auth_cookies(db_path: str) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("DELETE FROM auth_cookies")
+
+
+def get_auth_cookies(db_path: str) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc FROM auth_cookies ORDER BY id ASC"
+        ).fetchall()
+    return [
+        {
+            "domain": str(row["domain"]),
+            "name": str(row["name"]),
+            "value": str(row["value"]),
+            "path": str(row["path"] or "/"),
+            "secure": bool(row["secure"]),
+            "httpOnly": bool(row["http_only"]),
+            "expires_utc": row["expires_utc"],
+            "sameSite": row["same_site"],
+            "created_utc": row["created_utc"],
+        }
+        for row in rows
+    ]
+
+
+def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS count, MAX(created_utc) AS created_utc FROM auth_cookies"
+        ).fetchone()
+        domains = conn.execute("SELECT DISTINCT domain FROM auth_cookies ORDER BY domain ASC").fetchall()
+    return {
+        "count": int(row["count"] if row else 0),
+        "domains": [str(item["domain"]) for item in domains],
+        "created_utc": row["created_utc"] if row else None,
+    }
 
 
 def get_stats(db_path: str) -> dict[str, Any]:

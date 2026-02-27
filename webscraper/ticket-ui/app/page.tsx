@@ -7,6 +7,7 @@ import { ApiRequestError, apiBaseInfo, apiGet, apiPost, apiPostText } from "../l
 type Ticket = { ticket_id: string; title?: string; subject?: string; status?: string; updated_utc?: string };
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
+type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
 type JobStatus = {
   job_id: string;
   status: string;
@@ -30,6 +31,7 @@ export default function HandlesPage() {
   const apiInfo = useMemo(() => apiBaseInfo(), []);
   const [search, setSearch] = useState("");
   const [handles, setHandles] = useState<string[]>([]);
+  const [handleRows, setHandleRows] = useState<HandleRow[]>([]);
   const [selectedHandle, setSelectedHandle] = useState("");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -45,6 +47,8 @@ export default function HandlesPage() {
     const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
     const names = Array.isArray(res?.items) ? res.items : [];
     setHandles(names);
+    const table = await apiGet<{ items: HandleRow[] }>(`/api/handles?limit=1000&offset=0`);
+    setHandleRows(Array.isArray(table?.items) ? table.items : []);
     if (!selectedHandle && names.length) setSelectedHandle(names[0]);
   };
 
@@ -214,6 +218,30 @@ export default function HandlesPage() {
           {jobStatus.error_message && <p style={{ color: "#a22" }}>{jobStatus.error_message}</p>}
         </section>
       )}
+
+
+      <section style={{ marginTop: 14 }}>
+        <h3>Handles</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {handleRows.map((row) => (
+              <tr key={row.handle}>
+                <td>{row.handle}</td>
+                <td>{row.status || "-"}</td>
+                <td>{row.error || "-"}</td>
+                <td>{row.last_updated_utc || "-"}</td>
+                <td>{row.ticket_count ?? 0}</td>
+                <td><button onClick={() => setSelectedHandle(row.handle)}>Select</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       <h2>{selectedHandle ? `Tickets for ${selectedHandle}` : "Select a handle"}</h2>
       <table>
