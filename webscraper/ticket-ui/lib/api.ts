@@ -23,12 +23,13 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 30000);
   try {
+    const hasContentType = Boolean(options.headers && new Headers(options.headers).has("Content-Type"));
     const res = await fetch(`${BASE}${path}`, {
       cache: "no-store",
       ...options,
       signal: controller.signal,
       headers: {
-        "Content-Type": "application/json",
+        ...(hasContentType ? {} : { "Content-Type": "application/json" }),
         ...(options.headers || {}),
       },
     });
@@ -93,4 +94,9 @@ export function apiBaseInfo(): { browserBase: string; proxyTarget: string } {
 
 export function getLastApiCall() {
   return lastApiCall;
+}
+
+
+export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body, headers: {} });
 }
