@@ -150,7 +150,17 @@ def _load_services_config(root: Path) -> dict[str, Any]:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if not config_path.exists():
         config_path.write_text(json.dumps(_default_services_config(root), indent=2) + "\n", encoding="utf-8")
-    return json.loads(config_path.read_text(encoding="utf-8"))
+    services_cfg = json.loads(config_path.read_text(encoding="utf-8"))
+
+    # Compatibility migration: historical config used "webscraper-ui" at repo root.
+    ui_cfg = services_cfg.get("ui") if isinstance(services_cfg, dict) else None
+    if isinstance(ui_cfg, dict):
+        ui_cwd = str(ui_cfg.get("cwd", "")).strip().replace("\\", "/")
+        if ui_cwd == "webscraper-ui":
+            ui_cfg["cwd"] = "webscraper/ticket-ui"
+            config_path.write_text(json.dumps(services_cfg, indent=2) + "\n", encoding="utf-8")
+
+    return services_cfg
 
 
 def _load_run_state(root: Path) -> dict[str, Any]:
@@ -315,7 +325,7 @@ def _is_service_enabled(name: str, cfg: dict[str, Any]) -> bool:
 
 def _normalize_service_selector(service: str | None) -> list[str]:
     valid = ("api", "ui", "worker")
-    if service is None:
+    if service is None or service == "all":
         return list(valid)
     if service not in valid:
         raise ValueError(f"Unsupported service '{service}'. Choose one of: {', '.join(valid)}")
@@ -386,6 +396,8 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
     summary: list[str] = []
 
     failed_services: list[str] = []
+    all_services_mode = service in (None, "all")
+    api_failed = False
 
     try:
         selected_services = _normalize_service_selector(service)
@@ -428,15 +440,25 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
             if not cmd:
                 summary.append(f"{service_name}: missing cmd")
                 failed_services.append(service_name)
+                if service_name == "api":
+                    api_failed = True
                 continue
             if cmd[0] in {"python", "py", "python3"}:
                 cmd[0] = str(preferred_python)
             cwd = _resolve_service_cwd(root, cfg)
 
         if not cwd.exists():
-            summary.append(f"{service_name}: cwd not found ({cwd})")
+            if service_name == "ui":
+                summary.append(
+                    f"ui: UI working directory not found at {cwd}. "
+                    "Set ui.cwd to 'webscraper/ticket-ui' in .webscraper_manager/services.json"
+                )
+            else:
+                summary.append(f"{service_name}: cwd not found ({cwd})")
             run_state.pop(service_name, None)
             failed_services.append(service_name)
+            if service_name == "api":
+                api_failed = True
             continue
 
         log_path = day_dir / f"{service_name}_{datetime.now().strftime('%H%M%S')}.log"
@@ -477,6 +499,8 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
             summary.append(f"{service_name}: cleanup after failed readiness ({detail if ok else detail})")
             run_state.pop(service_name, None)
             failed_services.append(service_name)
+            if service_name == "api":
+                api_failed = True
             continue
 
     _save_run_state(root, run_state)
@@ -487,6 +511,10 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
     elif not state.quiet:
         for row in summary:
             print(row)
+    if all_services_mode:
+        if api_failed:
+            return EXIT_SERVICES_UNHEALTHY
+        return EXIT_OK
     return EXIT_OK if not failed_services else EXIT_SERVICES_UNHEALTHY
 
 
@@ -2268,6 +2296,9 @@ if TYPER_AVAILABLE:
     app = typer.Typer(help="Manage webscraper workflows", no_args_is_help=True)
     test_app = typer.Typer(help="Run webscraper test suites", no_args_is_help=True)
     fix_app = typer.Typer(help="Fix common environment issues", no_args_is_help=True)
+    start_app = typer.Typer(help="Start managed services", invoke_without_command=True, no_args_is_help=False)
+    stop_app = typer.Typer(help="Stop managed services", invoke_without_command=True, no_args_is_help=False)
+    status_app = typer.Typer(help="Show managed service status", invoke_without_command=True, no_args_is_help=False)
 
     def _version_callback(value: bool) -> None:
         if not value:
@@ -2316,35 +2347,123 @@ if TYPER_AVAILABLE:
         if code:
             raise typer.Exit(code)
 
-    @app.command()
-    def start(
+    @start_app.callback()
+    def start_default(
         ctx: typer.Context,
-        service: str | None = typer.Argument(None, help="Optional service target: api|ui|worker"),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
+        if ctx.invoked_subcommand is not None:
+            return
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        raise typer.Exit(_start_services(state, get_console(state), service=service))
+        raise typer.Exit(_start_services(state, get_console(state), service="all"))
 
-    @app.command()
-    def stop(
+    @start_app.command("all")
+    def start_all(
         ctx: typer.Context,
-        service: str | None = typer.Argument(None, help="Optional service target: api|ui|worker"),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        raise typer.Exit(_stop_services(state, get_console(state), service=service))
+        raise typer.Exit(_start_services(state, get_console(state), service="all"))
 
-    @app.command()
-    def status(
+    @start_app.command("api")
+    def start_api(
         ctx: typer.Context,
-        service: str | None = typer.Argument(None, help="Optional service target: api|ui|worker"),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        raise typer.Exit(_print_service_status(state, get_console(state), service=service))
+        raise typer.Exit(_start_services(state, get_console(state), service="api"))
+
+    @start_app.command("ui")
+    def start_ui(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_start_services(state, get_console(state), service="ui"))
+
+    @stop_app.callback()
+    def stop_default(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        if ctx.invoked_subcommand is not None:
+            return
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_services(state, get_console(state), service="all"))
+
+    @stop_app.command("all")
+    def stop_all(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_services(state, get_console(state), service="all"))
+
+    @stop_app.command("api")
+    def stop_api(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_services(state, get_console(state), service="api"))
+
+    @stop_app.command("ui")
+    def stop_ui(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_services(state, get_console(state), service="ui"))
+
+    @status_app.callback()
+    def status_default(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        if ctx.invoked_subcommand is not None:
+            return
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_print_service_status(state, get_console(state), service="all"))
+
+    @status_app.command("all")
+    def status_all(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_print_service_status(state, get_console(state), service="all"))
+
+    @status_app.command("api")
+    def status_api(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_print_service_status(state, get_console(state), service="api"))
+
+    @status_app.command("ui")
+    def status_ui(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_print_service_status(state, get_console(state), service="ui"))
+
+    app.add_typer(start_app, name="start")
+    app.add_typer(stop_app, name="stop")
+    app.add_typer(status_app, name="status")
 
     @app.command()
     def restart(
@@ -2470,7 +2589,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     for svc_cmd in ("start", "stop", "status", "restart"):
         svc_parser = subparsers.add_parser(svc_cmd, help=f"{svc_cmd.capitalize()} managed services")
         if svc_cmd in {"start", "stop", "status"}:
-            svc_parser.add_argument("service", nargs="?", choices=["api", "ui", "worker"], help="Optional service target")
+            svc_parser.add_argument("service", nargs="?", choices=["all", "api", "ui", "worker"], help="Optional service target")
         svc_parser.add_argument("--quiet", action="store_true", help="Minimal output")
         svc_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
