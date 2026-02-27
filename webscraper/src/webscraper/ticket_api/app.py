@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -100,7 +101,7 @@ def _auth_error_from_output(lines: list[str]) -> str | None:
     for line in lines:
         lowered = line.lower()
         if any(marker in lowered for marker in auth_markers):
-            return "Not authenticated. Import cookies in UI and retry."
+            return "Not authenticated. Import cookies in the Web UI (Auth) and retry."
     return None
 
 
@@ -139,8 +140,8 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
             _log(f"[{handle}] {cleaned}", job_id=job.job_id)
             if "Attempting imported cookie auth" in cleaned:
                 _append_event("info", "Attempting imported cookie auth", handle=handle, job_id=job.job_id)
-            elif "Imported cookie auth successful" in cleaned:
-                _append_event("info", "Imported cookie auth successful", handle=handle, job_id=job.job_id)
+            elif "Imported cookie auth successful" in cleaned or "Imported cookie auth succeeded" in cleaned:
+                _append_event("info", "Imported cookie auth succeeded", handle=handle, job_id=job.job_id)
             elif "Imported cookie auth failed" in cleaned:
                 _append_event("warning", "Imported cookie auth failed", handle=handle, job_id=job.job_id)
         if "[ERROR]" in cleaned:

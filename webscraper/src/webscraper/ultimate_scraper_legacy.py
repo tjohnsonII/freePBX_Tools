@@ -42,7 +42,7 @@ from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_ex
 from webscraper.errors import EdgeStartupError
 from webscraper.cli.attach_parsing import normalize_attach_args
 from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
-from webscraper.auth.imported_cookies import load_imported_cookies
+from webscraper.auth.inject_cookies import inject_imported_cookies
 from webscraper.utils.schema import validate_tickets_all
 
 if __package__ in (None, ""):
@@ -1108,68 +1108,14 @@ def load_cookies_json(driver: Any, path: str) -> bool:
         return False
 
 
-def try_imported_cookie_auth(driver: Any, base_url: str) -> bool:
-    cookies_payload = load_imported_cookies()
-    if not cookies_payload:
-        return False
-
-    domain_set = sorted({str(item.get("domain") or "").lstrip(".") for item in cookies_payload if isinstance(item, dict) and item.get("domain")})
-    print(f"[AUTH] Attempting imported cookie auth (cookies={len(cookies_payload)} domains={','.join(domain_set)})")
+def try_imported_cookie_auth(driver: Any, base_urls: list[str]) -> dict[str, Any]:
     print("Attempting imported cookie auth")
-    try:
-        driver.get(base_url)
-    except Exception:
-        pass
-
-    current_host = _url_host(getattr(driver, "current_url", "") or base_url)
-    added = 0
-    for item in cookies_payload:
-        if not isinstance(item, dict):
-            continue
-        domain = str(item.get("domain") or "")
-        normalized_domain = domain.lstrip(".").lower()
-        if normalized_domain and current_host and normalized_domain not in current_host:
-            continue
-        name = str(item.get("name") or "").strip()
-        value = str(item.get("value") or "")
-        if not name or not value:
-            continue
-        cookie: dict[str, Any] = {
-            "name": name,
-            "value": value,
-            "domain": domain,
-            "path": str(item.get("path") or "/"),
-        }
-        for bool_key in ("secure", "httpOnly"):
-            if bool_key in item:
-                cookie[bool_key] = bool(item.get(bool_key))
-        raw_expiry = item.get("expiry", item.get("expirationDate", item.get("expires")))
-        if raw_expiry not in (None, ""):
-            try:
-                cookie["expiry"] = int(float(raw_expiry))
-            except Exception:
-                pass
-        try:
-            driver.add_cookie(cookie)
-            added += 1
-        except Exception:
-            continue
-
-    if added <= 0:
-        print("Imported cookie auth failed")
-        return False
-
-    try:
-        driver.refresh()
-    except Exception:
-        pass
-
-    logged_in = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
-    if logged_in:
-        print("Imported cookie auth successful")
-        return True
-    print("Imported cookie auth failed")
-    return False
+    meta = inject_imported_cookies(driver, base_urls)
+    print(
+        f"Imported cookie auth applied={meta.get('applied', 0)} skipped={meta.get('skipped', 0)} errors={meta.get('errors', 0)} "
+        f"domains={len(meta.get('domains') or [])} hosts={len(meta.get('hosts') or [])}"
+    )
+    return meta
 
 
 def _write_text(path: str, text: str) -> None:
@@ -2309,11 +2255,34 @@ def selenium_scrape_tickets(
             if force_imported or not logged_in:
                 if not logged_in:
                     print("[AUTH] Primary auth check failed; trying imported cookie auth fallback.")
-                try_imported_cookie_auth(driver, effective_auth_url or effective_target_url)
+                meta = try_imported_cookie_auth(
+                    driver,
+                    [
+                        "https://secure.123.net/",
+                        "https://noc-tickets.123.net/",
+                        "http://10.123.203.1/",
+                    ],
+                )
+                secure_ok = False
+                noc_ok = False
+                try:
+                    driver.get("https://secure.123.net/")
+                    secure_ok = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+                except Exception:
+                    pass
+                try:
+                    driver.get("https://noc-tickets.123.net/")
+                    noc_ok = "noc-tickets.123.net" in ((driver.current_url or "").lower()) and not _is_login_redirect(driver)
+                except Exception:
+                    pass
+                if secure_ok or noc_ok:
+                    print("Imported cookie auth succeeded")
+                else:
+                    print("Imported cookie auth failed")
 
             logged_in_after_import = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
             if not logged_in_after_import:
-                raise RuntimeError("Not authenticated. Import cookies in UI and retry.")
+                raise RuntimeError("Not authenticated. Import cookies in the Web UI (Auth) and retry.")
 
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
@@ -2523,9 +2492,31 @@ def selenium_scrape_tickets(
                         print(f"[AUTH] {auth_result.reason}")
                     print("[AUTH] Auth orchestration failed; attempting imported cookie fallback.")
                     initialize_driver()
-                    if not try_imported_cookie_auth(driver, effective_auth_url or effective_target_url):
+                    meta = try_imported_cookie_auth(
+                        driver,
+                        [
+                            "https://secure.123.net/",
+                            "https://noc-tickets.123.net/",
+                            "http://10.123.203.1/",
+                        ],
+                    )
+                    secure_ok = False
+                    noc_ok = False
+                    try:
+                        driver.get("https://secure.123.net/")
+                        secure_ok = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+                    except Exception:
+                        pass
+                    try:
+                        driver.get("https://noc-tickets.123.net/")
+                        noc_ok = "noc-tickets.123.net" in ((driver.current_url or "").lower()) and not _is_login_redirect(driver)
+                    except Exception:
+                        pass
+                    if not (secure_ok or noc_ok):
                         print("[AUTH] Imported cookie fallback unavailable or failed.")
-                        raise RuntimeError("Not authenticated. Import cookies in UI and retry.")
+                        raise RuntimeError("Not authenticated. Import cookies in the Web UI (Auth) and retry.")
+                    if meta.get("applied", 0) > 0:
+                        print("Imported cookie auth succeeded")
                 else:
                     driver = cast("webdriver.Edge", auth_result.driver)
                     created_browser = True

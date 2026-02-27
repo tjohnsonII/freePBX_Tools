@@ -28,8 +28,14 @@ def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
         name = str(item.get("name") or "").strip()
         value = str(item.get("value") or "")
         domain = str(item.get("domain") or "").strip()
-        if not name or not value or not domain:
-            raise ValueError(f"Cookie at index {idx} missing required fields: name/value/domain")
+        if not domain:
+            host_only = item.get("hostOnly") or item.get("host")
+            if isinstance(host_only, str) and host_only.strip():
+                domain = host_only.strip()
+        if not name or not value:
+            raise ValueError(f"Cookie at index {idx} missing required fields: name/value")
+        if not domain:
+            raise ValueError(f"Cookie at index {idx} missing required fields: domain/hostOnly")
 
         cookie: dict[str, Any] = {
             "name": name,
@@ -50,7 +56,11 @@ def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
                 cookie["expiry"] = int(float(raw_expiry))
             except Exception:
                 pass
-        normalized.append(cookie)
+        normalized.append({
+            key: cookie[key]
+            for key in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expiry")
+            if key in cookie
+        })
     return normalized
 
 
