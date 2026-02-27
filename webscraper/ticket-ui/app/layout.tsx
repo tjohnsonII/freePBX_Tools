@@ -7,7 +7,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <header>
           <h1>Ticket History</h1>
-          <nav><Link href="/">Handles</Link></nav>
+          <nav><Link href="/">Handles</Link> | <Link href="/auth">Auth</Link></nav>
         </header>
         {children}
       </body>
