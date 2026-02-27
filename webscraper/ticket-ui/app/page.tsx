@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import HandleDropdown from "./components/HandleDropdown";
-import { ApiRequestError, apiBaseInfo, apiGet, apiPost } from "../lib/api";
+import { ApiRequestError, apiBaseInfo, apiGet, apiPost, apiPostText } from "../lib/api";
 
 type Ticket = { ticket_id: string; title?: string; subject?: string; status?: string; updated_utc?: string };
 type TicketResponse = { items: Ticket[]; totalCount: number };
@@ -17,7 +17,7 @@ type JobStatus = {
   error_message?: string;
 };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
-type AuthStatus = { hasImportedCookies: boolean; count: number; domains: string[]; stored_utc: string | null };
+type AuthStatus = { count: number; domains: string[]; stored_utc: string | null };
 
 const AUTH_ERROR = "Not authenticated. Import cookies in the Web UI (Auth) and retry.";
 
@@ -98,14 +98,26 @@ export default function HandlesPage() {
   const saveImportedCookies = async () => {
     setError(null);
     setAuthMessage(null);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cookieJson);
-    } catch {
-      setError("Cookies must be valid JSON.");
+    const trimmed = cookieJson.trim();
+    if (!trimmed) {
+      setError("Paste cookie data first.");
       return;
     }
-    const saved = await apiPost<AuthStatus>("/api/auth/import-cookies", parsed);
+
+    let saved: AuthStatus;
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        setError("Cookies must be valid JSON.");
+        return;
+      }
+      saved = await apiPost<{ ok: boolean } & AuthStatus>("/api/auth/import-cookies", parsed);
+    } else {
+      saved = await apiPostText<{ ok: boolean } & AuthStatus>("/api/auth/import-cookies", cookieJson, "text/plain");
+    }
+
     await loadAuthStatus();
     setAuthMessage(`Saved ${saved.count} cookies for domains: ${saved.domains.join(", ") || "-"}`);
     setCookieJson("");
@@ -164,14 +176,14 @@ export default function HandlesPage() {
           Status:{" "}
           <span
             style={{
-              background: authStatus?.hasImportedCookies ? "#d1fae5" : "#fee2e2",
-              color: authStatus?.hasImportedCookies ? "#065f46" : "#7f1d1d",
+              background: (authStatus?.count || 0) > 0 ? "#d1fae5" : "#fee2e2",
+              color: (authStatus?.count || 0) > 0 ? "#065f46" : "#7f1d1d",
               padding: "4px 8px",
               borderRadius: "999px",
               fontWeight: 600,
             }}
           >
-            {authStatus?.hasImportedCookies ? "Ready" : "No Imported Cookies"}
+            {(authStatus?.count || 0) > 0 ? "Ready" : "No Imported Cookies"}
           </span>
         </p>
         <p>
@@ -231,7 +243,8 @@ export default function HandlesPage() {
       {showImportModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "grid", placeItems: "center" }}>
           <div style={{ background: "#fff", width: "min(900px, 92vw)", padding: 16, borderRadius: 8 }}>
-            <h3>Import Cookies JSON</h3>
+            <h3>Import Cookies</h3>
+            <p>Paste JSON or Netscape cookie.txt format.</p>
             <textarea rows={16} style={{ width: "100%" }} value={cookieJson} onChange={(e) => setCookieJson(e.target.value)} />
             <div style={{ marginTop: 8 }}>
               <button onClick={saveImportedCookies}>Save</button>

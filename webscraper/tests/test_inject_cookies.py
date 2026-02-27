@@ -40,4 +40,5 @@ def test_inject_imported_cookies_domain_and_secure_filter(monkeypatch):
     assert "noc-tickets.123.net" in meta["hosts"]
     assert "10.123.203.1" in meta["hosts"]
     assert any(cookie["name"] == "d" for cookie in driver.cookies)
-    assert all(not (cookie["name"] == "c") for cookie in driver.cookies)
+    assert all(cookie["name"] != "c" for cookie in driver.cookies)
+    assert all(not cookie["domain"].startswith(".") for cookie in driver.cookies)

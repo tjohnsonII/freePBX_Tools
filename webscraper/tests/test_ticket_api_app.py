@@ -150,15 +150,23 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
 
-    monkeypatch.setattr(appmod, "save_imported_cookies", lambda payload: {"hasImportedCookies": True, "count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
-    monkeypatch.setattr(appmod, "get_imported_cookie_meta", lambda: {"hasImportedCookies": True, "count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
+    monkeypatch.setattr(appmod, "save_imported_cookies", lambda payload: {"count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
+    monkeypatch.setattr(appmod, "get_imported_cookie_meta", lambda: {"count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
     monkeypatch.setattr(appmod, "clear_imported_cookies", lambda: None)
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     import_response = client.post("/api/auth/import-cookies", json=[{"name": "sid", "value": "x", "domain": "secure.123.net"}])
     assert import_response.status_code == 200
-    assert import_response.json()["hasImportedCookies"] is True
+    assert import_response.json()["ok"] is True
+
+    import_text = client.post(
+        "/api/auth/import-cookies",
+        data=".secure.123.net	TRUE	/	TRUE	1730000000	sid	x",
+        headers={"content-type": "text/plain"},
+    )
+    assert import_text.status_code == 200
+    assert import_text.json()["ok"] is True
 
     status_response = client.get("/api/auth/status")
     assert status_response.status_code == 200

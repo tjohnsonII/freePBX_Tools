@@ -11,12 +11,20 @@ def _host_matches_domain(host: str, domain: str) -> bool:
     clean_domain = (domain or "").strip().lower()
     if not clean_host or not clean_domain:
         return False
-    domain_without_dot = clean_domain.lstrip(".")
-    return (
-        clean_domain == clean_host
-        or clean_domain == f".{clean_host}"
-        or clean_host.endswith(domain_without_dot)
-    )
+    cookie_domain = clean_domain.lstrip(".")
+    return clean_host == cookie_domain or clean_host.endswith(f".{cookie_domain}")
+
+
+def _selenium_cookie(cookie: dict[str, Any]) -> dict[str, Any]:
+    normalized_domain = str(cookie.get("domain") or "").strip().lstrip(".")
+    safe_cookie = {
+        key: cookie[key]
+        for key in ("name", "value", "path", "secure", "httpOnly", "expiry", "sameSite")
+        if key in cookie
+    }
+    if normalized_domain:
+        safe_cookie["domain"] = normalized_domain
+    return safe_cookie
 
 
 def inject_imported_cookies(driver: Any, base_urls: list[str]) -> dict[str, Any]:
@@ -41,19 +49,16 @@ def inject_imported_cookies(driver: Any, base_urls: list[str]) -> dict[str, Any]
             continue
 
         for cookie in cookies:
-            domain = str(cookie.get("domain") or "").strip().lower()
-            if not _host_matches_domain(host, domain):
+            raw_domain = str(cookie.get("domain") or "").strip().lower()
+            cookie_domain = raw_domain.lstrip(".")
+            if not _host_matches_domain(host, raw_domain):
                 skipped += 1
                 continue
             if scheme == "http" and bool(cookie.get("secure")):
                 skipped += 1
                 continue
-            safe_cookie = {
-                key: cookie[key]
-                for key in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expiry")
-                if key in cookie
-            }
-            domains.add(domain.lstrip("."))
+            safe_cookie = _selenium_cookie(cookie)
+            domains.add(cookie_domain)
             try:
                 driver.add_cookie(safe_cookie)
                 applied += 1

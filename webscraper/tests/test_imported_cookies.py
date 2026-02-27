@@ -29,6 +29,25 @@ def test_save_and_meta_roundtrip(tmp_path, monkeypatch):
     assert status["stored_utc"]
 
 
+def test_parse_cookie_input_supports_netscape():
+    payload = """
+# Netscape HTTP Cookie File
+.secure.123.net\tTRUE\t/\tTRUE\t1730000000\tsid\tsecret
+noc-tickets.123.net\tFALSE\t/tickets\tFALSE\t0\ttid\txyz
+badline
+""".strip()
+
+    cookies = imported_cookies.parse_cookie_input(payload)
+
+    assert len(cookies) == 2
+    assert cookies[0]["domain"] == ".secure.123.net"
+    assert cookies[0]["secure"] is True
+    assert cookies[0]["httpOnly"] is False
+    assert cookies[0]["expiry"] == 1730000000
+    assert cookies[1]["path"] == "/tickets"
+    assert "expiry" not in cookies[1]
+
+
 def test_invalid_cookie_payload_rejected(tmp_path, monkeypatch):
     store_path = tmp_path / "auth" / "imported_cookies.json"
     monkeypatch.setattr(imported_cookies, "_IMPORTED_COOKIES_PATH", store_path)

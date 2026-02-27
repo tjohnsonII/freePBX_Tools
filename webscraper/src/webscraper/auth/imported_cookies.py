@@ -14,10 +14,49 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
-    raw = payload
-    if isinstance(payload, dict):
-        raw = payload.get("cookies")
+def _normalize_cookie_item(item: dict[str, Any], idx: int) -> dict[str, Any]:
+    name = str(item.get("name") or "").strip()
+    value = str(item.get("value") or "")
+    domain = str(item.get("domain") or "").strip()
+    if not domain:
+        host_only = item.get("hostOnly") or item.get("host")
+        if isinstance(host_only, str) and host_only.strip():
+            domain = host_only.strip()
+    if not name or not value:
+        raise ValueError(f"Cookie at index {idx} missing required fields: name/value")
+    if not domain:
+        raise ValueError(f"Cookie at index {idx} missing required fields: domain/hostOnly")
+
+    cookie: dict[str, Any] = {
+        "name": name,
+        "value": value,
+        "domain": domain,
+        "path": str(item.get("path") or "/"),
+    }
+    for bool_key in ("secure", "httpOnly"):
+        if bool_key in item:
+            cookie[bool_key] = bool(item.get(bool_key))
+    same_site = item.get("sameSite")
+    if same_site is not None:
+        cookie["sameSite"] = same_site
+
+    raw_expiry = item.get("expiry", item.get("expirationDate", item.get("expires")))
+    if raw_expiry not in (None, ""):
+        try:
+            expiry = int(float(raw_expiry))
+            if expiry > 0:
+                cookie["expiry"] = expiry
+        except Exception:
+            pass
+
+    return {
+        key: cookie[key]
+        for key in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expiry")
+        if key in cookie
+    }
+
+
+def _parse_cookie_list(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         raise ValueError("Expected JSON array of cookies or {'cookies': [...]} payload")
 
@@ -25,43 +64,61 @@ def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
     for idx, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"Cookie at index {idx} must be an object")
-        name = str(item.get("name") or "").strip()
-        value = str(item.get("value") or "")
-        domain = str(item.get("domain") or "").strip()
-        if not domain:
-            host_only = item.get("hostOnly") or item.get("host")
-            if isinstance(host_only, str) and host_only.strip():
-                domain = host_only.strip()
-        if not name or not value:
-            raise ValueError(f"Cookie at index {idx} missing required fields: name/value")
-        if not domain:
-            raise ValueError(f"Cookie at index {idx} missing required fields: domain/hostOnly")
+        normalized.append(_normalize_cookie_item(item, idx))
+    return normalized
+
+
+def _parse_netscape_text(raw: str) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 7:
+            continue
+        domain, _, path, secure, expiration, name, value = parts[:7]
+        domain = domain.strip()
+        name = name.strip()
+        value = value.strip()
+        if not name or not value or not domain:
+            continue
 
         cookie: dict[str, Any] = {
             "name": name,
             "value": value,
             "domain": domain,
-            "path": str(item.get("path") or "/"),
+            "path": path.strip() or "/",
+            "secure": secure.strip().upper() == "TRUE",
+            "httpOnly": False,
         }
-        for bool_key in ("secure", "httpOnly"):
-            if bool_key in item:
-                cookie[bool_key] = bool(item.get(bool_key))
-        same_site = item.get("sameSite")
-        if same_site is not None:
-            cookie["sameSite"] = same_site
-
-        raw_expiry = item.get("expiry", item.get("expirationDate", item.get("expires")))
-        if raw_expiry not in (None, ""):
-            try:
-                cookie["expiry"] = int(float(raw_expiry))
-            except Exception:
-                pass
-        normalized.append({
-            key: cookie[key]
-            for key in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expiry")
-            if key in cookie
-        })
+        try:
+            expiry = int(expiration.strip())
+            if expiry > 0:
+                cookie["expiry"] = expiry
+        except Exception:
+            pass
+        normalized.append(cookie)
     return normalized
+
+
+def parse_cookie_input(raw: str | dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        return _parse_cookie_list(raw.get("cookies"))
+    if isinstance(raw, list):
+        return _parse_cookie_list(raw)
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("[") or stripped.startswith("{"):
+            try:
+                payload = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Invalid JSON cookie payload") from exc
+            return parse_cookie_input(payload)
+        return _parse_netscape_text(raw)
+    raise ValueError("Unsupported cookie payload type")
 
 
 def _cookie_metadata(cookies: list[dict[str, Any]], *, stored_utc: str | None) -> dict[str, Any]:
@@ -75,7 +132,7 @@ def _cookie_metadata(cookies: list[dict[str, Any]], *, stored_utc: str | None) -
 
 
 def save_imported_cookies(data: Any) -> dict[str, Any]:
-    cookies = _normalize_cookie_payload(data)
+    cookies = parse_cookie_input(data)
     stored_utc = _iso_now()
     _IMPORTED_COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     _IMPORTED_COOKIES_PATH.write_text(json.dumps({"stored_utc": stored_utc, "cookies": cookies}, indent=2), encoding="utf-8")

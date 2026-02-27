@@ -96,6 +96,12 @@ def _is_localhost_request(request: Request) -> bool:
     return host in LOCALHOST_ONLY
 
 
+def _auth_meta_response(meta: dict[str, Any]) -> dict[str, Any]:
+    count = int(meta.get("count") or 0)
+    domains = [str(domain) for domain in (meta.get("domains") or []) if str(domain).strip()]
+    return {"count": count, "domains": domains, "stored_utc": meta.get("stored_utc")}
+
+
 def _auth_error_from_output(lines: list[str]) -> str | None:
     auth_markers = ("not authenticated", "authentication failed", "login", "auth_required", "auth appears invalid")
     for line in lines:
@@ -425,20 +431,28 @@ def api_scrape_status(job_id: str | None = None):
 async def api_auth_import_cookies(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    payload = await request.json()
+
+    content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type == "application/json":
+        payload: Any = await request.json()
+    elif content_type in {"text/plain", "application/octet-stream", ""}:
+        payload = (await request.body()).decode("utf-8", errors="ignore")
+    else:
+        raise HTTPException(status_code=415, detail="Unsupported content type")
+
     try:
         meta = save_imported_cookies(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _append_event("info", f"Imported {meta['count']} auth cookies for {len(meta['domains'])} domains")
-    return meta
+    _append_event("info", f"Imported {meta['count']} auth cookies for domains={','.join(meta['domains']) or '-'}")
+    return {"ok": True, **_auth_meta_response(meta)}
 
 
 @app.get("/api/auth/status")
 def api_auth_status(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    return get_imported_cookie_meta()
+    return _auth_meta_response(get_imported_cookie_meta())
 
 
 @app.post("/api/auth/clear-cookies")

@@ -194,3 +194,6 @@ webscraper/ticket-ui/F5
 # webscraper-manager runtime state
 .webscraper_manager/
 webscraper/var/auth/imported_cookies.json
+
+# Imported auth cookies (local-only)
+imported_cookies.json

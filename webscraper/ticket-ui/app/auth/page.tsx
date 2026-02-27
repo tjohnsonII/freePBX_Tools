@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiPostText } from "../../lib/api";
 
 type AuthStatus = {
-  hasImportedCookies: boolean;
   count: number;
   domains: string[];
   stored_utc: string | null;
@@ -26,20 +25,23 @@ export default function AuthPage() {
 
   const saveCookies = async () => {
     setError(null);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cookieJson);
-    } catch {
-      setError("Cookies must be valid JSON.");
+    const trimmed = cookieJson.trim();
+    if (!trimmed) {
+      setError("Paste cookie data first.");
       return;
     }
-    const isArray = Array.isArray(parsed);
-    const wrapped = !!parsed && typeof parsed === "object" && Array.isArray((parsed as { cookies?: unknown }).cookies);
-    if (!isArray && !wrapped) {
-      setError("JSON must be an array of cookies or {\"cookies\":[...]}.");
-      return;
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        setError("Cookies must be valid JSON.");
+        return;
+      }
+      await apiPost<{ ok: boolean }>("/api/auth/import-cookies", parsed);
+    } else {
+      await apiPostText<{ ok: boolean }>("/api/auth/import-cookies", cookieJson, "text/plain");
     }
-    await apiPost<AuthStatus>("/api/auth/import-cookies", parsed);
     setCookieJson("");
     await refreshStatus();
   };
@@ -54,14 +56,14 @@ export default function AuthPage() {
     <main>
       <h2>Auth</h2>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
-      <p>Paste cookies JSON exported from your browser extension.</p>
+      <p>Paste cookies from browser extension (JSON or Netscape cookie.txt format).</p>
       <textarea rows={14} style={{ width: "100%" }} value={cookieJson} onChange={(e) => setCookieJson(e.target.value)} />
       <div>
         <button onClick={saveCookies}>Save Cookies</button>
         <button onClick={clearCookies}>Clear Cookies</button>
       </div>
       <h3>Auth status</h3>
-      <p>Imported cookies: {status?.hasImportedCookies ? "Yes" : "No"}</p>
+      <p>Imported cookies: {(status?.count || 0) > 0 ? "Yes" : "No"}</p>
       <p>Cookie count: {status?.count ?? 0}</p>
       <p>Domains: {(status?.domains || []).join(", ") || "-"}</p>
       <p>Stored UTC: {status?.stored_utc || "-"}</p>
