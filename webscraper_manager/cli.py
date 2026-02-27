@@ -855,8 +855,13 @@ def _doctor_findings() -> list[Finding]:
     matches_preferred = is_running_in_preferred_python(root)
     run_hint = f"Run with: {preferred_python} -m webscraper_manager ..."
     manager_requirements = root / "webscraper_manager" / "requirements.txt"
-    conflicting_dir = root / "webscraper-manager"
-    conflicting_dir_exists = conflicting_dir.exists()
+    legacy_manager_dir_candidates = [
+        root / "webscraper-manager",
+        root / "_legacy_webscraper_manager_old",
+        root / "webscraper-manager-old",
+        root / "webscraper_manager_old",
+    ]
+    existing_legacy_manager_dirs = [path for path in legacy_manager_dir_candidates if path.exists() and path.is_dir()]
     manager_deps_missing: list[str] = []
 
     for module in MANAGER_RUNTIME_MODULES:
@@ -932,14 +937,16 @@ def _doctor_findings() -> list[Finding]:
         ),
         Finding("manager_runtime_deps", dep_ok, dep_details),
         Finding(
-            "legacy_conflict_dir",
-            not conflicting_dir_exists,
+            "legacy_manager_dirs",
+            not existing_legacy_manager_dirs,
             (
-                f"Conflicting legacy directory exists: {conflicting_dir} (rename or delete to avoid ambiguity)"
-                if conflicting_dir_exists
-                else "No conflicting legacy directory found"
+                "No legacy/duplicate manager directories found"
+                if not existing_legacy_manager_dirs
+                else "Legacy/duplicate manager directory found: "
+                + "; ".join(str(path) for path in existing_legacy_manager_dirs)
+                + " (keep only webscraper_manager to avoid ambiguity)"
             ),
-            warning=conflicting_dir_exists,
+            warning=bool(existing_legacy_manager_dirs),
         ),
         Finding(
             "webscraper_pip_check",
