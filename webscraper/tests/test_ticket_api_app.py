@@ -167,3 +167,15 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
     clear_response = client.post("/api/auth/clear-cookies", json={})
     assert clear_response.status_code == 200
     assert clear_response.json()["ok"] is True
+
+
+def test_auth_cookie_endpoints_reject_non_localhost(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: False)
+
+    client = TestClient(appmod.app)
+    assert client.post("/api/auth/import-cookies", json=[]).status_code == 403
+    assert client.get("/api/auth/status").status_code == 403
+    assert client.post("/api/auth/clear-cookies", json={}).status_code == 403
