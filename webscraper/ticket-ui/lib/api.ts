@@ -76,6 +76,10 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return apiRequest<T>(path, { method: "POST", body: JSON.stringify(body) });
 }
 
+export async function apiPostText<T>(path: string, body: string, contentType = "text/plain"): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body, headers: { "Content-Type": contentType } });
+}
+
 export function artifactLink(path: string): string {
   return `${BASE}/api/artifacts?path=${encodeURIComponent(path)}`;
 }
