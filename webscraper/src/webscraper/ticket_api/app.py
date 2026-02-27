@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
-from webscraper.paths import runs_dir
+from webscraper.paths import runs_dir, var_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
 
@@ -40,8 +40,6 @@ class StartScrapeRequest(BaseModel):
 
 class BatchScrapeRequest(BaseModel):
     handles: list[str]
-    mode: str = "latest"
-    limit: int = 10
 
 
 @dataclass
@@ -57,6 +55,8 @@ class QueueJob:
 JOB_QUEUE: list[QueueJob] = []
 JOB_QUEUE_LOCK = threading.Lock()
 CURRENT_JOB_ID: str | None = None
+IMPORTED_COOKIES_PATH = var_dir() / "auth" / "imported_cookies.json"
+LOCALHOST_ONLY = {"127.0.0.1", "::1"}
 
 
 def db_path() -> str:
@@ -91,6 +91,54 @@ def _append_event(level: str, message: str, *, handle: str | None = None, job_id
     _log(message, job_id=job_id)
 
 
+def _is_localhost_request(request: Request) -> bool:
+    host = (request.client.host if request.client else "") or ""
+    return host in LOCALHOST_ONLY
+
+
+def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
+    raw = payload
+    if isinstance(payload, dict):
+        raw = payload.get("cookies")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="Expected JSON array of cookies or {'cookies': [...]} payload")
+
+    normalized: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail=f"Cookie at index {idx} must be an object")
+        name = str(item.get("name") or "").strip()
+        value = str(item.get("value") or "")
+        domain = str(item.get("domain") or "").strip()
+        if not name or not value or not domain:
+            raise HTTPException(status_code=400, detail=f"Cookie at index {idx} missing required fields: name/value/domain")
+        cookie = {
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": str(item.get("path") or "/"),
+        }
+        for key in ("secure", "httpOnly", "sameSite", "expiry", "expires", "expirationDate"):
+            if key in item and item.get(key) is not None:
+                cookie[key] = item.get(key)
+        normalized.append(cookie)
+    return normalized
+
+
+def _cookie_metadata(cookies: list[dict[str, Any]], *, stored_utc: str) -> dict[str, Any]:
+    domains = sorted({str(cookie.get("domain") or "").lstrip(".") for cookie in cookies if cookie.get("domain")})
+    return {"hasImportedCookies": bool(cookies), "count": len(cookies), "domains": domains, "stored_utc": stored_utc}
+
+
+def _auth_error_from_output(lines: list[str]) -> str | None:
+    auth_markers = ("not authenticated", "authentication failed", "login", "auth_required", "auth appears invalid")
+    for line in lines:
+        lowered = line.lower()
+        if any(marker in lowered for marker in auth_markers):
+            return "Not authenticated. Import cookies in UI Auth page and retry."
+    return None
+
+
 def _build_command(job: QueueJob, handle: str) -> list[str]:
     script = Path(__file__).resolve().parents[4] / "scripts" / "scrape_all_handles.py"
     out_dir = runs_dir() / job.run_id / handle
@@ -118,10 +166,18 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     assert proc.stdout is not None
     error_lines = 0
+    output_lines: list[str] = []
     for line in proc.stdout:
         cleaned = line.strip()
         if cleaned:
+            output_lines.append(cleaned)
             _log(f"[{handle}] {cleaned}", job_id=job.job_id)
+            if "Attempting imported cookie auth" in cleaned:
+                _append_event("info", "Attempting imported cookie auth", handle=handle, job_id=job.job_id)
+            elif "Imported cookie auth successful" in cleaned:
+                _append_event("info", "Imported cookie auth successful", handle=handle, job_id=job.job_id)
+            elif "Imported cookie auth failed" in cleaned:
+                _append_event("warning", "Imported cookie auth failed", handle=handle, job_id=job.job_id)
         if "[ERROR]" in cleaned:
             error_lines += 1
             _append_event("error", cleaned, handle=handle, job_id=job.job_id)
@@ -141,7 +197,7 @@ def _run_one_handle(job: QueueJob, handle: str) -> tuple[int, int]:
         )
         _append_event("info", f"Completed handle {handle}, total={total_for_handle}", handle=handle, job_id=job.job_id)
     else:
-        msg = f"scraper exit code {rc}"
+        msg = _auth_error_from_output(output_lines) or f"scraper exit code {rc}"
         db.update_handle_progress(
             db_path(),
             handle,
@@ -169,13 +225,12 @@ def _job_worker() -> None:
 
         completed = 0
         errors = 0
+        handles: list[str] = []
         try:
-            config, err = _get_required_env()
-            if err or not config:
-                raise RuntimeError(err or "Missing VPBX configuration")
-
-            handles: list[str]
             if job.refresh_handles:
+                config, err = _get_required_env()
+                if err or not config:
+                    raise RuntimeError(err or "Missing VPBX configuration")
                 discovered = _discover_handles(config, job.job_id)
                 handles = discovered if job.mode == "all" else [job.handle or ""]
             elif job.mode == "all":
@@ -233,88 +288,22 @@ def _job_worker() -> None:
             )
             _append_event("info", f"Job finished status={final_status}", job_id=job.job_id)
         except Exception as exc:
+            err_msg = str(exc)
+            if not err_msg:
+                err_msg = "Unhandled scrape error"
             db.update_scrape_job(
                 db_path(),
                 job.job_id,
                 status="failed",
                 progress_completed=completed,
-                progress_total=max(completed, 1),
+                progress_total=max(len(handles), completed, 1),
                 finished_utc=_iso_now(),
-                error_message=str(exc),
-                result={"error": str(exc)},
+                error_message=err_msg,
+                result={"error": err_msg},
             )
-            _append_event("error", f"Unhandled scrape exception: {exc}", job_id=job.job_id)
+            _append_event("error", f"Unhandled scrape exception: {err_msg}", job_id=job.job_id)
         finally:
             CURRENT_JOB_ID = None
-
-
-def _scrape_script_path() -> Path:
-    return Path(__file__).resolve().parents[4] / "scripts" / "scrape_all_handles.py"
-
-
-def _run_scrape_job(job_id: str, handle: str, mode: str, limit: int) -> None:
-    script = _scrape_script_path()
-    start_ts = _iso_now()
-    db.update_scrape_job(
-        db_path(),
-        job_id,
-        status="running",
-        progress_completed=0,
-        progress_total=1,
-        started_utc=start_ts,
-        error_message=None,
-    )
-    if not script.exists():
-        result = {
-            "status": "failed",
-            "errorType": "missing_script",
-            "error": f"Missing scraper script: {script}",
-            "logTail": [],
-        }
-        db.update_scrape_job(
-            db_path(),
-            job_id,
-            status="failed",
-            progress_completed=1,
-            progress_total=1,
-            finished_utc=_iso_now(),
-            error_message=result["error"],
-            result=result,
-        )
-        return
-
-    cmd = [sys.executable, str(script), "--db", db_path(), "--handles", handle, "--mode", mode, "--limit", str(limit)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
-    if proc.returncode == 0:
-        db.update_scrape_job(
-            db_path(),
-            job_id,
-            status="completed",
-            progress_completed=1,
-            progress_total=1,
-            finished_utc=_iso_now(),
-            error_message=None,
-            result={"status": "completed", "logTail": lines[-50:]},
-        )
-        return
-
-    result = {
-        "status": "failed",
-        "errorType": "scrape_failed",
-        "error": f"scraper exit code {proc.returncode}",
-        "logTail": lines[-50:],
-    }
-    db.update_scrape_job(
-        db_path(),
-        job_id,
-        status="failed",
-        progress_completed=1,
-        progress_total=1,
-        finished_utc=_iso_now(),
-        error_message=result["error"],
-        result=result,
-    )
 
 
 @app.middleware("http")
@@ -375,19 +364,23 @@ def api_scrape_batch(req: BatchScrapeRequest):
             db_path(),
             job_id=job_id,
             handle=handle,
-            mode=req.mode,
-            ticket_limit=req.limit,
+            mode="one",
+            ticket_limit=None,
             status="queued",
             created_utc=_iso_now(),
         )
-        worker = threading.Thread(target=_run_scrape_job, args=(job_id, handle, req.mode, req.limit), daemon=True)
-        worker.start()
+        with JOB_QUEUE_LOCK:
+            JOB_QUEUE.append(QueueJob(job_id=job_id, run_id=datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}", mode="one", handle=handle, rescrape=False, refresh_handles=False))
+        _append_event("info", "Queued scrape job from /api/scrape-batch", handle=handle, job_id=job_id)
     return {"status": "queued", "jobIds": job_ids}
 
 
 @app.get("/api/events/latest")
-def api_events_latest(limit: int = Query(default=50, ge=1, le=500)):
+def api_events_latest(limit: int = Query(default=50, ge=1, le=500), job_id: str | None = None):
     items = db.get_latest_events(db_path(), limit=limit)
+    if job_id:
+        items = [item for item in items if (item.get("meta") or {}).get("job_id") == job_id]
+        items = items[:limit]
     return {
         "items": [
             {
@@ -408,10 +401,11 @@ def api_scrape_start(req: StartScrapeRequest):
     if req.mode == "one" and not req.handle:
         raise HTTPException(status_code=400, detail="handle is required when mode='one'")
 
-    _, env_error = _get_required_env()
-    if env_error:
-        _append_event("error", env_error, handle=req.handle)
-        raise HTTPException(status_code=400, detail=env_error)
+    if req.refresh_handles:
+        _, env_error = _get_required_env()
+        if env_error:
+            _append_event("error", env_error, handle=req.handle)
+            raise HTTPException(status_code=400, detail=env_error)
 
     if req.mode == "one" and req.handle and not req.refresh_handles and not db.handle_exists(db_path(), req.handle):
         raise HTTPException(status_code=404, detail="handle not found in DB; run with refresh_handles=true first")
@@ -436,7 +430,12 @@ def api_scrape_start(req: StartScrapeRequest):
 
 
 @app.get("/api/scrape/status")
-def api_scrape_status(job_id: str):
+def api_scrape_status(job_id: str | None = None):
+    if not job_id:
+        latest = db.get_latest_scrape_job(db_path())
+        if not latest:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job_id = str(latest["job_id"])
     job = db.get_scrape_job(db_path(), job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -450,7 +449,47 @@ def api_scrape_status(job_id: str):
         "errors": int(result.get("errors") or 0),
         "started_utc": job.get("started_utc"),
         "finished_utc": job.get("finished_utc"),
+        "error_message": job.get("error_message"),
     }
+
+
+@app.post("/api/auth/import-cookies")
+async def api_auth_import_cookies(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    payload = await request.json()
+    cookies = _normalize_cookie_payload(payload)
+    stored_utc = _iso_now()
+    IMPORTED_COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    IMPORTED_COOKIES_PATH.write_text(json.dumps({"stored_utc": stored_utc, "cookies": cookies}, indent=2), encoding="utf-8")
+    meta = _cookie_metadata(cookies, stored_utc=stored_utc)
+    _append_event("info", f"Imported {meta['count']} auth cookies for {len(meta['domains'])} domains")
+    return meta
+
+
+@app.get("/api/auth/status")
+def api_auth_status():
+    if not IMPORTED_COOKIES_PATH.exists():
+        return {"hasImportedCookies": False, "count": 0, "domains": [], "stored_utc": None}
+    try:
+        payload = json.loads(IMPORTED_COOKIES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {"hasImportedCookies": False, "count": 0, "domains": [], "stored_utc": None}
+    cookies = payload.get("cookies") if isinstance(payload, dict) else payload
+    stored_utc = payload.get("stored_utc") if isinstance(payload, dict) else None
+    if not isinstance(cookies, list):
+        cookies = []
+    return _cookie_metadata([cookie for cookie in cookies if isinstance(cookie, dict)], stored_utc=stored_utc or _iso_now())
+
+
+@app.post("/api/auth/clear-cookies")
+def api_auth_clear_cookies(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    if IMPORTED_COOKIES_PATH.exists():
+        IMPORTED_COOKIES_PATH.unlink()
+    _append_event("info", "Cleared imported auth cookies")
+    return {"ok": True}
 
 
 @app.get("/api/handles/{handle}/latest")

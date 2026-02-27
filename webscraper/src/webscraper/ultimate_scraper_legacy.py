@@ -42,6 +42,7 @@ from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_ex
 from webscraper.errors import EdgeStartupError
 from webscraper.cli.attach_parsing import normalize_attach_args
 from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
+from webscraper.paths import var_dir
 from webscraper.utils.schema import validate_tickets_all
 
 if __package__ in (None, ""):
@@ -1105,6 +1106,84 @@ def load_cookies_json(driver: Any, path: str) -> bool:
     except Exception as e:
         print(f"[WARN] Cookie injection skipped: {e}")
         return False
+
+
+def _imported_cookies_file() -> str:
+    return str(var_dir() / "auth" / "imported_cookies.json")
+
+
+def try_imported_cookie_auth(driver: Any, base_url: str) -> bool:
+    cookie_path = _imported_cookies_file()
+    if not os.path.exists(cookie_path):
+        return False
+    try:
+        with open(cookie_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception as exc:
+        print(f"[WARN] Imported cookie auth unavailable: {exc}")
+        return False
+
+    cookies_payload = payload.get("cookies") if isinstance(payload, dict) else payload
+    if not isinstance(cookies_payload, list) or not cookies_payload:
+        return False
+
+    domain_set = sorted({str(item.get("domain") or "").lstrip(".") for item in cookies_payload if isinstance(item, dict) and item.get("domain")})
+    print(f"[AUTH] Attempting imported cookie auth (cookies={len(cookies_payload)} domains={','.join(domain_set)})")
+    print("Attempting imported cookie auth")
+    try:
+        driver.get(base_url)
+    except Exception:
+        pass
+
+    current_host = _url_host(getattr(driver, "current_url", "") or base_url)
+    added = 0
+    for item in cookies_payload:
+        if not isinstance(item, dict):
+            continue
+        domain = str(item.get("domain") or "")
+        normalized_domain = domain.lstrip(".").lower()
+        if normalized_domain and current_host and normalized_domain not in current_host:
+            continue
+        name = str(item.get("name") or "").strip()
+        value = str(item.get("value") or "")
+        if not name or not value:
+            continue
+        cookie: dict[str, Any] = {
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": str(item.get("path") or "/"),
+        }
+        for bool_key in ("secure", "httpOnly"):
+            if bool_key in item:
+                cookie[bool_key] = bool(item.get(bool_key))
+        raw_expiry = item.get("expiry", item.get("expirationDate", item.get("expires")))
+        if raw_expiry not in (None, ""):
+            try:
+                cookie["expiry"] = int(float(raw_expiry))
+            except Exception:
+                pass
+        try:
+            driver.add_cookie(cookie)
+            added += 1
+        except Exception:
+            continue
+
+    if added <= 0:
+        print("Imported cookie auth failed")
+        return False
+
+    try:
+        driver.refresh()
+    except Exception:
+        pass
+
+    logged_in = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+    if logged_in:
+        print("Imported cookie auth successful")
+        return True
+    print("Imported cookie auth failed")
+    return False
 
 
 def _write_text(path: str, text: str) -> None:
@@ -2239,6 +2318,13 @@ def selenium_scrape_tickets(
                     print("[INFO] Detected page content; continuing scrape.")
                 except Exception:
                     print("[WARN] Page still looks empty; proceeding but results may be blank.")
+            force_imported = os.environ.get("WEBSCRAPER_FORCE_IMPORTED_COOKIES", "").strip() == "1"
+            logged_in = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+            if force_imported or not logged_in:
+                if not logged_in:
+                    print("[AUTH] Primary auth check failed; trying imported cookie auth fallback.")
+                try_imported_cookie_auth(driver, effective_auth_url or effective_target_url)
+
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
             save_cookies_json(driver, cookies_path)
@@ -2398,6 +2484,7 @@ def selenium_scrape_tickets(
             auth_symbols = _resolve_auth_symbols()
             if not auth_symbols:
                 print("[WARN] Auth module unavailable; skipping auth orchestration.")
+                initialize_driver()
             else:
                 AuthContext, AuthMode, authenticate = auth_symbols
 
@@ -2444,11 +2531,16 @@ def selenium_scrape_tickets(
                         print(auth_result.need_user_input.get("message", "Authentication failed."))
                     if auth_result.reason:
                         print(f"[AUTH] {auth_result.reason}")
-                    return
-                driver = cast("webdriver.Edge", auth_result.driver)
-                created_browser = True
-                attach_mode = False
-                _post_auth_setup()
+                    print("[AUTH] Auth orchestration failed; attempting imported cookie fallback.")
+                    initialize_driver()
+                    if not try_imported_cookie_auth(driver, effective_auth_url or effective_target_url):
+                        print("[AUTH] Imported cookie fallback unavailable or failed.")
+                        return
+                else:
+                    driver = cast("webdriver.Edge", auth_result.driver)
+                    created_browser = True
+                    attach_mode = False
+                    _post_auth_setup()
         else:
             initialize_driver()
 
