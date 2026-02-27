@@ -122,27 +122,45 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
-
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
-    import_response = client.post("/api/auth/import", json=[{"name": "sid", "value": "x", "domain": "secure.123.net"}])
-    assert import_response.status_code == 200
-    assert import_response.json()["ok"] is True
 
-    import_text = client.post(
-        "/api/auth/import",
-        data=".secure.123.net	TRUE	/	TRUE	1730000000	sid	x",
-        headers={"content-type": "text/plain"},
+    missing_file = client.post("/api/auth/import-cookies", data={})
+    assert missing_file.status_code == 400
+    assert "detail" in missing_file.json()
+
+    bad_ext = client.post(
+        "/api/auth/import-cookies",
+        files={"file": ("cookies.csv", b"name,value", "text/csv")},
     )
-    assert import_text.status_code == 200
-    assert import_text.json()["ok"] is True
+    assert bad_ext.status_code == 400
+    assert "Unsupported file extension" in bad_ext.json()["detail"]
+
+    unmatched = client.post(
+        "/api/auth/import-cookies",
+        files={"file": ("cookies.json", b'[{"name":"sid","value":"x","domain":"example.com"}]', "application/json")},
+    )
+    assert unmatched.status_code == 400
+    assert "0 matched target domains" in unmatched.json()["detail"]
+
+    valid = client.post(
+        "/api/auth/import-cookies",
+        files={"file": ("cookies.json", b'[{"name":"sid","value":"x","domain":"secure.123.net"}]', "application/json")},
+    )
+    assert valid.status_code == 200
+    payload = valid.json()
+    assert payload["ok"] is True
+    assert payload["total_kept"] == 1
 
     status_response = client.get("/api/auth/status")
     assert status_response.status_code == 200
-    assert status_response.json()["count"] >= 1
+    status_payload = status_response.json()
+    assert status_payload["has_imported_cookies"] is True
+    assert status_payload["imported_cookie_count"] >= 1
+    assert status_payload["last_import_time"]
 
-    clear_response = client.post("/api/auth/clear", json={})
+    clear_response = client.post("/api/auth/clear-cookies", json={})
     assert clear_response.status_code == 200
     assert clear_response.json()["ok"] is True
 
@@ -154,6 +172,6 @@ def test_auth_cookie_endpoints_reject_non_localhost(tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: False)
 
     client = TestClient(appmod.app)
-    assert client.post("/api/auth/import", json=[]).status_code == 403
+    assert client.post("/api/auth/import-cookies", files={"file": ("cookies.json", b"[]", "application/json")}).status_code == 403
     assert client.get("/api/auth/status").status_code == 403
-    assert client.post("/api/auth/clear", json={}).status_code == 403
+    assert client.post("/api/auth/clear-cookies", json={}).status_code == 403
