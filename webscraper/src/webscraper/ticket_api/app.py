@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -20,7 +19,8 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
-from webscraper.paths import runs_dir, var_dir
+from webscraper.auth.imported_cookies import clear_imported_cookies, get_imported_cookie_meta, save_imported_cookies
+from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
 
@@ -55,7 +55,6 @@ class QueueJob:
 JOB_QUEUE: list[QueueJob] = []
 JOB_QUEUE_LOCK = threading.Lock()
 CURRENT_JOB_ID: str | None = None
-IMPORTED_COOKIES_PATH = var_dir() / "auth" / "imported_cookies.json"
 LOCALHOST_ONLY = {"127.0.0.1", "::1"}
 
 
@@ -96,46 +95,12 @@ def _is_localhost_request(request: Request) -> bool:
     return host in LOCALHOST_ONLY
 
 
-def _normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
-    raw = payload
-    if isinstance(payload, dict):
-        raw = payload.get("cookies")
-    if not isinstance(raw, list):
-        raise HTTPException(status_code=400, detail="Expected JSON array of cookies or {'cookies': [...]} payload")
-
-    normalized: list[dict[str, Any]] = []
-    for idx, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise HTTPException(status_code=400, detail=f"Cookie at index {idx} must be an object")
-        name = str(item.get("name") or "").strip()
-        value = str(item.get("value") or "")
-        domain = str(item.get("domain") or "").strip()
-        if not name or not value or not domain:
-            raise HTTPException(status_code=400, detail=f"Cookie at index {idx} missing required fields: name/value/domain")
-        cookie = {
-            "name": name,
-            "value": value,
-            "domain": domain,
-            "path": str(item.get("path") or "/"),
-        }
-        for key in ("secure", "httpOnly", "sameSite", "expiry", "expires", "expirationDate"):
-            if key in item and item.get(key) is not None:
-                cookie[key] = item.get(key)
-        normalized.append(cookie)
-    return normalized
-
-
-def _cookie_metadata(cookies: list[dict[str, Any]], *, stored_utc: str) -> dict[str, Any]:
-    domains = sorted({str(cookie.get("domain") or "").lstrip(".") for cookie in cookies if cookie.get("domain")})
-    return {"hasImportedCookies": bool(cookies), "count": len(cookies), "domains": domains, "stored_utc": stored_utc}
-
-
 def _auth_error_from_output(lines: list[str]) -> str | None:
     auth_markers = ("not authenticated", "authentication failed", "login", "auth_required", "auth appears invalid")
     for line in lines:
         lowered = line.lower()
         if any(marker in lowered for marker in auth_markers):
-            return "Not authenticated. Import cookies in UI Auth page and retry."
+            return "Not authenticated. Import cookies in UI and retry."
     return None
 
 
@@ -458,36 +423,24 @@ async def api_auth_import_cookies(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     payload = await request.json()
-    cookies = _normalize_cookie_payload(payload)
-    stored_utc = _iso_now()
-    IMPORTED_COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    IMPORTED_COOKIES_PATH.write_text(json.dumps({"stored_utc": stored_utc, "cookies": cookies}, indent=2), encoding="utf-8")
-    meta = _cookie_metadata(cookies, stored_utc=stored_utc)
+    try:
+        meta = save_imported_cookies(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     _append_event("info", f"Imported {meta['count']} auth cookies for {len(meta['domains'])} domains")
     return meta
 
 
 @app.get("/api/auth/status")
 def api_auth_status():
-    if not IMPORTED_COOKIES_PATH.exists():
-        return {"hasImportedCookies": False, "count": 0, "domains": [], "stored_utc": None}
-    try:
-        payload = json.loads(IMPORTED_COOKIES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {"hasImportedCookies": False, "count": 0, "domains": [], "stored_utc": None}
-    cookies = payload.get("cookies") if isinstance(payload, dict) else payload
-    stored_utc = payload.get("stored_utc") if isinstance(payload, dict) else None
-    if not isinstance(cookies, list):
-        cookies = []
-    return _cookie_metadata([cookie for cookie in cookies if isinstance(cookie, dict)], stored_utc=stored_utc or _iso_now())
+    return get_imported_cookie_meta()
 
 
 @app.post("/api/auth/clear-cookies")
 def api_auth_clear_cookies(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    if IMPORTED_COOKIES_PATH.exists():
-        IMPORTED_COOKIES_PATH.unlink()
+    clear_imported_cookies()
     _append_event("info", "Cleared imported auth cookies")
     return {"ok": True}
 

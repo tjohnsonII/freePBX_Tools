@@ -143,3 +143,27 @@ def test_scrape_job_missing_script_normalized_failure(tmp_path, monkeypatch):
     assert result["errorType"] == "missing_script"
     assert result["status"] == "failed"
     assert isinstance(result["logTail"], list)
+
+
+def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    monkeypatch.setattr(appmod, "save_imported_cookies", lambda payload: {"hasImportedCookies": True, "count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
+    monkeypatch.setattr(appmod, "get_imported_cookie_meta", lambda: {"hasImportedCookies": True, "count": 1, "domains": ["secure.123.net"], "stored_utc": "2024-01-01T00:00:00Z"})
+    monkeypatch.setattr(appmod, "clear_imported_cookies", lambda: None)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    import_response = client.post("/api/auth/import-cookies", json=[{"name": "sid", "value": "x", "domain": "secure.123.net"}])
+    assert import_response.status_code == 200
+    assert import_response.json()["hasImportedCookies"] is True
+
+    status_response = client.get("/api/auth/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["count"] == 1
+
+    clear_response = client.post("/api/auth/clear-cookies", json={})
+    assert clear_response.status_code == 200
+    assert clear_response.json()["ok"] is True

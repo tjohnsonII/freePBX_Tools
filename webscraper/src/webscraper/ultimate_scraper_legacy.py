@@ -42,7 +42,7 @@ from webscraper.parsers.ticket_detail import extract_ticket_fields as modular_ex
 from webscraper.errors import EdgeStartupError
 from webscraper.cli.attach_parsing import normalize_attach_args
 from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
-from webscraper.paths import var_dir
+from webscraper.auth.imported_cookies import load_imported_cookies
 from webscraper.utils.schema import validate_tickets_all
 
 if __package__ in (None, ""):
@@ -1108,23 +1108,9 @@ def load_cookies_json(driver: Any, path: str) -> bool:
         return False
 
 
-def _imported_cookies_file() -> str:
-    return str(var_dir() / "auth" / "imported_cookies.json")
-
-
 def try_imported_cookie_auth(driver: Any, base_url: str) -> bool:
-    cookie_path = _imported_cookies_file()
-    if not os.path.exists(cookie_path):
-        return False
-    try:
-        with open(cookie_path, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except Exception as exc:
-        print(f"[WARN] Imported cookie auth unavailable: {exc}")
-        return False
-
-    cookies_payload = payload.get("cookies") if isinstance(payload, dict) else payload
-    if not isinstance(cookies_payload, list) or not cookies_payload:
+    cookies_payload = load_imported_cookies()
+    if not cookies_payload:
         return False
 
     domain_set = sorted({str(item.get("domain") or "").lstrip(".") for item in cookies_payload if isinstance(item, dict) and item.get("domain")})
@@ -2325,6 +2311,10 @@ def selenium_scrape_tickets(
                     print("[AUTH] Primary auth check failed; trying imported cookie auth fallback.")
                 try_imported_cookie_auth(driver, effective_auth_url or effective_target_url)
 
+            logged_in_after_import = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+            if not logged_in_after_import:
+                raise RuntimeError("Not authenticated. Import cookies in UI and retry.")
+
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
             save_cookies_json(driver, cookies_path)
@@ -2535,7 +2525,7 @@ def selenium_scrape_tickets(
                     initialize_driver()
                     if not try_imported_cookie_auth(driver, effective_auth_url or effective_target_url):
                         print("[AUTH] Imported cookie fallback unavailable or failed.")
-                        return
+                        raise RuntimeError("Not authenticated. Import cookies in UI and retry.")
                 else:
                     driver = cast("webdriver.Edge", auth_result.driver)
                     created_browser = True
