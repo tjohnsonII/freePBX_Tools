@@ -136,7 +136,7 @@ def _default_services_config(root: Path) -> dict[str, Any]:
             "enabled": True,
             "cwd": "webscraper/ticket-ui",
             "port": 3000,
-            "cmd": ["npm", "run", "dev"],
+            "cmd": ["npm", "run", "dev:local-api"],
         },
         "worker": {
             "enabled": False,
@@ -157,8 +157,15 @@ def _load_services_config(root: Path) -> dict[str, Any]:
     ui_cfg = services_cfg.get("ui") if isinstance(services_cfg, dict) else None
     if isinstance(ui_cfg, dict):
         ui_cwd = str(ui_cfg.get("cwd", "")).strip().replace("\\", "/")
+        migrated = False
         if ui_cwd == "webscraper-ui":
             ui_cfg["cwd"] = "webscraper/ticket-ui"
+            migrated = True
+        ui_cmd = ui_cfg.get("cmd")
+        if isinstance(ui_cmd, list) and ui_cmd == ["npm", "run", "dev"]:
+            ui_cfg["cmd"] = ["npm", "run", "dev:local-api"]
+            migrated = True
+        if migrated:
             config_path.write_text(json.dumps(services_cfg, indent=2) + "\n", encoding="utf-8")
 
     return services_cfg
@@ -486,8 +493,8 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
                 runner = resolve_runner(cmd[0])
                 if not runner:
                     summary.append(
-                        "ui: failed to resolve npm.cmd runner. "
-                        "On domain machines, use npm.cmd not npm."
+                        "ui: cannot start because npm.cmd was not found (domain policy blocks npm.ps1). "
+                        "Install Node.js or add npm.cmd to PATH."
                     )
                     failed_services.append(service_name)
                     continue
@@ -527,7 +534,7 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
             if service_name == "ui":
                 summary.append(
                     f"ui: failed to start. cmd={cmd} cwd={cwd}. "
-                    "On domain machines, use npm.cmd not npm."
+                    "Hint: npm.cmd is required on domain-joined Windows hosts (npm.ps1 may be blocked)."
                 )
             else:
                 summary.append(f"{service_name}: failed to start. cmd={cmd} cwd={cwd}")
@@ -1013,7 +1020,7 @@ def _doctor_findings() -> list[Finding]:
     import_probe_details = "Skipped: preferred webscraper python not found"
     ui_runner = resolve_runner("npm")
     ui_runner_ok = bool(ui_runner)
-    ui_runner_details = ui_runner or "npm.cmd not found"
+    ui_runner_details = ui_runner or "npm.cmd not found (domain policy blocks npm.ps1)"
     ui_ps1_only = _has_ps1_runner_only("npm")
     if preferred_python.is_file():
         probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests"]
@@ -2809,3 +2816,8 @@ if __name__ == "__main__":
 # python -m webscraper_manager test all
 # python -m webscraper_manager test pytest
 # python -m webscraper_manager --version
+# Quick verification
+# python -m webscraper_manager start api
+# python -m webscraper_manager start ui
+# UI: http://localhost:3000
+# API OpenAPI: http://127.0.0.1:8787/openapi.json
