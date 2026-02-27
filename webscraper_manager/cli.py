@@ -15,8 +15,6 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-import psutil
-
 from webscraper_manager import __version__
 
 try:
@@ -192,6 +190,8 @@ def save_run_state(run_state: dict[str, Any]) -> None:
 
 
 def _is_pid_alive(pid: int | None, expected_cmd: list[str] | None = None) -> bool:
+    import psutil
+
     if not pid or pid <= 0:
         return False
     try:
@@ -666,6 +666,8 @@ def start_ticket_api(state: AppState, console: Console | None) -> int:
 
 
 def stop_ticket_api(state: AppState, console: Console | None) -> int:
+    import psutil
+
     host = "127.0.0.1"
     port = 8787
     run_state = load_run_state()
