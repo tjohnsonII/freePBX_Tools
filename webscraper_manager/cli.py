@@ -136,7 +136,8 @@ def _default_services_config(root: Path) -> dict[str, Any]:
             "enabled": True,
             "cwd": "webscraper/ticket-ui",
             "port": 3000,
-            "cmd": ["npm", "run", "dev:local-api"],
+            "health_url": "http://127.0.0.1:3000",
+            "cmd": ["npm.cmd", "run", "dev"],
         },
         "worker": {
             "enabled": False,
@@ -158,12 +159,15 @@ def _load_services_config(root: Path) -> dict[str, Any]:
     if isinstance(ui_cfg, dict):
         ui_cwd = str(ui_cfg.get("cwd", "")).strip().replace("\\", "/")
         migrated = False
-        if ui_cwd == "webscraper-ui":
+        if ui_cwd in {"webscraper-ui", "ticket-ui"}:
             ui_cfg["cwd"] = "webscraper/ticket-ui"
             migrated = True
         ui_cmd = ui_cfg.get("cmd")
-        if isinstance(ui_cmd, list) and ui_cmd == ["npm", "run", "dev"]:
-            ui_cfg["cmd"] = ["npm", "run", "dev:local-api"]
+        if isinstance(ui_cmd, list) and ui_cmd in (["npm", "run", "dev"], ["npm", "run", "dev:local-api"], ["npm.cmd", "run", "dev:local-api"]):
+            ui_cfg["cmd"] = ["npm.cmd", "run", "dev"]
+            migrated = True
+        if ui_cfg.get("health_url") != "http://127.0.0.1:3000":
+            ui_cfg["health_url"] = "http://127.0.0.1:3000"
             migrated = True
         if migrated:
             config_path.write_text(json.dumps(services_cfg, indent=2) + "\n", encoding="utf-8")
@@ -333,6 +337,35 @@ def resolve_runner(runner: str) -> str | None:
     return None
 
 
+def resolve_npm_cmd() -> str | None:
+    """Resolve npm.cmd on Windows without triggering PowerShell npm.ps1 policy issues."""
+    env_override = (os.environ.get("NPM_CMD") or "").strip().strip('"')
+    if env_override:
+        env_path = Path(env_override)
+        if env_path.is_file():
+            return str(env_path.resolve())
+
+    from_path = shutil.which("npm.cmd")
+    if from_path:
+        return str(Path(from_path).resolve())
+
+    fallbacks = [
+        Path(r"E:\DevTools\nodejs\npm.cmd"),
+        Path(r"C:\Program Files\nodejs\npm.cmd"),
+    ]
+    for candidate in fallbacks:
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return None
+
+
+def resolve_node_executable() -> str | None:
+    found = shutil.which("node")
+    if not found:
+        return None
+    return str(Path(found).resolve())
+
+
 def _has_ps1_runner_only(runner: str) -> bool:
     if os.name != "nt":
         return False
@@ -431,6 +464,34 @@ def _service_health_status(
     }
 
 
+def _format_ui_start_error(cwd: Path, cmd: list[str], npm_cmd_path: str | None) -> str:
+    npm_display = npm_cmd_path or "not found"
+    return (
+        "ui: failed to start (WinError 2 / command not found). "
+        f"cwd={cwd} cmd={cmd} npm.cmd={npm_display}. "
+        "Suggestion: run `E:\\DevTools\\nodejs\\npm.cmd install` in ticket-ui."
+    )
+
+
+def _resolve_ui_start_command(cfg: dict[str, Any], cwd: Path) -> tuple[list[str] | None, str | None, str | None]:
+    raw_cmd = [str(part) for part in cfg.get("cmd", [])]
+    if not raw_cmd:
+        raw_cmd = ["npm.cmd", "run", "dev"]
+
+    npm_cmd_path = resolve_npm_cmd()
+    if not npm_cmd_path:
+        return None, None, "ui: cannot start because npm.cmd was not found (set NPM_CMD or add npm.cmd to PATH)."
+
+    # Always use npm.cmd on Windows to avoid execution-policy issues with npm.ps1.
+    command = [npm_cmd_path]
+    if len(raw_cmd) > 1:
+        command.extend(raw_cmd[1:])
+    else:
+        command.extend(["run", "dev"])
+
+    return command, npm_cmd_path, None
+
+
 def _start_services(state: AppState, console: Console | None, service: str | None = None) -> int:
     root = find_repo_root()
     manager_dir, _, day_dir = ensure_manager_dirs()
@@ -477,31 +538,32 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
             summary.append(f"{service_name}: running-unmanaged (port {port} already open)")
             continue
 
+        npm_cmd_path: str | None = None
         if service_name == "api":
             target = str(cfg.get("target", "webscraper.ticket_api.app:app"))
             cmd = [str(preferred_python), "-m", "uvicorn", target, "--host", host, "--port", str(port or 8787)]
             cwd = root
         else:
             cmd = [str(part) for part in cfg.get("cmd", [])]
-            if not cmd:
+            if cmd and cmd[0] in {"python", "py", "python3"}:
+                cmd[0] = str(preferred_python)
+            cwd = _resolve_service_cwd(root, cfg)
+
+            if service_name == "ui":
+                cwd = root / "webscraper" / "ticket-ui"
+                cmd, npm_cmd_path, ui_cmd_error = _resolve_ui_start_command(cfg, cwd)
+                if ui_cmd_error:
+                    summary.append(ui_cmd_error)
+                    failed_services.append(service_name)
+                    continue
+                summary.append(f"ui: npm.cmd resolved to {npm_cmd_path}")
+                summary.append(f"ui: launching command {cmd} (cwd={cwd})")
+            elif not cmd:
                 summary.append(f"{service_name}: missing cmd")
                 failed_services.append(service_name)
                 if service_name == "api":
                     api_failed = True
                 continue
-            if service_name == "ui":
-                runner = resolve_runner(cmd[0])
-                if not runner:
-                    summary.append(
-                        "ui: cannot start because npm.cmd was not found (domain policy blocks npm.ps1). "
-                        "Install Node.js or add npm.cmd to PATH."
-                    )
-                    failed_services.append(service_name)
-                    continue
-                cmd[0] = runner
-            if cmd[0] in {"python", "py", "python3"}:
-                cmd[0] = str(preferred_python)
-            cwd = _resolve_service_cwd(root, cfg)
 
         if not cwd.exists():
             if service_name == "ui":
@@ -530,14 +592,23 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
                     text=True,
                     creationflags=_creation_flags_for_service(),
                 )
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
             if service_name == "ui":
-                summary.append(
-                    f"ui: failed to start. cmd={cmd} cwd={cwd}. "
-                    "Hint: npm.cmd is required on domain-joined Windows hosts (npm.ps1 may be blocked)."
-                )
+                summary.append(_format_ui_start_error(cwd=cwd, cmd=cmd, npm_cmd_path=npm_cmd_path))
             else:
                 summary.append(f"{service_name}: failed to start. cmd={cmd} cwd={cwd}")
+            failed_services.append(service_name)
+            if service_name == "api":
+                api_failed = True
+            continue
+        except OSError as exc:
+            if service_name == "ui":
+                summary.append(
+                    f"ui: failed to start ({exc}). cwd={cwd} cmd={cmd} npm.cmd={npm_cmd_path or 'not found'}. "
+                    "Suggestion: run `E:\\DevTools\\nodejs\\npm.cmd install` in ticket-ui."
+                )
+            else:
+                summary.append(f"{service_name}: failed to start. cmd={cmd} cwd={cwd} err={exc}")
             failed_services.append(service_name)
             if service_name == "api":
                 api_failed = True
@@ -564,9 +635,10 @@ def _start_services(state: AppState, console: Console | None, service: str | Non
 
         if not ready:
             summary.append(f"{service_name}: readiness failed")
-            ok, detail = _stop_pid(proc.pid)
-            summary.append(f"{service_name}: cleanup after failed readiness ({detail if ok else detail})")
-            run_state.pop(service_name, None)
+            if service_name != "api":
+                ok, detail = _stop_pid(proc.pid)
+                summary.append(f"{service_name}: cleanup after failed readiness ({detail if ok else detail})")
+                run_state.pop(service_name, None)
             failed_services.append(service_name)
             if service_name == "api":
                 api_failed = True
@@ -981,6 +1053,9 @@ def _doctor_findings() -> list[Finding]:
     matches_preferred = is_running_in_preferred_python(root)
     run_hint = f"Run with: {preferred_python} -m webscraper_manager ..."
     manager_requirements = root / "webscraper_manager" / "requirements.txt"
+    ui_dir = root / "webscraper" / "ticket-ui"
+    ui_package_json = ui_dir / "package.json"
+    ui_next_dir = ui_dir / "node_modules" / "next"
     legacy_manager_dir_candidates = [
         root / "webscraper-manager",
         root / "_legacy_webscraper_manager_old",
@@ -1018,10 +1093,25 @@ def _doctor_findings() -> list[Finding]:
 
     import_probe_ok = True
     import_probe_details = "Skipped: preferred webscraper python not found"
-    ui_runner = resolve_runner("npm")
-    ui_runner_ok = bool(ui_runner)
-    ui_runner_details = ui_runner or "npm.cmd not found (domain policy blocks npm.ps1)"
+    npm_cmd_path = resolve_npm_cmd()
+    npm_cmd_ok = bool(npm_cmd_path)
+    npm_cmd_details = npm_cmd_path or "npm.cmd not found (set NPM_CMD or install Node.js)"
     ui_ps1_only = _has_ps1_runner_only("npm")
+
+    node_path = resolve_node_executable()
+    node_ok = bool(node_path)
+    node_details = node_path or "node not found in PATH"
+    node_version_ok = False
+    node_version_details = "Skipped: node executable not found"
+    if node_path:
+        try:
+            node_version = subprocess.run([node_path, "-v"], capture_output=True, text=True, timeout=10, check=False)
+            node_version_ok = node_version.returncode == 0
+            node_version_details = (node_version.stdout or node_version.stderr or "").strip() or "node -v produced no output"
+        except Exception as exc:
+            node_version_ok = False
+            node_version_details = f"node -v failed: {exc}"
+
     if preferred_python.is_file():
         probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests"]
         try:
@@ -1035,6 +1125,13 @@ def _doctor_findings() -> list[Finding]:
         except Exception as exc:
             import_probe_ok = False
             import_probe_details = f"import check failed to run: {exc}"
+
+    ui_next_ok = ui_next_dir.is_dir()
+    ui_next_details = (
+        f"Found {ui_next_dir}"
+        if ui_next_ok
+        else f"Missing {ui_next_dir}. Run `E:\\DevTools\\nodejs\\npm.cmd install` in {ui_dir}"
+    )
 
     return [
         Finding("repo_root", root.exists(), f"Found repo root at {root}"),
@@ -1058,12 +1155,11 @@ def _doctor_findings() -> list[Finding]:
             (root / "webscraper" / "requirements.txt").is_file(),
             f"Expected file: {root / 'webscraper' / 'requirements.txt'}",
         ),
-        Finding(
-            "ui_dir",
-            (root / "webscraper" / "ticket-ui").is_dir(),
-            f"Expected directory: {root / 'webscraper' / 'ticket-ui'}",
-        ),
-        Finding("ui_runner", ui_runner_ok, ui_runner_details),
+        Finding("ui_dir", ui_dir.is_dir(), f"Expected directory: {ui_dir}"),
+        Finding("ui_package_json", ui_package_json.is_file(), f"Expected file: {ui_package_json}"),
+        Finding("node_executable", node_ok, node_details),
+        Finding("node_version", node_version_ok, node_version_details),
+        Finding("npm_cmd", npm_cmd_ok, npm_cmd_details),
         Finding(
             "ui_runner_ps1_only",
             ok=not ui_ps1_only,
@@ -1074,6 +1170,7 @@ def _doctor_findings() -> list[Finding]:
             ),
             warning=ui_ps1_only,
         ),
+        Finding("ui_next_dependency", ui_next_ok, ui_next_details),
         Finding("current_python", True, str(current_python)),
         Finding("preferred_python", True, str(preferred_python)),
         Finding(
