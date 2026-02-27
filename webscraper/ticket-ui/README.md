@@ -6,6 +6,13 @@ Next.js 14 UI for browsing ticket data and controlling scraper jobs through the 
 
 ### 1) Start API (repo root)
 
+Install API/runtime dependencies first (prevents `python-multipart` warnings):
+
+```powershell
+cd E:\DevTools\freepbx-tools
+python -m pip install -r webscraper\requirements.txt -r webscraper\requirements_api.txt
+```
+
 ```powershell
 cd E:\DevTools\freepbx-tools
 python -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload --db webscraper\output\tickets.sqlite
@@ -24,6 +31,7 @@ Notes:
 - Use `npm.cmd` in PowerShell to avoid `npm.ps1` execution-policy failures.
 - In PowerShell, use normal `cd` paths (`cd E:\...`), not `cd /d` (that is CMD syntax).
 - If port 3000 is busy, Next.js may auto-bump to 3001+; this is expected.
+- The combined `python webscraper/scripts/dev_ticket_stack.py` launcher now waits for `http://127.0.0.1:8787/api/health` before starting the UI.
 
 ## curl.exe smoke examples (Windows)
 

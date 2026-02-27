@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import os
+import socket
 import signal
 import subprocess
 import sys
 import threading
+import time
+import urllib.error
+import urllib.request
 import importlib.util
 from pathlib import Path
 from typing import TextIO
@@ -16,6 +20,7 @@ API_HOST = "127.0.0.1"
 API_PORT = "8787"
 UI_PORT = "3004"
 PROXY_TARGET = f"http://{API_HOST}:{API_PORT}"
+STARTUP_TIMEOUT_SECONDS = 60
 
 
 class ProcessGroup:
@@ -51,6 +56,37 @@ def stream_output(pipe: TextIO, prefix: str) -> None:
     pipe.close()
 
 
+def _wait_for_tcp_port(host: str, port: int, timeout_seconds: int) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.25)
+    return False
+
+
+def _wait_for_api_health(target: str, timeout_seconds: int) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    health_url = f"{target}/api/health"
+    docs_url = f"{target}/docs"
+    urls = (health_url, docs_url)
+
+    while time.monotonic() < deadline:
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=2) as response:
+                    if 200 <= response.status < 500:
+                        return True
+            except urllib.error.URLError:
+                continue
+            except TimeoutError:
+                continue
+        time.sleep(0.5)
+    return False
+
+
 def main() -> int:
     script_path = Path(__file__).resolve()
     repo_root = script_path.parents[2]
@@ -64,9 +100,11 @@ def main() -> int:
 
     if importlib.util.find_spec("multipart") is None:
         print(
-            "[WARN] Missing dependency python-multipart. Install: "
-            f"{sys.executable} -m pip install python-multipart"
+            "[ERROR] Missing dependency python-multipart. Install it into .venv-webscraper with: "
+            f"{sys.executable} -m pip install -r webscraper/requirements.txt -r webscraper/requirements_api.txt",
+            file=sys.stderr,
         )
+        return 1
 
     api_cmd = [
         sys.executable,
@@ -100,7 +138,6 @@ def main() -> int:
         signal.signal(signal.SIGTERM, handle_interrupt)
 
     print(f"Starting API on {PROXY_TARGET}")
-    print(f"Starting UI on http://127.0.0.1:{UI_PORT} with proxy target {PROXY_TARGET}")
 
     api_proc = subprocess.Popen(
         api_cmd,
@@ -111,6 +148,38 @@ def main() -> int:
         bufsize=1,
     )
     process_group.add(api_proc)
+
+    api_thread = threading.Thread(target=stream_output, args=(api_proc.stdout, "API"), daemon=True)
+    api_thread.start()
+
+    print("Waiting for API readiness…")
+    if not _wait_for_tcp_port(API_HOST, int(API_PORT), STARTUP_TIMEOUT_SECONDS):
+        print(
+            f"[ERROR] API port {API_HOST}:{API_PORT} did not open within {STARTUP_TIMEOUT_SECONDS}s.\n"
+            "Next steps:\n"
+            "  1) Check whether another process is already using port 8787.\n"
+            "  2) Start API directly: python -m webscraper.ticket_api.app --host 127.0.0.1 --port 8787 --reload\n"
+            "  3) Review the [API] logs above for traceback details.",
+            file=sys.stderr,
+        )
+        process_group.terminate_all()
+        api_thread.join(timeout=1)
+        return 1
+
+    if not _wait_for_api_health(PROXY_TARGET, STARTUP_TIMEOUT_SECONDS):
+        print(
+            f"[ERROR] API did not report readiness at {PROXY_TARGET}/api/health (or /docs) within {STARTUP_TIMEOUT_SECONDS}s.\n"
+            "Next steps:\n"
+            "  1) Open http://127.0.0.1:8787/api/health in a browser/curl.\n"
+            "  2) Start API directly with uvicorn/module command to verify startup.\n"
+            "  3) Check the [API] logs above for dependency/import errors.",
+            file=sys.stderr,
+        )
+        process_group.terminate_all()
+        api_thread.join(timeout=1)
+        return 1
+
+    print(f"API ready, starting UI on http://127.0.0.1:{UI_PORT} (proxy -> {PROXY_TARGET})")
 
     ui_proc = subprocess.Popen(
         ui_cmd,
@@ -123,12 +192,9 @@ def main() -> int:
     )
     process_group.add(ui_proc)
 
-    threads = [
-        threading.Thread(target=stream_output, args=(api_proc.stdout, "API"), daemon=True),
-        threading.Thread(target=stream_output, args=(ui_proc.stdout, "UI"), daemon=True),
-    ]
-    for thread in threads:
-        thread.start()
+    ui_thread = threading.Thread(target=stream_output, args=(ui_proc.stdout, "UI"), daemon=True)
+    ui_thread.start()
+    threads = [api_thread, ui_thread]
 
     exit_code = 0
     try:

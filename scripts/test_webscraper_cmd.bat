@@ -10,6 +10,8 @@ if not exist .venv-webscraper (
 if errorlevel 1 exit /b 1
 .venv-webscraper\Scripts\pip.exe install -r webscraper\requirements.txt
 if errorlevel 1 exit /b 1
+.venv-webscraper\Scripts\pip.exe install -r webscraper\requirements_api.txt
+if errorlevel 1 exit /b 1
 
 .venv-webscraper\Scripts\python.exe scripts\manual_tests\smoke_manual.py
 if errorlevel 1 exit /b 1

@@ -9,14 +9,6 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_TICKET_API_PROXY_TARGET: proxyTarget,
   },
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${proxyTarget}/api/:path*`,
-      },
-    ];
-  },
 };
 
 module.exports = nextConfig;
