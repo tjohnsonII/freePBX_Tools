@@ -4,9 +4,22 @@ import importlib
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 REQUIRED_MODULES = ["typer", "rich", "psutil", "packaging"]
 BOOTSTRAP_ENV_VAR = "WS_MANAGER_BOOTSTRAPPED"
+ORIGINAL_CWD_ENV_VAR = "WS_MANAGER_ORIGINAL_CWD"
+
+repo_root = Path(__file__).resolve().parents[1]
+repo_root_str = str(repo_root)
+if not sys.path or sys.path[0] != repo_root_str:
+    if repo_root_str in sys.path:
+        sys.path.remove(repo_root_str)
+    sys.path.insert(0, repo_root_str)
+
+_original_cwd = os.environ.get(ORIGINAL_CWD_ENV_VAR)
+if _original_cwd:
+    os.chdir(_original_cwd)
 
 
 def _in_virtualenv() -> bool:
@@ -31,6 +44,7 @@ def _install_missing(missing: list[str]) -> int:
 
 
 def ensure_runtime_dependencies() -> None:
+    original_cwd = os.getcwd()
     missing = _missing_modules()
     if not missing:
         return
@@ -54,8 +68,13 @@ def ensure_runtime_dependencies() -> None:
         raise SystemExit(2)
 
     print("Restarting webscraper_manager...")
-    os.environ[BOOTSTRAP_ENV_VAR] = "1"
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+    args = [sys.executable, "-m", "webscraper_manager", *sys.argv[1:]]
+    env = os.environ.copy()
+    env[BOOTSTRAP_ENV_VAR] = "1"
+    env[ORIGINAL_CWD_ENV_VAR] = original_cwd
+    env["PYTHONPATH"] = repo_root_str + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    os.chdir(repo_root)
+    os.execve(sys.executable, args, env)
 
 
 ensure_runtime_dependencies()
