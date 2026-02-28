@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import HandleDropdown from "./components/HandleDropdown";
 import { ApiRequestError, apiBaseInfo, apiGet, apiPost, apiPostForm } from "../lib/api";
+import { BrowserSyncTarget, syncAuthFromBrowser } from "../lib/authBrowserSync";
 
 type Ticket = { ticket_id: string; title?: string; subject?: string; status?: string; updated_utc?: string };
 type TicketResponse = { items: Ticket[]; totalCount: number };
@@ -49,7 +50,12 @@ export default function HandlesPage() {
   const [authStatusError, setAuthStatusError] = useState<string | null>(null);
   const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
   const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
+  const [browserSyncDomain, setBrowserSyncDomain] = useState("secure.123.net");
+  const [browserSyncProfile, setBrowserSyncProfile] = useState("Default");
+  const [browserSyncLoading, setBrowserSyncLoading] = useState<BrowserSyncTarget | null>(null);
+  const [syncConfirmBrowser, setSyncConfirmBrowser] = useState<BrowserSyncTarget | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const enableLocalAuthSync = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_LOCAL_AUTH_SYNC === "1";
 
   const hasSecureDomain = (authStatus?.domains || []).some((domain) => {
     const normalized = domain.replace(/^\./, "").toLowerCase();
@@ -237,6 +243,35 @@ export default function HandlesPage() {
     setAuthMessage("Imported cookies cleared.");
   };
 
+  const requestBrowserSync = (browser: BrowserSyncTarget) => {
+    if (!enableLocalAuthSync) return;
+    setSyncConfirmBrowser(browser);
+  };
+
+  const runBrowserSync = async () => {
+    if (!syncConfirmBrowser) return;
+    const domain = browserSyncDomain.trim() || "secure.123.net";
+    const profile = browserSyncProfile.trim() || "Default";
+
+    setSyncConfirmBrowser(null);
+    setError(null);
+    setAuthMessage(null);
+    setBrowserSyncLoading(syncConfirmBrowser);
+
+    try {
+      const response = await syncAuthFromBrowser({ browser: syncConfirmBrowser, domain, profile });
+      await loadAuthStatus();
+      await runValidate();
+      const importedCount = response.imported_count ?? 0;
+      const targetDomain = response.domain || domain;
+      setAuthMessage(`Browser sync succeeded. Imported ${importedCount} cookies for ${targetDomain}.`);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setBrowserSyncLoading(null);
+    }
+  };
+
   const onPickFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setCookieFile(file);
@@ -350,6 +385,39 @@ export default function HandlesPage() {
           <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>Validate Auth</button>
         </div>
         {cookieFileName ? <p style={{ marginTop: 6 }}>Selected file: {cookieFileName}</p> : null}
+
+        {enableLocalAuthSync ? (
+          <section style={{ marginTop: 12, borderTop: "1px solid #ddd", paddingTop: 10 }}>
+            <h4 style={{ margin: "0 0 8px" }}>Local Browser Sync (Dev Only)</h4>
+            <p style={{ margin: "0 0 8px", color: "#a16207" }}>Imports cookies from your local browser profile for local development workflows only.</p>
+            <label>
+              Domain
+              <input
+                value={browserSyncDomain}
+                onChange={(e) => setBrowserSyncDomain(e.target.value)}
+                placeholder="secure.123.net"
+                style={{ marginLeft: 6 }}
+              />
+            </label>
+            <label style={{ marginLeft: 10 }}>
+              Profile
+              <input
+                value={browserSyncProfile}
+                onChange={(e) => setBrowserSyncProfile(e.target.value)}
+                placeholder="Default"
+                style={{ marginLeft: 6 }}
+              />
+            </label>
+            <div style={{ marginTop: 8 }}>
+              <button onClick={() => requestBrowserSync("chrome")} disabled={browserSyncLoading !== null}>
+                {browserSyncLoading === "chrome" ? "Syncing Chrome..." : "Sync from Chrome"}
+              </button>
+              <button onClick={() => requestBrowserSync("edge")} disabled={browserSyncLoading !== null} style={{ marginLeft: 8 }}>
+                {browserSyncLoading === "edge" ? "Syncing Edge..." : "Sync from Edge"}
+              </button>
+            </div>
+          </section>
+        ) : null}
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
@@ -414,6 +482,22 @@ export default function HandlesPage() {
             <p>Paste cookie header, Netscape cookie text, or JSON cookie export.</p>
             <textarea rows={16} style={{ width: "100%" }} value={cookieText} onChange={(e) => setCookieText(e.target.value)} />
             <div style={{ marginTop: 8 }}><button onClick={importCookieText}>Import Text</button><button onClick={() => setShowImportModal(false)} style={{ marginLeft: 8 }}>Cancel</button></div>
+          </div>
+        </div>
+      )}
+
+      {syncConfirmBrowser && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "grid", placeItems: "center" }}>
+          <div style={{ background: "#fff", width: "min(760px, 92vw)", padding: 16, borderRadius: 8 }}>
+            <h3>Confirm Local Browser Cookie Sync</h3>
+            <p>This action reads cookies from the current Windows user&apos;s local {syncConfirmBrowser} browser cookie store.</p>
+            <p>Cookies are sensitive session data. Use this for local development only.</p>
+            <p>Imported output is stored under <code>webscraper/var/cookies/</code> (gitignored).</p>
+            <p><strong>Proceed?</strong></p>
+            <div style={{ marginTop: 8 }}>
+              <button onClick={runBrowserSync}>Proceed</button>
+              <button onClick={() => setSyncConfirmBrowser(null)} style={{ marginLeft: 8 }}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
