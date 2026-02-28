@@ -53,6 +53,7 @@ from webscraper.ticket_api.auth_manager import AuthManager, default_target_url
 from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
+from webscraper.logging_config import LOG_DIR, setup_logging
 
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
@@ -61,6 +62,7 @@ CHROME_CUSTOMERS_URL = "https://secure.123.net/cgi-bin/web_interface/admin/custo
 
 app = FastAPI(title="Ticket History API", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+LOGGER = setup_logging("ticket_api")
 
 
 class StartScrapeRequest(BaseModel):
@@ -163,7 +165,7 @@ def _iso_now() -> str:
 def _log(msg: str, request_id: str | None = None, job_id: str | None = None) -> None:
     rid = f" requestId={request_id}" if request_id else ""
     jid = f" jobId={job_id}" if job_id else ""
-    print(f"[{_iso_now()}]{rid}{jid} {msg}", flush=True)
+    LOGGER.info("[%s]%s%s %s", _iso_now(), rid, jid, msg)
 
 
 def _get_required_env() -> tuple[VpbxConfig | None, str | None]:
@@ -678,11 +680,25 @@ async def request_context(request: Request, call_next):
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
     start = time.time()
-    response = await call_next(request)
-    duration_ms = int((time.time() - start) * 1000)
-    _log(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)", request_id=request_id)
-    response.headers["X-Request-Id"] = request_id
-    return response
+    try:
+        response = await call_next(request)
+        duration_ms = int((time.time() - start) * 1000)
+        _log(
+            f"request method={request.method} path={request.url.path} status={response.status_code} duration_ms={duration_ms}",
+            request_id=request_id,
+        )
+        response.headers["X-Request-Id"] = request_id
+        return response
+    except Exception:
+        duration_ms = int((time.time() - start) * 1000)
+        LOGGER.exception(
+            "request_failed method=%s path=%s duration_ms=%s requestId=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+        )
+        raise
 
 
 @app.on_event("startup")
@@ -1256,6 +1272,45 @@ def api_health():
         "total_tickets": stats_payload.get("total_tickets", 0),
         "stats": stats_payload,
     }
+
+
+def _ensure_log_api_enabled(request: Request) -> None:
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Logs API is localhost-only")
+    if os.getenv("SCRAPER_ENABLE_LOG_API") != "1":
+        raise HTTPException(status_code=404, detail="Logs API disabled")
+
+
+def _resolve_log_file(name: str) -> Path:
+    candidate = (LOG_DIR / name).resolve()
+    if candidate.parent != LOG_DIR or not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Log file not found")
+    return candidate
+
+
+@app.get("/api/logs/list")
+def api_logs_list(request: Request):
+    _ensure_log_api_enabled(request)
+    items: list[dict[str, Any]] = []
+    for path in sorted(LOG_DIR.glob("*.log*")):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        items.append({
+            "name": path.name,
+            "size": int(stat.st_size),
+            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        })
+    return {"items": items}
+
+
+@app.get("/api/logs/tail")
+def api_logs_tail(request: Request, name: str = Query(...), lines: int = Query(2000, ge=1, le=5000)):
+    _ensure_log_api_enabled(request)
+    log_file = _resolve_log_file(name)
+    with log_file.open("r", encoding="utf-8", errors="replace") as handle:
+        rows = handle.readlines()
+    return {"name": log_file.name, "lines": [row.rstrip("\n") for row in rows[-lines:]]}
 
 
 @app.get("/health")

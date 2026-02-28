@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import os
 import traceback
+
+from webscraper.logging_config import setup_logging
 from typing import Optional
 
+
+LOGGER = setup_logging("auth")
 
 def _safe_name(value: Optional[str]) -> str:
     return (value or "").strip() or "unknown"
@@ -26,7 +30,7 @@ def log_exception(context: str, exc: Exception, out_dir: Optional[str], filename
     with open(trace_path, "w", encoding="utf-8") as handle:
         handle.write(trace)
 
-    print(f"[AUTH] {context}:{type(exc).__name__}: {exc}")
-    print(f"[AUTH] traceback saved: {trace_path}")
+    LOGGER.error("auth_exception context=%s type=%s error=%s", context, type(exc).__name__, exc)
+    LOGGER.info("auth_traceback_saved path=%s", trace_path)
     return trace_path
 
