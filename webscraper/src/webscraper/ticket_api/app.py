@@ -26,13 +26,18 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
-from webscraper.auth.chrome_cookies import (
-    CHROME_CUSTOMERS_URL,
-    ChromeCookieDBLockedError,
-    ChromeCookieError,
-    list_chrome_profile_dirs,
-    load_cookies_from_profile,
-    seed_isolated_profile,
+from webscraper.auth.chrome_cookies import ChromeCookieError, list_chrome_profile_dirs, load_cookies_from_profile
+from webscraper.auth.cookie_seeder import (
+    DEFAULT_CDP_PORT,
+    CookieSeedError,
+    SeedResult,
+    auth_doctor,
+    launch_debug_chrome,
+    resolve_chrome_user_data_dir,
+    resolve_profile_name,
+    seed_auto,
+    seed_from_cdp,
+    seed_from_disk,
 )
 from webscraper.ticket_api.auth import (
     dedupe_and_filter_expired,
@@ -51,6 +56,7 @@ from webscraper.vpbx.handles import VpbxConfig, fetch_handles
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
 DEFAULT_TARGET_DOMAINS = get_target_domains()
+CHROME_CUSTOMERS_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
 
 app = FastAPI(title="Ticket History API", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -101,6 +107,19 @@ class LaunchSeededRequest(BaseModel):
 class ImportFromProfileRequest(BaseModel):
     temp_profile_dir: str
     seed_domains: list[str] = ["secure.123.net", "123.net"]
+
+
+class AuthSeedRequest(BaseModel):
+    mode: Literal["auto", "disk", "cdp"] = "auto"
+    chrome_profile_dir: str | None = None
+    chrome_user_data_dir: str | None = None
+    seed_domains: list[str] = ["secure.123.net", "123.net"]
+    cdp_port: int = DEFAULT_CDP_PORT
+
+
+class LaunchDebugChromeRequest(BaseModel):
+    cdp_port: int = DEFAULT_CDP_PORT
+    profile_name: str = "Default"
 
 
 @dataclass
@@ -1005,56 +1024,59 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
 @app.post("/api/auth/launch_seeded")
 @app.post("/auth/launch_seeded")
 def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
+    seed_payload = AuthSeedRequest(
+        mode="auto",
+        chrome_profile_dir=payload.chrome_profile_dir,
+        seed_domains=payload.seed_domains,
+    )
+    return api_auth_seed(request, seed_payload)
+
+
+@app.post("/api/auth/seed")
+@app.post("/auth/seed")
+def api_auth_seed(request: Request, payload: AuthSeedRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
 
-    target_url = CHROME_CUSTOMERS_URL
-    supplied_target = (payload.target_url or "").strip()
-    if supplied_target and supplied_target != CHROME_CUSTOMERS_URL:
-        raise HTTPException(status_code=400, detail=f"target_url must be {CHROME_CUSTOMERS_URL}")
-    parsed_target = urlparse(target_url)
-    if parsed_target.scheme not in {"http", "https"} or not parsed_target.netloc:
-        raise HTTPException(status_code=400, detail="target_url must be an absolute HTTP(S) URL")
-
-    browser_path = _detect_browser_path()
-    var_root = Path(__file__).resolve().parents[4] / "webscraper" / "var"
+    mode = payload.mode
+    profile_name = resolve_profile_name(payload.chrome_profile_dir)
+    user_data_dir = resolve_chrome_user_data_dir(payload.chrome_user_data_dir)
     try:
-        seeded_result = seed_isolated_profile(
-            var_root=var_root,
-            chrome_path=browser_path,
-            chrome_profile_dir=payload.chrome_profile_dir,
-            seed_domains=payload.seed_domains,
-            target_url=target_url,
-        )
-    except ChromeCookieDBLockedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ChromeCookieError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if mode == "disk":
+            result = seed_from_disk(user_data_dir, payload.seed_domains, profile_name=profile_name)
+        elif mode == "cdp":
+            result = seed_from_cdp(payload.cdp_port, payload.seed_domains)
+        else:
+            result = seed_auto(
+                profile_dir=user_data_dir,
+                domains=payload.seed_domains,
+                profile_name=profile_name,
+                cdp_url_or_port=payload.cdp_port,
+            )
+    except CookieSeedError as exc:
+        detail = str(exc)
+        next_step = "Verify auth-doctor output and profile settings."
+        if exc.code == "DB_LOCKED":
+            next_step = "Chrome is open. Either close Chrome OR start debug Chrome (button) to use CDP."
+        elif exc.code == "CDP_UNAVAILABLE":
+            next_step = f"No debuggable Chrome found. Start Chrome with --remote-debugging-port={payload.cdp_port} or use Launch Debug Chrome button."
+        return {
+            "ok": False,
+            "mode_used": mode,
+            "details": {"error_code": exc.code, "error": detail, **exc.details},
+            "next_step_if_failed": next_step,
+        }
 
-    if seeded_result.seed_method != "cdp":
-        command = [
-            str(browser_path),
-            f"--user-data-dir={seeded_result.temp_profile_dir}",
-            "--profile-directory=Default",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--new-window",
-            target_url,
-        ]
-        subprocess.Popen(command)
-    _log(f"Using Chrome profile dir: {seeded_result.source_profile_dir}")
-    _log(
-        f"launched seeded isolated browser browser={browser_path} profile_dir={seeded_result.temp_profile_dir} "
-        f"url={target_url} domain_counts={seeded_result.domain_counts}"
-    )
+    store_result = auth_store.replace_cookies(db_path(), result.cookies, source=f"seed_{result.mode_used}")
+    status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _append_event("info", f"Seeded auth cookies mode={result.mode_used} count={store_result.get('accepted', 0)}")
     return {
         "ok": True,
-        "seed_method": seeded_result.seed_method,
-        "src_profile": seeded_result.source_profile_dir,
-        "temp_profile_dir": seeded_result.temp_profile_dir,
-        "launched_url": target_url,
-        "seeded_domains": seeded_result.seeded_domains,
-        "domain_counts": seeded_result.domain_counts,
+        "mode_used": result.mode_used,
+        "details": result.details,
+        "cookie_count": int(store_result.get("accepted", 0)),
+        **status_payload,
+        "next_step_if_failed": None,
     }
 
 
@@ -1095,6 +1117,33 @@ def api_auth_import_from_profile(request: Request, payload: ImportFromProfileReq
     }
 
 
+@app.post("/api/auth/launch_debug_chrome")
+@app.post("/auth/launch_debug_chrome")
+def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+
+    browser_path = _detect_browser_path()
+    debug_profile = Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome-debug"
+    proc = launch_debug_chrome(
+        chrome_path=browser_path,
+        user_data_dir=debug_profile,
+        profile_name=payload.profile_name,
+        port=payload.cdp_port,
+    )
+    return {
+        "ok": True,
+        "mode_used": "cdp",
+        "details": {
+            "pid": proc.pid,
+            "cdp_port": payload.cdp_port,
+            "user_data_dir": str(debug_profile),
+            "profile_name": payload.profile_name,
+        },
+        "next_step_if_failed": None,
+    }
+
+
 @app.get("/api/auth/doctor")
 def api_auth_doctor():
     db_file = Path(db_path())
@@ -1110,6 +1159,7 @@ def api_auth_doctor():
     except Exception as exc:  # pragma: no cover - defensive health path
         db_error = str(exc)
 
+    doctor = auth_doctor()
     return {
         "ok": _has_python_multipart() and db_file.exists() and auth_table_ready and not db_error,
         "multipart_installed": _has_python_multipart(),
@@ -1117,6 +1167,7 @@ def api_auth_doctor():
         "db_exists": db_file.exists(),
         "auth_cookie_table_ready": auth_table_ready,
         "error": db_error,
+        "auth": doctor,
     }
 
 

@@ -9,7 +9,7 @@ type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
 type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
-type SeededLaunchResponse = { ok: boolean; seed_method: string; src_profile: string; temp_profile_dir: string; launched_url: string; seeded_domains: string[]; domain_counts?: Record<string, number> };
+type AuthSeedResponse = { ok: boolean; mode_used: "auto" | "disk" | "cdp"; details?: Record<string, unknown>; next_step_if_failed?: string | null; cookie_count?: number };
 type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
 type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
@@ -45,6 +45,7 @@ export default function HandlesPage() {
   const [cookieFileName, setCookieFileName] = useState("");
   const [cookieFile, setCookieFile] = useState<File | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [seedModeUsed, setSeedModeUsed] = useState<string | null>(null);
   const [authStatusError, setAuthStatusError] = useState<string | null>(null);
   const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
   const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
@@ -195,41 +196,35 @@ export default function HandlesPage() {
   const launchLoginSeeded = async () => {
     setError(null);
     setAuthMessage(null);
-
-    const runSeededLaunch = async () => {
-      const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
-        target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+    setSeedModeUsed(null);
+    try {
+      const result = await apiPost<AuthSeedResponse>("/api/auth/seed", {
+        mode: "auto",
         chrome_profile_dir: chromeProfileDir,
         seed_domains: ["secure.123.net", "123.net"],
+        cdp_port: 9222,
       });
-      await apiPost("/api/auth/import_from_profile", {
-        temp_profile_dir: result.temp_profile_dir,
-        seed_domains: ["secure.123.net", "123.net"],
-      });
-      return result;
-    };
-
-    try {
-      await runSeededLaunch();
-      await loadAuthStatus();
-      setAuthMessage("Opened seeded isolated browser profile for login.");
-    } catch (e) {
-      if (e instanceof ApiRequestError && e.status === 409) {
-        setAuthMessage("Chrome is open and cookies are locked. Retrying with CDP…");
-        try {
-          await runSeededLaunch();
-          await loadAuthStatus();
-          setError(null);
-          setAuthMessage("Opened seeded isolated browser profile for login.");
-          return;
-        } catch (retryError) {
-          const retryMessage = formatApiError(retryError);
-          setError(`Launch seeded login failed: ${retryMessage}`);
-          return;
-        }
+      setSeedModeUsed(result.mode_used || "auto");
+      if (!result.ok) {
+        setError(result.next_step_if_failed || "Auth seed failed.");
+        return;
       }
+      await loadAuthStatus();
+      setAuthMessage(`Seeded auth cookies using ${result.mode_used.toUpperCase()} mode.`);
+    } catch (e) {
       const message = formatApiError(e);
       setError(`Launch seeded login failed: ${message}`);
+    }
+  };
+
+
+  const launchDebugChrome = async () => {
+    setError(null);
+    try {
+      await apiPost("/api/auth/launch_debug_chrome", { cdp_port: 9222, profile_name: "Default" });
+      setAuthMessage("Launched debug Chrome on port 9222.");
+    } catch (e) {
+      setError(formatApiError(e));
     }
   };
 
@@ -328,6 +323,7 @@ export default function HandlesPage() {
       <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {authMessage && <p style={{ color: "#165c2d" }}>{authMessage}</p>}
+      {seedModeUsed && <p>Mode used: <strong>{seedModeUsed}</strong></p>}
       {authStatusError && <p style={{ color: "#a16207" }}>{authStatusError}</p>}
 
       <section style={{ border: "1px solid #ddd", padding: 12, marginBottom: 14 }}>
@@ -348,7 +344,8 @@ export default function HandlesPage() {
               ))}
             </select>
           </label>
-          <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>Launch Login (seeded isolated)</button>
+          <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>Seed Auth (auto)</button>
+          <button onClick={launchDebugChrome} style={{ marginLeft: 8 }}>Launch Debug Chrome</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
           <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>Validate Auth</button>
         </div>

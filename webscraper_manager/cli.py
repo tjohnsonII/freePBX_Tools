@@ -1066,6 +1066,43 @@ def run_seed_auth(state: AppState, json_out: bool = False) -> int:
     return EXIT_OK if ok else EXIT_AUTH_FAILED
 
 
+
+
+def run_auth_doctor(state: AppState, json_out: bool = False) -> int:
+    root = find_repo_root()
+    console = get_console(state)
+    python_exe = get_runtime_python(state, root)
+    cmd = [
+        str(python_exe),
+        "-c",
+        "import json; from webscraper.auth.cookie_seeder import auth_doctor; print(json.dumps(auth_doctor(), indent=2))",
+    ]
+    rc, out, err = run_subprocess(cmd, cwd=root, timeout=30)
+    if rc != 0:
+        payload = {"ok": False, "error": err.strip() or out.strip() or "auth doctor failed"}
+    else:
+        try:
+            payload = json.loads(out or "{}")
+        except json.JSONDecodeError:
+            payload = {"ok": False, "error": "Invalid auth doctor JSON", "stdout": out, "stderr": err}
+
+    if json_out:
+        print(json.dumps(payload, indent=2))
+    elif not state.quiet:
+        checks = payload.get("checks", []) if isinstance(payload, dict) else []
+        (console.print if console else print)(f"Auth doctor overall: {'PASS' if payload.get('ok') else 'FAIL'}")
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            status = "PASS" if check.get("ok") else "FAIL"
+            line = f"- {check.get('check')}: {status} ({check.get('value') or '-'})"
+            (console.print if console else print)(line)
+        fixes = payload.get("fixes", []) if isinstance(payload, dict) else []
+        for fix in fixes:
+            (console.print if console else print)(f"  fix: {fix}")
+
+    return EXIT_OK if bool(payload.get("ok")) else EXIT_AUTH_FAILED
+
 def get_console(state: AppState) -> Console | None:
     if not RICH_AVAILABLE:
         return None
@@ -2638,6 +2675,17 @@ if TYPER_AVAILABLE:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         raise typer.Exit(run_auth_check(state, json_out=bool(json_output)))
 
+
+    @app.command("auth-doctor")
+    def auth_doctor_cmd(
+        ctx: typer.Context,
+        json_output: bool = typer.Option(False, "--json", help="Output JSON only."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(run_auth_doctor(state, json_out=bool(json_output)))
+
     @app.command("seed-auth")
     def seed_auth(
         ctx: typer.Context,
@@ -2885,6 +2933,10 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     auth_check_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     seed_auth_parser = subparsers.add_parser("seed-auth", help="Seed requests auth with Selenium and fetch customers page")
+    auth_doctor_parser = subparsers.add_parser("auth-doctor", help="Check Chrome auth seeding prerequisites")
+    auth_doctor_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
+    auth_doctor_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    auth_doctor_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     seed_auth_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
     seed_auth_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     seed_auth_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -2966,6 +3018,10 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     if args.command == "auth-check":
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
         return run_auth_check(state, json_out=bool(args.json_output))
+
+    if args.command == "auth-doctor":
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+        return run_auth_doctor(state, json_out=bool(args.json_output))
 
     if args.command == "seed-auth":
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
