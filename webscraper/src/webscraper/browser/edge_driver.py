@@ -110,6 +110,8 @@ def create_edge_driver(
     edge_kill_before: bool,
     show_browser: bool,
     headless_requested: bool = False,
+    no_profile_launch: bool = False,
+    **kwargs: Any,
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -127,23 +129,28 @@ def create_edge_driver(
     EDGEDRIVER = os.environ.get("EDGEDRIVER_PATH")
     edge_driver_env = EDGEDRIVER
     edge_binary_path_resolved = edge_binary_path()
+    _ = kwargs  # compat for legacy callers
     profile_dir_override = os.path.abspath(profile_dir) if profile_dir else None
-    edge_profile_env = profile_dir_override or os.environ.get("EDGE_PROFILE_DIR")
-    default_profile = PROFILE_DIR
-    legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
-    edge_profile_dir_resolved = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
+    browser = (os.environ.get("WEBSCRAPER_BROWSER") or "edge").strip().lower()
+    if browser not in {"edge", "chrome"}:
+        browser = "edge"
+    shared_profile_env = (os.environ.get("WEBSCRAPER_PROFILE_DIR") or "").strip()
+    edge_profile_env = (os.environ.get("WEBSCRAPER_EDGE_PROFILE_DIR") or os.environ.get("EDGE_PROFILE_DIR") or "").strip()
+    chrome_profile_env = (os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR") or os.environ.get("CHROME_PROFILE_DIR") or "").strip()
+    default_edge_profile = os.path.abspath(os.path.join("webscraper", "var", "edge-profile"))
+    default_chrome_profile = os.path.abspath(os.path.join("webscraper", "var", "chrome-profile"))
+    edge_profile_source = profile_dir_override or (shared_profile_env if browser == "edge" else "") or edge_profile_env
+    chrome_profile_source = profile_dir_override or (shared_profile_env if browser == "chrome" else "") or chrome_profile_env
+    edge_profile_dir_resolved = os.path.abspath(edge_profile_source) if edge_profile_source else default_edge_profile
+    chrome_profile_dir = os.path.abspath(chrome_profile_source) if chrome_profile_source else default_chrome_profile
     resolved_fallback_profile_dir = os.path.abspath(fallback_profile_dir) if fallback_profile_dir else edge_profile_dir_resolved
-    resolved_edge_profile_dir = edge_profile_dir_resolved if edge_profile_env else resolved_fallback_profile_dir
-    if os.path.exists(legacy_profile) and not os.path.exists(default_profile):
-        print("[WARN] legacy chrome_profile detected; using edge_profile_tmp instead")
-    if resolved_edge_profile_dir:
+    resolved_edge_profile_dir = edge_profile_dir_resolved
+    if resolved_edge_profile_dir and not no_profile_launch:
         try:
             os.makedirs(resolved_edge_profile_dir, exist_ok=True)
         except Exception as e:
             print(f"[WARN] Could not create Edge profile directory '{resolved_edge_profile_dir}': {e}")
         print(f"[INFO] Edge profile dir (resolved): {resolved_edge_profile_dir}")
-    chrome_profile_env = profile_dir_override or os.environ.get("CHROME_PROFILE_DIR")
-    chrome_profile_dir = os.path.abspath(chrome_profile_env.strip()) if chrome_profile_env else legacy_profile
     print(f"[INFO] Chrome profile dir (resolved): {chrome_profile_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")
@@ -472,6 +479,8 @@ def create_edge_driver(
     edge_kill_before: bool,
     show_browser: bool,
     headless_requested: bool = False,
+    no_profile_launch: bool = False,
+    **kwargs: Any,
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -489,23 +498,28 @@ def create_edge_driver(
     EDGEDRIVER = os.environ.get("EDGEDRIVER_PATH")
     edge_driver_env = EDGEDRIVER
     edge_binary_path_resolved = edge_binary_path()
+    _ = kwargs  # compat for legacy callers
     profile_dir_override = os.path.abspath(profile_dir) if profile_dir else None
-    edge_profile_env = profile_dir_override or os.environ.get("EDGE_PROFILE_DIR")
-    default_profile = PROFILE_DIR
-    legacy_profile = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrome_profile"))
-    edge_profile_dir_resolved = os.path.abspath(edge_profile_env.strip()) if edge_profile_env else default_profile
+    browser = (os.environ.get("WEBSCRAPER_BROWSER") or "edge").strip().lower()
+    if browser not in {"edge", "chrome"}:
+        browser = "edge"
+    shared_profile_env = (os.environ.get("WEBSCRAPER_PROFILE_DIR") or "").strip()
+    edge_profile_env = (os.environ.get("WEBSCRAPER_EDGE_PROFILE_DIR") or os.environ.get("EDGE_PROFILE_DIR") or "").strip()
+    chrome_profile_env = (os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR") or os.environ.get("CHROME_PROFILE_DIR") or "").strip()
+    default_edge_profile = os.path.abspath(os.path.join("webscraper", "var", "edge-profile"))
+    default_chrome_profile = os.path.abspath(os.path.join("webscraper", "var", "chrome-profile"))
+    edge_profile_source = profile_dir_override or (shared_profile_env if browser == "edge" else "") or edge_profile_env
+    chrome_profile_source = profile_dir_override or (shared_profile_env if browser == "chrome" else "") or chrome_profile_env
+    edge_profile_dir_resolved = os.path.abspath(edge_profile_source) if edge_profile_source else default_edge_profile
+    chrome_profile_dir = os.path.abspath(chrome_profile_source) if chrome_profile_source else default_chrome_profile
     resolved_fallback_profile_dir = os.path.abspath(fallback_profile_dir) if fallback_profile_dir else edge_profile_dir_resolved
-    resolved_edge_profile_dir = edge_profile_dir_resolved if edge_profile_env else resolved_fallback_profile_dir
-    if os.path.exists(legacy_profile) and not os.path.exists(default_profile):
-        print("[WARN] legacy chrome_profile detected; using edge_profile_tmp instead")
-    if resolved_edge_profile_dir:
+    resolved_edge_profile_dir = edge_profile_dir_resolved
+    if resolved_edge_profile_dir and not no_profile_launch:
         try:
             os.makedirs(resolved_edge_profile_dir, exist_ok=True)
         except Exception as e:
             print(f"[WARN] Could not create Edge profile directory '{resolved_edge_profile_dir}': {e}")
         print(f"[INFO] Edge profile dir (resolved): {resolved_edge_profile_dir}")
-    chrome_profile_env = profile_dir_override or os.environ.get("CHROME_PROFILE_DIR")
-    chrome_profile_dir = os.path.abspath(chrome_profile_env.strip()) if chrome_profile_env else legacy_profile
     print(f"[INFO] Chrome profile dir (resolved): {chrome_profile_dir}")
 
     debugger_address = os.environ.get("SCRAPER_DEBUGGER_ADDRESS")

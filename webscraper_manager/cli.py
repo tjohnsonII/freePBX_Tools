@@ -450,6 +450,15 @@ def _wait_for_health(url: str, timeout_s: float) -> bool:
     return http_health_ok(url)
 
 
+def _wait_for_worker_stability(pid: int, timeout_s: float = 10.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not _is_pid_alive(pid):
+            return False
+        time.sleep(0.5)
+    return _is_pid_alive(pid)
+
+
 def _listening_pid_for_port(port: int) -> int | None:
     try:
         import psutil  # type: ignore[import-not-found]
@@ -580,6 +589,20 @@ def _start_webscraper_stack(
     pids = _load_webscraper_pids(root)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    browser_choice = (env.get("WEBSCRAPER_BROWSER") or "edge").strip().lower()
+    if browser_choice not in {"chrome", "edge"}:
+        browser_choice = "edge"
+    chrome_profile_dir = (env.get("WEBSCRAPER_CHROME_PROFILE_DIR") or "").strip()
+    edge_profile_dir = (env.get("WEBSCRAPER_EDGE_PROFILE_DIR") or "").strip()
+    shared_profile_dir = (env.get("WEBSCRAPER_PROFILE_DIR") or "").strip()
+    resolved_chrome_profile = os.path.abspath(
+        shared_profile_dir if browser_choice == "chrome" and shared_profile_dir else chrome_profile_dir or os.path.join("webscraper", "var", "chrome-profile")
+    )
+    resolved_edge_profile = os.path.abspath(
+        shared_profile_dir if browser_choice == "edge" and shared_profile_dir else edge_profile_dir or os.path.join("webscraper", "var", "edge-profile")
+    )
+    _print_line(state, console, f"[INFO] Edge profile dir (resolved): {resolved_edge_profile}")
+    _print_line(state, console, f"[INFO] Chrome profile dir (resolved): {resolved_chrome_profile}")
     stop_on_worker_exit = os.environ.get("WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT", "0") == "1"
     strict_ui = os.environ.get("WEBSCRAPER_STACK_STRICT_UI", "0") == "1"
     auth_mode = (os.environ.get("WEBSCRAPER_AUTH_MODE") or "").strip().lower()
@@ -609,6 +632,7 @@ def _start_webscraper_stack(
     }
 
     monitored_pids: dict[str, int] = {}
+    worker_pid: int | None = None
     ui_skipped = False
 
     for name in ("api", "ui", "worker"):
@@ -628,6 +652,8 @@ def _start_webscraper_stack(
         pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
         if _is_pid_alive(pid):
             monitored_pids[name] = pid
+            if name == "worker":
+                worker_pid = pid
             continue
         log_path = logs_dir / f"{name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -676,14 +702,20 @@ def _start_webscraper_stack(
             time.sleep(2)
             if not _is_pid_alive(proc.pid):
                 return EXIT_SERVICES_UNHEALTHY
+            worker_pid = proc.pid
 
     if not _wait_for_health("http://127.0.0.1:8787/health", 5):
         return EXIT_SERVICES_UNHEALTHY
     if not ui_skipped and not _wait_for_health("http://127.0.0.1:3004", 5):
         return EXIT_SERVICES_UNHEALTHY
+    if not worker_pid or not _wait_for_worker_stability(worker_pid, timeout_s=10):
+        return EXIT_SERVICES_UNHEALTHY
 
     if not state.quiet:
-        started_message = "webscraper stack started"
+        _print_line(state, console, "API: OK (http://127.0.0.1:8787)")
+        _print_line(state, console, "UI: OK (http://127.0.0.1:3004)")
+        _print_line(state, console, f"Worker: OK (running pid {worker_pid})")
+        started_message = "webscraper stack ready"
         (console.print(started_message) if console is not None else print(started_message))
     if detach:
         return EXIT_OK

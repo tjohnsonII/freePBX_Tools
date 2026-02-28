@@ -52,7 +52,11 @@ def resolve_browser_selection() -> BrowserSelection:
         browser = "chrome"
 
     default_profile_dir = "webscraper/var/edge-profile" if browser == "edge" else "webscraper/var/chrome-profile"
-    profile_dir_raw = os.getenv("WEBSCRAPER_PROFILE_DIR", default_profile_dir)
+    shared_profile_dir = (os.getenv("WEBSCRAPER_PROFILE_DIR") or "").strip()
+    chrome_profile_dir = (os.getenv("WEBSCRAPER_CHROME_PROFILE_DIR") or "").strip()
+    edge_profile_dir = (os.getenv("WEBSCRAPER_EDGE_PROFILE_DIR") or "").strip()
+    browser_specific_profile = chrome_profile_dir if browser == "chrome" else edge_profile_dir
+    profile_dir_raw = shared_profile_dir or browser_specific_profile or default_profile_dir
     profile_name = (os.getenv("WEBSCRAPER_PROFILE_NAME") or "Default").strip() or "Default"
     profile_dir = Path(profile_dir_raw).expanduser()
     if not profile_dir.is_absolute():
