@@ -7,11 +7,11 @@ Goals:
 - Untrack generated outputs so .gitignore applies
 - Run pre-commit hooks (detect-secrets, gitleaks) across all files
 - Optionally purge repo history of known noisy/generated paths via git filter-repo
-- Push safely (regular push or force --mirror after rewrite)
+- Push safely (regular push by default; mirror only when explicitly requested)
 
 Usage examples:
   python scripts/secure_push.py
-  python scripts/secure_push.py --auto-purge --mirror
+  python scripts/secure_push.py --mirror
   python scripts/secure_push.py --remote origin
 """
 
@@ -104,6 +104,23 @@ def ensure_precommit():
     code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
     if code != 0:
         raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
+
+
+def cleanup_auth_fail_logs():
+    """Delete known runtime auth failure HTML logs that trigger noisy scans."""
+    patterns = [
+        REPO_ROOT / "var" / "logs" / "auth_fail_*.html",
+        REPO_ROOT / "webscraper" / "var" / "logs" / "auth_fail_*.html",
+    ]
+    deleted = 0
+    for pattern in patterns:
+        for path in pattern.parent.glob(pattern.name):
+            if path.is_file():
+                path.unlink()
+                deleted += 1
+                print(f"[INFO] Removed runtime auth-fail log: {path.relative_to(REPO_ROOT)}")
+    if deleted == 0:
+        print("[INFO] No runtime auth-fail HTML logs found to remove")
 
 
 def ensure_allowlist_pragmas():
@@ -293,16 +310,17 @@ def has_staged_changes() -> bool:
     return bool(out.strip())
 
 
-def auto_stage_and_commit(message: str | None = None) -> bool:
+def auto_stage_and_commit(message: str | None = None, run_hooks: bool = True) -> bool:
     """Stage all changes and commit if any staged deltas exist after hooks."""
     # Stage everything respecting .gitignore
     run(["git", "add", "-A"], check=True)
     # Block known sensitive artifacts
     verify_staged_files_safe()
     # Run hooks across all files and re-stage if they made fixes
-    code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
-    if code != 0:
-        raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
+    if run_hooks:
+        code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
+        if code != 0:
+            raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
     run(["git", "add", "-A"], check=True)
     if not has_staged_changes():
         return False
@@ -335,9 +353,11 @@ def push_changes(mirror: bool, remote: str):
     os.environ["SECURE_PUSH"] = "1"
     try:
         if mirror:
+            print(f"[INFO] Pushing with explicit mirror mode to remote '{remote}'")
             run(["git", "push", "--force", "--mirror", remote], check=True)
         else:
-            run(["git", "push", remote], check=False)
+            print(f"[INFO] Pushing current HEAD with follow-tags to remote '{remote}'")
+            run(["git", "push", "--follow-tags", remote, "HEAD"], check=True)
     finally:
         if prev is None:
             os.environ.pop("SECURE_PUSH", None)
@@ -347,21 +367,24 @@ def push_changes(mirror: bool, remote: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Secure push workflow")
-    # Default to mirror pushes; allow override with --normal
-    parser.add_argument("--normal", dest="mirror", action="store_false", help="Use normal push instead of mirror")
+    parser.add_argument("--mirror", action="store_true", help="Dangerous: force mirror-push all refs")
     parser.add_argument("--remote", default="origin", help="Git remote (default: origin)")
+    parser.add_argument("--skip-hooks", action="store_true", help="Skip pre-commit hooks (not recommended)")
     parser.add_argument("--message", default=None, help="Commit message for auto-commit")
-    parser.set_defaults(mirror=True)
     args = parser.parse_args()
 
     os.chdir(str(REPO_ROOT))
     print(f"[INFO] Secure push starting in {REPO_ROOT}")
+    cleanup_auth_fail_logs()
 
     ensure_gitignore()
     untrack_generated_outputs()
-    ensure_precommit()
+    if args.skip_hooks:
+        print("[WARN] Skipping pre-commit hooks due to --skip-hooks")
+    else:
+        ensure_precommit()
     # Auto-stage and commit in one run
-    auto_stage_and_commit(args.message)
+    auto_stage_and_commit(args.message, run_hooks=not args.skip_hooks)
     clean, gout, gerr = run_gitleaks_scan()
     if not clean:
         print("[WARN] Gitleaks found leaks. Attempting history purge...")

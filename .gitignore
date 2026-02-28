@@ -215,3 +215,21 @@ webscraper/var/runtime/
 **/user-data-dir/
 **/selenium-profile/
 **/playwright/.cache/
+
+# Runtime artifacts (can contain cookies/tokens)
+var/
+**/var/
+*.html
+*.log
+*.sqlite
+*.db
+*.har
+*.pcap
+*.pcapng
+*.zip
+
+# Selenium/Chrome runtime profiles
+**/chrome-debug/
+**/profiles/
+**/cookies/
+**/runs/
