@@ -178,7 +178,7 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
         files={"file": ("cookies.json", b'[{"name":"sid","value":"x","domain":"example.com"}]', "application/json")},
     )
     assert unmatched.status_code == 400
-    assert "No secure.123.net cookies found" in unmatched.json()["detail"]
+    assert "No target-domain cookies found" in unmatched.json()["detail"]["error"]
 
     valid = client.post(
         "/api/auth/import-file",
@@ -198,8 +198,8 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
     assert status_payload["source"] == "file"
 
     paste_response = client.post("/api/auth/import-text", json={"text": "Cookie: sid=abc; csrftoken=def"})
-    assert paste_response.status_code == 400
-    assert "No secure.123.net cookies found" in paste_response.json()["detail"]
+    assert paste_response.status_code == 200
+    assert paste_response.json()["ok"] is True
 
     paste_valid = client.post(
         "/api/auth/import-text",
@@ -240,7 +240,7 @@ def test_auth_doctor_endpoint_reports_multipart_and_db(tmp_path, monkeypatch):
     assert payload["auth_cookie_table_ready"] is True
 
 
-def test_auth_import_rejects_wrong_domain(tmp_path, monkeypatch):
+def test_auth_import_rejects_non_target_domain(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
@@ -253,8 +253,54 @@ def test_auth_import_rejects_wrong_domain(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "No secure.123.net cookies found" in response.json()["detail"]
+    assert "No target-domain cookies found" in response.json()["detail"]["error"]
 
+
+
+
+def test_auth_import_accepts_parent_domain_cookie(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post(
+        "/api/auth/import",
+        json={"text": '[{"name":"sid","value":"x","domain":".123.net","path":"/"}]'},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["cookie_count"] >= 1
+
+
+def test_logs_enabled_and_tail_endpoints(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setenv("SCRAPER_ENABLE_LOG_API", "1")
+
+    log_file = appmod.LOG_DIR / "test-ticket-api.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text("line-1\nline-2\nline-3\n", encoding="utf-8")
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    enabled = client.get("/api/logs/enabled")
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+
+    listed = client.get("/api/logs/list")
+    assert listed.status_code == 200
+    assert any(item["name"] == "test-ticket-api.log" for item in listed.json()["items"])
+
+    tail = client.get("/api/logs/tail", params={"name": "test-ticket-api.log", "lines": 2})
+    assert tail.status_code == 200
+    assert tail.json()["lines"] == ["line-2", "line-3"]
+
+    log_file.unlink(missing_ok=True)
 
 def test_auth_seed_endpoint_auto_mode(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")

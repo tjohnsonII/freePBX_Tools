@@ -6,10 +6,35 @@ from typing import Iterable, List, Optional
 
 from .chrome_profile import get_driver_reusing_profile
 from .probe import TARGET_URL, probe_auth
-from .session import build_authenticated_session
+from .session import build_authenticated_session, selenium_driver_to_requests_session, summarize_driver_cookies
 
 from .types import AuthAttempt, AuthContext, AuthMode, AuthResult
 from .strategies import manual, profile, programmatic
+
+
+def _normalize_driver_cookie_for_store(cookie: dict, default_domain: str = "secure.123.net") -> dict:
+    return {
+        "name": str(cookie.get("name") or "").strip(),
+        "value": str(cookie.get("value") or ""),
+        "domain": str(cookie.get("domain") or "").strip() or default_domain,
+        "path": str(cookie.get("path") or "/") or "/",
+        "secure": bool(cookie.get("secure")),
+        "httpOnly": bool(cookie.get("httpOnly")),
+        "sameSite": cookie.get("sameSite"),
+        "expires": cookie.get("expiry", cookie.get("expires")),
+    }
+
+
+def _persist_selenium_cookies(cookies: list[dict]) -> None:
+    try:
+        from webscraper.lib.db_path import get_tickets_db_path
+        from webscraper.ticket_api import auth_store
+
+        normalized = [_normalize_driver_cookie_for_store(cookie) for cookie in cookies if isinstance(cookie, dict)]
+        auth_store.replace_cookies(get_tickets_db_path(), normalized, source="selenium_profile")
+    except Exception:
+        # Non-fatal: the requests session in-memory can still be used for this run.
+        pass
 
 
 def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
@@ -52,6 +77,27 @@ def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
             sel_probe = probe_auth(driver, url=url)
             if not sel_probe.get("ok"):
                 raise RuntimeError(f"selenium auth probe failed: {sel_probe.get('notes', 'unknown reason')}")
+
+            if selected_mode == "auto":
+                seeded_session = selenium_driver_to_requests_session(driver, base_url=url)
+                seeded_probe = probe_auth(seeded_session, url=url)
+                if not seeded_probe.get("ok"):
+                    diagnostics = summarize_driver_cookies(driver)
+                    raise RuntimeError(
+                        "selenium authentication succeeded but requests cookie seeding failed: "
+                        f"{seeded_probe.get('notes', 'unknown reason')} cookies={diagnostics}"
+                    )
+                _persist_selenium_cookies(driver.get_cookies() or [])
+                response = seeded_session.get(url, timeout=30, allow_redirects=True)
+                return {
+                    "mode": "requests_seeded_from_selenium",
+                    "probe": seeded_probe,
+                    "selenium_probe": sel_probe,
+                    "status_code": int(response.status_code),
+                    "url": response.url,
+                    "content": response.text,
+                }
+
             driver.get(url)
             return {
                 "mode": "selenium",

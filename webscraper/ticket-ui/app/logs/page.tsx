@@ -20,8 +20,17 @@ export default function LogsPage() {
   const [search, setSearch] = useState<string>("");
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  const checkEnabled = async () => {
+    const response = await apiGet<{ enabled: boolean }>("/api/logs/enabled");
+    const isEnabled = Boolean(response?.enabled);
+    setEnabled(isEnabled);
+    return isEnabled;
+  };
 
   const loadList = async () => {
+    if (enabled === false) return;
     const response = await apiGet<{ items: LogItem[] }>("/api/logs/list");
     const next = Array.isArray(response?.items) ? response.items : [];
     setItems(next);
@@ -32,6 +41,7 @@ export default function LogsPage() {
   };
 
   const loadTail = async (name: string, count: number) => {
+    if (enabled === false) return;
     if (!name) {
       setLines([]);
       return;
@@ -41,21 +51,27 @@ export default function LogsPage() {
   };
 
   useEffect(() => {
-    loadList().catch((e) => setError(formatApiError(e)));
+    checkEnabled()
+      .then((isEnabled) => {
+        if (!isEnabled) return;
+        return loadList();
+      })
+      .catch((e) => setError(formatApiError(e)));
   }, []);
 
   useEffect(() => {
+    if (enabled !== true) return;
     loadTail(selected, lineCount).catch((e) => setError(formatApiError(e)));
-  }, [selected, lineCount]);
+  }, [selected, lineCount, enabled]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || enabled !== true) return;
     const timer = setInterval(() => {
       loadList().catch(() => undefined);
       loadTail(selected, lineCount).catch(() => undefined);
     }, 1500);
     return () => clearInterval(timer);
-  }, [autoRefresh, selected, lineCount]);
+  }, [autoRefresh, selected, lineCount, enabled]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return lines;
@@ -74,6 +90,7 @@ export default function LogsPage() {
   return (
     <main>
       <h2>Logs</h2>
+      {enabled === false ? <p style={{ color: "#a22" }}>Logs API disabled.</p> : null}
       {error ? <p style={{ color: "#a22" }}>{error}</p> : null}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <label>Log File
@@ -94,7 +111,7 @@ export default function LogsPage() {
         <label>
           <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /> Auto-refresh
         </label>
-        <button onClick={() => loadTail(selected, lineCount).catch((e) => setError(formatApiError(e)))}>Refresh</button>
+        <button disabled={enabled !== true} onClick={() => loadTail(selected, lineCount).catch((e) => setError(formatApiError(e)))}>Refresh</button>
         <button onClick={copyFiltered}>Copy</button>
       </div>
       <p>Total lines shown: {filtered.length} / {lines.length}</p>

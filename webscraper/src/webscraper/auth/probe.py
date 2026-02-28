@@ -37,19 +37,25 @@ def _probe_session(session: requests.Session, url: str) -> dict[str, Any]:
     ok = bool(response.status_code == 200 and detected_ok and not detected_login)
 
     cookie_names = sorted(session.cookies.keys())
+    cookie_domains = sorted({str(cookie.domain or "").lstrip(".").lower() for cookie in session.cookies if getattr(cookie, "domain", None)})
     LOGGER.info(
-        "Auth probe (requests): status=%s ok=%s login_page=%s cookie_names=%s",
+        "Auth probe (requests): status=%s ok=%s login_page=%s detected_ok=%s cookie_count=%s cookie_names=%s domains=%s",
         response.status_code,
         ok,
         detected_login,
+        detected_ok,
+        len(cookie_names),
         cookie_names,
+        cookie_domains,
     )
 
     return {
         "ok": ok,
         "status_code": int(response.status_code),
         "detected_login_page": detected_login,
+        "detected_ok": detected_ok,
         "cookie_names": cookie_names,
+        "cookie_domains": cookie_domains,
         "url": response.url,
         "notes": "authenticated content detected" if ok else "login markers or missing admin markers detected",
     }
@@ -66,26 +72,30 @@ def _probe_driver(driver: Any, url: str) -> dict[str, Any]:
     status_code = 200 if html else 0
     ok = bool(status_code == 200 and detected_ok and not detected_login)
 
-    cookie_names = sorted(
-        [
-            str(cookie.get("name"))
-            for cookie in (driver.get_cookies() or [])
-            if isinstance(cookie, dict) and cookie.get("name")
-        ]
-    )
+    raw_cookies = [cookie for cookie in (driver.get_cookies() or []) if isinstance(cookie, dict)]
+    cookie_names = sorted([str(cookie.get("name")) for cookie in raw_cookies if cookie.get("name")])
+    cookie_domains = sorted({str(cookie.get("domain") or "").lstrip(".").lower() for cookie in raw_cookies if cookie.get("domain")})
+    session_like_names = [name for name in cookie_names if any(marker in name.lower() for marker in ("sess", "session", "sid", "auth", "token", "php"))]
     LOGGER.info(
-        "Auth probe (selenium): status=%s ok=%s login_page=%s cookie_names=%s",
+        "Auth probe (selenium): status=%s ok=%s login_page=%s detected_ok=%s cookie_count=%s cookie_names=%s domains=%s session_like=%s",
         status_code,
         ok,
         detected_login,
+        detected_ok,
+        len(raw_cookies),
         cookie_names,
+        cookie_domains,
+        session_like_names,
     )
 
     return {
         "ok": ok,
         "status_code": status_code,
         "detected_login_page": detected_login,
+        "detected_ok": detected_ok,
         "cookie_names": cookie_names,
+        "cookie_domains": cookie_domains,
+        "session_like_names": session_like_names,
         "url": current_url,
         "notes": "authenticated content detected" if ok else "login markers or missing admin markers detected",
     }
