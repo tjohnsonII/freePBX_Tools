@@ -4,6 +4,7 @@ import base64
 import ctypes
 import json
 import os
+import subprocess
 import shutil
 import sqlite3
 import sys
@@ -12,6 +13,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+
+from webscraper.auth.chrome_cdp import (
+    ChromeCDPError,
+    connect_browser_ws,
+    find_free_port,
+    get_all_cookies,
+    launch_chrome_with_debug,
+    navigate,
+    set_cookie,
+)
 
 try:  # optional dependency
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -34,9 +45,14 @@ class SeededProfileResult:
     cookie_db_path: str
     seeded_domains: list[str]
     domain_counts: dict[str, int]
+    seed_method: str
 
 
 class ChromeCookieError(RuntimeError):
+    pass
+
+
+class ChromeCookieDBLockedError(ChromeCookieError):
     pass
 
 
@@ -119,6 +135,113 @@ def _copy_to_temp(source_path: Path) -> Path:
     return temp_path
 
 
+def _is_win_lock_error(exc: Exception) -> bool:
+    return isinstance(exc, PermissionError) and getattr(exc, "winerror", None) == 32
+
+
+def _domain_matches_allowed(cookie_domain: str, allowed_domains: list[str]) -> bool:
+    normalized = _normalize_domain(cookie_domain)
+    return any(normalized == allowed or normalized.endswith(f".{allowed}") for allowed in allowed_domains)
+
+
+def _filter_cdp_cookies(cookies: list[dict[str, Any]], allowed_domains: list[str]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    filtered: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for cookie in cookies:
+        domain = str(cookie.get("domain") or "")
+        if not _domain_matches_allowed(domain, allowed_domains):
+            continue
+        counts[domain] = counts.get(domain, 0) + 1
+        filtered.append(cookie)
+    return filtered, counts
+
+
+def _map_same_site(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    lowered = raw.lower()
+    if lowered == "unspecified":
+        return None
+    mapping = {
+        "lax": "Lax",
+        "strict": "Strict",
+        "none": "None",
+        "samesitestrict": "Strict",
+        "samesitelax": "Lax",
+        "samesitenone": "None",
+    }
+    return mapping.get(lowered)
+
+
+def _seed_cookies_via_cdp(
+    *,
+    chrome_path: Path,
+    source_profile_dir_name: str,
+    target_profile_dir: Path,
+    allowed_domains: list[str],
+    target_url: str,
+) -> dict[str, int]:
+    source_port = find_free_port()
+    target_port = find_free_port()
+    source_proc: subprocess.Popen | None = None
+    target_proc: subprocess.Popen | None = None
+    source_ws = None
+    target_ws = None
+
+    try:
+        source_proc = launch_chrome_with_debug(
+            chrome_path=chrome_path,
+            profile_dir_name=source_profile_dir_name,
+            user_data_dir=str(_chrome_user_data_base()),
+            port=source_port,
+            initial_url="about:blank",
+        )
+        source_ws = connect_browser_ws(source_port)
+        source_cookies = get_all_cookies(source_ws)
+        filtered_cookies, domain_counts = _filter_cdp_cookies(source_cookies, allowed_domains)
+
+        target_proc = launch_chrome_with_debug(
+            chrome_path=chrome_path,
+            profile_dir_name="Default",
+            user_data_dir=str(target_profile_dir),
+            port=target_port,
+            initial_url="about:blank",
+        )
+        target_ws = connect_browser_ws(target_port)
+
+        for cookie in filtered_cookies:
+            payload: dict[str, Any] = {
+                "name": str(cookie.get("name") or ""),
+                "value": str(cookie.get("value") or ""),
+                "domain": str(cookie.get("domain") or ""),
+                "path": str(cookie.get("path") or "/"),
+                "secure": bool(cookie.get("secure")),
+                "httpOnly": bool(cookie.get("httpOnly")),
+            }
+            expires = cookie.get("expires")
+            if isinstance(expires, (int, float)) and expires > 0:
+                payload["expires"] = float(expires)
+            same_site = _map_same_site(cookie.get("sameSite"))
+            if same_site:
+                payload["sameSite"] = same_site
+            if payload["domain"].lstrip(".").lower() == "secure.123.net":
+                payload["url"] = "https://secure.123.net/"
+            set_cookie(target_ws, payload)
+
+        navigate(target_ws, target_url)
+        return domain_counts
+    except ChromeCDPError as exc:
+        raise ChromeCookieError(f"CDP cookie seeding failed: {exc}") from exc
+    finally:
+        if source_ws:
+            source_ws.close()
+        if target_ws:
+            target_ws.close()
+        if source_proc and source_proc.poll() is None:
+            source_proc.terminate()
+
+
 def _seed_cookie_db(src_db: Path, dst_db: Path, allowed_domains: list[str]) -> dict[str, int]:
     temp_copy = _copy_to_temp(src_db)
     try:
@@ -142,16 +265,39 @@ def _seed_cookie_db(src_db: Path, dst_db: Path, allowed_domains: list[str]) -> d
         temp_copy.unlink(missing_ok=True)
 
 
-def seed_isolated_profile(*, var_root: Path, chrome_profile_dir: str | None = None, seed_domains: list[str] | None = None) -> SeededProfileResult:
+def seed_isolated_profile(
+    *,
+    var_root: Path,
+    chrome_path: Path,
+    chrome_profile_dir: str | None = None,
+    seed_domains: list[str] | None = None,
+    target_url: str = CHROME_CUSTOMERS_URL,
+) -> SeededProfileResult:
     source_profile = _source_profile_path(chrome_profile_dir)
-    source_cookie_db = _source_cookie_db(source_profile)
-    allowed = [_normalize_domain(domain) for domain in (seed_domains or ["secure.123.net"]) if _normalize_domain(domain)]
+    allowed = [_normalize_domain(domain) for domain in (seed_domains or ["secure.123.net", "123.net"]) if _normalize_domain(domain)]
     if not allowed:
-        allowed = ["secure.123.net"]
+        allowed = ["secure.123.net", "123.net"]
 
     target_profile = _new_seeded_profile_dir(var_root)
     target_cookie_db = target_profile / "Default" / "Network" / "Cookies"
-    domain_counts = _seed_cookie_db(source_cookie_db, target_cookie_db, allowed)
+    seed_method = "cdp"
+    try:
+        domain_counts = _seed_cookies_via_cdp(
+            chrome_path=chrome_path,
+            source_profile_dir_name=source_profile.name,
+            target_profile_dir=target_profile,
+            allowed_domains=allowed,
+            target_url=target_url,
+        )
+    except ChromeCookieError:
+        seed_method = "sqlite_copy"
+        source_cookie_db = _source_cookie_db(source_profile)
+        try:
+            domain_counts = _seed_cookie_db(source_cookie_db, target_cookie_db, allowed)
+        except PermissionError as exc:
+            if _is_win_lock_error(exc):
+                raise ChromeCookieDBLockedError("Chrome is running and cookie DB is locked. Use CDP seeding path.") from exc
+            raise
 
     return SeededProfileResult(
         source_profile_dir=str(source_profile),
@@ -159,6 +305,7 @@ def seed_isolated_profile(*, var_root: Path, chrome_profile_dir: str | None = No
         cookie_db_path=str(target_cookie_db),
         seeded_domains=allowed,
         domain_counts=domain_counts,
+        seed_method=seed_method,
     )
 
 

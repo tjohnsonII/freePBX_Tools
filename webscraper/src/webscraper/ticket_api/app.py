@@ -28,6 +28,7 @@ from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
 from webscraper.auth.chrome_cookies import (
     CHROME_CUSTOMERS_URL,
+    ChromeCookieDBLockedError,
     ChromeCookieError,
     list_chrome_profile_dirs,
     load_cookies_from_profile,
@@ -94,12 +95,12 @@ class LaunchBrowserRequest(BaseModel):
 class LaunchSeededRequest(BaseModel):
     target_url: str = CHROME_CUSTOMERS_URL
     chrome_profile_dir: str | None = None
-    seed_domains: list[str] = ["secure.123.net"]
+    seed_domains: list[str] = ["secure.123.net", "123.net"]
 
 
 class ImportFromProfileRequest(BaseModel):
     temp_profile_dir: str
-    seed_domains: list[str] = ["secure.123.net"]
+    seed_domains: list[str] = ["secure.123.net", "123.net"]
 
 
 @dataclass
@@ -1020,22 +1021,27 @@ def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
     try:
         seeded_result = seed_isolated_profile(
             var_root=var_root,
+            chrome_path=browser_path,
             chrome_profile_dir=payload.chrome_profile_dir,
             seed_domains=payload.seed_domains,
+            target_url=target_url,
         )
+    except ChromeCookieDBLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ChromeCookieError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    command = [
-        str(browser_path),
-        f"--user-data-dir={seeded_result.temp_profile_dir}",
-        "--profile-directory=Default",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--new-window",
-        target_url,
-    ]
-    subprocess.Popen(command)
+    if seeded_result.seed_method != "cdp":
+        command = [
+            str(browser_path),
+            f"--user-data-dir={seeded_result.temp_profile_dir}",
+            "--profile-directory=Default",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--new-window",
+            target_url,
+        ]
+        subprocess.Popen(command)
     _log(f"Using Chrome profile dir: {seeded_result.source_profile_dir}")
     _log(
         f"launched seeded isolated browser browser={browser_path} profile_dir={seeded_result.temp_profile_dir} "
@@ -1043,6 +1049,7 @@ def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
     )
     return {
         "ok": True,
+        "seed_method": seeded_result.seed_method,
         "src_profile": seeded_result.source_profile_dir,
         "temp_profile_dir": seeded_result.temp_profile_dir,
         "launched_url": target_url,
