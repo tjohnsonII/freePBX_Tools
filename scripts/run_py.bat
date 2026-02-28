@@ -7,6 +7,7 @@ for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
 
 REM First arg = venv path relative to repo root
 set "VENV_REL=%~1"
+shift
 if "%VENV_REL%"=="" (
   echo ERROR: Missing venv path argument.
   exit /b 1
@@ -20,7 +21,6 @@ if not exist "%PY%" (
 
 echo [run_py] Using Python: "%PY%"
 
-shift
 if "%~1"=="" (
   "%PY%" -V
   exit /b %ERRORLEVEL%

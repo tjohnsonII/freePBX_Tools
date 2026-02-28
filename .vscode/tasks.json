@@ -266,7 +266,16 @@
       "args": [
         "/d",
         "/c",
-        "call \"${workspaceFolder}\\scripts\\kill_ports.bat\" && call \"${workspaceFolder}\\scripts\\run_py.bat\" .venv-webscraper -m webscraper_manager start webscraper"
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat",
+        "&&",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "start",
+        "webscraper"
       ],
       "isBackground": true,
       "problemMatcher": [
@@ -348,7 +357,16 @@
       "args": [
         "/d",
         "/c",
-        "call \"${workspaceFolder}\\scripts\\run_py.bat\" .venv-webscraper -m webscraper_manager stop webscraper || call \"${workspaceFolder}\\scripts\\kill_ports.bat\""
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "stop",
+        "webscraper",
+        "||",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat"
       ],
       "problemMatcher": [],
       "options": {
