@@ -14,7 +14,7 @@ type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: stri
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
 type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
-type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; running: boolean; errors: number; error_message?: string; result?: JobResult };
+type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; completed_handles?: number; current_handle?: string | null; per_handle_status?: Record<string, string>; running: boolean; errors: number; error_message?: string; result?: JobResult };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
 const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
 const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
@@ -31,6 +31,7 @@ export default function HandlesPage() {
   const [handles, setHandles] = useState<string[]>([]);
   const [handleRows, setHandleRows] = useState<HandleRow[]>([]);
   const [selectedHandle, setSelectedHandle] = useState("");
+  const [selectedHandles, setSelectedHandles] = useState<Set<string>>(new Set());
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -54,6 +55,13 @@ export default function HandlesPage() {
     return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net") || normalized === "123.net" || normalized.endsWith(".123.net");
   });
   const wrongDomainLoaded = (authStatus?.cookie_count || 0) > 0 && !hasSecureDomain;
+
+
+  const filteredHandles = useMemo(() => new Set(handles.map((item) => item.toUpperCase())), [handles]);
+  const filteredHandleRows = useMemo(() => handleRows.filter((row) => filteredHandles.has(row.handle.toUpperCase())), [filteredHandles, handleRows]);
+  const selectedCount = selectedHandles.size;
+  const allFilteredSelected = filteredHandleRows.length > 0 && filteredHandleRows.every((row) => selectedHandles.has(row.handle));
+  const someFilteredSelected = filteredHandleRows.some((row) => selectedHandles.has(row.handle));
 
   const loadHandles = async () => {
     const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
@@ -99,6 +107,14 @@ export default function HandlesPage() {
   useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
   useEffect(() => { loadAuthStatus().catch(() => undefined); loadChromeProfiles().catch(() => undefined); }, []);
   useEffect(() => { if (selectedHandle) loadTickets(selectedHandle).catch(() => setTickets([])); else setTickets([]); }, [selectedHandle]);
+
+  useEffect(() => {
+    setSelectedHandles((prev) => {
+      const available = new Set(handleRows.map((row) => row.handle));
+      const next = new Set(Array.from(prev).filter((handle) => available.has(handle)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [handleRows]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -233,6 +249,58 @@ export default function HandlesPage() {
     }
   };
 
+  const toggleHandleSelection = (handle: string) => {
+    setSelectedHandles((prev) => {
+      const next = new Set(prev);
+      if (next.has(handle)) next.delete(handle);
+      else next.add(handle);
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedHandles((prev) => {
+      const next = new Set(prev);
+      for (const row of filteredHandleRows) next.add(row.handle);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedHandles(new Set());
+
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedHandles((prev) => {
+        const next = new Set(prev);
+        for (const row of filteredHandleRows) next.delete(row.handle);
+        return next;
+      });
+      return;
+    }
+    selectAllFiltered();
+  };
+
+  const startScrapeSelectedBatch = async () => {
+    if (selectedCount === 0) return;
+    try {
+      setError(null);
+      if ((authStatus?.cookie_count || 0) > 0) {
+        await runValidate();
+      }
+      const handlesToScrape = Array.from(selectedHandles);
+      const response = await apiPost<{ job_id: string }>("/api/scrape/handles", {
+        handles: handlesToScrape,
+        mode: "normal",
+      });
+      setJobId(response.job_id);
+      setJobStatus(null);
+      setEvents([]);
+      clearSelection();
+    } catch (e) {
+      setError(formatApiError(e));
+    }
+  };
+
   const jobError = jobStatus?.result?.error || jobStatus?.error_message;
 
   return (
@@ -268,9 +336,31 @@ export default function HandlesPage() {
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
-      <div><button onClick={startScrapeSelected} disabled={!selectedHandle || wrongDomainLoaded}>Scrape Selected Handle</button> {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}</div>
+      <div>
+        <button onClick={startScrapeSelected} disabled={!selectedHandle || wrongDomainLoaded}>Scrape Selected Handle</button>
+        {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}
+      </div>
 
-      {jobStatus && <section><h3>Job status</h3><p>Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}</p></section>}
+      <section style={{ marginTop: 10, border: "1px solid #ddd", padding: 10 }}>
+        <strong>Selection</strong>
+        <div style={{ marginTop: 6 }}>
+          <button onClick={selectAllFiltered} disabled={filteredHandleRows.length === 0}>Select All</button>
+          <button onClick={clearSelection} style={{ marginLeft: 8 }} disabled={selectedCount === 0}>Clear Selection</button>
+          <button onClick={startScrapeSelectedBatch} style={{ marginLeft: 8 }} disabled={selectedCount === 0 || wrongDomainLoaded}>Scrape Selected ({selectedCount})</button>
+          <span style={{ marginLeft: 8 }}>Selected: {selectedCount}</span>
+        </div>
+        {selectedCount > 50 ? <p style={{ color: "#a16207", marginTop: 8 }}>You’re about to queue {selectedCount} handles; this may take a while.</p> : null}
+      </section>
+
+      {jobStatus && (
+        <section>
+          <h3>Job status</h3>
+          <p>
+            Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}
+            {jobStatus.current_handle ? ` | Current: ${jobStatus.current_handle}` : ""}
+          </p>
+        </section>
+      )}
 
       {(jobStatus?.status === "failed" || authValidate?.authenticated === false) && (
         <section style={{ border: "2px solid #dc2626", background: "#fee2e2", padding: 12, marginTop: 12 }}>
@@ -290,8 +380,8 @@ export default function HandlesPage() {
 
       <section style={{ marginTop: 14 }}>
         <h3>Handles</h3>
-        <table><thead><tr><th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th></tr></thead><tbody>
-          {handleRows.map((row) => (<tr key={row.handle}><td>{row.handle}</td><td>{row.status || "-"}</td><td>{row.error || (row.status === "error" ? "Unknown error" : "-")}</td><td>{row.last_updated_utc || "-"}</td><td>{row.ticket_count ?? 0}</td><td><button onClick={() => setSelectedHandle(row.handle)}>Select</button></td></tr>))}
+        <table><thead><tr><th><input type="checkbox" checked={allFilteredSelected} ref={(el) => { if (el) el.indeterminate = !allFilteredSelected && someFilteredSelected; }} onChange={toggleSelectAllFiltered} /></th><th>Handle</th><th>Status</th><th>Error</th><th>Last Updated</th><th>Ticket Count</th><th>Actions</th></tr></thead><tbody>
+          {filteredHandleRows.map((row) => (<tr key={row.handle}><td><input type="checkbox" checked={selectedHandles.has(row.handle)} onChange={() => toggleHandleSelection(row.handle)} /></td><td>{row.handle}</td><td>{row.status || "-"}</td><td>{row.error || (row.status === "error" ? "Unknown error" : "-")}</td><td>{row.last_updated_utc || "-"}</td><td>{row.ticket_count ?? 0}</td><td><button onClick={() => setSelectedHandle(row.handle)}>Select</button></td></tr>))}
         </tbody></table>
       </section>
 

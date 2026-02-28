@@ -95,6 +95,7 @@ def ensure_indexes(db_path: str) -> None:
                 CREATE TABLE IF NOT EXISTS scrape_jobs(
                     job_id TEXT PRIMARY KEY,
                     handle TEXT,
+                    handles_json TEXT,
                     mode TEXT NOT NULL,
                     ticket_id TEXT,
                     ticket_limit INTEGER,
@@ -159,6 +160,8 @@ def ensure_indexes(db_path: str) -> None:
             scrape_columns = table_columns(conn, "scrape_jobs")
             if "ticket_id" not in scrape_columns:
                 conn.execute("ALTER TABLE scrape_jobs ADD COLUMN ticket_id TEXT")
+            if "handles_json" not in scrape_columns:
+                conn.execute("ALTER TABLE scrape_jobs ADD COLUMN handles_json TEXT")
 
             handle_columns = table_columns(conn, "handles")
             for handle_column in ["last_started_utc", "last_finished_utc", "last_run_id"]:
@@ -497,10 +500,23 @@ def list_tickets(db_path: str, handle: str | None = None, status: str | None = N
     return {"items": [dict(r) for r in rows], "totalCount": total, "page": page, "pageSize": page_size}
 
 
-def create_scrape_job(db_path: str, job_id: str, handle: str | None, mode: str, ticket_limit: int | None, status: str, created_utc: str, ticket_id: str | None = None) -> None:
+def create_scrape_job(
+    db_path: str,
+    job_id: str,
+    handle: str | None,
+    mode: str,
+    ticket_limit: int | None,
+    status: str,
+    created_utc: str,
+    ticket_id: str | None = None,
+    handles: list[str] | None = None,
+) -> None:
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
-            conn.execute("INSERT INTO scrape_jobs(job_id, handle, mode, ticket_id, ticket_limit, status, created_utc) VALUES (?, ?, ?, ?, ?, ?, ?)", (job_id, handle, mode, ticket_id, ticket_limit, status, created_utc))
+            conn.execute(
+                "INSERT INTO scrape_jobs(job_id, handle, handles_json, mode, ticket_id, ticket_limit, status, created_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (job_id, handle, json.dumps(handles, sort_keys=True) if handles is not None else None, mode, ticket_id, ticket_limit, status, created_utc),
+            )
 
 
 def update_scrape_job(db_path: str, job_id: str, *, status: str, progress_completed: int, progress_total: int, started_utc: str | None = None, finished_utc: str | None = None, error_message: str | None = None, result: dict[str, Any] | None = None) -> None:
@@ -536,6 +552,7 @@ def get_latest_scrape_job(db_path: str) -> dict[str, Any] | None:
         return None
     payload=dict(row)
     payload["result"] = json.loads(payload["result_json"]) if payload.get("result_json") else None
+    payload["handles"] = json.loads(payload["handles_json"]) if payload.get("handles_json") else None
     return payload
 
 
@@ -546,6 +563,7 @@ def get_scrape_job(db_path: str, job_id: str) -> dict[str, Any] | None:
         return None
     payload = dict(row)
     payload["result"] = json.loads(payload["result_json"]) if payload.get("result_json") else None
+    payload["handles"] = json.loads(payload["handles_json"]) if payload.get("handles_json") else None
     return payload
 
 
