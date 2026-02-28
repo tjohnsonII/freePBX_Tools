@@ -1012,6 +1012,60 @@ def run_auth_check(state: AppState, json_out: bool = False) -> int:
     return EXIT_OK if bool(payload.get("ok")) else EXIT_AUTH_FAILED
 
 
+def run_seed_auth(state: AppState, json_out: bool = False) -> int:
+    root = find_repo_root()
+    console = get_console(state)
+    python_exe = get_runtime_python(state, root)
+    script_path = root / "webscraper" / "scripts" / "seed_and_fetch.py"
+    if not script_path.exists():
+        message = f"Seed auth script not found: {script_path}"
+        if json_out:
+            print(json.dumps({"ok": False, "error": message}, indent=2))
+        elif not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_AUTH_FAILED
+
+    cmd = [str(python_exe), str(script_path)]
+    rc, out, err = run_subprocess(cmd, cwd=root, timeout=180)
+
+    status_code = None
+    authenticated = None
+    output_path = None
+    for line in (out or "").splitlines():
+        if line.startswith("status_code:"):
+            status_code = line.split(":", 1)[1].strip()
+        elif line.startswith("authenticated:"):
+            authenticated = line.split(":", 1)[1].strip().lower() == "true"
+        elif line.startswith("output:"):
+            output_path = line.split(":", 1)[1].strip()
+
+    ok = bool(rc == 0 and authenticated)
+    payload = {
+        "ok": ok,
+        "status_code": status_code,
+        "authenticated": bool(authenticated),
+        "output": output_path,
+        "returncode": rc,
+        "stderr": err.strip(),
+    }
+
+    if json_out:
+        print(json.dumps(payload, indent=2))
+    elif not state.quiet:
+        lines = [
+            f"Seed auth overall: {'PASS' if ok else 'FAIL'}",
+            f"status_code: {status_code if status_code is not None else 'n/a'}",
+            f"authenticated: {'true' if authenticated else 'false'}",
+            f"output: {output_path or 'n/a'}",
+        ]
+        for line in lines:
+            (console.print(line) if console is not None else print(line))
+        if err.strip() and state.verbose:
+            (console.print(err.strip()) if console is not None else print(err.strip()))
+
+    return EXIT_OK if ok else EXIT_AUTH_FAILED
+
+
 def get_console(state: AppState) -> Console | None:
     if not RICH_AVAILABLE:
         return None
@@ -2584,6 +2638,16 @@ if TYPER_AVAILABLE:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         raise typer.Exit(run_auth_check(state, json_out=bool(json_output)))
 
+    @app.command("seed-auth")
+    def seed_auth(
+        ctx: typer.Context,
+        json_output: bool = typer.Option(False, "--json", help="Output JSON only."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(run_seed_auth(state, json_out=bool(json_output)))
+
     @start_app.callback()
     def start_default(
         ctx: typer.Context,
@@ -2819,6 +2883,11 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     auth_check_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
     auth_check_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     auth_check_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+
+    seed_auth_parser = subparsers.add_parser("seed-auth", help="Seed requests auth with Selenium and fetch customers page")
+    seed_auth_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
+    seed_auth_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    seed_auth_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     doctor_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     doctor_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
@@ -2897,6 +2966,10 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     if args.command == "auth-check":
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
         return run_auth_check(state, json_out=bool(args.json_output))
+
+    if args.command == "seed-auth":
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+        return run_seed_auth(state, json_out=bool(args.json_output))
 
     if args.command in {"start", "stop", "status", "restart"}:
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
