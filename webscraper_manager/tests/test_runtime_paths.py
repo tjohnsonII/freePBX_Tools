@@ -37,6 +37,7 @@ def test_start_webscraper_stack_skips_ui_when_port_3004_in_use(tmp_path: Path, m
 
     monkeypatch.setattr(cli, "find_repo_root", lambda: root)
     monkeypatch.setattr(cli, "run_doctor", lambda *args, **kwargs: (cli.EXIT_OK, []))
+    monkeypatch.setattr(cli, "_preflight_kill_ports", lambda *args, **kwargs: (True, None))
     monkeypatch.setattr(cli, "get_runtime_python", lambda *args, **kwargs: py)
     monkeypatch.setattr(cli, "resolve_npm_cmd", lambda: "npm")
     monkeypatch.setattr(cli, "_wait_for_health", lambda *args, **kwargs: True)
@@ -101,6 +102,7 @@ def test_start_webscraper_stack_ui_exit_non_strict_does_not_stop_api_worker(tmp_
 
     monkeypatch.setattr(cli, "find_repo_root", lambda: root)
     monkeypatch.setattr(cli, "run_doctor", lambda *args, **kwargs: (cli.EXIT_OK, []))
+    monkeypatch.setattr(cli, "_preflight_kill_ports", lambda *args, **kwargs: (True, None))
     monkeypatch.setattr(cli, "get_runtime_python", lambda *args, **kwargs: py)
     monkeypatch.setattr(cli, "resolve_npm_cmd", lambda: "npm")
     monkeypatch.setattr(cli, "_wait_for_health", lambda *args, **kwargs: True)

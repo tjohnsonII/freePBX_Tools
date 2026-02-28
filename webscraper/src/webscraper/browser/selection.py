@@ -47,11 +47,12 @@ def _detect_edge() -> str | None:
 
 
 def resolve_browser_selection() -> BrowserSelection:
-    browser = (os.getenv("WEBSCRAPER_BROWSER") or "chrome").strip().lower()
+    browser = (os.getenv("WEBSCRAPER_BROWSER") or "edge").strip().lower()
     if browser not in {"chrome", "edge"}:
         browser = "chrome"
 
-    profile_dir_raw = os.getenv("WEBSCRAPER_PROFILE_DIR", "webscraper/var/chrome-profile")
+    default_profile_dir = "webscraper/var/edge-profile" if browser == "edge" else "webscraper/var/chrome-profile"
+    profile_dir_raw = os.getenv("WEBSCRAPER_PROFILE_DIR", default_profile_dir)
     profile_name = (os.getenv("WEBSCRAPER_PROFILE_NAME") or "Default").strip() or "Default"
     profile_dir = Path(profile_dir_raw).expanduser()
     if not profile_dir.is_absolute():
