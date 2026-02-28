@@ -31,8 +31,10 @@ type ValidateRow = {
   hint?: string | null;
 };
 type ValidateResponse = {
+  ok?: boolean;
   authenticated: boolean;
   reason?: string;
+  reasons?: Array<Record<string, unknown>>;
   checks: ValidateRow[];
   cookie_count: number;
   domains: string[];
@@ -84,7 +86,7 @@ export default function AuthPage() {
   };
 
   const runValidate = async () => {
-    const val = await apiPost<ValidateResponse>("/api/auth/validate", { timeoutSeconds: 10, targets: [] });
+    const val = await apiGet<ValidateResponse>("/api/auth/validate?domain=secure.123.net&timeout_seconds=10");
     setValidate(val);
   };
 

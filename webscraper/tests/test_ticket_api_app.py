@@ -467,3 +467,49 @@ def test_force_relogin_sanity_flow_uses_unique_profile_dirs(tmp_path, monkeypatc
     assert second_force.status_code == 200
     assert cookie_file.exists() is True
     assert first_force.json()["profile_dir"] != second_force.json()["profile_dir"]
+
+
+def test_auth_browser_import_routes_exist(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(
+        appmod,
+        "import_cookies_auto",
+        lambda **kwargs: {
+            "method_used": "disk",
+            "imported_count": 1,
+            "warnings": [],
+            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "details": {},
+        },
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    for route in [
+        "/api/auth/import_from_browser",
+        "/api/auth/sync_from_browser",
+        "/api/auth/import-from-browser",
+        "/api/auth/import-browser",
+        "/api/auth/sync-from-browser",
+    ]:
+        ok = client.post(route, json={"browser": "chrome", "profile": "Default", "domain": "secure.123.net"})
+        assert ok.status_code == 200
+        bad = client.post(route, json={"browser": 123})
+        assert bad.status_code in {200, 422}
+
+
+def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/validate?domain=secure.123.net")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert isinstance(payload.get("reasons"), list)
+    assert payload["reasons"]

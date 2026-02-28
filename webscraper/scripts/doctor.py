@@ -4,6 +4,8 @@ import argparse
 import importlib.util
 import sqlite3
 import sys
+
+import requests
 from pathlib import Path
 
 from webscraper.paths import runs_dir, tickets_db_path
@@ -50,15 +52,83 @@ def run_pip_check() -> int:
     return 1 if overall_missing else 0
 
 
+def run_auth_route_doctor(api_base: str, domain: str, dry_run: bool) -> int:
+    checks: list[tuple[str, bool, str]] = []
+
+    def _record(name: str, ok: bool, detail: str) -> None:
+        checks.append((name, ok, detail))
+        status = "PASS" if ok else "FAIL"
+        print(f"[{status}] {name}: {detail}")
+
+    try:
+        health = requests.get(f"{api_base}/api/health", timeout=10)
+        _record("GET /api/health", health.ok, f"status={health.status_code}")
+    except Exception as exc:
+        _record("GET /api/health", False, str(exc))
+        return 1
+
+    for route in [
+        "/api/auth/import_from_browser",
+        "/api/auth/sync_from_browser",
+        "/api/auth/import-from-browser",
+        "/api/auth/import-browser",
+        "/api/auth/sync-from-browser",
+    ]:
+        response = requests.post(f"{api_base}{route}", json={}, timeout=10)
+        _record(f"POST {route}", response.status_code in {200, 422}, f"status={response.status_code}")
+
+    status_resp = requests.get(f"{api_base}/api/auth/status", timeout=10)
+    _record("GET /api/auth/status", status_resp.ok, f"status={status_resp.status_code}")
+
+    if not dry_run:
+        import_resp = requests.post(
+            f"{api_base}/api/auth/import_from_browser",
+            json={"browser": "chrome", "profile": "Default", "domain": domain},
+            timeout=30,
+        )
+        _record("POST /api/auth/import_from_browser", import_resp.ok, f"status={import_resp.status_code}")
+
+    validate_resp = requests.get(f"{api_base}/api/auth/validate", params={"domain": domain}, timeout=20)
+    validate_ok = validate_resp.ok and bool(validate_resp.json().get("ok"))
+    _record("GET /api/auth/validate", validate_ok, f"status={validate_resp.status_code}")
+
+    handles_resp = requests.post(
+        f"{api_base}/api/scrape/handles",
+        json={"handles": ["ABC"], "mode": "normal", "options": {"rescrape": False}},
+        timeout=20,
+    )
+    body = {}
+    try:
+        body = handles_resp.json()
+    except Exception:
+        body = {}
+    scrape_ok = handles_resp.status_code in {200, 400} and "Auth validation failed" not in str(body)
+    _record("POST /api/scrape/handles", scrape_ok, f"status={handles_resp.status_code}")
+
+    failures = [item for item in checks if not item[1]]
+    print("\nSummary:")
+    print(f"  Passed: {len(checks) - len(failures)}")
+    print(f"  Failed: {len(failures)}")
+    if failures:
+        print("  Next steps: run auth import in UI, then re-run doctor.")
+    return 1 if failures else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Quick doctor checks for ticket scraper DB + output artifacts")
     parser.add_argument("--db", default=str(tickets_db_path()))
     parser.add_argument("--output", default=str(runs_dir()))
     parser.add_argument("--pip-check", action="store_true", help="Validate package dependencies and print install commands")
+    parser.add_argument("--auth-e2e", action="store_true", help="Doctor auth routes + validate + scrape smoke against running API")
+    parser.add_argument("--api-base", default="http://127.0.0.1:8787")
+    parser.add_argument("--domain", default="secure.123.net")
+    parser.add_argument("--dry-run", action="store_true", help="Skip cookie import attempt")
     args = parser.parse_args()
 
     if args.pip_check:
         return run_pip_check()
+    if args.auth_e2e:
+        return run_auth_route_doctor(args.api_base.rstrip("/"), args.domain, args.dry_run)
 
     db_path = Path(args.db).resolve()
     output_root = Path(args.output).resolve()

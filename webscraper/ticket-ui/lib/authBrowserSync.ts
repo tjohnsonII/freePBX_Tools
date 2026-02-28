@@ -11,6 +11,8 @@ export type BrowserSyncResponse = {
 };
 
 const BROWSER_SYNC_ENDPOINTS = [
+  "/api/auth/import_from_browser",
+  "/api/auth/sync_from_browser",
   "/api/auth/import-from-browser",
   "/api/auth/import-browser",
   "/api/auth/sync-from-browser",

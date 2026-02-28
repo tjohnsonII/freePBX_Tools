@@ -13,7 +13,9 @@ type AuthStatus = { cookie_count: number; domains: string[]; last_imported: numb
 type AuthSeedResponse = { ok: boolean; mode_used: "auto" | "disk" | "cdp"; details?: Record<string, unknown>; next_step_if_failed?: string | null; cookie_count?: number };
 type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
-type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
+type ValidateResponse = { ok?: boolean;
+  authenticated: boolean; reason?: string;
+  reasons?: Array<Record<string, unknown>>; domains: string[]; cookie_count: number; checks: ValidateRow[] };
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
 type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; completed_handles?: number; current_handle?: string | null; per_handle_status?: Record<string, string>; running: boolean; errors: number; error_message?: string; result?: JobResult };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
@@ -90,7 +92,7 @@ export default function HandlesPage() {
   };
 
   const runValidate = async () => {
-    const payload = await apiPost<ValidateResponse>("/api/auth/validate", { timeoutSeconds: 10, targets: [] });
+    const payload = await apiGet<ValidateResponse>("/api/auth/validate?domain=secure.123.net&timeout_seconds=10");
     setAuthValidate(payload);
     await loadAuthStatus();
     return payload;

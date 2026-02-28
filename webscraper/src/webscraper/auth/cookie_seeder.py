@@ -86,9 +86,10 @@ def _is_lock_error(exc: Exception) -> bool:
     return False
 
 
-def _copy_with_backoff(source: Path, retries: int = 4, delay_seconds: float = 0.2) -> Path:
+def _copy_with_backoff(source: Path, backoff_seconds: tuple[float, ...] = (0.5, 1.0, 2.0)) -> Path:
     last_exc: Exception | None = None
-    for attempt in range(retries + 1):
+    attempts = len(backoff_seconds) + 1
+    for attempt in range(attempts):
         fd, tmp_name = tempfile.mkstemp(prefix="cookie_seed_", suffix=source.suffix or ".sqlite")
         os.close(fd)
         target = Path(tmp_name)
@@ -101,7 +102,8 @@ def _copy_with_backoff(source: Path, retries: int = 4, delay_seconds: float = 0.
             last_exc = exc
             if _is_lock_error(exc):
                 LOGGER.warning("[AUTH][DISK] copy failed due to probable lock attempt=%s error=%s", attempt + 1, exc)
-                time.sleep(delay_seconds * (2**attempt))
+                if attempt < len(backoff_seconds):
+                    time.sleep(backoff_seconds[attempt])
                 continue
             raise CookieSeedError("DISK_COPY_FAILED", f"Failed copying cookie DB: {exc}") from exc
     raise CookieSeedError(
@@ -300,11 +302,47 @@ def seed_auto(*, profile_dir: str | Path, domains: list[str], profile_name: str 
     except CookieSeedError as exc:
         if exc.code != "DB_LOCKED":
             raise
-        LOGGER.info("[AUTH][DISK] DB locked; falling back to CDP")
+        LOGGER.warning("[AUTH][DISK] DB locked after retries; falling back to CDP")
         cdp_result = seed_from_cdp(cdp_url_or_port, domains)
         cdp_result.details["fallback_from"] = "disk"
         cdp_result.details["fallback_reason"] = "DB_LOCKED"
         return cdp_result
+
+
+def import_cookies_auto(
+    *,
+    profile_dir: str | Path,
+    domains: list[str],
+    profile_name: str | None = None,
+    cdp_url_or_port: str | int | None = None,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    try:
+        result = seed_from_disk(profile_dir, domains, profile_name=profile_name)
+        return {
+            "method_used": "disk",
+            "imported_count": len(result.cookies),
+            "warnings": warnings,
+            "cookies": result.cookies,
+            "details": result.details,
+        }
+    except CookieSeedError as exc:
+        if exc.code != "DB_LOCKED":
+            raise
+        lock_warning = "Disk cookie DB locked; switched to CDP import. Close browser to prefer disk import."
+        warnings.append(lock_warning)
+        LOGGER.warning("[AUTH][DISK] DB locked after retries; falling back to CDP")
+
+    cdp_result = seed_from_cdp(cdp_url_or_port, domains)
+    cdp_result.details["fallback_from"] = "disk"
+    cdp_result.details["fallback_reason"] = "DB_LOCKED"
+    return {
+        "method_used": "cdp",
+        "imported_count": len(cdp_result.cookies),
+        "warnings": warnings,
+        "cookies": cdp_result.cookies,
+        "details": cdp_result.details,
+    }
 
 
 def auth_doctor(*, chrome_path: str | None = None, profile_dir: str | Path | None = None, profile_name: str | None = None, cdp_port: int = DEFAULT_CDP_PORT) -> dict[str, Any]:
