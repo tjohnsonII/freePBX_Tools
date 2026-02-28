@@ -11,3 +11,7 @@ var/*.html
 
 # Chrome debug profile
 webscraper/var/
+
+# runtime logs (may contain cookies/tokens)
+var/logs/
+*.html
