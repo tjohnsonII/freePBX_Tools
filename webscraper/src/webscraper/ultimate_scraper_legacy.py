@@ -65,6 +65,20 @@ PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "edge_prof
 EXPECTED_AUTH_HOST = "secure.123.net"
 
 
+def _env_flag(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _strict_auth_enabled() -> bool:
+    # Development-safe default: do not hard fail auth on the first check unless explicitly requested.
+    return _env_flag("WEBSCRAPER_STRICT_AUTH", "0")
+
+
+def _auth_pause_on_fail_enabled() -> bool:
+    # Development-safe default: allow manual pause/retry for MFA completion.
+    return _env_flag("WEBSCRAPER_AUTH_PAUSE_ON_FAIL", "1")
+
+
 def _url_host(url: str) -> str:
     return (urllib.parse.urlsplit(url or "").hostname or "").lower()
 
@@ -75,6 +89,69 @@ def _is_expected_auth_host(url: str) -> bool:
 
 def _is_gateway_redirect(url: str) -> bool:
     return _url_host(url) == "10.123.203.1"
+
+
+def _capture_auth_failure_artifacts(driver: Any) -> None:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logs_dir = Path("var") / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    html_path = logs_dir / f"auth_fail_{stamp}.html"
+    png_path = logs_dir / f"auth_fail_{stamp}.png"
+
+    try:
+        current_url = getattr(driver, "current_url", "") or ""
+    except Exception:
+        current_url = ""
+    try:
+        title = getattr(driver, "title", "") or ""
+    except Exception:
+        title = ""
+
+    print(f"[AUTH][FAIL] URL: {current_url}")
+    print(f"[AUTH][FAIL] Title: {title}")
+
+    try:
+        html_path.write_text(getattr(driver, "page_source", "") or "", encoding="utf-8")
+        print(f"[AUTH][FAIL] Saved HTML: {html_path}")
+    except Exception as exc:
+        print(f"[AUTH][FAIL] Could not save HTML: {exc}")
+
+    try:
+        driver.save_screenshot(str(png_path))
+        print(f"[AUTH][FAIL] Saved screenshot: {png_path}")
+    except Exception as exc:
+        print(f"[AUTH][FAIL] Could not save screenshot: {exc}")
+
+
+def _is_authenticated_session(driver: Any) -> bool:
+    return (not _is_login_redirect(getattr(driver, "current_url", "") or "")) and _is_expected_auth_host(
+        getattr(driver, "current_url", "") or ""
+    )
+
+
+def _manual_auth_pause_and_retry(driver: Any, output_dir: str, cookie_file: Optional[str]) -> bool:
+    if not _auth_pause_on_fail_enabled():
+        return False
+
+    for attempt in range(1, 4):
+        print("Manual authentication required. Complete login in browser, then press Enter to continue...")
+        try:
+            input()
+        except Exception:
+            pass
+
+        if _is_authenticated_session(driver):
+            cookies_path = os.path.join(output_dir, "selenium_cookies.json")
+            save_cookies_json(driver, cookies_path)
+            if cookie_file:
+                save_cookies_json(driver, cookie_file)
+            print(f"[AUTH] Manual authentication verified on attempt {attempt}.")
+            return True
+
+        print(f"[AUTH][WARN] Manual authentication retry {attempt}/3 did not validate.")
+        _capture_auth_failure_artifacts(driver)
+
+    return False
 
 
 def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
@@ -2287,9 +2364,16 @@ def selenium_scrape_tickets(
                 else:
                     print("Imported cookie auth failed")
 
-            logged_in_after_import = (not _is_login_redirect(driver)) and _is_expected_auth_host(driver.current_url or "")
+            logged_in_after_import = _is_authenticated_session(driver)
             if not logged_in_after_import:
-                raise RuntimeError("Not authenticated for secure.123.net (missing cookies or expired session).")
+                _capture_auth_failure_artifacts(driver)
+                logged_in_after_import = _manual_auth_pause_and_retry(driver, output_dir, cookie_file)
+            if not logged_in_after_import:
+                auth_message = "Not authenticated for secure.123.net (missing cookies or expired session)."
+                if _strict_auth_enabled():
+                    raise RuntimeError(auth_message)
+                print(f"[AUTH][WARN] {auth_message} Continuing because WEBSCRAPER_STRICT_AUTH=0.")
+                return
 
             # Persist current authenticated session cookies
             cookies_path = os.path.join(output_dir, "selenium_cookies.json")
@@ -2521,7 +2605,14 @@ def selenium_scrape_tickets(
                         pass
                     if not (secure_ok or noc_ok):
                         print("[AUTH] Imported cookie fallback unavailable or failed.")
-                        raise RuntimeError("Not authenticated for secure.123.net (missing cookies or expired session).")
+                        _capture_auth_failure_artifacts(driver)
+                        auth_ok = _manual_auth_pause_and_retry(driver, output_dir, cookie_file)
+                        if not auth_ok:
+                            auth_message = "Not authenticated for secure.123.net (missing cookies or expired session)."
+                            if _strict_auth_enabled():
+                                raise RuntimeError(auth_message)
+                            print(f"[AUTH][WARN] {auth_message} Continuing because WEBSCRAPER_STRICT_AUTH=0.")
+                            return
                     if meta.get("applied", 0) > 0:
                         print("Imported cookie auth succeeded")
                 else:

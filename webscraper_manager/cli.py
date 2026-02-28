@@ -597,6 +597,11 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
                     if not state.quiet:
                         (console.print(message) if console is not None else print(message))
                     if name == "worker" and not stop_on_worker_exit:
+                        keep_alive_message = (
+                            "worker exited; WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT=0 so API/UI will remain running"
+                        )
+                        if not state.quiet:
+                            (console.print(keep_alive_message) if console is not None else print(keep_alive_message))
                         monitored_pids.pop(name, None)
                         pids.pop(name, None)
                         _save_webscraper_pids(root, pids)
