@@ -13,9 +13,15 @@ type AuthStatus = {
 };
 type SeededLaunchResponse = {
   ok: boolean;
+  src_profile: string;
   temp_profile_dir: string;
   launched_url: string;
   seeded_domains: string[];
+};
+type ChromeProfilesResponse = {
+  ok: boolean;
+  profiles: string[];
+  preferred: string | null;
 };
 type ValidateRow = {
   url: string;
@@ -44,10 +50,12 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [statusWarning, setStatusWarning] = useState<string | null>(null);
+  const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
+  const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
 
   const hasSecureDomain = (status?.domains || []).some((domain) => {
     const normalized = domain.replace(/^\./, "").toLowerCase();
-    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net");
+    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net") || normalized === "123.net" || normalized.endsWith(".123.net");
   });
   const wrongDomainLoaded = (status?.cookie_count || 0) > 0 && !hasSecureDomain;
 
@@ -67,8 +75,21 @@ export default function AuthPage() {
     setValidate(val);
   };
 
+  const loadChromeProfiles = async () => {
+    try {
+      const res = await apiGet<ChromeProfilesResponse>("/api/auth/chrome_profiles");
+      setChromeProfiles(res.profiles || []);
+      if (res.preferred) {
+        setChromeProfileDir(res.preferred);
+      }
+    } catch {
+      setChromeProfiles([]);
+    }
+  };
+
   useEffect(() => {
     refreshStatus().catch(() => undefined);
+    loadChromeProfiles().catch(() => undefined);
   }, []);
 
   const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -148,7 +169,7 @@ export default function AuthPage() {
     try {
       const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
         target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
-        chrome_profile_dir: "Default",
+        chrome_profile_dir: chromeProfileDir,
         seed_domains: ["secure.123.net"],
       });
       await apiPost("/api/auth/import_from_profile", {
@@ -179,7 +200,7 @@ export default function AuthPage() {
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {message && <p style={{ color: "#166534" }}>{message}</p>}
       {statusWarning && <p style={{ color: "#a16207" }}>Status warning: {statusWarning}</p>}
-      {wrongDomainLoaded && <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded — must include secure.123.net</p>}
+      {wrongDomainLoaded && <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p>}
 
       <section>
         <h3>Paste cookies</h3>
@@ -202,6 +223,16 @@ export default function AuthPage() {
         <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>
           Launch Login (isolated)
         </button>
+        <label style={{ marginLeft: 8 }}>
+          Chrome Profile
+          <select value={chromeProfileDir} onChange={(e) => setChromeProfileDir(e.target.value)} style={{ marginLeft: 6 }}>
+            {(chromeProfiles.length ? chromeProfiles : ["Profile 1", "Default"]).map((profile) => (
+              <option key={profile} value={profile}>
+                {profile}
+              </option>
+            ))}
+          </select>
+        </label>
         <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>
           Launch Login (seeded isolated)
         </button>

@@ -9,7 +9,8 @@ type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
 type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
-type SeededLaunchResponse = { ok: boolean; temp_profile_dir: string; launched_url: string; seeded_domains: string[] };
+type SeededLaunchResponse = { ok: boolean; src_profile: string; temp_profile_dir: string; launched_url: string; seeded_domains: string[] };
+type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
 type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
@@ -44,11 +45,13 @@ export default function HandlesPage() {
   const [cookieFile, setCookieFile] = useState<File | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [authStatusError, setAuthStatusError] = useState<string | null>(null);
+  const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
+  const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasSecureDomain = (authStatus?.domains || []).some((domain) => {
     const normalized = domain.replace(/^\./, "").toLowerCase();
-    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net");
+    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net") || normalized === "123.net" || normalized.endsWith(".123.net");
   });
   const wrongDomainLoaded = (authStatus?.cookie_count || 0) > 0 && !hasSecureDomain;
 
@@ -83,8 +86,18 @@ export default function HandlesPage() {
     setTickets(Array.isArray(res?.items) ? res.items : []);
   };
 
+  const loadChromeProfiles = async () => {
+    try {
+      const res = await apiGet<ChromeProfilesResponse>("/api/auth/chrome_profiles");
+      setChromeProfiles(res.profiles || []);
+      if (res.preferred) setChromeProfileDir(res.preferred);
+    } catch {
+      setChromeProfiles([]);
+    }
+  };
+
   useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
-  useEffect(() => { loadAuthStatus().catch(() => undefined); }, []);
+  useEffect(() => { loadAuthStatus().catch(() => undefined); loadChromeProfiles().catch(() => undefined); }, []);
   useEffect(() => { if (selectedHandle) loadTickets(selectedHandle).catch(() => setTickets([])); else setTickets([]); }, [selectedHandle]);
 
   useEffect(() => {
@@ -169,7 +182,7 @@ export default function HandlesPage() {
     try {
       const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
         target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
-        chrome_profile_dir: "Default",
+        chrome_profile_dir: chromeProfileDir,
         seed_domains: ["secure.123.net"],
       });
       await apiPost("/api/auth/import_from_profile", {
@@ -233,13 +246,20 @@ export default function HandlesPage() {
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
         <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
-        {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded — must include secure.123.net</p> : null}
+        {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p> : null}
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
           <button onClick={() => fileInputRef.current?.click()}>Import Cookies</button>
           <button onClick={importCookieFile} style={{ marginLeft: 8 }}>Upload Selected File</button>
           <button onClick={() => setShowImportModal(true)} style={{ marginLeft: 8 }}>Paste Cookies</button>
           <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>Launch Login (isolated)</button>
+          <label style={{ marginLeft: 8 }}>Chrome Profile
+            <select value={chromeProfileDir} onChange={(e) => setChromeProfileDir(e.target.value)} style={{ marginLeft: 6 }}>
+              {(chromeProfiles.length ? chromeProfiles : ["Profile 1", "Default"]).map((profile) => (
+                <option key={profile} value={profile}>{profile}</option>
+              ))}
+            </select>
+          </label>
           <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>Launch Login (seeded isolated)</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
           <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>Validate Auth</button>

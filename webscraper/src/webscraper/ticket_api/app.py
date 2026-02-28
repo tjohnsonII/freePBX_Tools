@@ -29,6 +29,7 @@ from webscraper.handles_loader import load_handles
 from webscraper.auth.chrome_cookies import (
     CHROME_CUSTOMERS_URL,
     ChromeCookieError,
+    list_chrome_profile_dirs,
     load_cookies_from_profile,
     seed_isolated_profile,
 )
@@ -86,7 +87,7 @@ class LaunchBrowserRequest(BaseModel):
 
 class LaunchSeededRequest(BaseModel):
     target_url: str = CHROME_CUSTOMERS_URL
-    chrome_profile_dir: str = "Default"
+    chrome_profile_dir: str | None = None
     seed_domains: list[str] = ["secure.123.net"]
 
 
@@ -185,7 +186,7 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
     normalized_domains = {str(cookie.domain or "").strip().lstrip(".").lower() for cookie in kept}
     has_secure_domain = any(domain == "secure.123.net" or domain.endswith(".secure.123.net") for domain in normalized_domains)
     if not has_secure_domain:
-        raise HTTPException(status_code=400, detail="Wrong cookie domain set loaded — must include secure.123.net")
+        raise HTTPException(status_code=400, detail="No secure.123.net cookies found in input.")
     store_result = auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
     status_payload = _auth_meta_response(auth_store.status(db_path()))
     _append_event(
@@ -894,7 +895,10 @@ def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
 
-    target_url = (payload.target_url or "").strip() or CHROME_CUSTOMERS_URL
+    target_url = CHROME_CUSTOMERS_URL
+    supplied_target = (payload.target_url or "").strip()
+    if supplied_target and supplied_target != CHROME_CUSTOMERS_URL:
+        raise HTTPException(status_code=400, detail=f"target_url must be {CHROME_CUSTOMERS_URL}")
     parsed_target = urlparse(target_url)
     if parsed_target.scheme not in {"http", "https"} or not parsed_target.netloc:
         raise HTTPException(status_code=400, detail="target_url must be an absolute HTTP(S) URL")
@@ -920,17 +924,29 @@ def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
         target_url,
     ]
     subprocess.Popen(command)
+    _log(f"Using Chrome profile dir: {seeded_result.source_profile_dir}")
     _log(
         f"launched seeded isolated browser browser={browser_path} profile_dir={seeded_result.temp_profile_dir} "
         f"url={target_url} domain_counts={seeded_result.domain_counts}"
     )
     return {
         "ok": True,
+        "src_profile": seeded_result.source_profile_dir,
         "temp_profile_dir": seeded_result.temp_profile_dir,
         "launched_url": target_url,
         "seeded_domains": seeded_result.seeded_domains,
         "domain_counts": seeded_result.domain_counts,
     }
+
+
+@app.get("/api/auth/chrome_profiles")
+@app.get("/auth/chrome_profiles")
+def api_auth_chrome_profiles(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    profiles = list_chrome_profile_dirs()
+    preferred = "Profile 1" if "Profile 1" in profiles else ("Default" if "Default" in profiles else (profiles[0] if profiles else None))
+    return {"ok": True, "profiles": profiles, "preferred": preferred}
 
 
 @app.post("/api/auth/import_from_profile")
