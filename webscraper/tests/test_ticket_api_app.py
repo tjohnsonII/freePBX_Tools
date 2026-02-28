@@ -326,3 +326,98 @@ def test_launch_debug_chrome_endpoint(tmp_path, monkeypatch):
     response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
     assert response.status_code == 200
     assert response.json()["ok"] is True
+
+
+def test_auth_force_reset_and_launch_endpoints(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    reset_called = {"count": 0}
+    launch_calls: list[bool] = []
+
+    def fake_reset():
+        reset_called["count"] += 1
+        return {"ok": True, "removed": ["auth_cookies_db"], "warnings": []}
+
+    def fake_launch(*, force_fresh: bool, target_url: str, timeout_seconds: int):
+        launch_calls.append(force_fresh)
+        profile = str(tmp_path / ("forced-a" if force_fresh else "ticketing"))
+        return {
+            "ok": True,
+            "forced": force_fresh,
+            "cookies_saved": force_fresh,
+            "profile_dir": profile,
+            "cookie_file": str(tmp_path / "cookies.json"),
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(appmod.AUTH_MANAGER, "clear_auth_state", fake_reset)
+    monkeypatch.setattr(appmod.AUTH_MANAGER, "launch_login", fake_launch)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+
+    reset_response = client.post("/api/auth/force-reset", json={})
+    assert reset_response.status_code == 200
+    assert reset_response.json()["ok"] is True
+    assert reset_called["count"] == 1
+
+    launch_reuse = client.post("/api/auth/launch?force=false", json={})
+    assert launch_reuse.status_code == 200
+    assert launch_reuse.json()["forced"] is False
+
+    launch_force = client.post("/api/auth/launch?force=true", json={})
+    assert launch_force.status_code == 200
+    assert launch_force.json()["forced"] is True
+    assert launch_force.json()["cookies_saved"] is True
+    assert launch_calls == [False, True]
+
+
+def test_force_relogin_sanity_flow_uses_unique_profile_dirs(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    cookie_file = tmp_path / "cookies.json"
+    launch_counter = {"n": 0}
+
+    def fake_reset():
+        if cookie_file.exists():
+            cookie_file.unlink()
+        return {"ok": True, "removed": [str(cookie_file)], "warnings": []}
+
+    def fake_launch(*, force_fresh: bool, target_url: str, timeout_seconds: int):
+        launch_counter["n"] += 1
+        profile_dir = tmp_path / f"forced-{launch_counter['n']}"
+        if force_fresh:
+            cookie_file.write_text('[{"name":"sid","value":"abc","domain":"secure.123.net"}]', encoding="utf-8")
+        return {
+            "ok": True,
+            "forced": force_fresh,
+            "cookies_saved": force_fresh,
+            "profile_dir": str(profile_dir),
+            "cookie_file": str(cookie_file),
+            "warnings": ([] if force_fresh else ["login_required"]),
+        }
+
+    monkeypatch.setattr(appmod.AUTH_MANAGER, "clear_auth_state", fake_reset)
+    monkeypatch.setattr(appmod.AUTH_MANAGER, "launch_login", fake_launch)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+
+    reset = client.post("/api/auth/force-reset", json={})
+    assert reset.status_code == 200
+    assert cookie_file.exists() is False
+
+    launch_without_force = client.post("/api/auth/launch?force=false", json={})
+    assert launch_without_force.status_code == 200
+    assert launch_without_force.json()["cookies_saved"] is False
+
+    first_force = client.post("/api/auth/launch?force=true", json={})
+    second_force = client.post("/api/auth/launch?force=true", json={})
+    assert first_force.status_code == 200
+    assert second_force.status_code == 200
+    assert cookie_file.exists() is True
+    assert first_force.json()["profile_dir"] != second_force.json()["profile_dir"]
