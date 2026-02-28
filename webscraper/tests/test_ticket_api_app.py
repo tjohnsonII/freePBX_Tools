@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
 
 from webscraper.db import init_db, start_run, upsert_handle, upsert_tickets
-from webscraper.auth.chrome_cookies import SeededProfileResult
 from webscraper.ticket_api import app as appmod
 from webscraper.ticket_api import db as ticket_db
 
@@ -257,62 +256,42 @@ def test_auth_import_rejects_wrong_domain(tmp_path, monkeypatch):
     assert "No secure.123.net cookies found" in response.json()["detail"]
 
 
-def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
+def test_auth_seed_endpoint_auto_mode(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
 
-    fake_browser = tmp_path / "chrome.exe"
-    fake_browser.write_text("")
-    monkeypatch.setenv("CHROME_PATH", str(fake_browser))
-
-    seeded_dir = tmp_path / "seeded_profile"
-
-    def _fake_seed_isolated_profile(*, var_root, chrome_profile_dir=None, seed_domains=None):
-        return SeededProfileResult(
-            source_profile_dir=r"C:\Users\tjohnson\AppData\Local\Google\Chrome\User Data\Profile 1",
-            temp_profile_dir=str(seeded_dir),
-            cookie_db_path=str(seeded_dir / "Default" / "Network" / "Cookies"),
-            seeded_domains=["secure.123.net"],
-            domain_counts={".secure.123.net": 2},
-        )
-
-    monkeypatch.setattr(appmod, "seed_isolated_profile", _fake_seed_isolated_profile)
-    popen_calls = []
-    monkeypatch.setattr(appmod.subprocess, "Popen", lambda command: popen_calls.append(command))
+    monkeypatch.setattr(
+        appmod,
+        "seed_auto",
+        lambda **kwargs: appmod.seed_from_cdp(9222, ["secure.123.net"]),
+    )
+    monkeypatch.setattr(
+        appmod,
+        "seed_from_cdp",
+        lambda cdp_port, domains: appmod.SeedResult(
+            mode_used="cdp",
+            cookies=[{"name": "sid", "value": "abc", "domain": ".secure.123.net", "path": "/"}],
+            details={"cdp_port": 9222},
+        ),
+    )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     launch = client.post(
-        "/api/auth/launch_seeded",
+        "/api/auth/seed",
         json={
-            "target_url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+            "mode": "auto",
             "chrome_profile_dir": "Profile 1",
             "seed_domains": ["secure.123.net"],
+            "cdp_port": 9222,
         },
     )
     assert launch.status_code == 200
     launch_payload = launch.json()
     assert launch_payload["ok"] is True
-    assert launch_payload["seeded_domains"] == ["secure.123.net"]
-    assert launch_payload["src_profile"].endswith("Profile 1")
-    assert popen_calls
-
-    monkeypatch.setattr(
-        appmod,
-        "load_cookies_from_profile",
-        lambda profile_dir, seed_domains: ([{"name": "sid", "value": "abc", "domain": ".secure.123.net", "path": "/"}], {".secure.123.net": 1}),
-    )
-
-    imported = client.post(
-        "/api/auth/import_from_profile",
-        json={"temp_profile_dir": str(seeded_dir), "seed_domains": ["secure.123.net"]},
-    )
-    assert imported.status_code == 200
-    payload = imported.json()
-    assert payload["ok"] is True
-    assert payload["cookie_count"] == 1
-    assert ".secure.123.net" in payload["domains"]
+    assert launch_payload["mode_used"] == "cdp"
+    assert launch_payload["cookie_count"] == 1
 
 
 def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypatch):
@@ -328,3 +307,22 @@ def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypa
     payload = response.json()
     assert payload["profiles"] == ["Default", "Profile 1", "Profile 2"]
     assert payload["preferred"] == "Profile 1"
+
+
+def test_launch_debug_chrome_endpoint(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    fake_browser = tmp_path / "chrome.exe"
+    fake_browser.write_text("")
+    monkeypatch.setenv("CHROME_PATH", str(fake_browser))
+
+    monkeypatch.setattr(appmod, "_detect_browser_path", lambda: fake_browser)
+    monkeypatch.setattr(appmod, "launch_debug_chrome", lambda **kwargs: type("P", (), {"pid": 1234})())
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True

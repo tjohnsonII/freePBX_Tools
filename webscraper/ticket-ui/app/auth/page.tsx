@@ -11,14 +11,12 @@ type AuthStatus = {
   last_imported: number | null;
   source: string;
 };
-type SeededLaunchResponse = {
+type AuthSeedResponse = {
   ok: boolean;
-  seed_method: string;
-  src_profile: string;
-  temp_profile_dir: string;
-  launched_url: string;
-  seeded_domains: string[];
-  domain_counts?: Record<string, number>;
+  mode_used: "auto" | "disk" | "cdp";
+  details?: Record<string, unknown>;
+  next_step_if_failed?: string | null;
+  cookie_count?: number;
 };
 type ChromeProfilesResponse = {
   ok: boolean;
@@ -51,6 +49,7 @@ export default function AuthPage() {
   const [validate, setValidate] = useState<ValidateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [modeUsed, setModeUsed] = useState<string | null>(null);
   const [statusWarning, setStatusWarning] = useState<string | null>(null);
   const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
   const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
@@ -165,43 +164,37 @@ export default function AuthPage() {
     }
   };
 
+  const launchDebugChromeClick = async () => {
+    setError(null);
+    try {
+      await apiPost("/api/auth/launch_debug_chrome", { cdp_port: 9222, profile_name: "Default" });
+      setMessage("Launched debug Chrome on port 9222. Retry auth seed in CDP/Auto mode.");
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch debug Chrome.");
+    }
+  };
+
   const launchLoginSeeded = async () => {
     setError(null);
     setMessage(null);
-
-    const runSeededLaunch = async () => {
-      const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
-        target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+    setModeUsed(null);
+    try {
+      const result = await apiPost<AuthSeedResponse>("/api/auth/seed", {
+        mode: "auto",
         chrome_profile_dir: chromeProfileDir,
         seed_domains: ["secure.123.net", "123.net"],
+        cdp_port: 9222,
       });
-      await apiPost("/api/auth/import_from_profile", {
-        temp_profile_dir: result.temp_profile_dir,
-        seed_domains: ["secure.123.net", "123.net"],
-      });
-      return result;
-    };
-
-    try {
-      await runSeededLaunch();
-      setMessage("Opened seeded isolated browser profile for login.");
-      await refreshStatus();
-    } catch (err) {
-      if (err instanceof ApiRequestError && err.status === 409) {
-        setMessage("Chrome is open and cookies are locked. Retrying with CDP…");
-        try {
-          await runSeededLaunch();
-          setError(null);
-          setMessage("Opened seeded isolated browser profile for login.");
-          await refreshStatus();
-          return;
-        } catch (retryErr) {
-          const retryMessage = retryErr instanceof ApiRequestError ? (retryErr.detail || retryErr.message) : "Failed to launch seeded isolated browser.";
-          setError(retryMessage);
-          return;
-        }
+      setModeUsed(result.mode_used || "auto");
+      if (!result.ok) {
+        setError(result.next_step_if_failed || "Auth seed failed.");
+        return;
       }
-      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch seeded isolated browser.";
+      setMessage(`Seeded and imported auth cookies using ${result.mode_used.toUpperCase()} mode.`);
+      await refreshStatus();
+      await runValidate();
+    } catch (err) {
+      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to seed auth cookies.";
       setError(launchError);
     }
   };
@@ -221,6 +214,7 @@ export default function AuthPage() {
       <h2>Auth Cookies</h2>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {message && <p style={{ color: "#166534" }}>{message}</p>}
+      {modeUsed && <p>Mode used: <strong>{modeUsed}</strong></p>}
       {statusWarning && <p style={{ color: "#a16207" }}>Status warning: {statusWarning}</p>}
       {wrongDomainLoaded && <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p>}
 
@@ -255,9 +249,8 @@ export default function AuthPage() {
             ))}
           </select>
         </label>
-        <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>
-          Launch Login (seeded isolated)
-        </button>
+        <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>Seed Auth (auto)</button>
+        <button onClick={launchDebugChromeClick} style={{ marginLeft: 8 }}>Launch Debug Chrome</button>
         <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>
           Validate Auth
         </button>
