@@ -13,10 +13,12 @@ type AuthStatus = {
 };
 type SeededLaunchResponse = {
   ok: boolean;
+  seed_method: string;
   src_profile: string;
   temp_profile_dir: string;
   launched_url: string;
   seeded_domains: string[];
+  domain_counts?: Record<string, number>;
 };
 type ChromeProfilesResponse = {
   ok: boolean;
@@ -166,19 +168,39 @@ export default function AuthPage() {
   const launchLoginSeeded = async () => {
     setError(null);
     setMessage(null);
-    try {
+
+    const runSeededLaunch = async () => {
       const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
         target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
         chrome_profile_dir: chromeProfileDir,
-        seed_domains: ["secure.123.net"],
+        seed_domains: ["secure.123.net", "123.net"],
       });
       await apiPost("/api/auth/import_from_profile", {
         temp_profile_dir: result.temp_profile_dir,
-        seed_domains: ["secure.123.net"],
+        seed_domains: ["secure.123.net", "123.net"],
       });
+      return result;
+    };
+
+    try {
+      await runSeededLaunch();
       setMessage("Opened seeded isolated browser profile for login.");
       await refreshStatus();
     } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 409) {
+        setMessage("Chrome is open and cookies are locked. Retrying with CDP…");
+        try {
+          await runSeededLaunch();
+          setError(null);
+          setMessage("Opened seeded isolated browser profile for login.");
+          await refreshStatus();
+          return;
+        } catch (retryErr) {
+          const retryMessage = retryErr instanceof ApiRequestError ? (retryErr.detail || retryErr.message) : "Failed to launch seeded isolated browser.";
+          setError(retryMessage);
+          return;
+        }
+      }
       const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch seeded isolated browser.";
       setError(launchError);
     }

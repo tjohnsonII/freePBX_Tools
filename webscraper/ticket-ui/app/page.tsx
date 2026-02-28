@@ -9,7 +9,7 @@ type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
 type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
-type SeededLaunchResponse = { ok: boolean; src_profile: string; temp_profile_dir: string; launched_url: string; seeded_domains: string[] };
+type SeededLaunchResponse = { ok: boolean; seed_method: string; src_profile: string; temp_profile_dir: string; launched_url: string; seeded_domains: string[]; domain_counts?: Record<string, number> };
 type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
 type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
@@ -195,19 +195,39 @@ export default function HandlesPage() {
   const launchLoginSeeded = async () => {
     setError(null);
     setAuthMessage(null);
-    try {
+
+    const runSeededLaunch = async () => {
       const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
         target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
         chrome_profile_dir: chromeProfileDir,
-        seed_domains: ["secure.123.net"],
+        seed_domains: ["secure.123.net", "123.net"],
       });
       await apiPost("/api/auth/import_from_profile", {
         temp_profile_dir: result.temp_profile_dir,
-        seed_domains: ["secure.123.net"],
+        seed_domains: ["secure.123.net", "123.net"],
       });
+      return result;
+    };
+
+    try {
+      await runSeededLaunch();
       await loadAuthStatus();
       setAuthMessage("Opened seeded isolated browser profile for login.");
     } catch (e) {
+      if (e instanceof ApiRequestError && e.status === 409) {
+        setAuthMessage("Chrome is open and cookies are locked. Retrying with CDP…");
+        try {
+          await runSeededLaunch();
+          await loadAuthStatus();
+          setError(null);
+          setAuthMessage("Opened seeded isolated browser profile for login.");
+          return;
+        } catch (retryError) {
+          const retryMessage = formatApiError(retryError);
+          setError(`Launch seeded login failed: ${retryMessage}`);
+          return;
+        }
+      }
       const message = formatApiError(e);
       setError(`Launch seeded login failed: ${message}`);
     }
