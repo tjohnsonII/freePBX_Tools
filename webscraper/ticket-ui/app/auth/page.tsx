@@ -34,10 +34,17 @@ export default function AuthPage() {
   const [validate, setValidate] = useState<ValidateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [statusWarning, setStatusWarning] = useState<string | null>(null);
 
   const refreshStatus = async () => {
-    const res = await apiGet<AuthStatus>("/api/auth/status");
-    setStatus(res);
+    try {
+      const res = await apiGet<AuthStatus>("/api/auth/status");
+      setStatus(res);
+      setStatusWarning(null);
+    } catch (err) {
+      setStatus({ cookie_count: 0, domains: [], domain_counts: [], last_imported: null, source: "none" });
+      setStatusWarning(err instanceof ApiRequestError ? (err.detail || err.message) : "Auth status unavailable.");
+    }
   };
 
   const runValidate = async () => {
@@ -46,7 +53,7 @@ export default function AuthPage() {
   };
 
   useEffect(() => {
-    refreshStatus().catch(() => setStatus(null));
+    refreshStatus().catch(() => undefined);
   }, []);
 
   const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -116,6 +123,7 @@ export default function AuthPage() {
       <h2>Auth Cookies</h2>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {message && <p style={{ color: "#166534" }}>{message}</p>}
+      {statusWarning && <p style={{ color: "#a16207" }}>Status warning: {statusWarning}</p>}
 
       <section>
         <h3>Paste cookies</h3>

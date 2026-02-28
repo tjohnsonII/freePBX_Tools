@@ -40,6 +40,7 @@ export default function HandlesPage() {
   const [cookieFileName, setCookieFileName] = useState("");
   const [cookieFile, setCookieFile] = useState<File | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authStatusError, setAuthStatusError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadHandles = async () => {
@@ -51,7 +52,15 @@ export default function HandlesPage() {
     if (!selectedHandle && names.length) setSelectedHandle(names[0]);
   };
 
-  const loadAuthStatus = async () => setAuthStatus(await apiGet<AuthStatus>("/api/auth/status"));
+  const loadAuthStatus = async () => {
+    try {
+      setAuthStatus(await apiGet<AuthStatus>("/api/auth/status"));
+      setAuthStatusError(null);
+    } catch (e) {
+      setAuthStatus({ cookie_count: 0, domains: [], last_imported: null, source: "none" });
+      setAuthStatusError(`Auth status unavailable: ${formatApiError(e)}`);
+    }
+  };
 
   const runValidate = async () => {
     const payload = await apiPost<ValidateResponse>("/api/auth/validate", { timeoutSeconds: 10, targets: [] });
@@ -66,7 +75,7 @@ export default function HandlesPage() {
   };
 
   useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
-  useEffect(() => { loadAuthStatus().catch((e) => setError(formatApiError(e))); }, []);
+  useEffect(() => { loadAuthStatus().catch(() => undefined); }, []);
   useEffect(() => { if (selectedHandle) loadTickets(selectedHandle).catch(() => setTickets([])); else setTickets([]); }, [selectedHandle]);
 
   useEffect(() => {
@@ -173,6 +182,7 @@ export default function HandlesPage() {
       <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {authMessage && <p style={{ color: "#165c2d" }}>{authMessage}</p>}
+      {authStatusError && <p style={{ color: "#a16207" }}>{authStatusError}</p>}
 
       <section style={{ border: "1px solid #ddd", padding: 12, marginBottom: 14 }}>
         <h3 style={{ marginTop: 0 }}>Authentication</h3>

@@ -65,7 +65,9 @@ class ValidateAuthRequest(BaseModel):
 
 
 class ImportTextRequest(BaseModel):
-    text: str
+    text: str | None = None
+    cookies: list[dict[str, Any]] | None = None
+    cookie: str | None = None
 
 
 @dataclass
@@ -132,8 +134,12 @@ def _is_localhost_request(request: Request) -> bool:
 
 
 def _auth_meta_response(meta: dict[str, Any]) -> dict[str, Any]:
+    count = int(meta.get("cookie_count") or meta.get("count") or 0)
     return {
-        "cookie_count": int(meta.get("cookie_count") or 0),
+        "ok": bool(meta.get("ok", True)),
+        "reason": meta.get("reason"),
+        "count": count,
+        "cookie_count": count,
         "domains": meta.get("domains") or [],
         "domain_counts": meta.get("domain_counts") or [],
         "last_imported": meta.get("last_imported"),
@@ -151,7 +157,7 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
         raise HTTPException(status_code=400, detail="Parsed 0 cookies from payload")
 
     kept, expired_dropped = dedupe_and_filter_expired(parsed)
-    auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
+    store_result = auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
     status_payload = _auth_meta_response(auth_store.status(db_path()))
     _append_event(
         "info",
@@ -162,7 +168,9 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
         **status_payload,
         "format_used": format_used,
         "filename": filename,
-        "cookie_count": len(kept),
+        "cookie_count": int(store_result.get("accepted", len(kept))),
+        "accepted": int(store_result.get("accepted", len(kept))),
+        "rejected": int(store_result.get("rejected", 0)),
         "expired_dropped": expired_dropped,
     }
 
@@ -181,7 +189,7 @@ def _is_login_like(payload: str) -> bool:
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     cookies = auth_store.load_cookies(db_path())
     if not cookies:
-        return {"authenticated": False, "reason": "no_cookies", "checks": [], "cookie_count": 0, "domains": []}
+        return {"authenticated": False, "reason": "missing_cookie", "checks": [], "cookie_count": 0, "domains": []}
 
     timeout = max(2, int(timeout_seconds or 10))
     jar = requests.cookies.RequestsCookieJar()
@@ -208,7 +216,7 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         _log(f"auth_validate url={url} status={status} final_url={final_url} ok={ok}")
 
     overall_ok = all(item["ok"] for item in checks)
-    reason = None if overall_ok else ("redirected_to_login" if any((item.get("hint") or "").startswith("redirected_to_login") for item in checks) else "http_error")
+    reason = None if overall_ok else ("redirected_to_login" if any((item.get("hint") or "").startswith("redirected_to_login") for item in checks) else "expired")
     if any((item.get("hint") or "").startswith("exception") for item in checks):
         reason = "exception"
     return {
@@ -603,6 +611,11 @@ def api_scrape_start(req: StartScrapeRequest):
     if req.mode == "one" and req.handle and not req.refresh_handles and not db.handle_exists(db_path(), req.handle):
         raise HTTPException(status_code=404, detail="handle not found in DB; run with refresh_handles=true first")
 
+    auth_validation = _validate_auth_targets()
+    if not auth_validation.get("authenticated"):
+        reason = auth_validation.get("reason") or "auth_invalid"
+        raise HTTPException(status_code=401, detail=f"Validate auth first ({reason})")
+
     job_id = str(uuid.uuid4())
     run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}"
     db.create_scrape_job(
@@ -712,7 +725,10 @@ else:
 def api_auth_import(request: Request, payload: ImportTextRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    text_payload = payload.text or ""
+    if payload.cookies is not None:
+        text_payload = json.dumps(payload.cookies)
+    else:
+        text_payload = payload.text or payload.cookie or ""
     if not text_payload.strip():
         raise HTTPException(status_code=400, detail="Payload text is empty")
     default_domain = get_default_cookie_domain()
@@ -734,7 +750,12 @@ def api_auth_import_text_legacy(request: Request, payload: ImportTextRequest):
 def api_auth_status(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    return _auth_meta_response(auth_store.status(db_path()))
+    request_id = getattr(request.state, "request_id", None)
+    try:
+        return _auth_meta_response(auth_store.status(db_path()))
+    except Exception as exc:  # pragma: no cover - defensive endpoint boundary
+        _log(f"auth_status error={exc}", request_id=request_id)
+        return {"ok": False, "reason": str(exc), "domains": [], "count": 0, "cookie_count": 0, "domain_counts": [], "last_imported": None, "source": "none"}
 
 
 @app.post("/api/auth/clear")
