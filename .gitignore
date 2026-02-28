@@ -104,6 +104,7 @@ webscraper/edge_profile*
 webscraper/chrome_profile*
 webscraper/**/edge_profile*
 webscraper/**/chrome_profile*
+!webscraper/src/webscraper/auth/chrome_profile.py
 webscraper/**/User Data/
 webscraper/**/Default/
 webscraper/**/Secure Preferences

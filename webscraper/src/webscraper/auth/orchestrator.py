@@ -4,8 +4,75 @@ import os
 from dataclasses import replace
 from typing import Iterable, List, Optional
 
+from .chrome_profile import get_driver_reusing_profile
+from .probe import TARGET_URL, probe_auth
+from .session import build_authenticated_session
+
 from .types import AuthAttempt, AuthContext, AuthMode, AuthResult
 from .strategies import manual, profile, programmatic
+
+
+def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
+    """Fetch a page using requests, selenium, or auto fallback.
+
+    Returns a dict containing mode/probe/fetch diagnostics.
+    """
+    selected_mode = (mode or "auto").strip().lower()
+    if selected_mode not in {"auto", "requests", "selenium"}:
+        raise ValueError("mode must be one of: auto, requests, selenium")
+
+    request_error: str | None = None
+    selenium_error: str | None = None
+
+    if selected_mode in {"auto", "requests"}:
+        try:
+            session = build_authenticated_session()
+            req_probe = probe_auth(session, url=url)
+            if req_probe.get("ok"):
+                response = session.get(url, timeout=30, allow_redirects=True)
+                return {
+                    "mode": "requests",
+                    "probe": req_probe,
+                    "status_code": int(response.status_code),
+                    "url": response.url,
+                    "content": response.text,
+                }
+            request_error = req_probe.get("notes", "requests probe did not pass")
+            if selected_mode == "requests":
+                raise RuntimeError(f"requests auth probe failed: {request_error}")
+        except Exception as exc:
+            request_error = str(exc)
+            if selected_mode == "requests":
+                raise
+
+    if selected_mode in {"auto", "selenium"}:
+        driver = None
+        try:
+            driver = get_driver_reusing_profile(headless=False)
+            sel_probe = probe_auth(driver, url=url)
+            if not sel_probe.get("ok"):
+                raise RuntimeError(f"selenium auth probe failed: {sel_probe.get('notes', 'unknown reason')}")
+            driver.get(url)
+            return {
+                "mode": "selenium",
+                "probe": sel_probe,
+                "status_code": 200,
+                "url": driver.current_url,
+                "content": driver.page_source,
+            }
+        except Exception as exc:
+            selenium_error = str(exc)
+            if selected_mode == "selenium":
+                raise
+        finally:
+            if driver is not None:
+                driver.quit()
+
+    raise RuntimeError(
+        "Authentication failed in auto mode. "
+        f"Requests failure: {request_error or 'n/a'}. Selenium failure: {selenium_error or 'n/a'}. "
+        "Verify browser has an active login for secure.123.net and CHROMEDRIVER_PATH is configured."
+    )
 
 
 def _existing_paths(paths: List[str]) -> List[str]:
