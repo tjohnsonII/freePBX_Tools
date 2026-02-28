@@ -41,6 +41,7 @@ def test_start_webscraper_stack_skips_ui_when_port_3004_in_use(tmp_path: Path, m
     monkeypatch.setattr(cli, "get_runtime_python", lambda *args, **kwargs: py)
     monkeypatch.setattr(cli, "resolve_npm_cmd", lambda: "npm")
     monkeypatch.setattr(cli, "_wait_for_health", lambda *args, **kwargs: True)
+    monkeypatch.setattr(cli, "_api_json_request", lambda *args, **kwargs: {"authenticated": True, "ok": True})
     monkeypatch.setattr(cli, "_is_pid_alive", lambda pid: pid > 0)
     monkeypatch.setattr(cli, "_is_port_open", lambda host, port: port == 3004)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kwargs: _Proc(cmd))
@@ -116,3 +117,44 @@ def test_start_webscraper_stack_ui_exit_non_strict_does_not_stop_api_worker(tmp_
 
     assert rc == EXIT_OK
     assert shutdown_reasons == ["ctrl-c"]
+
+
+def test_start_webscraper_stack_auth_failure_does_not_abort(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path
+    py = root / "python"
+    py.write_text("", encoding="utf-8")
+
+    launched: list[list[str]] = []
+
+    class _Proc:
+        def __init__(self, cmd):
+            self.pid = 200 + len(launched)
+            launched.append(cmd)
+
+    responses = [
+        {"ok": False, "next_step_if_failed": "login required"},
+        {"authenticated": False, "detail": "not authenticated", "last_error": "login required"},
+    ]
+
+    def _fake_api(*args, **kwargs):
+        return responses.pop(0) if responses else {"authenticated": False}
+
+    monkeypatch.setattr(cli, "find_repo_root", lambda: root)
+    monkeypatch.setattr(cli, "run_doctor", lambda *args, **kwargs: (cli.EXIT_OK, []))
+    monkeypatch.setattr(cli, "_preflight_kill_ports", lambda *args, **kwargs: (True, None))
+    monkeypatch.setattr(cli, "get_runtime_python", lambda *args, **kwargs: py)
+    monkeypatch.setattr(cli, "resolve_npm_cmd", lambda: "npm")
+    monkeypatch.setattr(cli, "_wait_for_health", lambda *args, **kwargs: True)
+    monkeypatch.setattr(cli, "_is_pid_alive", lambda pid: pid > 0)
+    monkeypatch.setattr(cli, "_is_port_open", lambda host, port: False)
+    monkeypatch.setattr(cli, "_api_json_request", _fake_api)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kwargs: _Proc(cmd))
+
+    monkeypatch.setenv("WEBSCRAPER_AUTH_MODE", "auto")
+    rc = cli._start_webscraper_stack(AppState(quiet=True), console=None, detach=True)
+
+    assert rc == EXIT_OK
+    flattened = [" ".join(cmd) for cmd in launched]
+    assert any("uvicorn" in cmd for cmd in flattened)
+    assert any("dev:ui" in cmd for cmd in flattened)
+    assert not any("--mode incremental" in cmd for cmd in flattened)

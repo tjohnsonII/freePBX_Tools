@@ -551,6 +551,76 @@ def _preflight_kill_ports(
     return True, None
 
 
+def _api_json_request(url: str, *, method: str = "GET", payload: dict[str, Any] | None = None, timeout: float = 10.0) -> dict[str, Any]:
+    body = None
+    headers: dict[str, str] = {}
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib_request.Request(url=url, data=body, headers=headers, method=method)
+    with urllib_request.urlopen(req, timeout=timeout) as response:
+        text = response.read().decode("utf-8", errors="replace")
+    parsed = json.loads(text or "{}")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _start_worker_service(
+    *,
+    root: Path,
+    state: AppState,
+    console: Console | None,
+    env: dict[str, str],
+    logs_dir: Path,
+    pids: dict[str, Any],
+    monitored_pids: dict[str, int],
+    services: dict[str, dict[str, Any]],
+    detach: bool,
+) -> int | None:
+    worker_entry = pids.get("worker", {}) if isinstance(pids.get("worker"), dict) else {}
+    worker_pid = int(worker_entry.get("pid", 0)) if str(worker_entry.get("pid", "0")).isdigit() else 0
+    if _is_pid_alive(worker_pid):
+        monitored_pids["worker"] = worker_pid
+        return worker_pid
+
+    log_path = logs_dir / "worker.log"
+    service_env = env.copy()
+    service_env.update(services["worker"].get("env", {}))
+    if detach:
+        with log_path.open("a", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                services["worker"]["cmd"],
+                cwd=str(services["worker"]["cwd"]),
+                env=service_env,
+                stdout=log_file,
+                stderr=log_file,
+                text=True,
+                creationflags=_creation_flags_for_service(),
+            )
+    else:
+        proc = subprocess.Popen(
+            services["worker"]["cmd"],
+            cwd=str(services["worker"]["cwd"]),
+            env=service_env,
+            stdout=None,
+            stderr=None,
+            text=True,
+            creationflags=_creation_flags_for_service(),
+        )
+
+    pids["worker"] = {
+        "pid": proc.pid,
+        "log": str(log_path),
+        "cmd": services["worker"]["cmd"],
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    monitored_pids["worker"] = proc.pid
+    _save_webscraper_pids(root, pids)
+    time.sleep(2)
+    if not _is_pid_alive(proc.pid):
+        return None
+    return proc.pid
+
+
 def _start_webscraper_stack(
     state: AppState,
     console: Console | None,
@@ -634,14 +704,10 @@ def _start_webscraper_stack(
     monitored_pids: dict[str, int] = {}
     worker_pid: int | None = None
     ui_skipped = False
+    auth_last_log = 0.0
+    auth_poll_interval = max(5.0, float(os.environ.get("WEBSCRAPER_AUTH_POLL_SEC", "10") or "10"))
 
-    for name in ("api", "ui", "worker"):
-        if name == "worker" and seed_auth_enabled:
-            _print_line(state, console, "[AUTH] auto/profile auth mode detected. Running blocking seed-auth before worker start.")
-            auth_code = run_seed_auth(state, json_out=False)
-            if auth_code != EXIT_OK:
-                _print_line(state, console, "[AUTH] seed-auth failed; aborting stack start.")
-                return auth_code
+    for name in ("api", "ui"):
         if name == "ui" and _is_port_open("127.0.0.1", 3004):
             ui_skipped = True
             if not state.quiet:
@@ -652,9 +718,8 @@ def _start_webscraper_stack(
         pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
         if _is_pid_alive(pid):
             monitored_pids[name] = pid
-            if name == "worker":
-                worker_pid = pid
             continue
+
         log_path = logs_dir / f"{name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         service_env = env.copy()
@@ -693,28 +758,62 @@ def _start_webscraper_stack(
             monitored_pids.pop("ui", None)
             _save_webscraper_pids(root, pids)
             if not state.quiet:
-                message = (
-                    "UI failed health check; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
-                )
+                message = "UI failed health check; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
                 (console.print(message) if console is not None else print(message))
             continue
-        if name == "worker":
-            time.sleep(2)
-            if not _is_pid_alive(proc.pid):
-                return EXIT_SERVICES_UNHEALTHY
-            worker_pid = proc.pid
 
     if not _wait_for_health("http://127.0.0.1:8787/health", 5):
         return EXIT_SERVICES_UNHEALTHY
     if not ui_skipped and not _wait_for_health("http://127.0.0.1:3004", 5):
         return EXIT_SERVICES_UNHEALTHY
-    if not worker_pid or not _wait_for_worker_stability(worker_pid, timeout_s=10):
-        return EXIT_SERVICES_UNHEALTHY
+
+    _print_line(state, console, "API started at http://127.0.0.1:8787")
+    _print_line(state, console, "UI started at http://localhost:3004")
+
+    if seed_auth_enabled:
+        _print_line(state, console, "[AUTH] auto/profile auth mode detected. Running non-blocking seed-auth after API/UI startup.")
+        try:
+            seed_payload = {
+                "mode": "auto",
+                "chrome_profile_dir": "Profile 1",
+                "seed_domains": ["secure.123.net", "123.net"],
+            }
+            seed_response = _api_json_request("http://127.0.0.1:8787/api/auth/seed", method="POST", payload=seed_payload, timeout=90)
+            if not seed_response.get("ok"):
+                _print_line(state, console, "AUTH NOT READY: worker disabled until authenticated")
+                if seed_response.get("next_step_if_failed"):
+                    _print_line(state, console, f"[AUTH] {seed_response.get('next_step_if_failed')}")
+            else:
+                _print_line(state, console, "[AUTH] seed-auth succeeded.")
+        except Exception as exc:
+            _print_line(state, console, f"AUTH NOT READY: worker disabled until authenticated ({exc})")
+
+    try:
+        auth_status = _api_json_request("http://127.0.0.1:8787/api/auth/status", timeout=10)
+    except Exception:
+        auth_status = {"authenticated": False, "detail": "status unavailable"}
+
+    if bool(auth_status.get("authenticated")):
+        worker_pid = _start_worker_service(
+            root=root,
+            state=state,
+            console=console,
+            env=env,
+            logs_dir=logs_dir,
+            pids=pids,
+            monitored_pids=monitored_pids,
+            services=services,
+            detach=detach,
+        )
+        if not worker_pid or not _wait_for_worker_stability(worker_pid, timeout_s=10):
+            return EXIT_SERVICES_UNHEALTHY
+        _print_line(state, console, f"Auth OK, starting worker… (pid {worker_pid})")
+    else:
+        auth_detail = auth_status.get("last_error") or auth_status.get("detail") or "not authenticated"
+        _print_line(state, console, f"Auth status: authenticated=false (worker paused). {auth_detail}")
+        _print_line(state, console, "AUTH NOT READY: worker disabled until authenticated")
 
     if not state.quiet:
-        _print_line(state, console, "API: OK (http://127.0.0.1:8787)")
-        _print_line(state, console, "UI: OK (http://127.0.0.1:3004)")
-        _print_line(state, console, f"Worker: OK (running pid {worker_pid})")
         started_message = "webscraper stack ready"
         (console.print(started_message) if console is not None else print(started_message))
     if detach:
@@ -722,15 +821,41 @@ def _start_webscraper_stack(
 
     try:
         while True:
+            now = time.time()
+            if now - auth_last_log >= auth_poll_interval:
+                auth_last_log = now
+                try:
+                    auth_status = _api_json_request("http://127.0.0.1:8787/api/auth/status", timeout=10)
+                except Exception as exc:
+                    auth_status = {"authenticated": False, "detail": f"status unavailable: {exc}"}
+
+                if bool(auth_status.get("authenticated")) and "worker" not in monitored_pids:
+                    candidate_pid = _start_worker_service(
+                        root=root,
+                        state=state,
+                        console=console,
+                        env=env,
+                        logs_dir=logs_dir,
+                        pids=pids,
+                        monitored_pids=monitored_pids,
+                        services=services,
+                        detach=detach,
+                    )
+                    if candidate_pid and _wait_for_worker_stability(candidate_pid, timeout_s=5):
+                        worker_pid = candidate_pid
+                        _print_line(state, console, "Auth OK, starting worker…")
+                    else:
+                        _print_line(state, console, "Worker start attempted after auth became valid but failed.")
+                elif not bool(auth_status.get("authenticated")) and "worker" not in monitored_pids:
+                    _print_line(state, console, "Auth status: authenticated=false (worker paused)")
+
             for name, pid in list(monitored_pids.items()):
                 if not _is_pid_alive(pid):
                     message = f"{name} exited unexpectedly (pid={pid})"
                     if not state.quiet:
                         (console.print(message) if console is not None else print(message))
                     if name == "worker" and not stop_on_worker_exit:
-                        keep_alive_message = (
-                            "worker exited; WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT=0 so API/UI will remain running"
-                        )
+                        keep_alive_message = "worker exited; WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT=0 so API/UI will remain running"
                         if not state.quiet:
                             (console.print(keep_alive_message) if console is not None else print(keep_alive_message))
                         monitored_pids.pop(name, None)
@@ -738,9 +863,7 @@ def _start_webscraper_stack(
                         _save_webscraper_pids(root, pids)
                         continue
                     if name == "ui" and not strict_ui:
-                        keep_alive_message = (
-                            "ui exited; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
-                        )
+                        keep_alive_message = "ui exited; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
                         if not state.quiet:
                             (console.print(keep_alive_message) if console is not None else print(keep_alive_message))
                         monitored_pids.pop(name, None)
