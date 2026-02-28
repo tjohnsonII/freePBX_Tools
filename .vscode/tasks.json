@@ -277,8 +277,8 @@
           ],
           "background": {
             "activeOnStart": true,
-            "beginsPattern": ".",
-            "endsPattern": "webscraper stack started"
+            "beginsPattern": "Doctor Checks",
+            "endsPattern": "webscraper stack ready"
           }
         }
       ],
@@ -314,8 +314,8 @@
           ],
           "background": {
             "activeOnStart": true,
-            "beginsPattern": ".",
-            "endsPattern": "webscraper stack started"
+            "beginsPattern": "Doctor Checks",
+            "endsPattern": "webscraper stack ready"
           }
         }
       ],
