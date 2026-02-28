@@ -395,11 +395,29 @@ def _wait_for_tcp(host: str, port: int, timeout_s: float) -> bool:
     return _is_port_open(host, port)
 
 
+def _ensure_webscraper_runtime_dirs(root: Path) -> dict[str, Path]:
+    webscraper_var_dir = root / "webscraper" / "var"
+    runtime_dir = webscraper_var_dir / "runtime"
+    logs_dir = webscraper_var_dir / "logs"
+    auth_dir = webscraper_var_dir / "auth"
+    chrome_profile_dir = webscraper_var_dir / "chrome-profile"
+
+    for directory in (runtime_dir, logs_dir, auth_dir, chrome_profile_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    return {
+        "var": webscraper_var_dir,
+        "runtime": runtime_dir,
+        "logs": logs_dir,
+        "auth": auth_dir,
+        "chrome_profile": chrome_profile_dir,
+        "pids": runtime_dir / "pids.json",
+    }
+
+
 def _webscraper_runtime_paths(root: Path) -> tuple[Path, Path]:
-    runtime_dir = root / "webscraper" / "var" / "runtime"
-    logs_dir = root / "webscraper" / "var" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    return runtime_dir / "pids.json", logs_dir
+    runtime_paths = _ensure_webscraper_runtime_dirs(root)
+    return runtime_paths["pids"], runtime_paths["logs"]
 
 
 def _load_webscraper_pids(root: Path) -> dict[str, Any]:
@@ -410,11 +428,13 @@ def _load_webscraper_pids(root: Path) -> dict[str, Any]:
         payload = json.loads(pids_path.read_text(encoding="utf-8"))
         return payload if isinstance(payload, dict) else {}
     except json.JSONDecodeError:
+        print(f"Warning: invalid JSON in pid state file {pids_path}; treating as empty state.")
         return {}
 
 
 def _save_webscraper_pids(root: Path, payload: dict[str, Any]) -> None:
     pids_path, _ = _webscraper_runtime_paths(root)
+    pids_path.parent.mkdir(parents=True, exist_ok=True)
     pids_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
@@ -472,6 +492,7 @@ def _shutdown_webscraper_children(root: Path, pids: dict[str, Any], reason: str)
 
 def _start_webscraper_stack(state: AppState, console: Console | None, detach: bool = False) -> int:
     root = find_repo_root()
+    _ensure_webscraper_runtime_dirs(root)
     doctor_code, _ = run_doctor(console, state, json_out=False)
     if doctor_code != EXIT_OK:
         return doctor_code
@@ -520,6 +541,7 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
             monitored_pids[name] = pid
             continue
         log_path = logs_dir / f"{name}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         service_env = env.copy()
         service_env.update(services[name].get("env", {}))
         if detach:
@@ -554,6 +576,11 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
             time.sleep(2)
             if not _is_pid_alive(proc.pid):
                 return EXIT_SERVICES_UNHEALTHY
+
+    if not _wait_for_health("http://127.0.0.1:8787/health", 5):
+        return EXIT_SERVICES_UNHEALTHY
+    if not _wait_for_health("http://127.0.0.1:3004", 5):
+        return EXIT_SERVICES_UNHEALTHY
 
     if not state.quiet:
         started_message = "webscraper stack started"
@@ -1438,6 +1465,11 @@ def _doctor_findings() -> list[Finding]:
         root / "webscraper_manager_old",
     ]
     existing_legacy_manager_dirs = [path for path in legacy_manager_dir_candidates if path.exists() and path.is_dir()]
+    runtime_dir = root / "webscraper" / "var" / "runtime"
+    logs_dir = root / "webscraper" / "var" / "logs"
+    runtime_was_missing = not runtime_dir.is_dir()
+    logs_was_missing = not logs_dir.is_dir()
+    _ensure_webscraper_runtime_dirs(root)
     manager_deps_missing: list[str] = []
 
     for module in MANAGER_RUNTIME_MODULES:
@@ -1529,6 +1561,24 @@ def _doctor_findings() -> list[Finding]:
             "webscraper_requirements",
             (root / "webscraper" / "requirements.txt").is_file(),
             f"Expected file: {root / 'webscraper' / 'requirements.txt'}",
+        ),
+        Finding(
+            "webscraper_runtime_dir",
+            runtime_dir.is_dir(),
+            (
+                f"Created missing runtime directory: {runtime_dir}"
+                if runtime_was_missing and runtime_dir.is_dir()
+                else f"Runtime directory ready: {runtime_dir}"
+            ),
+        ),
+        Finding(
+            "webscraper_logs_dir",
+            logs_dir.is_dir(),
+            (
+                f"Created missing logs directory: {logs_dir}"
+                if logs_was_missing and logs_dir.is_dir()
+                else f"Logs directory ready: {logs_dir}"
+            ),
         ),
         Finding("ui_dir", ui_dir.is_dir(), f"Expected directory: {ui_dir}"),
         Finding("ui_package_json", ui_package_json.is_file(), f"Expected file: {ui_package_json}"),
