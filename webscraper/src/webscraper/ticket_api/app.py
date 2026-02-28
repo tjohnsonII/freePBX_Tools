@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 import requests
 
@@ -27,6 +26,9 @@ from pydantic import BaseModel
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
 from webscraper.auth.chrome_cookies import ChromeCookieError, list_chrome_profile_dirs, load_cookies_from_profile
+from webscraper.auth.chrome_profile import get_driver_reusing_profile
+from webscraper.auth.probe import probe_auth
+from webscraper.auth.session import selenium_driver_to_requests_session, summarize_driver_cookies
 from webscraper.auth.cookie_seeder import (
     DEFAULT_CDP_PORT,
     CookieSeedError,
@@ -118,6 +120,12 @@ class AuthSeedRequest(BaseModel):
     chrome_user_data_dir: str | None = None
     seed_domains: list[str] = ["secure.123.net", "123.net"]
     cdp_port: int = DEFAULT_CDP_PORT
+
+
+class HybridAuthRequest(BaseModel):
+    target_url: str = CHROME_CUSTOMERS_URL
+    profile: str | None = "ticketing"
+    timeoutSeconds: int = 300
 
 
 class LaunchDebugChromeRequest(BaseModel):
@@ -215,10 +223,26 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
         raise HTTPException(status_code=400, detail="Parsed 0 cookies from payload")
 
     kept, expired_dropped = dedupe_and_filter_expired(parsed)
-    normalized_domains = {str(cookie.domain or "").strip().lstrip(".").lower() for cookie in kept}
-    has_secure_domain = any(domain == "secure.123.net" or domain.endswith(".secure.123.net") for domain in normalized_domains)
-    if not has_secure_domain:
-        raise HTTPException(status_code=400, detail="No secure.123.net cookies found in input.")
+    normalized_domains = {str(cookie.domain or "").strip().lstrip(".").lower() for cookie in kept if str(cookie.domain or "").strip()}
+
+    target_hosts = {domain.strip().lstrip(".").lower() for domain in get_target_domains() if domain}
+    if not target_hosts:
+        target_hosts = {"secure.123.net", "123.net"}
+
+    def _domain_matches_host(cookie_domain: str, host: str) -> bool:
+        return cookie_domain == host or host.endswith(f".{cookie_domain}")
+
+    has_target_domain = any(_domain_matches_host(cookie_domain, host) for cookie_domain in normalized_domains for host in target_hosts)
+    if not has_target_domain:
+        parsed_domains = sorted(normalized_domains)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "No target-domain cookies found in input.",
+                "target_domains": sorted(target_hosts),
+                "parsed_domains": parsed_domains,
+            },
+        )
     store_result = auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
     status_payload = _auth_meta_response(auth_store.status(db_path()))
     _append_event(
@@ -293,7 +317,7 @@ AUTH_MANAGER = AuthManager(db_path_getter=db_path, browser_path_getter=_detect_b
 
 def _is_login_like(payload: str) -> bool:
     lowered = payload.lower()
-    return any(marker in lowered for marker in ["login", "sign in", "password", "username"])
+    return any(marker in lowered for marker in ["login", "sign in", "password", "username", "name=\"username\"", "name=\"password\""])
 
 
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
@@ -327,8 +351,8 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
                     hint = "forbidden"
                 else:
                     hint = "http_error"
-        except Exception as exc:
-            hint = f"exception:{exc.__class__.__name__}"
+        except Exception:
+            hint = "exception"
         checks.append({"url": url, "status": status, "final_url": final_url, "ok": ok, "hint": hint})
         _log(f"auth_validate url={url} status={status} final_url={final_url} ok={ok} hint={hint or '-'}")
 
@@ -343,7 +367,7 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             reason = "forbidden"
         else:
             reason = "expired"
-    if any((item.get("hint") or "").startswith("exception") for item in checks):
+    if any((item.get("hint") or "") == "exception" for item in checks):
         reason = "exception"
     return {
         "authenticated": overall_ok,
@@ -1017,6 +1041,74 @@ def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     return _validate_auth_targets(payload.timeoutSeconds)
 
 
+@app.post("/api/auth/hybrid")
+def api_auth_hybrid(request: Request, payload: HybridAuthRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+
+    target_url = (payload.target_url or "").strip() or CHROME_CUSTOMERS_URL
+    timeout_seconds = max(10, min(int(payload.timeoutSeconds or 300), 1800))
+
+    existing_validation = _validate_auth_targets(timeout_seconds=10)
+    if existing_validation.get("authenticated"):
+        return {"ok": True, "mode": "existing_cookies", "validate": existing_validation}
+
+    previous_profile = os.environ.get("CHROME_PROFILE_DIR")
+    if payload.profile:
+        os.environ["CHROME_PROFILE_DIR"] = payload.profile
+
+    driver = None
+    try:
+        driver = get_driver_reusing_profile(headless=False)
+        selenium_probe = probe_auth(driver, url=target_url)
+        cookie_summary = summarize_driver_cookies(driver)
+        if not selenium_probe.get("ok"):
+            _append_event("error", f"Hybrid auth selenium probe failed probe={selenium_probe} cookies={cookie_summary}")
+            return {"ok": False, "mode": "selenium", "probe": selenium_probe, "cookies": cookie_summary}
+
+        seeded = selenium_driver_to_requests_session(driver, base_url=target_url)
+        requests_probe = probe_auth(seeded, url=target_url)
+        if not requests_probe.get("ok"):
+            _append_event("error", f"Hybrid auth seeded requests probe failed probe={requests_probe} seleniumProbe={selenium_probe} cookies={cookie_summary}")
+            return {"ok": False, "mode": "requests_seeded_from_selenium", "probe": requests_probe, "selenium_probe": selenium_probe, "cookies": cookie_summary}
+
+        normalized = []
+        for cookie in (driver.get_cookies() or []):
+            if not isinstance(cookie, dict):
+                continue
+            normalized.append({
+                "name": str(cookie.get("name") or "").strip(),
+                "value": str(cookie.get("value") or ""),
+                "domain": str(cookie.get("domain") or "").strip() or "secure.123.net",
+                "path": str(cookie.get("path") or "/") or "/",
+                "expires": cookie.get("expiry", cookie.get("expires")),
+                "secure": bool(cookie.get("secure")),
+                "httpOnly": bool(cookie.get("httpOnly")),
+                "sameSite": cookie.get("sameSite"),
+            })
+
+        store_result = auth_store.replace_cookies(db_path(), normalized, source="selenium_profile")
+        validation = _validate_auth_targets(timeout_seconds=timeout_seconds)
+        _append_event("info", f"Hybrid auth completed cookies_saved={store_result.get('accepted', 0)} domains={cookie_summary.get('domains', [])}")
+        return {
+            "ok": True,
+            "mode": "requests_seeded_from_selenium",
+            "cookie_count": int(store_result.get("accepted", 0)),
+            "domains": cookie_summary.get("domains", []),
+            "probe": requests_probe,
+            "selenium_probe": selenium_probe,
+            "validate": validation,
+        }
+    finally:
+        if driver is not None:
+            driver.quit()
+        if payload.profile:
+            if previous_profile is None:
+                os.environ.pop("CHROME_PROFILE_DIR", None)
+            else:
+                os.environ["CHROME_PROFILE_DIR"] = previous_profile
+
+
 @app.post("/api/auth/launch-browser")
 @app.post("/auth/launch-browser")
 def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
@@ -1274,10 +1366,14 @@ def api_health():
     }
 
 
+def _log_api_enabled() -> bool:
+    return os.getenv("SCRAPER_ENABLE_LOG_API") == "1"
+
+
 def _ensure_log_api_enabled(request: Request) -> None:
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="Logs API is localhost-only")
-    if os.getenv("SCRAPER_ENABLE_LOG_API") != "1":
+    if not _log_api_enabled():
         raise HTTPException(status_code=404, detail="Logs API disabled")
 
 
@@ -1286,6 +1382,29 @@ def _resolve_log_file(name: str) -> Path:
     if candidate.parent != LOG_DIR or not candidate.exists() or not candidate.is_file():
         raise HTTPException(status_code=404, detail="Log file not found")
     return candidate
+
+
+@app.get("/api/logs/enabled")
+def api_logs_enabled(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Logs API is localhost-only")
+    return {"enabled": _log_api_enabled()}
+
+
+def _tail_file(path: Path, lines: int) -> list[str]:
+    if lines <= 0:
+        return []
+    chunk_size = 8192
+    data = bytearray()
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        file_size = handle.tell()
+        while file_size > 0 and data.count(b"\n") <= lines:
+            read_size = min(chunk_size, file_size)
+            file_size -= read_size
+            handle.seek(file_size)
+            data = handle.read(read_size) + data
+    return data.decode("utf-8", errors="replace").splitlines()[-lines:]
 
 
 @app.get("/api/logs/list")
@@ -1308,9 +1427,8 @@ def api_logs_list(request: Request):
 def api_logs_tail(request: Request, name: str = Query(...), lines: int = Query(2000, ge=1, le=5000)):
     _ensure_log_api_enabled(request)
     log_file = _resolve_log_file(name)
-    with log_file.open("r", encoding="utf-8", errors="replace") as handle:
-        rows = handle.readlines()
-    return {"name": log_file.name, "lines": [row.rstrip("\n") for row in rows[-lines:]]}
+    rows = _tail_file(log_file, lines)
+    return {"name": log_file.name, "lines": rows}
 
 
 @app.get("/health")
