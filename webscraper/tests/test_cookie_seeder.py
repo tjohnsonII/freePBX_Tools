@@ -72,3 +72,31 @@ def test_import_cookies_auto_falls_back_to_cdp_when_disk_locked(monkeypatch) -> 
     assert result["method_used"] == "cdp"
     assert result["imported_count"] == 1
     assert any("switched to CDP" in warning for warning in result["warnings"])
+
+
+def test_browser_user_data_dir_uses_edge_and_chrome_roots(monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\tester\AppData\Local")
+
+    chrome_root = cookie_seeder.browser_user_data_dir("chrome")
+    edge_root = cookie_seeder.browser_user_data_dir("edge")
+
+    assert "Google" in str(chrome_root) and "Chrome" in str(chrome_root) and "User Data" in str(chrome_root)
+    assert "Microsoft" in str(edge_root) and "Edge" in str(edge_root) and "User Data" in str(edge_root)
+
+
+def test_resolve_profile_dir_prefers_requested_then_default(tmp_path) -> None:
+    root = tmp_path / "User Data"
+    (root / "Default").mkdir(parents=True)
+    (root / "Profile 1").mkdir()
+
+    resolved = cookie_seeder.resolve_profile_dir("edge", "Profile 1", user_data_dir=root)
+    assert resolved == root / "Profile 1"
+
+    fallback = cookie_seeder.resolve_profile_dir("edge", "Profile 9", user_data_dir=root)
+    assert fallback == root / "Default"
+
+
+def test_cookie_db_candidates_ordering(tmp_path) -> None:
+    profile_dir = tmp_path / "Profile 1"
+    expected = [profile_dir / "Network" / "Cookies", profile_dir / "Cookies"]
+    assert cookie_seeder.cookie_db_candidates(profile_dir) == expected

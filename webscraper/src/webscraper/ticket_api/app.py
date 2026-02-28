@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
-from webscraper.auth.chrome_cookies import ChromeCookieError, list_chrome_profile_dirs, load_cookies_from_profile
+from webscraper.auth.chrome_cookies import ChromeCookieError, load_cookies_from_profile
 from webscraper.auth.chrome_profile import get_driver_reusing_profile
 from webscraper.auth.probe import probe_auth
 from webscraper.auth.session import selenium_driver_to_requests_session, summarize_driver_cookies
@@ -34,8 +34,10 @@ from webscraper.auth.cookie_seeder import (
     CookieSeedError,
     SeedResult,
     auth_doctor,
+    browser_user_data_dir,
     import_cookies_auto,
     launch_debug_chrome,
+    list_browser_profiles,
     resolve_chrome_user_data_dir,
     resolve_profile_name,
     seed_auto,
@@ -1111,12 +1113,17 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
 
     selected_domain = (payload.domain or "secure.123.net").strip().lstrip(".").lower() or "secure.123.net"
     cdp_port = int(os.getenv("CHROME_DEBUG_PORT") or os.getenv("CHROME_CDP_PORT") or str(DEFAULT_CDP_PORT))
-    user_data_dir = resolve_chrome_user_data_dir(None)
+    try:
+        user_data_dir = browser_user_data_dir(payload.browser)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    LOGGER.info("Cookie import requested: browser=%s profile=%s domains=%s", payload.browser, payload.profile, [selected_domain])
     import_result = import_cookies_auto(
         profile_dir=user_data_dir,
         domains=[selected_domain],
         profile_name=payload.profile,
         cdp_url_or_port=cdp_port,
+        browser=payload.browser,
     )
 
     store_result = auth_store.replace_cookies(db_path(), import_result["cookies"], source=f"browser_{import_result['method_used']}")
@@ -1144,8 +1151,20 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
 
 
 @app.post("/api/auth/import_from_browser")
-def api_auth_import_from_browser(request: Request, payload: BrowserImportRequest):
-    return _import_from_browser_impl(request, payload)
+def api_auth_import_from_browser(
+    request: Request,
+    payload: BrowserImportRequest | None = None,
+    browser: str | None = Query(default=None),
+    profile: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
+):
+    base_payload = payload or BrowserImportRequest()
+    resolved_payload = BrowserImportRequest(
+        browser=(browser or base_payload.browser),
+        profile=(profile or base_payload.profile),
+        domain=(domain or base_payload.domain),
+    )
+    return _import_from_browser_impl(request, resolved_payload)
 
 
 @app.post("/api/auth/sync_from_browser")
@@ -1374,12 +1393,15 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
 
 @app.get("/api/auth/chrome_profiles")
 @app.get("/auth/chrome_profiles")
-def api_auth_chrome_profiles(request: Request):
+def api_auth_chrome_profiles(request: Request, browser: str = Query(default="chrome")):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    profiles = list_chrome_profile_dirs()
+    try:
+        profiles = list_browser_profiles(browser)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     preferred = "Profile 1" if "Profile 1" in profiles else ("Default" if "Default" in profiles else (profiles[0] if profiles else None))
-    return {"ok": True, "profiles": profiles, "preferred": preferred}
+    return {"ok": True, "browser": browser, "profiles": profiles, "preferred": preferred}
 
 
 @app.post("/api/auth/import_from_profile")
