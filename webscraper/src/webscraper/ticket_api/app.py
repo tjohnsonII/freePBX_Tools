@@ -62,6 +62,33 @@ OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").r
 DEFAULT_TARGET_DOMAINS = get_target_domains()
 CHROME_CUSTOMERS_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
 
+
+def resolve_profile_dir(user_data_dir: str, profile: str) -> Path:
+    """
+    Resolve a Chrome profile directory correctly.
+    Accepts:
+      - "Default"
+      - "Profile 1"
+      - "1"
+      - full absolute path
+    """
+    ud = Path(user_data_dir)
+    p = (profile or "").strip()
+
+    if p and Path(p).is_absolute() and Path(p).exists():
+        return Path(p)
+
+    if p.lower() == "default":
+        return ud / "Default"
+
+    if p.lower().startswith("profile "):
+        return ud / p
+
+    if p.isdigit():
+        return ud / f"Profile {p}"
+
+    return ud / p
+
 app = FastAPI(title="Ticket History API", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 LOGGER = setup_logging("ticket_api")
@@ -110,6 +137,9 @@ class LaunchSeededRequest(BaseModel):
 
 
 class ImportFromProfileRequest(BaseModel):
+    browser: str | None = None
+    domain: str | None = None
+    profile: str = ""
     temp_profile_dir: str
     seed_domains: list[str] = ["secure.123.net", "123.net"]
 
@@ -1239,8 +1269,16 @@ def api_auth_chrome_profiles(request: Request):
 def api_auth_import_from_profile(request: Request, payload: ImportFromProfileRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
+    profile_dir = resolve_profile_dir(payload.temp_profile_dir, payload.profile)
+    cookie_db = profile_dir / "Network" / "Cookies"
+    if not cookie_db.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile cookie DB not found at: {cookie_db}",
+        )
+
     try:
-        cookies, domain_counts = load_cookies_from_profile(payload.temp_profile_dir, payload.seed_domains)
+        cookies, domain_counts = load_cookies_from_profile(profile_dir, payload.seed_domains)
     except ChromeCookieError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -354,9 +354,9 @@ def _decrypt_cookie_value(encrypted_value: bytes, value: str, aes_key: bytes | N
 
 def load_cookies_from_profile(profile_dir: str | Path, seed_domains: list[str] | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
     profile = Path(profile_dir)
-    cookie_db = profile / "Default" / "Network" / "Cookies"
+    cookie_db = profile / "Network" / "Cookies"
     if not cookie_db.exists():
-        raise ChromeCookieError(f"Profile cookie DB not found: {cookie_db}")
+        raise ChromeCookieError(f"Profile cookie DB not found at: {cookie_db}")
 
     allowed = [_normalize_domain(domain) for domain in (seed_domains or ["secure.123.net"]) if _normalize_domain(domain)]
     if not allowed:
