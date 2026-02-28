@@ -9,6 +9,7 @@ type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
 type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
+type SeededLaunchResponse = { ok: boolean; temp_profile_dir: string; launched_url: string; seeded_domains: string[] };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
 type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
@@ -44,6 +45,12 @@ export default function HandlesPage() {
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [authStatusError, setAuthStatusError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const hasSecureDomain = (authStatus?.domains || []).some((domain) => {
+    const normalized = domain.replace(/^\./, "").toLowerCase();
+    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net");
+  });
+  const wrongDomainLoaded = (authStatus?.cookie_count || 0) > 0 && !hasSecureDomain;
 
   const loadHandles = async () => {
     const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
@@ -155,6 +162,28 @@ export default function HandlesPage() {
     }
   };
 
+
+  const launchLoginSeeded = async () => {
+    setError(null);
+    setAuthMessage(null);
+    try {
+      const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
+        target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+        chrome_profile_dir: "Default",
+        seed_domains: ["secure.123.net"],
+      });
+      await apiPost("/api/auth/import_from_profile", {
+        temp_profile_dir: result.temp_profile_dir,
+        seed_domains: ["secure.123.net"],
+      });
+      await loadAuthStatus();
+      setAuthMessage("Opened seeded isolated browser profile for login.");
+    } catch (e) {
+      const message = formatApiError(e);
+      setError(`Launch seeded login failed: ${message}`);
+    }
+  };
+
   const clearImportedCookies = async () => {
     setError(null);
     setAuthMessage(null);
@@ -204,20 +233,22 @@ export default function HandlesPage() {
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
         <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
+        {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded — must include secure.123.net</p> : null}
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
           <button onClick={() => fileInputRef.current?.click()}>Import Cookies</button>
           <button onClick={importCookieFile} style={{ marginLeft: 8 }}>Upload Selected File</button>
           <button onClick={() => setShowImportModal(true)} style={{ marginLeft: 8 }}>Paste Cookies</button>
           <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>Launch Login (isolated)</button>
+          <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>Launch Login (seeded isolated)</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
-          <button onClick={runValidate} style={{ marginLeft: 8 }}>Validate Auth</button>
+          <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>Validate Auth</button>
         </div>
         {cookieFileName ? <p style={{ marginTop: 6 }}>Selected file: {cookieFileName}</p> : null}
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
-      <div><button onClick={startScrapeSelected} disabled={!selectedHandle}>Scrape Selected Handle</button> {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}</div>
+      <div><button onClick={startScrapeSelected} disabled={!selectedHandle || wrongDomainLoaded}>Scrape Selected Handle</button> {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}</div>
 
       {jobStatus && <section><h3>Job status</h3><p>Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}</p></section>}
 
