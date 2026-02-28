@@ -806,6 +806,7 @@ def create_edge_driver(
     headless_requested: bool = False,
     no_profile_launch: bool = False,
     browser: str = "edge",
+    **kwargs: Any,
 ) -> tuple["webdriver.Edge", bool, bool, Optional[str]]:
     # Local imports to avoid top-level dependency failures
     from selenium import webdriver
@@ -823,6 +824,7 @@ def create_edge_driver(
     EDGEDRIVER = os.environ.get("EDGEDRIVER_PATH")
     edge_driver_env = EDGEDRIVER
     edge_binary_path_resolved = edge_binary_path()
+    _ = kwargs  # compat for legacy callers
     profile_dir_override = os.path.abspath(profile_dir) if profile_dir else None
     browser = (browser or os.environ.get("WEBSCRAPER_BROWSER") or "edge").strip().lower()
     if browser not in {"edge", "chrome"}:
