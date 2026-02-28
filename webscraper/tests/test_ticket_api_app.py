@@ -310,17 +310,13 @@ def test_auth_seed_endpoint_auto_mode(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         appmod,
-        "seed_auto",
-        lambda **kwargs: appmod.seed_from_cdp(9222, ["secure.123.net"]),
-    )
-    monkeypatch.setattr(
-        appmod,
-        "seed_from_cdp",
-        lambda cdp_port, domains: appmod.SeedResult(
-            mode_used="cdp",
-            cookies=[{"name": "sid", "value": "abc", "domain": ".secure.123.net", "path": "/"}],
-            details={"cdp_port": 9222},
-        ),
+        "import_cookies_auto",
+        lambda **kwargs: {
+            "method_used": "cdp",
+            "cookies": [{"name": "sid", "value": "abc", "domain": ".secure.123.net", "path": "/"}],
+            "warnings": [],
+            "details": {"cdp_port": 9222},
+        },
     )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
@@ -345,7 +341,7 @@ def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypa
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
-    monkeypatch.setattr(appmod, "list_chrome_profile_dirs", lambda: ["Default", "Profile 1", "Profile 2"])
+    monkeypatch.setattr(appmod, "list_browser_profiles", lambda browser: ["Default", "Profile 1", "Profile 2"])
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     response = client.get("/api/auth/chrome_profiles")
@@ -498,6 +494,36 @@ def test_auth_browser_import_routes_exist(tmp_path, monkeypatch):
         assert ok.status_code == 200
         bad = client.post(route, json={"browser": 123})
         assert bad.status_code in {200, 422}
+
+
+def test_import_from_browser_query_params_override_payload(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    captured: dict[str, object] = {}
+
+    def fake_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "method_used": "disk",
+            "imported_count": 1,
+            "warnings": [],
+            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "details": {},
+        }
+
+    monkeypatch.setattr(appmod, "import_cookies_auto", fake_import)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post(
+        "/api/auth/import_from_browser?browser=edge&profile=Profile%201&domain=secure.123.net",
+        json={"browser": "chrome", "profile": "Default", "domain": "123.net"},
+    )
+    assert response.status_code == 200
+    assert captured["browser"] == "edge"
+    assert captured["profile_name"] == "Profile 1"
 
 
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):

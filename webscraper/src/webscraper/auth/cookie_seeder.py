@@ -66,6 +66,27 @@ def resolve_chrome_user_data_dir(profile_dir: str | Path | None) -> Path:
     return Path.home() / ".config" / "google-chrome"
 
 
+def browser_user_data_dir(browser: str) -> Path:
+    browser_name = str(browser or "chrome").strip().lower()
+    local_app_data = (os.getenv("LOCALAPPDATA") or "").strip()
+    if browser_name == "chrome":
+        return Path(local_app_data) / "Google" / "Chrome" / "User Data" if local_app_data else Path.home() / ".config" / "google-chrome"
+    if browser_name == "edge":
+        return Path(local_app_data) / "Microsoft" / "Edge" / "User Data" if local_app_data else Path.home() / ".config" / "microsoft-edge"
+    raise ValueError(f"Unsupported browser '{browser}'. Expected one of: chrome, edge")
+
+
+def list_browser_profiles(browser: str) -> list[str]:
+    root = browser_user_data_dir(browser)
+    if not root.exists():
+        return []
+    profiles: list[str] = []
+    if (root / "Default").is_dir():
+        profiles.append("Default")
+    profiles.extend(sorted(path.name for path in root.glob("Profile *") if path.is_dir()))
+    return profiles
+
+
 def resolve_profile_name(profile_name: str | None = None) -> str:
     candidate = (profile_name or os.getenv("CHROME_PROFILE_DIR") or "").strip()
     return candidate or "Default"
@@ -73,6 +94,36 @@ def resolve_profile_name(profile_name: str | None = None) -> str:
 
 def resolve_cookie_db_path(profile_dir: str | Path, profile_name: str) -> Path:
     return Path(profile_dir) / profile_name / "Network" / "Cookies"
+
+
+def cookie_db_candidates(profile_dir: Path) -> list[Path]:
+    return [profile_dir / "Network" / "Cookies", profile_dir / "Cookies"]
+
+
+def resolve_profile_dir(browser: str, profile_name: str | None, *, user_data_dir: Path | None = None) -> Path:
+    root = user_data_dir or browser_user_data_dir(browser)
+    requested = (profile_name or os.getenv("CHROME_PROFILE_DIR") or "").strip()
+    if requested:
+        requested_path = root / requested
+        if requested_path.is_dir():
+            return requested_path
+
+    default_profile = root / "Default"
+    if default_profile.is_dir():
+        return default_profile
+
+    candidates = [
+        profile
+        for profile in root.iterdir()
+        if profile.is_dir() and any(cookie_path.exists() for cookie_path in cookie_db_candidates(profile))
+    ] if root.exists() else []
+    candidates.sort(key=lambda candidate: (candidate.name != "Default", candidate.name.lower()))
+    if candidates:
+        return candidates[0]
+
+    if requested:
+        return root / requested
+    return default_profile
 
 
 def _is_lock_error(exc: Exception) -> bool:
@@ -86,19 +137,18 @@ def _is_lock_error(exc: Exception) -> bool:
     return False
 
 
-def _copy_with_backoff(source: Path, backoff_seconds: tuple[float, ...] = (0.5, 1.0, 2.0)) -> Path:
+def _copy_with_backoff(source: Path, backoff_seconds: tuple[float, ...] = (0.5, 1.0, 2.0)) -> tuple[Path, Path]:
     last_exc: Exception | None = None
     attempts = len(backoff_seconds) + 1
     for attempt in range(attempts):
-        fd, tmp_name = tempfile.mkstemp(prefix="cookie_seed_", suffix=source.suffix or ".sqlite")
-        os.close(fd)
-        target = Path(tmp_name)
+        temp_dir = Path(tempfile.mkdtemp(prefix="cookie_seed_"))
+        target = temp_dir / (source.name or "Cookies.sqlite")
         try:
             shutil.copy2(source, target)
             LOGGER.info("[AUTH][DISK] copied cookie DB source=%s temp=%s", source, target)
-            return target
+            return temp_dir, target
         except Exception as exc:
-            target.unlink(missing_ok=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             last_exc = exc
             if _is_lock_error(exc):
                 LOGGER.warning("[AUTH][DISK] copy failed due to probable lock attempt=%s error=%s", attempt + 1, exc)
@@ -190,15 +240,24 @@ def _cookie_from_row(row: tuple[Any, ...], aes_key: bytes | None, selected_domai
     }
 
 
-def seed_from_disk(profile_dir: str | Path, domains: list[str], *, profile_name: str | None = None) -> SeedResult:
+def seed_from_disk(profile_dir: str | Path | None, domains: list[str], *, profile_name: str | None = None, browser: str = "chrome") -> SeedResult:
     selected_domains = normalize_domains(domains)
-    user_data_dir = resolve_chrome_user_data_dir(profile_dir)
-    chosen_profile = resolve_profile_name(profile_name)
-    cookie_db = resolve_cookie_db_path(user_data_dir, chosen_profile)
-    if not cookie_db.exists():
-        raise CookieSeedError("COOKIE_DB_MISSING", f"Cookie DB not found: {cookie_db}")
+    user_data_dir = Path(profile_dir) if profile_dir else browser_user_data_dir(browser)
+    profile_dir_path = resolve_profile_dir(browser, profile_name, user_data_dir=user_data_dir)
+    chosen_profile = profile_dir_path.name
+    candidates = cookie_db_candidates(profile_dir_path)
+    cookie_db = next((path for path in candidates if path.exists()), None)
+    LOGGER.info("Cookie import requested: browser=%s profile=%s domains=%s", browser, chosen_profile, selected_domains)
+    LOGGER.info("Resolved profile dir: %s", profile_dir_path)
+    if cookie_db is None:
+        raise CookieSeedError(
+            "COOKIE_DB_MISSING",
+            f"Cookie DB not found for browser={browser} profile={chosen_profile}",
+            details={"profile_dir": str(profile_dir_path), "candidates": [str(path) for path in candidates]},
+        )
+    LOGGER.info("Cookie DB selected: %s", cookie_db)
 
-    temp_copy = _copy_with_backoff(cookie_db)
+    temp_dir, temp_copy = _copy_with_backoff(cookie_db)
     cookies: list[dict[str, Any]] = []
     try:
         aes_key: bytes | None = None
@@ -222,13 +281,19 @@ def seed_from_disk(profile_dir: str | Path, domains: list[str], *, profile_name:
             raise CookieSeedError("DB_LOCKED", "Cookie DB is locked while reading copied DB") from exc
         raise CookieSeedError("DISK_READ_FAILED", f"Unable to read cookie DB: {exc}") from exc
     finally:
-        temp_copy.unlink(missing_ok=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     LOGGER.info("[AUTH][DISK] loaded cookies count=%s profile=%s", len(cookies), chosen_profile)
     return SeedResult(
         mode_used="disk",
         cookies=cookies,
-        details={"profile_dir": str(user_data_dir), "profile_name": chosen_profile, "cookie_db": str(cookie_db)},
+        details={
+            "browser": browser,
+            "profile_dir": str(profile_dir_path),
+            "profile_name": chosen_profile,
+            "cookie_db": str(cookie_db),
+            "cookie_db_candidates": [str(path) for path in candidates],
+        },
     )
 
 
@@ -296,9 +361,9 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
     return SeedResult(mode_used="cdp", cookies=filtered, details={"cdp_port": port})
 
 
-def seed_auto(*, profile_dir: str | Path, domains: list[str], profile_name: str | None = None, cdp_url_or_port: str | int | None = None) -> SeedResult:
+def seed_auto(*, profile_dir: str | Path | None, domains: list[str], profile_name: str | None = None, cdp_url_or_port: str | int | None = None, browser: str = "chrome") -> SeedResult:
     try:
-        return seed_from_disk(profile_dir, domains, profile_name=profile_name)
+        return seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
     except CookieSeedError as exc:
         if exc.code != "DB_LOCKED":
             raise
@@ -311,14 +376,15 @@ def seed_auto(*, profile_dir: str | Path, domains: list[str], profile_name: str 
 
 def import_cookies_auto(
     *,
-    profile_dir: str | Path,
+    profile_dir: str | Path | None,
     domains: list[str],
     profile_name: str | None = None,
     cdp_url_or_port: str | int | None = None,
+    browser: str = "chrome",
 ) -> dict[str, Any]:
     warnings: list[str] = []
     try:
-        result = seed_from_disk(profile_dir, domains, profile_name=profile_name)
+        result = seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
         return {
             "method_used": "disk",
             "imported_count": len(result.cookies),
