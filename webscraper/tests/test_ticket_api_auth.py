@@ -1,4 +1,13 @@
-from webscraper.ticket_api.app import map_batch_mode
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+
+from webscraper.ticket_api.app import (
+    _detect_browser_path,
+    _sanitize_profile_name,
+    map_batch_mode,
+)
 from webscraper.ticket_api.auth import (
     dedupe_and_filter_expired,
     parse_cookies,
@@ -61,3 +70,27 @@ def test_drop_expired_and_dedupe_keep_latest():
     assert len(kept) == 2
     sid = [c for c in kept if c.name == "sid"][0]
     assert sid.value == "new"
+
+
+def test_sanitize_profile_name_replaces_unsafe_chars():
+    assert _sanitize_profile_name("ticketing:qa/user") == "ticketing_qa_user"
+
+
+def test_detect_browser_prefers_chrome_path(monkeypatch, tmp_path):
+    fake_browser = tmp_path / "chrome.exe"
+    fake_browser.write_text("")
+    monkeypatch.setenv("CHROME_PATH", str(fake_browser))
+    assert _detect_browser_path() == fake_browser
+
+
+def test_detect_browser_missing_raises_clear_error(monkeypatch):
+    monkeypatch.delenv("CHROME_PATH", raising=False)
+    monkeypatch.setenv("ProgramFiles", str(Path("/tmp/does-not-exist-program-files")))
+    monkeypatch.setenv("ProgramFiles(x86)", str(Path("/tmp/does-not-exist-program-files-x86")))
+    monkeypatch.setenv("LOCALAPPDATA", str(Path("/tmp/does-not-exist-local-app-data")))
+
+    with pytest.raises(HTTPException) as exc:
+        _detect_browser_path()
+
+    assert exc.value.status_code == 500
+    assert "CHROME_PATH" in str(exc.value.detail)

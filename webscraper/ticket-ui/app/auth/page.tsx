@@ -26,6 +26,9 @@ type ValidateResponse = {
   domains: string[];
 };
 
+const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
+const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
+
 export default function AuthPage() {
   const [text, setText] = useState("");
   const [uploadName, setUploadName] = useState<string>("");
@@ -74,6 +77,7 @@ export default function AuthPage() {
       setMessage(`Imported ${result.cookie_count} cookies from pasted text.`);
       setText("");
       await refreshStatus();
+      await runValidate();
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.detail || err.message);
@@ -99,12 +103,30 @@ export default function AuthPage() {
       const result = await apiPostForm<{ cookie_count: number; filename?: string }>("/api/auth/import-file", fd);
       setMessage(`Imported ${result.cookie_count} cookies from ${result.filename || selectedFile.name}.`);
       await refreshStatus();
+      await runValidate();
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.detail || err.message);
       } else {
         setError("Cookie import failed.");
       }
+    }
+  };
+
+  const launchLoginIsolated = async () => {
+    setError(null);
+    setMessage(null);
+    try {
+      await apiPost<{ ok: boolean; browser: string; profile_dir: string }>("/api/auth/launch-browser", {
+        url: TICKETING_LOGIN_URL,
+        profile: "ticketing",
+        new_window: true,
+      });
+      setMessage("Opened isolated browser profile for login.");
+    } catch (err) {
+      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch isolated browser.";
+      setError(launchError);
+      window.open(TICKETING_LOGIN_URL, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -137,12 +159,15 @@ export default function AuthPage() {
         <h3>Upload cookies file</h3>
         <input type="file" accept=".json,.txt" onChange={onUpload} /> {uploadName ? <span>{uploadName}</span> : null}
         <div style={{ marginTop: 8 }}>
-          <button onClick={importFile} disabled={!selectedFile}>Upload Cookies File</button>
+          <button onClick={importFile}>Upload Cookies File</button>
         </div>
       </section>
 
       <div style={{ marginTop: 8 }}>
         <button onClick={clearCookies}>Clear</button>
+        <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>
+          Launch Login (isolated)
+        </button>
         <button onClick={runValidate} style={{ marginLeft: 8 }}>
           Validate Auth
         </button>

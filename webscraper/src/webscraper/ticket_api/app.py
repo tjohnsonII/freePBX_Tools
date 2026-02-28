@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -68,6 +69,12 @@ class ImportTextRequest(BaseModel):
     text: str | None = None
     cookies: list[dict[str, Any]] | None = None
     cookie: str | None = None
+
+
+class LaunchBrowserRequest(BaseModel):
+    url: str | None = None
+    profile: str = "ticketing"
+    new_window: bool = True
 
 
 @dataclass
@@ -179,6 +186,48 @@ AUTH_CHECK_URLS: list[str] = [
     "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
     "https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi",
 ]
+
+DEFAULT_TICKETING_LOGIN_URL = (os.getenv("TICKETING_LOGIN_URL") or "").strip()
+
+
+def _sanitize_profile_name(name: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "_", (name or "").strip())
+    return cleaned or "ticketing"
+
+
+def _profile_dir(profile_name: str) -> Path:
+    base_dir = Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome_profiles"
+    path = base_dir / _sanitize_profile_name(profile_name)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _candidate_browser_paths() -> list[Path]:
+    program_files = os.getenv("ProgramFiles", r"C:\\Program Files")
+    program_files_x86 = os.getenv("ProgramFiles(x86)", r"C:\\Program Files (x86)")
+    local_app_data = os.getenv("LOCALAPPDATA", "")
+    return [
+        Path(program_files) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(program_files_x86) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(local_app_data) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(program_files) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        Path(program_files_x86) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+    ]
+
+
+def _detect_browser_path() -> Path:
+    configured = (os.getenv("CHROME_PATH") or "").strip()
+    if configured:
+        configured_path = Path(configured)
+        if configured_path.exists() and configured_path.is_file():
+            return configured_path
+    for candidate in _candidate_browser_paths():
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    raise HTTPException(
+        status_code=500,
+        detail="Could not find Chrome/Edge. Set CHROME_PATH to your browser executable (for example chrome.exe).",
+    )
 
 
 def _is_login_like(payload: str) -> bool:
@@ -611,11 +660,6 @@ def api_scrape_start(req: StartScrapeRequest):
     if req.mode == "one" and req.handle and not req.refresh_handles and not db.handle_exists(db_path(), req.handle):
         raise HTTPException(status_code=404, detail="handle not found in DB; run with refresh_handles=true first")
 
-    auth_validation = _validate_auth_targets()
-    if not auth_validation.get("authenticated"):
-        reason = auth_validation.get("reason") or "auth_invalid"
-        raise HTTPException(status_code=401, detail=f"Validate auth first ({reason})")
-
     job_id = str(uuid.uuid4())
     run_id = datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}"
     db.create_scrape_job(
@@ -777,6 +821,33 @@ def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     return _validate_auth_targets(payload.timeoutSeconds)
+
+
+@app.post("/api/auth/launch-browser")
+@app.post("/auth/launch-browser")
+def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    target_url = (payload.url or "").strip() or DEFAULT_TICKETING_LOGIN_URL
+    if not target_url:
+        raise HTTPException(status_code=400, detail="Missing login URL. Set TICKETING_LOGIN_URL or provide url in request.")
+
+    browser_path = _detect_browser_path()
+    profile_dir = _profile_dir(payload.profile)
+
+    command = [
+        str(browser_path),
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    if payload.new_window:
+        command.append("--new-window")
+    command.append(target_url)
+
+    subprocess.Popen(command)
+    _log(f"launched isolated browser browser={browser_path} profile_dir={profile_dir} url={target_url}")
+    return {"ok": True, "browser": str(browser_path), "profile_dir": str(profile_dir)}
 
 
 @app.get("/api/auth/doctor")
