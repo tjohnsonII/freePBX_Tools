@@ -20,12 +20,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Seed requests auth from Selenium and fetch customers.cgi")
     parser.add_argument("--url", default=DEFAULT_URL, help="Authenticated URL to open for cookie seeding")
     parser.add_argument("--headless", action="store_true", help="Run Chrome in headless mode")
+    parser.add_argument("--browser", choices=["edge", "chrome"], default="edge", help="Browser to use for auth seeding")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Path to save fetched HTML")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    session = seed_requests_session_with_selenium(url=args.url, headless=bool(args.headless))
+    session = seed_requests_session_with_selenium(url=args.url, headless=bool(args.headless), browser=str(args.browser))
     response = session.get(DEFAULT_URL, timeout=30, allow_redirects=True)
     authenticated = is_authenticated_html(response.text)
 

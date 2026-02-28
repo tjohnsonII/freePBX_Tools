@@ -17,6 +17,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from webscraper_manager import __version__
+from webscraper_manager.util.ports import describe_process, find_listening_pids, kill_process_tree, should_kill
 
 try:
     import typer
@@ -401,8 +402,9 @@ def _ensure_webscraper_runtime_dirs(root: Path) -> dict[str, Path]:
     logs_dir = webscraper_var_dir / "logs"
     auth_dir = webscraper_var_dir / "auth"
     chrome_profile_dir = webscraper_var_dir / "chrome-profile"
+    edge_profile_dir = webscraper_var_dir / "edge-profile"
 
-    for directory in (runtime_dir, logs_dir, auth_dir, chrome_profile_dir):
+    for directory in (runtime_dir, logs_dir, auth_dir, chrome_profile_dir, edge_profile_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
     return {
@@ -411,6 +413,7 @@ def _ensure_webscraper_runtime_dirs(root: Path) -> dict[str, Path]:
         "logs": logs_dir,
         "auth": auth_dir,
         "chrome_profile": chrome_profile_dir,
+        "edge_profile": edge_profile_dir,
         "pids": runtime_dir / "pids.json",
     }
 
@@ -490,7 +493,63 @@ def _shutdown_webscraper_children(root: Path, pids: dict[str, Any], reason: str)
     return messages
 
 
-def _start_webscraper_stack(state: AppState, console: Console | None, detach: bool = False) -> int:
+def _print_line(state: AppState, console: Console | None, message: str) -> None:
+    if state.quiet:
+        return
+    (console.print(message) if console is not None else print(message))
+
+
+def _preflight_kill_ports(
+    state: AppState,
+    console: Console | None,
+    ports: list[int],
+    *,
+    kill_ports: bool,
+    kill_scope: str,
+) -> tuple[bool, str | None]:
+    scope = str(kill_scope or "repo").strip().lower()
+    repo_root = find_repo_root()
+    if scope not in {"repo", "safe", "force"}:
+        return False, f"Invalid --kill-scope value '{kill_scope}'. Expected: repo|safe|force"
+
+    for port in ports:
+        listener_pids = sorted(find_listening_pids(port))
+        for pid in listener_pids:
+            meta = describe_process(pid)
+            cmdline = str(meta.get("cmdline_text") or "")
+            name = str(meta.get("name") or "<unknown>")
+            _print_line(state, console, f"[PORT] {port} in use by PID={pid} name={name} cmdline=\"{cmdline}\"")
+            if not kill_ports:
+                return False, f"Port {port} already in use and --kill-ports disabled. Stop PID {pid} or use --kill-ports."
+            if not should_kill(pid, scope, repo_root):
+                return (
+                    False,
+                    (
+                        f"Refusing to kill PID {pid} on port {port}: does not match --kill-scope={scope}. "
+                        "Use --kill-scope force to override."
+                    ),
+                )
+
+            _print_line(state, console, f"[PORT] killing PID={pid} (scope={scope})")
+            try:
+                kill_process_tree(pid)
+            except Exception as exc:
+                return False, f"Failed killing PID {pid} on port {port}: {exc}. Resolve process and retry."
+
+            if find_listening_pids(port):
+                return False, f"Port {port} still has listeners after kill attempt. Resolve manually and retry."
+
+    return True, None
+
+
+def _start_webscraper_stack(
+    state: AppState,
+    console: Console | None,
+    detach: bool = False,
+    *,
+    kill_ports: bool = True,
+    kill_scope: str = "repo",
+) -> int:
     root = find_repo_root()
     _ensure_webscraper_runtime_dirs(root)
     doctor_code, _ = run_doctor(console, state, json_out=False)
@@ -504,12 +563,27 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
             (console.print(msg) if console is not None else print(msg))
         return EXIT_USAGE
 
+    api_port = 8787
+    ui_port = 3004
+    kill_ok, kill_error = _preflight_kill_ports(
+        state,
+        console,
+        [ui_port, api_port],
+        kill_ports=kill_ports,
+        kill_scope=kill_scope,
+    )
+    if not kill_ok:
+        _print_line(state, console, str(kill_error))
+        return EXIT_SERVICES_UNHEALTHY
+
     _, logs_dir = _webscraper_runtime_paths(root)
     pids = _load_webscraper_pids(root)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     stop_on_worker_exit = os.environ.get("WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT", "0") == "1"
     strict_ui = os.environ.get("WEBSCRAPER_STACK_STRICT_UI", "0") == "1"
+    auth_mode = (os.environ.get("WEBSCRAPER_AUTH_MODE") or "").strip().lower()
+    seed_auth_enabled = os.environ.get("WEBSCRAPER_SEED_AUTH_AUTO", "0") == "1" or auth_mode in {"auto", "profile"}
 
     services = {
         "api": {
@@ -538,6 +612,12 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
     ui_skipped = False
 
     for name in ("api", "ui", "worker"):
+        if name == "worker" and seed_auth_enabled:
+            _print_line(state, console, "[AUTH] auto/profile auth mode detected. Running blocking seed-auth before worker start.")
+            auth_code = run_seed_auth(state, json_out=False)
+            if auth_code != EXIT_OK:
+                _print_line(state, console, "[AUTH] seed-auth failed; aborting stack start.")
+                return auth_code
         if name == "ui" and _is_port_open("127.0.0.1", 3004):
             ui_skipped = True
             if not state.quiet:
@@ -1330,8 +1410,11 @@ def run_seed_auth(state: AppState, json_out: bool = False) -> int:
             (console.print(message) if console is not None else print(message))
         return EXIT_AUTH_FAILED
 
-    cmd = [str(python_exe), str(script_path)]
-    rc, out, err = run_subprocess(cmd, cwd=root, timeout=180)
+    browser = (os.environ.get("WEBSCRAPER_BROWSER") or "edge").strip().lower()
+    if browser not in {"edge", "chrome"}:
+        browser = "edge"
+    cmd = [str(python_exe), str(script_path), "--browser", browser]
+    rc, out, err = run_subprocess(cmd, cwd=root, timeout=900)
 
     status_code = None
     authenticated = None
@@ -3066,11 +3149,15 @@ if TYPER_AVAILABLE:
     def start_webscraper(
         ctx: typer.Context,
         detach: bool = typer.Option(False, "--detach", help="Start webscraper stack and return immediately."),
+        kill_ports: bool = typer.Option(True, "--kill-ports/--no-kill-ports", help="Kill processes occupying stack ports before start."),
+        kill_scope: str = typer.Option("repo", "--kill-scope", help="Port kill scope: repo, safe, or force."),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
-        raise typer.Exit(_start_webscraper_stack(state, get_console(state), detach=detach))
+        raise typer.Exit(
+            _start_webscraper_stack(state, get_console(state), detach=detach, kill_ports=kill_ports, kill_scope=kill_scope)
+        )
 
     @stop_app.callback()
     def stop_default(
@@ -3311,6 +3398,8 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             svc_parser.add_argument("service", nargs="?", choices=["all", "api", "ui", "worker", "webscraper"], help="Optional service target")
         if svc_cmd == "start":
             svc_parser.add_argument("--detach", action="store_true", help="Start webscraper stack and return immediately")
+            svc_parser.add_argument("--kill-ports", action=argparse.BooleanOptionalAction, default=True, help="Kill processes occupying stack ports before start")
+            svc_parser.add_argument("--kill-scope", choices=["repo", "safe", "force"], default="repo", help="Port kill scope when starting webscraper")
         svc_parser.add_argument("--quiet", action="store_true", help="Minimal output")
         svc_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
@@ -3390,7 +3479,13 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
         console = get_console(state)
         if args.command == "start":
             if getattr(args, "service", None) == "webscraper":
-                return _start_webscraper_stack(state, console, detach=bool(getattr(args, "detach", False)))
+                return _start_webscraper_stack(
+                    state,
+                    console,
+                    detach=bool(getattr(args, "detach", False)),
+                    kill_ports=bool(getattr(args, "kill_ports", True)),
+                    kill_scope=str(getattr(args, "kill_scope", "repo")),
+                )
             return _start_services(state, console, service=getattr(args, "service", None))
         if args.command == "stop":
             if getattr(args, "service", None) == "webscraper":
