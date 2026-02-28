@@ -14,6 +14,8 @@ type ValidateResponse = { authenticated: boolean; reason?: string; domains: stri
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
 type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; running: boolean; errors: number; error_message?: string; result?: JobResult };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
+const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
+const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) return error.detail || error.message;
@@ -118,7 +120,7 @@ export default function HandlesPage() {
   };
 
   const importCookieFile = async () => {
-    if (!cookieFile) return setError("Select a cookie file first.");
+    if (!cookieFile) return setError("Select a JSON or TXT cookie file first.");
     setError(null);
     setAuthMessage(null);
     const fd = new FormData();
@@ -133,6 +135,23 @@ export default function HandlesPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
       setError(formatApiError(e));
+    }
+  };
+
+  const launchLoginIsolated = async () => {
+    setError(null);
+    setAuthMessage(null);
+    try {
+      await apiPost<{ ok: boolean; browser: string; profile_dir: string }>("/api/auth/launch-browser", {
+        url: TICKETING_LOGIN_URL,
+        profile: "ticketing",
+        new_window: true,
+      });
+      setAuthMessage("Opened isolated browser profile for login.");
+    } catch (e) {
+      const message = formatApiError(e);
+      setError(`Launch Login failed: ${message}`);
+      window.open(TICKETING_LOGIN_URL, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -154,12 +173,9 @@ export default function HandlesPage() {
   const startScrapeSelected = async () => {
     try {
       if (!selectedHandle) return setError("Select a handle first.");
-      if ((authStatus?.cookie_count || 0) === 0) return setError("Load cookies first.");
       setError(null);
-      const validation = await runValidate();
-      if (!validation.authenticated) {
-        setError("Auth missing/invalid. Review details below and fix cookies before scraping.");
-        return;
+      if ((authStatus?.cookie_count || 0) > 0) {
+        await runValidate();
       }
       const response = await apiPost<{ job_id: string }>("/api/scrape/start", {
         mode: "one",
@@ -191,8 +207,9 @@ export default function HandlesPage() {
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
           <button onClick={() => fileInputRef.current?.click()}>Import Cookies</button>
-          <button onClick={importCookieFile} style={{ marginLeft: 8 }} disabled={!cookieFile}>Upload Selected File</button>
+          <button onClick={importCookieFile} style={{ marginLeft: 8 }}>Upload Selected File</button>
           <button onClick={() => setShowImportModal(true)} style={{ marginLeft: 8 }}>Paste Cookies</button>
+          <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>Launch Login (isolated)</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
           <button onClick={runValidate} style={{ marginLeft: 8 }}>Validate Auth</button>
         </div>
@@ -200,7 +217,7 @@ export default function HandlesPage() {
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
-      <div><button onClick={startScrapeSelected} disabled={!selectedHandle || !authValidate?.authenticated}>Scrape Selected Handle</button> {!authValidate?.authenticated ? <span style={{ marginLeft: 8 }}>Validate auth first.</span> : null}</div>
+      <div><button onClick={startScrapeSelected} disabled={!selectedHandle}>Scrape Selected Handle</button> {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}</div>
 
       {jobStatus && <section><h3>Job status</h3><p>Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}</p></section>}
 
