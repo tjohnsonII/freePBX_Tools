@@ -124,6 +124,7 @@ def ensure_indexes(db_path: str) -> None:
                     name TEXT NOT NULL,
                     value TEXT NOT NULL,
                     path TEXT NOT NULL DEFAULT '/',
+                    expires INTEGER,
                     secure INTEGER NOT NULL DEFAULT 0,
                     http_only INTEGER NOT NULL DEFAULT 0,
                     expires_utc TEXT,
@@ -215,6 +216,8 @@ def ensure_indexes(db_path: str) -> None:
             )
 
             auth_cookie_columns = table_columns(conn, "auth_cookies")
+            if "expires" not in auth_cookie_columns:
+                conn.execute("ALTER TABLE auth_cookies ADD COLUMN expires INTEGER")
             if "updated_at" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN updated_at TEXT")
             if "source" not in auth_cookie_columns:
@@ -374,7 +377,7 @@ def list_handles(db_path: str, q: str = "", limit: int = 200, offset: int = 0) -
                COALESCE(h.ticket_count, ts.tickets_count, 0) AS ticket_count,
                h.name AS name, h.account_status AS account_status, h.ip AS ip,
                ts.last_ticket_at AS lastTicketAt, h.last_scrape_utc AS lastScrapeAt, h.last_status AS status, h.last_error AS last_message,
-               h.last_error AS error_message, h.last_started_utc AS started_utc, h.last_finished_utc AS finished_utc,
+               h.last_error AS error_message, h.last_error AS error, h.last_started_utc AS started_utc, h.last_finished_utc AS finished_utc,
                h.last_updated_utc AS last_updated_utc, h.last_seen_utc AS last_seen_utc,
                h.last_run_id AS last_run_id,
                CASE
@@ -573,10 +576,11 @@ def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_ut
             for cookie in cookies:
                 conn.execute(
                     """
-                    INSERT INTO auth_cookies(domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc, updated_at, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO auth_cookies(domain, name, value, path, expires, secure, http_only, expires_utc, same_site, created_utc, updated_at, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(domain, name, path) DO UPDATE SET
                         value=excluded.value,
+                        expires=excluded.expires,
                         secure=excluded.secure,
                         http_only=excluded.http_only,
                         expires_utc=excluded.expires_utc,
@@ -590,6 +594,7 @@ def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_ut
                         cookie.get("name"),
                         cookie.get("value"),
                         cookie.get("path") or "/",
+                        cookie.get("expires"),
                         1 if cookie.get("secure") else 0,
                         1 if cookie.get("httpOnly") else 0,
                         cookie.get("expires_utc"),
@@ -621,7 +626,7 @@ def clear_auth_cookies(db_path: str) -> None:
 def get_auth_cookies(db_path: str) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            "SELECT domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc, updated_at, source FROM auth_cookies ORDER BY id ASC"
+            "SELECT domain, name, value, path, expires, secure, http_only, expires_utc, same_site, created_utc, updated_at, source FROM auth_cookies ORDER BY id ASC"
         ).fetchall()
     return [
         {
@@ -629,6 +634,7 @@ def get_auth_cookies(db_path: str) -> list[dict[str, Any]]:
             "name": str(row["name"]),
             "value": str(row["value"]),
             "path": str(row["path"] or "/"),
+            "expires": row["expires"],
             "secure": bool(row["secure"]),
             "httpOnly": bool(row["http_only"]),
             "expires_utc": row["expires_utc"],

@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -723,10 +724,7 @@ if _has_python_multipart():
         if file is None:
             raise HTTPException(status_code=400, detail="Missing upload file in form field 'file'")
 
-        filename = file.filename or ""
-        extension = Path(filename).suffix.lower()
-        if extension not in {".json", ".txt"}:
-            raise HTTPException(status_code=400, detail="Unsupported file extension. Allowed: .json, .txt")
+        filename = file.filename or "cookies_upload.txt"
 
         raw_bytes = await file.read()
         if not raw_bytes:
@@ -825,12 +823,39 @@ def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     targets = [str(domain).strip() for domain in payload.targets if str(domain).strip()]
     validation = _validate_auth_targets(targets or DEFAULT_TARGET_DOMAINS, payload.timeoutSeconds)
     status_payload = db.get_auth_cookie_status(db_path())
+    failed = [item for item in validation.get("results", []) if not item.get("ok")]
+    reason = "ok" if validation.get("ok") else str((failed[0] if failed else {}).get("reason") or "validation_failed")
     return {
         "ok": bool(validation.get("ok")),
-        "reason": "ok" if validation.get("ok") else "validation_failed",
+        "reason": reason,
         "domains": [item.get("domain") for item in (status_payload.get("domains") or [])],
         "cookie_count": int(status_payload.get("count") or 0),
         "results": validation.get("results", []),
+    }
+
+
+@app.get("/api/auth/doctor")
+def api_auth_doctor():
+    db_file = Path(db_path())
+    auth_table_ready = False
+    db_error: str | None = None
+    try:
+        db.ensure_indexes(db_path())
+        with sqlite3.connect(db_file) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='auth_cookies'"
+            ).fetchone()
+            auth_table_ready = bool(row and row[0] > 0)
+    except Exception as exc:  # pragma: no cover - defensive health path
+        db_error = str(exc)
+
+    return {
+        "ok": _has_python_multipart() and db_file.exists() and auth_table_ready and not db_error,
+        "multipart_installed": _has_python_multipart(),
+        "db_path": str(db_file),
+        "db_exists": db_file.exists(),
+        "auth_cookie_table_ready": auth_table_ready,
+        "error": db_error,
     }
 
 
@@ -970,11 +995,39 @@ def pip_check_command() -> int:
 
 
 def doctor_command() -> int:
-    if _has_python_multipart():
+    multipart_ok = _has_python_multipart()
+    db_file = Path(db_path())
+    db_ok = db_file.exists()
+    table_ok = False
+    table_error: str | None = None
+
+    if db_ok:
+        try:
+            db.ensure_indexes(db_path())
+            with sqlite3.connect(db_file) as conn:
+                row = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='auth_cookies'").fetchone()
+                table_ok = bool(row and row[0] > 0)
+        except Exception as exc:  # pragma: no cover - defensive cli path
+            table_error = str(exc)
+
+    if multipart_ok:
         print("[OK] python-multipart is installed.")
-        return 0
-    print(f"[FAIL] {_missing_python_multipart_message()}", file=sys.stderr)
-    return 1
+    else:
+        print(f"[FAIL] {_missing_python_multipart_message()}", file=sys.stderr)
+
+    if db_ok:
+        print(f"[OK] Ticket DB path exists: {db_file}")
+    else:
+        print(f"[FAIL] Ticket DB path missing: {db_file}", file=sys.stderr)
+
+    if table_ok:
+        print("[OK] auth_cookies table is ready.")
+    else:
+        msg = "auth_cookies table check failed" if table_error else "auth_cookies table missing"
+        detail = f": {table_error}" if table_error else ""
+        print(f"[FAIL] {msg}{detail}", file=sys.stderr)
+
+    return 0 if multipart_ok and db_ok and table_ok else 1
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run ticket API")

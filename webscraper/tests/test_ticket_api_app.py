@@ -135,7 +135,7 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
         files={"file": ("cookies.csv", b"name,value", "text/csv")},
     )
     assert bad_ext.status_code == 400
-    assert "Unsupported file extension" in bad_ext.json()["detail"]
+    assert "cookie format" in bad_ext.json()["detail"].lower()
 
     unmatched = client.post(
         "/api/auth/import-file",
@@ -187,3 +187,17 @@ def test_auth_cookie_endpoints_reject_non_localhost(tmp_path, monkeypatch):
     assert client.get("/api/auth/status").status_code == 403
     assert client.post("/api/auth/clear", json={}).status_code == 403
     assert client.post("/api/auth/import-text", json={"text": "Cookie: sid=abc", "format": "header"}).status_code == 403
+
+
+def test_auth_doctor_endpoint_reports_multipart_and_db(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    client = TestClient(appmod.app)
+    response = client.get("/api/auth/doctor")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["multipart_installed"] is True
+    assert payload["db_exists"] is True
+    assert payload["auth_cookie_table_ready"] is True

@@ -69,3 +69,18 @@ python scripts\print_scrape_curl.py --handle KPM --mode latest --limit 5
 3. Start a scrape job from UI and verify status/logs update.
 4. Verify tickets return from API:
    - `curl.exe --silent --show-error "http://127.0.0.1:8787/api/tickets?page=1&pageSize=20"`
+
+
+## Cookie/Auth import guide
+
+1. Open the UI (`/`) and use **Authentication**.
+2. Click **Import Cookies** to open a file picker, choose your exported cookies file, then click **Upload Selected File**.
+3. Or click **Paste Cookies** and paste one of:
+   - Cookie header (`name=value; name2=value2`)
+   - Netscape cookie export text
+   - JSON cookie array export
+4. Click **Validate Auth** to run `/api/auth/validate` and confirm session health.
+
+API helpers:
+- `GET /api/auth/status` for Count/Domains/Source/Last Loaded.
+- `GET /api/auth/doctor` for dependency + DB readiness (`python-multipart`, DB path, `auth_cookies` table).

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import HandleDropdown from "./components/HandleDropdown";
 import { ApiRequestError, apiBaseInfo, apiGet, apiPost, apiPostForm } from "../lib/api";
 
@@ -41,6 +41,7 @@ export default function HandlesPage() {
   const [cookieFileName, setCookieFileName] = useState("");
   const [cookieFile, setCookieFile] = useState<File | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadHandles = async () => {
     const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
@@ -94,22 +95,37 @@ export default function HandlesPage() {
   const importCookieText = async () => {
     const text = cookieText.trim();
     if (!text) return setError("Paste cookie data first.");
-    await apiPost<AuthStatus & { total_kept: number }>("/api/auth/import-text", { text, format: "auto" });
-    await loadAuthStatus();
-    setAuthMessage("Cookie text imported.");
-    setCookieText("");
-    setShowImportModal(false);
+    setError(null);
+    setAuthMessage(null);
+    try {
+      await apiPost<AuthStatus & { total_kept: number }>("/api/auth/import-text", { text, format: "auto" });
+      await loadAuthStatus();
+      await runValidate();
+      setAuthMessage("Cookie text imported.");
+      setCookieText("");
+      setShowImportModal(false);
+    } catch (e) {
+      setError(formatApiError(e));
+    }
   };
 
   const importCookieFile = async () => {
     if (!cookieFile) return setError("Select a cookie file first.");
+    setError(null);
+    setAuthMessage(null);
     const fd = new FormData();
     fd.append("file", cookieFile);
-    await apiPostForm<AuthStatus & { total_kept: number }>("/api/auth/import-file", fd);
-    await loadAuthStatus();
-    setAuthMessage(`Imported ${cookieFile.name}.`);
-    setCookieFile(null);
-    setCookieFileName("");
+    try {
+      await apiPostForm<AuthStatus & { total_kept: number }>("/api/auth/import-file", fd);
+      await loadAuthStatus();
+      await runValidate();
+      setAuthMessage(`Imported ${cookieFile.name}.`);
+      setCookieFile(null);
+      setCookieFileName("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setError(formatApiError(e));
+    }
   };
 
   const clearImportedCookies = async () => {
@@ -164,13 +180,15 @@ export default function HandlesPage() {
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
         <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_loaded || "-"}</p>
         {authStatus?.missing_domains?.length ? <p style={{ color: "#b91c1c" }}>Missing domains: {authStatus.missing_domains.join(", ")}</p> : null}
-        <input type="file" accept=".json,.txt" onChange={onPickFile} /> {cookieFileName || ""}
+        <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
-          <button onClick={importCookieFile}>Import Cookies</button>
+          <button onClick={() => fileInputRef.current?.click()}>Import Cookies</button>
+          <button onClick={importCookieFile} style={{ marginLeft: 8 }} disabled={!cookieFile}>Upload Selected File</button>
           <button onClick={() => setShowImportModal(true)} style={{ marginLeft: 8 }}>Paste Cookies</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
           <button onClick={runValidate} style={{ marginLeft: 8 }}>Validate Auth</button>
         </div>
+        {cookieFileName ? <p style={{ marginTop: 6 }}>Selected file: {cookieFileName}</p> : null}
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
