@@ -143,7 +143,7 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
         files={"file": ("cookies.json", b'[{"name":"sid","value":"x","domain":"example.com"}]', "application/json")},
     )
     assert unmatched.status_code == 400
-    assert "must include secure.123.net" in unmatched.json()["detail"]
+    assert "No secure.123.net cookies found" in unmatched.json()["detail"]
 
     valid = client.post(
         "/api/auth/import-file",
@@ -164,7 +164,7 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
 
     paste_response = client.post("/api/auth/import-text", json={"text": "Cookie: sid=abc; csrftoken=def"})
     assert paste_response.status_code == 400
-    assert "must include secure.123.net" in paste_response.json()["detail"]
+    assert "No secure.123.net cookies found" in paste_response.json()["detail"]
 
     paste_valid = client.post(
         "/api/auth/import-text",
@@ -218,7 +218,7 @@ def test_auth_import_rejects_wrong_domain(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "must include secure.123.net" in response.json()["detail"]
+    assert "No secure.123.net cookies found" in response.json()["detail"]
 
 
 def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
@@ -235,6 +235,7 @@ def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
 
     def _fake_seed_isolated_profile(*, var_root, chrome_profile_dir=None, seed_domains=None):
         return SeededProfileResult(
+            source_profile_dir=r"C:\Users\tjohnson\AppData\Local\Google\Chrome\User Data\Profile 1",
             temp_profile_dir=str(seeded_dir),
             cookie_db_path=str(seeded_dir / "Default" / "Network" / "Cookies"),
             seeded_domains=["secure.123.net"],
@@ -250,7 +251,7 @@ def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
         "/api/auth/launch_seeded",
         json={
             "target_url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
-            "chrome_profile_dir": "Default",
+            "chrome_profile_dir": "Profile 1",
             "seed_domains": ["secure.123.net"],
         },
     )
@@ -258,6 +259,7 @@ def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
     launch_payload = launch.json()
     assert launch_payload["ok"] is True
     assert launch_payload["seeded_domains"] == ["secure.123.net"]
+    assert launch_payload["src_profile"].endswith("Profile 1")
     assert popen_calls
 
     monkeypatch.setattr(
@@ -275,3 +277,18 @@ def test_launch_seeded_and_import_from_profile_endpoints(tmp_path, monkeypatch):
     assert payload["ok"] is True
     assert payload["cookie_count"] == 1
     assert ".secure.123.net" in payload["domains"]
+
+
+def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "list_chrome_profile_dirs", lambda: ["Default", "Profile 1", "Profile 2"])
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/chrome_profiles")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profiles"] == ["Default", "Profile 1", "Profile 2"]
+    assert payload["preferred"] == "Profile 1"

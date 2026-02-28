@@ -29,6 +29,7 @@ class _DataBlob(ctypes.Structure):
 
 @dataclass
 class SeededProfileResult:
+    source_profile_dir: str
     temp_profile_dir: str
     cookie_db_path: str
     seeded_domains: list[str]
@@ -46,12 +47,40 @@ def _chrome_user_data_base() -> Path:
     return Path(local_app_data) / "Google" / "Chrome" / "User Data"
 
 
+def list_chrome_profile_dirs() -> list[str]:
+    base = _chrome_user_data_base()
+    if not base.exists():
+        return []
+    profile_dirs: list[str] = []
+    if (base / "Default").is_dir():
+        profile_dirs.append("Default")
+    profile_dirs.extend(sorted(path.name for path in base.glob("Profile *") if path.is_dir()))
+    return profile_dirs
+
+
 def _source_profile_path(chrome_profile_dir: str | None = None) -> Path:
-    profile = (chrome_profile_dir or "Default").strip() or "Default"
-    profile_path = _chrome_user_data_base() / profile
-    if not profile_path.exists():
-        raise ChromeCookieError(f"Chrome profile not found: {profile_path}")
-    return profile_path
+    base = _chrome_user_data_base()
+    requested = (chrome_profile_dir or "").strip()
+    if requested:
+        requested_path = base / requested
+        if requested_path.is_dir():
+            return requested_path
+
+    profile_1 = base / "Profile 1"
+    if profile_1.is_dir():
+        return profile_1
+
+    default = base / "Default"
+    if default.is_dir():
+        return default
+
+    candidates = [path for path in base.glob("Profile *") if path.is_dir()]
+    if candidates:
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    if requested:
+        raise ChromeCookieError(f"Chrome profile not found: {base / requested}")
+    raise ChromeCookieError(f"No Chrome profile directory found under: {base}")
 
 
 def _source_cookie_db(profile_path: Path) -> Path:
@@ -125,6 +154,7 @@ def seed_isolated_profile(*, var_root: Path, chrome_profile_dir: str | None = No
     domain_counts = _seed_cookie_db(source_cookie_db, target_cookie_db, allowed)
 
     return SeededProfileResult(
+        source_profile_dir=str(source_profile),
         temp_profile_dir=str(target_profile),
         cookie_db_path=str(target_cookie_db),
         seeded_domains=allowed,
