@@ -509,6 +509,7 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     stop_on_worker_exit = os.environ.get("WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT", "0") == "1"
+    strict_ui = os.environ.get("WEBSCRAPER_STACK_STRICT_UI", "0") == "1"
 
     services = {
         "api": {
@@ -534,8 +535,15 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
     }
 
     monitored_pids: dict[str, int] = {}
+    ui_skipped = False
 
     for name in ("api", "ui", "worker"):
+        if name == "ui" and _is_port_open("127.0.0.1", 3004):
+            ui_skipped = True
+            if not state.quiet:
+                message = "UI port 3004 already in use. Skipping UI start."
+                (console.print(message) if console is not None else print(message))
+            continue
         existing = pids.get(name, {}) if isinstance(pids.get(name), dict) else {}
         pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
         if _is_pid_alive(pid):
@@ -572,7 +580,18 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
         if name == "api" and not _wait_for_health("http://127.0.0.1:8787/health", 45):
             return EXIT_SERVICES_UNHEALTHY
         if name == "ui" and not _wait_for_health("http://127.0.0.1:3004", 60):
-            return EXIT_SERVICES_UNHEALTHY
+            if strict_ui:
+                return EXIT_SERVICES_UNHEALTHY
+            ui_skipped = True
+            pids.pop("ui", None)
+            monitored_pids.pop("ui", None)
+            _save_webscraper_pids(root, pids)
+            if not state.quiet:
+                message = (
+                    "UI failed health check; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
+                )
+                (console.print(message) if console is not None else print(message))
+            continue
         if name == "worker":
             time.sleep(2)
             if not _is_pid_alive(proc.pid):
@@ -580,7 +599,7 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
 
     if not _wait_for_health("http://127.0.0.1:8787/health", 5):
         return EXIT_SERVICES_UNHEALTHY
-    if not _wait_for_health("http://127.0.0.1:3004", 5):
+    if not ui_skipped and not _wait_for_health("http://127.0.0.1:3004", 5):
         return EXIT_SERVICES_UNHEALTHY
 
     if not state.quiet:
@@ -599,6 +618,16 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
                     if name == "worker" and not stop_on_worker_exit:
                         keep_alive_message = (
                             "worker exited; WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT=0 so API/UI will remain running"
+                        )
+                        if not state.quiet:
+                            (console.print(keep_alive_message) if console is not None else print(keep_alive_message))
+                        monitored_pids.pop(name, None)
+                        pids.pop(name, None)
+                        _save_webscraper_pids(root, pids)
+                        continue
+                    if name == "ui" and not strict_ui:
+                        keep_alive_message = (
+                            "ui exited; WEBSCRAPER_STACK_STRICT_UI=0 so worker/API will remain running"
                         )
                         if not state.quiet:
                             (console.print(keep_alive_message) if console is not None else print(keep_alive_message))
