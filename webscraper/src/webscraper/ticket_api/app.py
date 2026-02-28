@@ -32,8 +32,11 @@ from webscraper.ticket_api.auth import (
     get_default_cookie_domain,
     get_target_domains,
     parse_cookies,
+    parse_cookies_from_cookie_header,
+    parse_cookies_from_json,
+    parse_cookies_from_netscape,
 )
-from webscraper.ticket_api.cookie_store import clear_imported_cookies, load_cookie_metadata, save_imported_cookies
+from webscraper.ticket_api.cookie_store import clear_imported_cookies, save_imported_cookies
 from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
@@ -62,6 +65,11 @@ class BatchScrapeRequest(BaseModel):
 class ValidateAuthRequest(BaseModel):
     targets: list[str] = DEFAULT_TARGET_DOMAINS
     timeoutSeconds: int = 10
+
+
+class ImportTextRequest(BaseModel):
+    text: str
+    format: Literal["auto", "header", "netscape", "json"] = "auto"
 
 
 @dataclass
@@ -135,13 +143,59 @@ def _auth_meta_response(meta: dict[str, Any], selected_domains: list[str] | None
     detected, missing = detected_missing_domains(domains, selected)
     filtered = [item for item in domain_rows if str(item.get("domain")).strip().lower() in detected]
     return {
-        "stored": count > 0,
-        "created_utc": meta.get("created_utc"),
-        "stored_utc": meta.get("created_utc"),
-        "domains": filtered,
-        "total": count,
-        "count": count,
+        "ok": True,
+        "cookie_count": count,
+        "domains": [item.get("domain") for item in filtered],
+        "domain_counts": filtered,
+        "last_loaded": meta.get("last_loaded") or meta.get("created_utc"),
+        "source": meta.get("source") or "none",
         "missing_domains": missing,
+    }
+
+
+def _import_and_store_cookies(text_payload: str, *, source_label: str, filename: str, default_domain: str | None, format_hint: str = "auto") -> dict[str, Any]:
+    target_domains = get_target_domains()
+    try:
+        if format_hint == "header":
+            parsed = parse_cookies_from_cookie_header(text_payload, default_domain or "")
+            format_used = "cookie_header"
+        elif format_hint == "netscape":
+            parsed = parse_cookies_from_netscape(text_payload)
+            format_used = "netscape"
+        elif format_hint == "json":
+            parsed = parse_cookies_from_json(text_payload)
+            format_used = "json"
+        else:
+            parsed, format_used = parse_cookies(text_payload, filename, default_domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    kept: list[CookieNormalized] = filter_cookies_for_domains(parsed, target_domains)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Parsed 0 cookies from payload")
+    if not kept:
+        raise HTTPException(status_code=400, detail=f"Parsed {len(parsed)} cookies but 0 matched target domains: {', '.join(target_domains)}")
+
+    created_utc = _iso_now()
+    metadata = {
+        "imported_at": created_utc,
+        "source_filename": filename,
+        "format_used": format_used,
+        "total_parsed": len(parsed),
+        "total_kept": len(kept),
+        "target_domains": target_domains,
+        "source": source_label,
+    }
+    save_imported_cookies(kept, metadata)
+    db.replace_auth_cookies(db_path(), [cookie.model_dump() for cookie in kept], created_utc, source=source_label)
+    _append_event("info", f"Imported {len(kept)} auth cookies using {format_used} from {filename}")
+    status_payload = _auth_meta_response(db.get_auth_cookie_status(db_path()), target_domains)
+    return {
+        **status_payload,
+        "format_used": format_used,
+        "source_filename": filename,
+        "total_parsed": len(parsed),
+        "total_kept": len(kept),
     }
 
 
@@ -658,8 +712,8 @@ def api_scrape_status(job_id: str | None = None):
 
 if _has_python_multipart():
 
-    @app.post("/api/auth/import-cookies")
-    async def api_auth_import_cookies(
+    @app.post("/api/auth/import-file")
+    async def api_auth_import_file(
         request: Request,
         file: UploadFile | None = File(default=None),
         domain: str | None = Form(default=None),
@@ -681,70 +735,30 @@ if _has_python_multipart():
         try:
             text_payload = raw_bytes.decode("utf-8")
         except UnicodeDecodeError:
-            try:
-                text_payload = raw_bytes.decode("latin-1")
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail=f"Unable to decode file bytes: {exc}") from exc
+            text_payload = raw_bytes.decode("latin-1")
 
-        target_domains = get_target_domains()
         default_domain = (domain or get_default_cookie_domain() or "").strip().lstrip(".").lower() or None
         _log(
             "Cookie import attempt"
             f" contentType={file.content_type or '-'} filename={filename or '-'} bytes={len(raw_bytes)}"
-            f" targets={','.join(target_domains)} defaultDomain={default_domain or '-'}"
+            f" targets={','.join(get_target_domains())} defaultDomain={default_domain or '-'}"
+        )
+        return _import_and_store_cookies(
+            text_payload,
+            source_label="file",
+            filename=filename or "upload.txt",
+            default_domain=default_domain,
+            format_hint="auto",
         )
 
-        try:
-            parsed, format_used = parse_cookies(text_payload, filename or "upload.txt", default_domain)
-        except ValueError as exc:
-            _log(f"Cookie import parse failed filename={filename or '-'} detail={exc}")
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        kept: list[CookieNormalized] = filter_cookies_for_domains(parsed, target_domains)
-        domain_sample = ", ".join(cookie_domain_summary(parsed)) or "-"
-        _log(
-            "Cookie import parsed"
-            f" format={format_used} totalParsed={len(parsed)} totalKept={len(kept)} topDomains={domain_sample}"
-        )
-
-        if not parsed:
-            raise HTTPException(status_code=400, detail="Parsed 0 cookies from uploaded file")
-        if not kept:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Parsed {len(parsed)} cookies but 0 matched target domains: {', '.join(target_domains)}",
-            )
-
-        created_utc = _iso_now()
-        metadata = {
-            "imported_at": created_utc,
-            "source_filename": filename,
-            "format_used": format_used,
-            "total_parsed": len(parsed),
-            "total_kept": len(kept),
-            "target_domains": target_domains,
-        }
-        save_imported_cookies(kept, metadata)
-        db.replace_auth_cookies(db_path(), [cookie.model_dump() for cookie in kept], created_utc)
-        _append_event("info", f"Imported {len(kept)} auth cookies using {format_used} from {filename}")
-
-        return {
-            "ok": True,
-            "format_used": format_used,
-            "source_filename": filename,
-            "total_parsed": len(parsed),
-            "total_kept": len(kept),
-            "target_domains": target_domains,
-        }
-
-
-    @app.post("/api/auth/import")
-    async def api_auth_import_legacy(
+    @app.post("/api/auth/import-cookies")
+    async def api_auth_import_cookies_legacy(
         request: Request,
         file: UploadFile | None = File(default=None),
         domain: str | None = Form(default=None),
     ):
-        return await api_auth_import_cookies(request, file=file, domain=domain)
+        return await api_auth_import_file(request, file=file, domain=domain)
 
 else:
 
@@ -752,13 +766,31 @@ else:
     async def _log_missing_multipart_startup() -> None:
         _log(_missing_python_multipart_message())
 
+    @app.post("/api/auth/import-file")
+    async def api_auth_import_file_unavailable() -> dict[str, str]:
+        raise HTTPException(status_code=503, detail=_missing_python_multipart_message())
+
     @app.post("/api/auth/import-cookies")
     async def api_auth_import_cookies_unavailable() -> dict[str, str]:
         raise HTTPException(status_code=503, detail=_missing_python_multipart_message())
 
-    @app.post("/api/auth/import")
-    async def api_auth_import_legacy_unavailable() -> dict[str, str]:
-        raise HTTPException(status_code=503, detail=_missing_python_multipart_message())
+
+@app.post("/api/auth/import-text")
+def api_auth_import_text(request: Request, payload: ImportTextRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    text_payload = payload.text or ""
+    if not text_payload.strip():
+        raise HTTPException(status_code=400, detail="Payload text is empty")
+    default_domain = get_default_cookie_domain()
+    hint = payload.format if payload.format in {"auto", "header", "netscape", "json"} else "auto"
+    return _import_and_store_cookies(
+        text_payload,
+        source_label="paste",
+        filename="pasted.txt" if hint != "json" else "pasted.json",
+        default_domain=default_domain,
+        format_hint=hint,
+    )
 
 
 @app.get("/api/auth/status")
@@ -767,16 +799,7 @@ def api_auth_status(request: Request, selectedDomains: str | None = None):
         raise HTTPException(status_code=403, detail="localhost requests only")
     selected = [d.strip() for d in (selectedDomains or "").split(",") if d.strip()] if selectedDomains else get_target_domains()
     db_status = db.get_auth_cookie_status(db_path())
-    meta = load_cookie_metadata()
     payload = _auth_meta_response(db_status, selected)
-    payload.update(
-        {
-            "has_imported_cookies": bool(db_status.get("count")),
-            "imported_cookie_count": int(db_status.get("count") or 0),
-            "last_import_time": meta.get("imported_at") or db_status.get("created_utc"),
-            "target_domains": get_target_domains(),
-        }
-    )
     return payload
 
 
@@ -787,7 +810,7 @@ def api_auth_clear(request: Request):
     db.clear_auth_cookies(db_path())
     clear_imported_cookies()
     _append_event("info", "Cleared imported auth cookies")
-    return {"ok": True}
+    return _auth_meta_response(db.get_auth_cookie_status(db_path()))
 
 
 @app.post("/api/auth/clear-cookies")
@@ -800,7 +823,15 @@ def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     targets = [str(domain).strip() for domain in payload.targets if str(domain).strip()]
-    return _validate_auth_targets(targets or DEFAULT_TARGET_DOMAINS, payload.timeoutSeconds)
+    validation = _validate_auth_targets(targets or DEFAULT_TARGET_DOMAINS, payload.timeoutSeconds)
+    status_payload = db.get_auth_cookie_status(db_path())
+    return {
+        "ok": bool(validation.get("ok")),
+        "reason": "ok" if validation.get("ok") else "validation_failed",
+        "domains": [item.get("domain") for item in (status_payload.get("domains") or [])],
+        "cookie_count": int(status_payload.get("count") or 0),
+        "results": validation.get("results", []),
+    }
 
 
 @app.get("/api/handles/{handle}/latest")

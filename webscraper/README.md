@@ -506,3 +506,28 @@ curl -sS "http://127.0.0.1:8787/api/health"
 ```
 
 Look for `stats.total_tickets`, `stats.total_handles`, and `last_updated_utc`.
+
+## Ticket API auth import quick checks
+
+`python-multipart` is required for file uploads (`/api/auth/import-file`). Verify with:
+
+```bash
+python -m webscraper.ticket_api.app --doctor
+python -m webscraper_manager doctor --quiet
+```
+
+Import pasted cookies (JSON/header/netscape auto-detect), then verify status and auth:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8787/api/auth/import-text" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Cookie: sid=abc123; csrftoken=xyz","format":"auto"}'
+
+curl -sS "http://127.0.0.1:8787/api/auth/status"
+
+curl -sS -X POST "http://127.0.0.1:8787/api/auth/validate" \
+  -H "Content-Type: application/json" \
+  -d '{"targets":["secure.123.net","noc-tickets.123.net"],"timeoutSeconds":10}'
+```
+
+Expected: `cookie_count > 0` and `domains` populated in `/api/auth/status`.

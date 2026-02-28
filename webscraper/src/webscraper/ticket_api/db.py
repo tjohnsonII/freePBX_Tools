@@ -128,7 +128,16 @@ def ensure_indexes(db_path: str) -> None:
                     http_only INTEGER NOT NULL DEFAULT 0,
                     expires_utc TEXT,
                     same_site TEXT,
-                    created_utc TEXT NOT NULL
+                    created_utc TEXT NOT NULL,
+                    updated_at TEXT,
+                    source TEXT,
+                    UNIQUE(domain, name, path)
+                );
+
+                CREATE TABLE IF NOT EXISTS auth_cookie_state(
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    last_loaded TEXT,
+                    source TEXT
                 );
                 """
             )
@@ -201,8 +210,15 @@ def ensure_indexes(db_path: str) -> None:
                 CREATE INDEX IF NOT EXISTS idx_scrape_events_job_id ON scrape_job_events(job_id, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);
                 CREATE INDEX IF NOT EXISTS idx_auth_cookies_domain_name ON auth_cookies(domain, name);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_cookies_domain_name_path ON auth_cookies(domain, name, path);
                 """
             )
+
+            auth_cookie_columns = table_columns(conn, "auth_cookies")
+            if "updated_at" not in auth_cookie_columns:
+                conn.execute("ALTER TABLE auth_cookies ADD COLUMN updated_at TEXT")
+            if "source" not in auth_cookie_columns:
+                conn.execute("ALTER TABLE auth_cookies ADD COLUMN source TEXT")
 
 
 def ensure_handle_row(db_path: str, handle: str) -> None:
@@ -550,15 +566,24 @@ def get_artifacts(db_path: str, ticket_id: str, handle: str) -> list[dict[str, A
     return [dict(r) for r in rows]
 
 
-def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_utc: str) -> None:
+def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_utc: str, source: str = "none") -> None:
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             conn.execute("DELETE FROM auth_cookies")
             for cookie in cookies:
                 conn.execute(
                     """
-                    INSERT INTO auth_cookies(domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO auth_cookies(domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc, updated_at, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(domain, name, path) DO UPDATE SET
+                        value=excluded.value,
+                        secure=excluded.secure,
+                        http_only=excluded.http_only,
+                        expires_utc=excluded.expires_utc,
+                        same_site=excluded.same_site,
+                        created_utc=excluded.created_utc,
+                        updated_at=excluded.updated_at,
+                        source=excluded.source
                     """,
                     (
                         cookie.get("domain"),
@@ -570,20 +595,33 @@ def replace_auth_cookies(db_path: str, cookies: list[dict[str, Any]], created_ut
                         cookie.get("expires_utc"),
                         cookie.get("sameSite"),
                         created_utc,
+                        created_utc,
+                        source,
                     ),
                 )
+            conn.execute(
+                """
+                INSERT INTO auth_cookie_state(id, last_loaded, source)
+                VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    last_loaded=excluded.last_loaded,
+                    source=excluded.source
+                """,
+                (created_utc, source),
+            )
 
 
 def clear_auth_cookies(db_path: str) -> None:
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             conn.execute("DELETE FROM auth_cookies")
+            conn.execute("UPDATE auth_cookie_state SET last_loaded=NULL, source='none' WHERE id=1")
 
 
 def get_auth_cookies(db_path: str) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            "SELECT domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc FROM auth_cookies ORDER BY id ASC"
+            "SELECT domain, name, value, path, secure, http_only, expires_utc, same_site, created_utc, updated_at, source FROM auth_cookies ORDER BY id ASC"
         ).fetchall()
     return [
         {
@@ -596,6 +634,8 @@ def get_auth_cookies(db_path: str) -> list[dict[str, Any]]:
             "expires_utc": row["expires_utc"],
             "sameSite": row["same_site"],
             "created_utc": row["created_utc"],
+            "updated_at": row["updated_at"],
+            "source": row["source"],
         }
         for row in rows
     ]
@@ -609,10 +649,13 @@ def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
         domains = conn.execute(
             "SELECT domain, COUNT(*) AS count FROM auth_cookies GROUP BY domain ORDER BY domain ASC"
         ).fetchall()
+        state = conn.execute("SELECT last_loaded, source FROM auth_cookie_state WHERE id=1").fetchone()
     return {
         "count": int(row["count"] if row else 0),
         "domains": [{"domain": str(item["domain"]), "count": int(item["count"])} for item in domains],
         "created_utc": row["created_utc"] if row else None,
+        "last_loaded": state["last_loaded"] if state else row["created_utc"] if row else None,
+        "source": (state["source"] if state and state["source"] else "none"),
     }
 
 
