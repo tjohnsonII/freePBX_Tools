@@ -8,3 +8,6 @@ var/discovery/
 # Local settings
 configs/settings.yaml
 var/*.html
+
+# Chrome debug profile
+webscraper/var/
