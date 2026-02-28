@@ -81,6 +81,42 @@ def test_scrape_batch_queues_jobs(tmp_path, monkeypatch):
     assert len(payload["jobIds"]) == 2
 
 
+
+
+def test_scrape_handles_endpoint_queues_single_batch_job(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod.threading, "Thread", _NoopThread)
+
+    client = TestClient(appmod.app)
+    response = client.post("/api/scrape/handles", json={"handles": ["abc", "ABC", "XYZ"], "mode": "normal"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["queued"] == ["ABC", "XYZ"]
+
+    job = ticket_db.get_scrape_job(db_path, payload["job_id"])
+    assert job is not None
+    assert job["mode"] == "selected"
+    assert job["handles"] == ["ABC", "XYZ"]
+
+
+def test_scrape_handles_endpoint_rejects_invalid(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    client = TestClient(appmod.app)
+    empty = client.post("/api/scrape/handles", json={"handles": [], "mode": "normal"})
+    assert empty.status_code == 400
+
+    invalid = client.post("/api/scrape/handles", json={"handles": ["ABC", "BAD-HANDLE"], "mode": "normal"})
+    assert invalid.status_code == 400
+    detail = invalid.json()["detail"]
+    assert detail["invalid_handles"] == ["BAD-HANDLE"]
+
+
 def test_list_tickets_paging_is_stable(tmp_path):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
