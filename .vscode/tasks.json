@@ -264,8 +264,9 @@
       "type": "process",
       "command": "cmd.exe",
       "args": [
-        "/d /c",
-        "call E:\\DevTools\\freepbx-tools\\scripts\\kill_ports.bat && call E:\\DevTools\\freepbx-tools\\scripts\\run_py.bat .venv-webscraper -m webscraper_manager start webscraper"
+        "/d",
+        "/c",
+        "call \"${workspaceFolder}\\scripts\\kill_ports.bat\" && call \"${workspaceFolder}\\scripts\\run_py.bat\" .venv-webscraper -m webscraper_manager start webscraper"
       ],
       "isBackground": true,
       "problemMatcher": [
@@ -302,7 +303,7 @@
       "command": "C:\\Windows\\System32\\bash.exe",
       "args": [
         "-lc",
-        "./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper -m webscraper_manager start webscraper"
+        "if [ -x \".venv-webscraper-wsl/bin/python\" ]; then ./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper-wsl -m webscraper_manager start webscraper; else echo \"[WSL] No WSL venv found at .venv-webscraper-wsl (skipping)\"; fi"
       ],
       "isBackground": true,
       "problemMatcher": [
@@ -345,8 +346,9 @@
       "type": "process",
       "command": "cmd.exe",
       "args": [
-        "/d /c",
-        "call E:\\DevTools\\freepbx-tools\\scripts\\run_py.bat .venv-webscraper -m webscraper_manager stop webscraper || call E:\\DevTools\\freepbx-tools\\scripts\\kill_ports.bat"
+        "/d",
+        "/c",
+        "call \"${workspaceFolder}\\scripts\\run_py.bat\" .venv-webscraper -m webscraper_manager stop webscraper || call \"${workspaceFolder}\\scripts\\kill_ports.bat\""
       ],
       "problemMatcher": [],
       "options": {
@@ -369,7 +371,7 @@
       "command": "C:\\Windows\\System32\\bash.exe",
       "args": [
         "-lc",
-        "./scripts/run_py.sh .venv-webscraper -m webscraper_manager stop webscraper || ./scripts/kill_ports.sh"
+        "if [ -x \".venv-webscraper-wsl/bin/python\" ]; then ./scripts/run_py.sh .venv-webscraper-wsl -m webscraper_manager stop webscraper || ./scripts/kill_ports.sh; else echo \"[WSL] No WSL venv found at .venv-webscraper-wsl (skipping)\"; fi"
       ],
       "problemMatcher": [],
       "options": {
