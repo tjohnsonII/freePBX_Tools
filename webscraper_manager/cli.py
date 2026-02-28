@@ -508,6 +508,7 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
     pids = _load_webscraper_pids(root)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    stop_on_worker_exit = os.environ.get("WEBSCRAPER_STACK_STOP_ON_WORKER_EXIT", "0") == "1"
 
     services = {
         "api": {
@@ -592,9 +593,14 @@ def _start_webscraper_stack(state: AppState, console: Console | None, detach: bo
         while True:
             for name, pid in list(monitored_pids.items()):
                 if not _is_pid_alive(pid):
-                    message = f"{name} exited unexpectedly (pid={pid}); stopping webscraper stack"
+                    message = f"{name} exited unexpectedly (pid={pid})"
                     if not state.quiet:
                         (console.print(message) if console is not None else print(message))
+                    if name == "worker" and not stop_on_worker_exit:
+                        monitored_pids.pop(name, None)
+                        pids.pop(name, None)
+                        _save_webscraper_pids(root, pids)
+                        continue
                     if not state.quiet:
                         for row in _shutdown_webscraper_children(root, pids, reason=f"{name}-exited"):
                             (console.print(row) if console is not None else print(row))

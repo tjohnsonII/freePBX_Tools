@@ -292,6 +292,11 @@
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
           "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
           "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
           "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"

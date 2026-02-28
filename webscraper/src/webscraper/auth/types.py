@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 
 class AuthMode(str, Enum):
+    COOKIES = "COOKIES"
     PROFILE = "PROFILE"
     PROGRAMMATIC = "PROGRAMMATIC"
     MANUAL = "MANUAL"

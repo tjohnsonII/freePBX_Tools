@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional, Tuple, TYPE_CHECKING
 
 from .types import AuthContext
@@ -12,18 +13,32 @@ if TYPE_CHECKING:
 
 def create_edge_driver_for_auth(ctx: AuthContext) -> Tuple["webdriver.Edge", bool, bool, Optional[str]]:
     from webscraper.browser.edge_driver import create_edge_driver
+    from webscraper.browser.launcher import get_driver
+    from webscraper.browser.selection import resolve_browser_selection
 
-    profile_dir = ctx.profile_dirs[0] if ctx.profile_dirs else None
+    selection = resolve_browser_selection()
+    profile_dir = ctx.profile_dirs[0] if ctx.profile_dirs else str(selection.profile_dir)
     output_dir = ctx.output_dir or os.getcwd()
     init_mode = "attach" if (ctx.attach or ctx.auto_attach) else "launch"
+    browser = (ctx.preferred_browser or selection.browser).strip().lower()
     print(
         "[AUTH][DRIVER] "
         f"mode={init_mode} "
+        f"browser={browser} "
         f"edge_binary={ctx.edge_binary or '<auto>'} "
         f"user_data_dir={profile_dir or '<none>'} "
-        f"profile_directory={ctx.profile_name or 'Default'}"
+        f"profile_directory={ctx.profile_name or selection.profile_name or 'Default'}"
     )
     try:
+        if browser == "chrome":
+            driver = get_driver(
+                "chrome",
+                headless=ctx.headless,
+                profile_dir=Path(profile_dir),
+                profile_name=ctx.profile_name or selection.profile_name,
+                binary_path=selection.binary_path,
+            )
+            return driver, True, False, str(profile_dir)
         return create_edge_driver(
             output_dir=output_dir,
             headless=ctx.headless,
@@ -34,7 +49,7 @@ def create_edge_driver_for_auth(ctx: AuthContext) -> Tuple["webdriver.Edge", boo
             attach_timeout=ctx.attach_timeout,
             fallback_profile_dir=ctx.fallback_profile_dir,
             profile_dir=profile_dir,
-            profile_name=ctx.profile_name,
+            profile_name=ctx.profile_name or selection.profile_name,
             auth_dump=False,
             auth_pause=False,
             auth_timeout=ctx.timeout_sec,
