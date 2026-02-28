@@ -1,35 +1,40 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
-set "LOG_DIR=%REPO_ROOT%\webscraper\var\logs"
-set "LOG_FILE=%LOG_DIR%\kill_ports.log"
+set "REPO=E:\DevTools\freepbx-tools"
+set "LOG=%REPO%\webscraper\var\logs\kill_ports.log"
 
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+if not exist "%REPO%\webscraper\var\logs" mkdir "%REPO%\webscraper\var\logs" >nul 2>&1
 
-set "KILLED="
-for %%P in (8787 3004) do (
-  for /f "tokens=5" %%A in ('netstat -ano ^| findstr /r /c:":%%P .*LISTENING"') do (
-    set "PID=%%A"
-    echo !KILLED! | findstr /c:";!PID!;" >nul
-    if errorlevel 1 (
-      call :timestamp NOW
-      echo !NOW! [kill_ports] Killing PID !PID! on port %%P>>"%LOG_FILE%"
-      taskkill /F /PID !PID! >nul 2>&1
-      set "KILLED=!KILLED!;!PID!;"
-    )
-  )
+call :timestamp TS
+echo %TS% [kill_ports] Checking ports 8787 and 3004...>>"%LOG%"
+echo [kill_ports] Checking ports 8787 and 3004...
+
+for %%P in (8787 3004) do call :kill_port %%P
+
+REM Re-check a couple times in case something releases late
+for /L %%I in (1,1,3) do (
+  timeout /t 1 /nobreak >nul
+  for %%P in (8787 3004) do call :kill_port %%P
 )
 
+call :timestamp TS
+echo %TS% [kill_ports] Done.>>"%LOG%"
+echo [kill_ports] Done.
+exit /b 0
+
+:kill_port
+set "PORT=%~1"
+for /f "tokens=5" %%A in ('netstat -ano ^| findstr /r /c:":%PORT% .*LISTENING"') do (
+  set "PID=%%A"
+  call :timestamp TS
+  echo %TS% [kill_ports] Killing PID !PID! on port %PORT%>>"%LOG%"
+  echo [kill_ports] Killing PID !PID! on port %PORT%
+  taskkill /PID !PID! /F /T >nul 2>&1
+)
 exit /b 0
 
 :timestamp
-set "%~1="
-for /f "tokens=2 delims==" %%T in ('wmic os get localdatetime /value 2^>nul ^| find "="') do set "DT=%%T"
-if defined DT (
-  set "%~1=%DT:~0,4%-%DT:~4,2%-%DT:~6,2% %DT:~8,2%:%DT:~10,2%:%DT:~12,2%"
-  exit /b 0
-)
-set "%~1=%date% %time:~0,8%"
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value ^| find "="') do set "dt=%%I"
+set "%~1=%dt:~0,4%-%dt:~4,2%-%dt:~6,2% %dt:~8,2%:%dt:~10,2%:%dt:~12,2%"
 exit /b 0
