@@ -395,6 +395,133 @@ def _wait_for_tcp(host: str, port: int, timeout_s: float) -> bool:
     return _is_port_open(host, port)
 
 
+def _webscraper_runtime_paths(root: Path) -> tuple[Path, Path]:
+    runtime_dir = root / "webscraper" / "var"
+    logs_dir = runtime_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    return runtime_dir / "pids.json", logs_dir
+
+
+def _load_webscraper_pids(root: Path) -> dict[str, Any]:
+    pids_path, _ = _webscraper_runtime_paths(root)
+    if not pids_path.exists():
+        return {}
+    try:
+        payload = json.loads(pids_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _save_webscraper_pids(root: Path, payload: dict[str, Any]) -> None:
+    pids_path, _ = _webscraper_runtime_paths(root)
+    pids_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _wait_for_health(url: str, timeout_s: float) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if http_health_ok(url):
+            return True
+        time.sleep(0.5)
+    return http_health_ok(url)
+
+
+def _start_webscraper_stack(state: AppState, console: Console | None) -> int:
+    root = find_repo_root()
+    doctor_code, _ = run_doctor(console, state, json_out=False)
+    if doctor_code != EXIT_OK:
+        return doctor_code
+
+    preferred_python = get_runtime_python(state, root)
+    if not preferred_python.is_file():
+        msg = f"Preferred Python was not found: {preferred_python}"
+        (console.print(msg) if console is not None and not state.quiet else print(msg))
+        return EXIT_USAGE
+
+    pids_path, logs_dir = _webscraper_runtime_paths(root)
+    del pids_path
+    pids = _load_webscraper_pids(root)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    services = {
+        "api": {
+            "cmd": [str(preferred_python), "-m", "uvicorn", "webscraper.ticket_api.app:app", "--host", "127.0.0.1", "--port", "8787"],
+            "cwd": root,
+            "health": "http://127.0.0.1:8787/health",
+        },
+        "ui": {
+            "cmd": [resolve_npm_cmd() or "npm.cmd", "run", "dev:ui"],
+            "cwd": root / "webscraper" / "ticket-ui",
+            "health": "http://127.0.0.1:3004",
+            "env": {
+                "PORT": "3004",
+                "TICKET_API_PROXY_TARGET": "http://127.0.0.1:8787",
+                "NEXT_PUBLIC_TICKET_API_PROXY_TARGET": "http://127.0.0.1:8787",
+            },
+        },
+        "worker": {
+            "cmd": [str(preferred_python), "-m", "webscraper", "--mode", "incremental"],
+            "cwd": root,
+            "health": None,
+        },
+    }
+
+    for name in ("api", "ui", "worker"):
+        existing = pids.get(name, {}) if isinstance(pids.get(name), dict) else {}
+        pid = int(existing.get("pid", 0)) if str(existing.get("pid", "0")).isdigit() else 0
+        if _is_pid_alive(pid):
+            continue
+        log_path = logs_dir / f"{name}.log"
+        service_env = env.copy()
+        service_env.update(services[name].get("env", {}))
+        with log_path.open("a", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                services[name]["cmd"],
+                cwd=str(services[name]["cwd"]),
+                env=service_env,
+                stdout=log_file,
+                stderr=log_file,
+                text=True,
+                creationflags=_creation_flags_for_service(),
+            )
+        pids[name] = {"pid": proc.pid, "log": str(log_path), "cmd": services[name]["cmd"], "started_at": datetime.now().isoformat(timespec="seconds")}
+        _save_webscraper_pids(root, pids)
+        if name == "api" and not _wait_for_health("http://127.0.0.1:8787/health", 45):
+            return EXIT_SERVICES_UNHEALTHY
+        if name == "ui" and not _wait_for_health("http://127.0.0.1:3004", 60):
+            return EXIT_SERVICES_UNHEALTHY
+        if name == "worker":
+            time.sleep(2)
+            if not _is_pid_alive(proc.pid):
+                return EXIT_SERVICES_UNHEALTHY
+
+    if not state.quiet:
+        message = "webscraper stack started (api:8787, ui:3004, worker)."
+        (console.print(message) if console is not None else print(message))
+    return EXIT_OK
+
+
+def _stop_webscraper_stack(state: AppState, console: Console | None) -> int:
+    root = find_repo_root()
+    pids = _load_webscraper_pids(root)
+    messages: list[str] = []
+    for name in ("worker", "ui", "api"):
+        entry = pids.get(name, {}) if isinstance(pids.get(name), dict) else {}
+        pid = int(entry.get("pid", 0)) if str(entry.get("pid", "0")).isdigit() else 0
+        if pid <= 0:
+            continue
+        ok, detail = _stop_pid(pid)
+        messages.append(f"{name}: {detail if ok else f'failed {detail}'}")
+        pids.pop(name, None)
+    _save_webscraper_pids(root, pids)
+    if not state.quiet:
+        for row in messages or ["webscraper stack already stopped"]:
+            (console.print(row) if console is not None else print(row))
+    return EXIT_OK
+
+
 def _is_service_enabled(name: str, cfg: dict[str, Any]) -> bool:
     if name != "worker":
         return bool(cfg.get("enabled", False))
@@ -2734,6 +2861,15 @@ if TYPER_AVAILABLE:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         raise typer.Exit(_start_services(state, get_console(state), service="ui"))
 
+    @start_app.command("webscraper")
+    def start_webscraper(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_start_webscraper_stack(state, get_console(state)))
+
     @stop_app.callback()
     def stop_default(
         ctx: typer.Context,
@@ -2771,6 +2907,15 @@ if TYPER_AVAILABLE:
     ) -> None:
         state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
         raise typer.Exit(_stop_services(state, get_console(state), service="ui"))
+
+    @stop_app.command("webscraper")
+    def stop_webscraper(
+        ctx: typer.Context,
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(_stop_webscraper_stack(state, get_console(state)))
 
     @status_app.callback()
     def status_default(
@@ -2952,7 +3097,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
     for svc_cmd in ("start", "stop", "status", "restart"):
         svc_parser = subparsers.add_parser(svc_cmd, help=f"{svc_cmd.capitalize()} managed services")
         if svc_cmd in {"start", "stop", "status"}:
-            svc_parser.add_argument("service", nargs="?", choices=["all", "api", "ui", "worker"], help="Optional service target")
+            svc_parser.add_argument("service", nargs="?", choices=["all", "api", "ui", "worker", "webscraper"], help="Optional service target")
         svc_parser.add_argument("--quiet", action="store_true", help="Minimal output")
         svc_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
@@ -3031,8 +3176,12 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
         console = get_console(state)
         if args.command == "start":
+            if getattr(args, "service", None) == "webscraper":
+                return _start_webscraper_stack(state, console)
             return _start_services(state, console, service=getattr(args, "service", None))
         if args.command == "stop":
+            if getattr(args, "service", None) == "webscraper":
+                return _stop_webscraper_stack(state, console)
             return _stop_services(state, console, service=getattr(args, "service", None))
         if args.command == "status":
             return _print_service_status(state, console, service=getattr(args, "service", None))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
 import importlib.util
 import json
 import os
@@ -92,9 +93,34 @@ def resolve_profile_dir(user_data_dir: str, profile: str) -> Path:
 
     return ud / p
 
-app = FastAPI(title="Ticket History API", version="0.5.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 LOGGER = setup_logging("ticket_api")
+
+
+def _startup_bootstrap() -> None:
+    db.ensure_indexes(db_path())
+    handles = load_handles()
+    if not handles:
+        _log("No handles found from CSV or handles.txt.")
+    else:
+        for handle in handles:
+            db.ensure_handle_row(db_path(), handle)
+        _log(f"Loaded {len(handles)} handles.")
+    stats = db.get_stats(db_path())
+    _log(f"DB path: {db_path()}")
+    _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
+    threading.Thread(target=_job_worker, daemon=True).start()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _startup_bootstrap()
+    if not _has_python_multipart():
+        _log(_missing_python_multipart_message())
+    yield
+
+
+app = FastAPI(title="Ticket History API", version="0.5.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
 class StartScrapeRequest(BaseModel):
@@ -798,22 +824,6 @@ async def request_context(request: Request, call_next):
         raise
 
 
-@app.on_event("startup")
-def startup() -> None:
-    db.ensure_indexes(db_path())
-    handles = load_handles()
-    if not handles:
-        _log("No handles found from CSV or handles.txt.")
-    else:
-        for handle in handles:
-            db.ensure_handle_row(db_path(), handle)
-        _log(f"Loaded {len(handles)} handles.")
-    stats = db.get_stats(db_path())
-    _log(f"DB path: {db_path()}")
-    _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
-    threading.Thread(target=_job_worker, daemon=True).start()
-
-
 @app.get("/api/handles")
 def api_handles(limit: int = Query(default=500, ge=1, le=5000), offset: int = 0):
     items = db.list_handles(db_path(), limit=limit, offset=offset)
@@ -1042,10 +1052,6 @@ if _has_python_multipart():
         return await api_auth_import_file(request, file=file, domain=domain)
 
 else:
-
-    @app.on_event("startup")
-    async def _log_missing_multipart_startup() -> None:
-        _log(_missing_python_multipart_message())
 
     @app.post("/api/auth/import-file")
     async def api_auth_import_file_unavailable() -> dict[str, str]:
@@ -1533,6 +1539,7 @@ def api_health():
     stats_payload = db.get_stats(db_path())
     stats_payload = {**stats_payload, "tickets": int(stats_payload.get("total_tickets", 0))}
     return {
+        "ok": True,
         "status": "ok",
         "version": app.version,
         "db_path": db_path(),
