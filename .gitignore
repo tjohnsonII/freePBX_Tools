@@ -202,3 +202,5 @@ imported_cookies.json
 
 # allow tracked webscraper config module
 !webscraper/src/webscraper/config.py
+
+webscraper/var/runtime/

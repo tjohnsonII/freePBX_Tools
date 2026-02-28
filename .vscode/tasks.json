@@ -285,7 +285,7 @@
           "background": {
             "activeOnStart": true,
             "beginsPattern": ".",
-            "endsPattern": "."
+            "endsPattern": "webscraper stack started"
           }
         }
       ],
