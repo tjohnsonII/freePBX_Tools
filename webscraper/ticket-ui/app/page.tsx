@@ -9,7 +9,7 @@ type Ticket = { ticket_id: string; title?: string; subject?: string; status?: st
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
-type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
+type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string; authenticated?: boolean; mode?: string; detail?: string; last_check_ts?: string | null; last_error?: string | null; profile_dir?: string | null; suggestion?: string | null };
 type AuthSeedResponse = { ok: boolean; mode_used: "auto" | "disk" | "cdp"; details?: Record<string, unknown>; next_step_if_failed?: string | null; cookie_count?: number };
 type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
@@ -63,6 +63,10 @@ export default function HandlesPage() {
     return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net") || normalized === "123.net" || normalized.endsWith(".123.net");
   });
   const wrongDomainLoaded = (authStatus?.cookie_count || 0) > 0 && !hasSecureDomain;
+  const isAuthenticated = authStatus?.authenticated !== false;
+  const scrapeDisabledReason = !isAuthenticated
+    ? "Not authenticated: worker is paused until login completes."
+    : (wrongDomainLoaded ? "Wrong cookie domain set loaded" : "");
 
 
   const filteredHandles = useMemo(() => new Set(handles.map((item) => item.toUpperCase())), [handles]);
@@ -86,7 +90,7 @@ export default function HandlesPage() {
       setAuthStatus(await apiGet<AuthStatus>("/api/auth/status"));
       setAuthStatusError(null);
     } catch (e) {
-      setAuthStatus({ cookie_count: 0, domains: [], last_imported: null, source: "none" });
+      setAuthStatus({ cookie_count: 0, domains: [], last_imported: null, source: "none", authenticated: false });
       setAuthStatusError(`Auth status unavailable: ${formatApiError(e)}`);
     }
   };
@@ -115,6 +119,12 @@ export default function HandlesPage() {
 
   useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
   useEffect(() => { loadAuthStatus().catch(() => undefined); loadChromeProfiles().catch(() => undefined); }, []);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadAuthStatus().catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => { if (selectedHandle) loadTickets(selectedHandle).catch(() => setTickets([])); else setTickets([]); }, [selectedHandle]);
 
   useEffect(() => {
@@ -187,17 +197,27 @@ export default function HandlesPage() {
     setError(null);
     setAuthMessage(null);
     try {
-      await apiPost<{ ok: boolean; browser: string; profile_dir: string }>("/api/auth/launch-browser", {
+      const response = await apiPost<{ ok: boolean; browser: string; profile_dir: string; command?: string[]; started?: boolean }>("/api/auth/launch-browser", {
         url: TICKETING_LOGIN_URL,
         profile: "ticketing",
         new_window: true,
       });
-      setAuthMessage("Opened isolated browser profile for login.");
+      const commandText = Array.isArray(response.command) ? response.command.join(" ") : "";
+      if (response.started) {
+        setAuthMessage("Opened isolated browser profile for login.");
+      } else {
+        setAuthMessage(`Could not auto-launch browser. Run manually: ${commandText || "see server logs"}`);
+      }
     } catch (e) {
       const message = formatApiError(e);
       setError(`Launch Login failed: ${message}`);
       window.open(TICKETING_LOGIN_URL, "_blank", "noopener,noreferrer");
     }
+  };
+
+  const launchAuthenticateHelper = async () => {
+    await launchLoginIsolated();
+    await loadAuthStatus();
   };
 
 
@@ -358,6 +378,13 @@ export default function HandlesPage() {
   return (
     <main>
       <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
+      {!isAuthenticated ? (
+        <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", padding: 10, marginBottom: 12 }}>
+          <strong>Not authenticated.</strong> Scraping worker is paused. Click <strong>Authenticate</strong> to log in.
+          <button onClick={launchAuthenticateHelper} style={{ marginLeft: 10 }}>Authenticate</button>
+          {authStatus?.last_error ? <div style={{ marginTop: 6 }}>Last error: {authStatus.last_error}</div> : null}
+        </div>
+      ) : null}
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {authMessage && <p style={{ color: "#165c2d" }}>{authMessage}</p>}
       {seedModeUsed && <p>Mode used: <strong>{seedModeUsed}</strong></p>}
@@ -367,6 +394,7 @@ export default function HandlesPage() {
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
         <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
+        <p>Authenticated: {authStatus?.authenticated === false ? "false" : "true"} | Mode: {authStatus?.mode || "-"} | Last check: {authStatus?.last_check_ts || "-"}</p>
         {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p> : null}
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
@@ -423,7 +451,7 @@ export default function HandlesPage() {
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
       <div>
-        <button onClick={startScrapeSelected} disabled={!selectedHandle || wrongDomainLoaded}>Scrape Selected Handle</button>
+        <button onClick={startScrapeSelected} disabled={!selectedHandle || !!scrapeDisabledReason} title={scrapeDisabledReason || undefined}>Scrape Selected Handle</button>
         {authValidate?.authenticated === false ? <span style={{ marginLeft: 8, color: "#a16207" }}>Auth looks invalid, but scrape is still allowed and may fail with details below.</span> : null}
       </div>
 
@@ -432,7 +460,7 @@ export default function HandlesPage() {
         <div style={{ marginTop: 6 }}>
           <button onClick={selectAllFiltered} disabled={filteredHandleRows.length === 0}>Select All</button>
           <button onClick={clearSelection} style={{ marginLeft: 8 }} disabled={selectedCount === 0}>Clear Selection</button>
-          <button onClick={startScrapeSelectedBatch} style={{ marginLeft: 8 }} disabled={selectedCount === 0 || wrongDomainLoaded}>Scrape Selected ({selectedCount})</button>
+          <button onClick={startScrapeSelectedBatch} style={{ marginLeft: 8 }} disabled={selectedCount === 0 || !!scrapeDisabledReason} title={scrapeDisabledReason || undefined}>Scrape Selected ({selectedCount})</button>
           <span style={{ marginLeft: 8 }}>Selected: {selectedCount}</span>
         </div>
         {selectedCount > 50 ? <p style={{ color: "#a16207", marginTop: 8 }}>You’re about to queue {selectedCount} handles; this may take a while.</p> : null}

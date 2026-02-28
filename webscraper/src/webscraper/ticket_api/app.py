@@ -98,6 +98,12 @@ LOGGER = setup_logging("ticket_api")
 
 def _startup_bootstrap() -> None:
     db.ensure_indexes(db_path())
+    _update_auth_state(
+        authenticated=False,
+        mode="startup",
+        detail="Auth not validated yet",
+        suggestion="Open Chrome using profile dir and login once",
+    )
     handles = load_handles()
     if not handles:
         _log("No handles found from CSV or handles.txt.")
@@ -219,6 +225,21 @@ HANDLE_RE = re.compile(r"^[A-Za-z0-9]+$")
 MAX_BATCH_HANDLES = 500
 
 
+@dataclass
+class AuthState:
+    authenticated: bool = False
+    mode: str = "unknown"
+    detail: str = "Auth status not checked yet"
+    last_check_ts: str | None = None
+    last_error: str | None = None
+    profile_dir: str | None = None
+    suggestion: str = "Open Chrome using profile dir and login once"
+
+
+AUTH_STATE = AuthState()
+AUTH_STATE_LOCK = threading.Lock()
+
+
 def _has_python_multipart() -> bool:
     return importlib.util.find_spec("multipart") is not None
 
@@ -276,6 +297,41 @@ def _auth_meta_response(meta: dict[str, Any]) -> dict[str, Any]:
         "last_imported": meta.get("last_imported"),
         "source": meta.get("source") or "none",
     }
+
+
+def _auth_state_payload() -> dict[str, Any]:
+    with AUTH_STATE_LOCK:
+        snapshot = {
+            "authenticated": AUTH_STATE.authenticated,
+            "mode": AUTH_STATE.mode,
+            "detail": AUTH_STATE.detail,
+            "last_check_ts": AUTH_STATE.last_check_ts,
+            "last_error": AUTH_STATE.last_error,
+            "profile_dir": AUTH_STATE.profile_dir,
+            "suggestion": AUTH_STATE.suggestion,
+        }
+    return snapshot
+
+
+def _update_auth_state(
+    *,
+    authenticated: bool,
+    mode: str,
+    detail: str,
+    last_error: str | None = None,
+    profile_dir: str | None = None,
+    suggestion: str | None = None,
+) -> None:
+    with AUTH_STATE_LOCK:
+        AUTH_STATE.authenticated = authenticated
+        AUTH_STATE.mode = mode
+        AUTH_STATE.detail = detail
+        AUTH_STATE.last_check_ts = _iso_now()
+        AUTH_STATE.last_error = last_error
+        if profile_dir is not None:
+            AUTH_STATE.profile_dir = profile_dir
+        if suggestion is not None:
+            AUTH_STATE.suggestion = suggestion
 
 
 def _import_and_store_cookies(text_payload: str, *, source_label: str, filename: str, default_domain: str | None) -> dict[str, Any]:
@@ -1093,10 +1149,28 @@ def api_auth_status(request: Request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     request_id = getattr(request.state, "request_id", None)
     try:
-        return _auth_meta_response(auth_store.status(db_path()))
+        status_payload = _auth_meta_response(auth_store.status(db_path()))
+        validation = _validate_auth_targets(timeout_seconds=5)
+        authenticated = bool(validation.get("authenticated"))
+        detail = validation.get("reason") or ("Authenticated" if authenticated else "Not authenticated")
+        _update_auth_state(
+            authenticated=authenticated,
+            mode="status_poll",
+            detail=str(detail),
+            last_error=None if authenticated else str(detail),
+            suggestion="Open Chrome using profile dir and login once",
+        )
+        return {**status_payload, **_auth_state_payload()}
     except Exception as exc:  # pragma: no cover - defensive endpoint boundary
         _log(f"auth_status error={exc}", request_id=request_id)
-        return {"ok": False, "reason": str(exc), "domains": [], "count": 0, "cookie_count": 0, "domain_counts": [], "last_imported": None, "source": "none"}
+        _update_auth_state(
+            authenticated=False,
+            mode="status_error",
+            detail="Auth status lookup failed",
+            last_error=str(exc),
+            suggestion="Open Chrome using profile dir and login once",
+        )
+        return {"ok": False, "reason": str(exc), "domains": [], "count": 0, "cookie_count": 0, "domain_counts": [], "last_imported": None, "source": "none", **_auth_state_payload()}
 
 
 @app.post("/api/auth/clear")
@@ -1104,8 +1178,15 @@ def api_auth_clear(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     auth_store.clear_cookies(db_path())
+    _update_auth_state(
+        authenticated=False,
+        mode="clear",
+        detail="Imported auth cookies cleared",
+        last_error="Authentication cleared",
+        suggestion="Open Chrome using profile dir and login once",
+    )
     _append_event("info", "Cleared imported auth cookies")
-    return {"ok": True, **_auth_meta_response(auth_store.status(db_path()))}
+    return {"ok": True, **_auth_meta_response(auth_store.status(db_path())), **_auth_state_payload()}
 
 
 @app.post("/api/auth/clear-cookies")
@@ -1279,6 +1360,7 @@ def api_auth_hybrid(request: Request, payload: HybridAuthRequest):
 
 
 @app.post("/api/auth/launch-browser")
+@app.post("/api/auth/open_browser")
 @app.post("/auth/launch-browser")
 def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     if not _is_localhost_request(request):
@@ -1300,9 +1382,42 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
         command.append("--new-window")
     command.append(target_url)
 
-    subprocess.Popen(command)
-    _log(f"launched isolated browser browser={browser_path} profile_dir={profile_dir} url={target_url}")
-    return {"ok": True, "browser": str(browser_path), "profile_dir": str(profile_dir)}
+    started = False
+    error_text = None
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    try:
+        subprocess.Popen(command, creationflags=creationflags)
+        started = True
+        _update_auth_state(
+            authenticated=False,
+            mode="launch_browser",
+            detail="Browser launched for manual authentication",
+            last_error=None,
+            profile_dir=str(profile_dir),
+            suggestion="Open Chrome using profile dir and login once",
+        )
+    except Exception as exc:  # pragma: no cover - OS-specific process launch failures
+        error_text = str(exc)
+        _update_auth_state(
+            authenticated=False,
+            mode="launch_browser",
+            detail="Browser launch failed",
+            last_error=error_text,
+            profile_dir=str(profile_dir),
+            suggestion="Open Chrome using profile dir and login once",
+        )
+
+    _log(f"launched isolated browser browser={browser_path} profile_dir={profile_dir} url={target_url} started={started}")
+    return {
+        "ok": started,
+        "started": started,
+        "browser": str(browser_path),
+        "profile_dir": str(profile_dir),
+        "command": command,
+        "error": error_text,
+    }
 
 
 @app.post("/api/auth/force-reset")
@@ -1376,15 +1491,32 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
             next_step = "Chrome is open. Either close Chrome OR start debug Chrome (button) to use CDP."
         elif exc.code == "CDP_UNAVAILABLE":
             next_step = f"No debuggable Chrome found. Start Chrome with --remote-debugging-port={payload.cdp_port} or use Launch Debug Chrome button."
+        _update_auth_state(
+            authenticated=False,
+            mode=mode,
+            detail="Seed auth failed",
+            last_error=detail,
+            profile_dir=str(user_data_dir),
+            suggestion="Open Chrome using profile dir and login once",
+        )
         return {
             "ok": False,
             "mode_used": mode,
             "details": {"error_code": exc.code, "error": detail, **exc.details},
             "next_step_if_failed": next_step,
+            **_auth_state_payload(),
         }
 
     store_result = auth_store.replace_cookies(db_path(), result.cookies, source=f"seed_{result.mode_used}")
     status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _update_auth_state(
+        authenticated=True,
+        mode=result.mode_used,
+        detail="Seed auth succeeded",
+        last_error=None,
+        profile_dir=str(user_data_dir),
+        suggestion="Open Chrome using profile dir and login once",
+    )
     _append_event("info", f"Seeded auth cookies mode={result.mode_used} count={store_result.get('accepted', 0)} warnings={len(warnings)}")
     return {
         "ok": True,
@@ -1393,6 +1525,7 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
         "warnings": warnings,
         "cookie_count": int(store_result.get("accepted", 0)),
         **status_payload,
+        **_auth_state_payload(),
         "next_step_if_failed": None,
     }
 
