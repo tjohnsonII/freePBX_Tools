@@ -55,7 +55,7 @@
           ],
           "background": {
             "activeOnStart": true,
-            "beginsPattern": "▲ Next\\.js",
+            "beginsPattern": "\u25b2 Next\\.js",
             "endsPattern": "Ready in"
           }
         }
@@ -269,7 +269,10 @@
         "call",
         "${workspaceFolder}\\scripts\\run_py.bat",
         ".venv-webscraper",
-        "webscraper\\scripts\\dev_ticket_stack.py"
+        "-m",
+        "webscraper_manager",
+        "start",
+        "webscraper"
       ],
       "isBackground": true,
       "problemMatcher": [
@@ -287,7 +290,12 @@
         }
       ],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
+        }
       }
     },
     {

@@ -1971,6 +1971,9 @@ def selenium_scrape_tickets(
         WebDriverException,
     )
 
+    from webscraper.auth.selenium_auth import goto_with_auth
+    from webscraper.config import load_config
+
     os.makedirs(output_dir, exist_ok=True)
     run_started_utc = utc_now_iso()
     browser = (browser or "edge").lower()
@@ -2192,7 +2195,7 @@ def selenium_scrape_tickets(
                 injected = load_cookies_json(driver, cookie_file)
                 if injected:
                     try:
-                        driver.get(effective_target_url)
+                        goto_with_auth(driver, effective_target_url, timeout=load_config().auth_timeout)
                     except Exception:
                         pass
             except Exception as e:
@@ -2200,7 +2203,7 @@ def selenium_scrape_tickets(
         try:
             # Try to navigate; if DNS fails, prompt for manual navigation
             try:
-                driver.get(effective_target_url)
+                goto_with_auth(driver, effective_target_url, timeout=load_config().auth_timeout)
             except Exception as e:
                 print(f"[WARN] Could not navigate to '{effective_target_url}': {e}")
                 if allow_manual_prompts:

@@ -7,16 +7,21 @@ from typing import Any
 
 from webscraper import ultimate_scraper_legacy as legacy
 from webscraper.cli.main import prepare_run_output_dir
+from webscraper.config import load_config
 
 
 def _build_config(mode: str, dry_run: bool) -> dict[str, Any]:
     output_dir = str((Path(__file__).resolve().parents[3] / "var" / "output").resolve())
+    cfg = load_config()
     return {
         "url": "https://secure.123.net/customers.cgi",
         "output_dir": output_dir,
         "handles": [],
         "resume": mode == "incremental",
         "dry_run": dry_run,
+        "browser": "chrome",
+        "headless": False,
+        "profile_dir": str(cfg.profile_dir),
     }
 
 

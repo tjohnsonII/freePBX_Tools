@@ -18,6 +18,8 @@ if not exist "%PY%" (
   exit /b 1
 )
 
+echo [run_py] Using Python: %PY%
+
 REM Rebuild args from %2.. end so venv path never reaches python
 set "ARGS="
 shift
