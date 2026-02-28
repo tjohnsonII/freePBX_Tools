@@ -49,6 +49,7 @@ from webscraper.ticket_api.auth import (
     parse_cookies_from_netscape,
 )
 from webscraper.ticket_api import auth_store
+from webscraper.ticket_api.auth_manager import AuthManager, default_target_url
 from webscraper.paths import runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
@@ -242,6 +243,7 @@ AUTH_CHECK_URLS: list[str] = [
 DEFAULT_TICKETING_LOGIN_URL = (os.getenv("TICKETING_LOGIN_URL") or "").strip()
 
 
+
 def _sanitize_profile_name(name: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]", "_", (name or "").strip())
     return cleaned or "ticketing"
@@ -280,6 +282,11 @@ def _detect_browser_path() -> Path:
         status_code=500,
         detail="Could not find Chrome/Edge. Set CHROME_PATH to your browser executable (for example chrome.exe).",
     )
+
+
+
+
+AUTH_MANAGER = AuthManager(db_path_getter=db_path, browser_path_getter=_detect_browser_path, log_func=_log)
 
 
 def _is_login_like(payload: str) -> bool:
@@ -1019,6 +1026,35 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     subprocess.Popen(command)
     _log(f"launched isolated browser browser={browser_path} profile_dir={profile_dir} url={target_url}")
     return {"ok": True, "browser": str(browser_path), "profile_dir": str(profile_dir)}
+
+
+@app.post("/api/auth/force-reset")
+@app.post("/auth/force-reset")
+def api_auth_force_reset(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    result = AUTH_MANAGER.clear_auth_state()
+    _append_event("info", f"Forced auth reset removed={len(result.get('removed', []))} warnings={len(result.get('warnings', []))}")
+    return result
+
+
+@app.post("/api/auth/launch")
+@app.post("/auth/launch")
+def api_auth_launch(
+    request: Request,
+    force: bool = Query(default=False),
+    url: str | None = Query(default=None),
+    timeout_seconds: int = Query(default=300, ge=10, le=1800),
+):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    target_url = default_target_url(url or DEFAULT_TICKETING_LOGIN_URL)
+    result = AUTH_MANAGER.launch_login(force_fresh=force, target_url=target_url, timeout_seconds=timeout_seconds)
+    _append_event(
+        "info",
+        f"Auth launch force={force} cookies_saved={result.get('cookies_saved')} profile_dir={result.get('profile_dir')}",
+    )
+    return result
 
 
 @app.post("/api/auth/launch_seeded")

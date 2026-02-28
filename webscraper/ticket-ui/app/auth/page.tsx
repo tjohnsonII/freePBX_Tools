@@ -37,6 +37,18 @@ type ValidateResponse = {
   cookie_count: number;
   domains: string[];
 };
+type AuthLaunchResponse = {
+  ok: boolean;
+  forced: boolean;
+  cookies_saved: boolean;
+  profile_dir: string;
+  warnings?: string[];
+};
+type AuthResetResponse = {
+  ok: boolean;
+  removed: string[];
+  warnings: string[];
+};
 
 const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
 const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
@@ -151,16 +163,30 @@ export default function AuthPage() {
     setError(null);
     setMessage(null);
     try {
-      await apiPost<{ ok: boolean; browser: string; profile_dir: string }>("/api/auth/launch-browser", {
-        url: TICKETING_LOGIN_URL,
-        profile: "ticketing",
-        new_window: true,
-      });
-      setMessage("Opened isolated browser profile for login.");
+      const result = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=false&url=${encodeURIComponent(TICKETING_LOGIN_URL)}`, {});
+      const warningText = (result.warnings || []).length ? ` Warnings: ${result.warnings?.join(", ")}` : "";
+      setMessage(`Opened login browser. Profile: ${result.profile_dir}.${warningText}`);
+      await refreshStatus();
     } catch (err) {
-      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch isolated browser.";
+      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch login browser.";
       setError(launchError);
-      window.open(TICKETING_LOGIN_URL, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const forceRelogin = async () => {
+    setError(null);
+    setMessage(null);
+    try {
+      const reset = await apiPost<AuthResetResponse>("/api/auth/force-reset", {});
+      const launch = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=true&url=${encodeURIComponent(TICKETING_LOGIN_URL)}`, {});
+      const warnings = [...(reset.warnings || []), ...(launch.warnings || [])];
+      const warningText = warnings.length ? ` Warnings: ${warnings.join(", ")}` : "";
+      setMessage(`Force re-login complete. Profile: ${launch.profile_dir}. Cookies saved: ${launch.cookies_saved}.${warningText}`);
+      await refreshStatus();
+      await runValidate();
+    } catch (err) {
+      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Force re-login failed.";
+      setError(launchError);
     }
   };
 
@@ -237,7 +263,10 @@ export default function AuthPage() {
       <div style={{ marginTop: 8 }}>
         <button onClick={clearCookies}>Clear</button>
         <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>
-          Launch Login (isolated)
+          Launch isolated login
+        </button>
+        <button onClick={forceRelogin} style={{ marginLeft: 8 }}>
+          Force Re-Login (Clear Cookies)
         </button>
         <label style={{ marginLeft: 8 }}>
           Chrome Profile
