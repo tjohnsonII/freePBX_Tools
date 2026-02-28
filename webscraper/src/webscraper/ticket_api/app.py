@@ -34,6 +34,7 @@ from webscraper.auth.cookie_seeder import (
     CookieSeedError,
     SeedResult,
     auth_doctor,
+    import_cookies_auto,
     launch_debug_chrome,
     resolve_chrome_user_data_dir,
     resolve_profile_name,
@@ -116,6 +117,12 @@ class ScrapeHandlesRequest(BaseModel):
 class ValidateAuthRequest(BaseModel):
     targets: list[str] = DEFAULT_TARGET_DOMAINS
     timeoutSeconds: int = 10
+
+
+class BrowserImportRequest(BaseModel):
+    browser: str = "chrome"
+    profile: str = "Default"
+    domain: str = "secure.123.net"
 
 
 class ImportTextRequest(BaseModel):
@@ -353,7 +360,17 @@ def _is_login_like(payload: str) -> bool:
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     cookies = auth_store.load_cookies(db_path())
     if not cookies:
-        return {"authenticated": False, "reason": "missing_cookie", "checks": [], "cookie_count": 0, "domains": []}
+        reasons = [{"code": "missing_cookie", "name": "*", "domain": "secure.123.net"}, {"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
+        return {
+            "ok": False,
+            "authenticated": False,
+            "reason": "missing_cookie",
+            "reasons": reasons,
+            "checks": [],
+            "details": {"domain": "secure.123.net", "checked": {"cookie_count": 0}},
+            "cookie_count": 0,
+            "domains": [],
+        }
 
     timeout = max(2, int(timeout_seconds or 10))
     jar = requests.cookies.RequestsCookieJar()
@@ -399,17 +416,39 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             reason = "expired"
     if any((item.get("hint") or "") == "exception" for item in checks):
         reason = "exception"
+    reasons: list[dict[str, Any]] = []
+    for check in checks:
+        if check.get("ok"):
+            continue
+        hint = check.get("hint") or "http_error"
+        if hint in {"redirected_to_login"}:
+            reasons.append({"code": "login_form_detected", "url": check.get("final_url") or check.get("url")})
+        elif hint in {"missing_cookie"}:
+            reasons.append({"code": "missing_cookie", "name": "session", "domain": "secure.123.net"})
+        elif hint == "forbidden":
+            reasons.append({"code": "forbidden", "url": check.get("url")})
+        elif hint == "exception":
+            reasons.append({"code": "request_exception", "url": check.get("url")})
+        else:
+            reasons.append({"code": "http_error", "url": check.get("url"), "status": check.get("status")})
+    if not overall_ok and not reasons:
+        reasons = [{"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
+    if not overall_ok and not any(reason_item.get("code") == "not_authenticated" for reason_item in reasons):
+        reasons.append({"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"})
     return {
+        "ok": overall_ok,
         "authenticated": overall_ok,
         "reason": reason,
+        "reasons": reasons,
         "checks": checks,
+        "details": {"domain": "secure.123.net", "checked": {"urls": AUTH_CHECK_URLS, "timeout_seconds": timeout}},
         "cookie_count": len(cookies),
         "domains": sorted({str(cookie.get("domain") or "") for cookie in cookies if cookie.get("domain")}),
     }
 
 
 def _raise_auth_validation_error(job_id: str | None, handle: str | None, validation: dict[str, Any]) -> None:
-    if validation.get("authenticated"):
+    if validation.get("authenticated") or validation.get("ok"):
         return
     if job_id:
         db.add_scrape_event(
@@ -421,7 +460,9 @@ def _raise_auth_validation_error(job_id: str | None, handle: str | None, validat
             "Auth validation failed",
             {"handle": handle, "validation": validation},
         )
-    failed = [item for item in validation.get("checks", []) if not item.get("ok")]
+    failed = validation.get("reasons") or [item for item in validation.get("checks", []) if not item.get("ok")]
+    if not failed:
+        failed = [{"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
     raise RuntimeError(f"Auth validation failed: {json.dumps(failed, sort_keys=True)}")
 
 
@@ -1064,6 +1105,79 @@ def api_auth_clear_cookies_legacy(request: Request):
     return api_auth_clear(request)
 
 
+def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -> dict[str, Any]:
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+
+    selected_domain = (payload.domain or "secure.123.net").strip().lstrip(".").lower() or "secure.123.net"
+    cdp_port = int(os.getenv("CHROME_DEBUG_PORT") or os.getenv("CHROME_CDP_PORT") or str(DEFAULT_CDP_PORT))
+    user_data_dir = resolve_chrome_user_data_dir(None)
+    import_result = import_cookies_auto(
+        profile_dir=user_data_dir,
+        domains=[selected_domain],
+        profile_name=payload.profile,
+        cdp_url_or_port=cdp_port,
+    )
+
+    store_result = auth_store.replace_cookies(db_path(), import_result["cookies"], source=f"browser_{import_result['method_used']}")
+    status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _append_event(
+        "info",
+        (
+            f"Browser auth import browser={payload.browser} domain={selected_domain} profile={payload.profile} "
+            f"method={import_result['method_used']} accepted={store_result.get('accepted', 0)} "
+            f"warnings={len(import_result.get('warnings', []))}"
+        ),
+    )
+    return {
+        "ok": True,
+        "status": "imported",
+        "browser": payload.browser,
+        "domain": selected_domain,
+        "profile": payload.profile,
+        "method_used": import_result["method_used"],
+        "imported_count": int(store_result.get("accepted", 0)),
+        "warnings": import_result.get("warnings", []),
+        "details": import_result.get("details", {}),
+        **status_payload,
+    }
+
+
+@app.post("/api/auth/import_from_browser")
+def api_auth_import_from_browser(request: Request, payload: BrowserImportRequest):
+    return _import_from_browser_impl(request, payload)
+
+
+@app.post("/api/auth/sync_from_browser")
+def api_auth_sync_from_browser(request: Request, payload: BrowserImportRequest):
+    return _import_from_browser_impl(request, payload)
+
+
+@app.post("/api/auth/import-from-browser")
+def api_auth_import_from_browser_alias_dash(request: Request, payload: BrowserImportRequest):
+    return _import_from_browser_impl(request, payload)
+
+
+@app.post("/api/auth/import-browser")
+def api_auth_import_from_browser_alias_short(request: Request, payload: BrowserImportRequest):
+    return _import_from_browser_impl(request, payload)
+
+
+@app.post("/api/auth/sync-from-browser")
+def api_auth_sync_from_browser_alias_dash(request: Request, payload: BrowserImportRequest):
+    return _import_from_browser_impl(request, payload)
+
+
+@app.get("/api/auth/validate")
+def api_auth_validate_get(request: Request, domain: str = Query(default="secure.123.net"), timeout_seconds: int = Query(default=10, ge=2, le=60)):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    payload = _validate_auth_targets(timeout_seconds)
+    payload.setdefault("details", {})
+    payload["details"]["domain"] = domain
+    return payload
+
+
 @app.post("/api/auth/validate")
 def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     if not _is_localhost_request(request):
@@ -1216,17 +1330,20 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
     profile_name = resolve_profile_name(payload.chrome_profile_dir)
     user_data_dir = resolve_chrome_user_data_dir(payload.chrome_user_data_dir)
     try:
+        warnings: list[str] = []
         if mode == "disk":
             result = seed_from_disk(user_data_dir, payload.seed_domains, profile_name=profile_name)
         elif mode == "cdp":
             result = seed_from_cdp(payload.cdp_port, payload.seed_domains)
         else:
-            result = seed_auto(
+            auto_result = import_cookies_auto(
                 profile_dir=user_data_dir,
                 domains=payload.seed_domains,
                 profile_name=profile_name,
                 cdp_url_or_port=payload.cdp_port,
             )
+            warnings = list(auto_result.get("warnings") or [])
+            result = SeedResult(mode_used=str(auto_result["method_used"]), cookies=list(auto_result["cookies"]), details=dict(auto_result.get("details") or {}))
     except CookieSeedError as exc:
         detail = str(exc)
         next_step = "Verify auth-doctor output and profile settings."
@@ -1243,11 +1360,12 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
 
     store_result = auth_store.replace_cookies(db_path(), result.cookies, source=f"seed_{result.mode_used}")
     status_payload = _auth_meta_response(auth_store.status(db_path()))
-    _append_event("info", f"Seeded auth cookies mode={result.mode_used} count={store_result.get('accepted', 0)}")
+    _append_event("info", f"Seeded auth cookies mode={result.mode_used} count={store_result.get('accepted', 0)} warnings={len(warnings)}")
     return {
         "ok": True,
         "mode_used": result.mode_used,
         "details": result.details,
+        "warnings": warnings,
         "cookie_count": int(store_result.get("accepted", 0)),
         **status_payload,
         "next_step_if_failed": None,
@@ -1405,14 +1523,20 @@ def api_health():
 
 
 def _log_api_enabled() -> bool:
-    return os.getenv("SCRAPER_ENABLE_LOG_API") == "1"
+    raw = os.getenv("WEBSCRAPER_LOGS_ENABLED")
+    if raw is None:
+        raw = os.getenv("SCRAPER_ENABLE_LOG_API")
+    if raw is not None:
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    env_name = (os.getenv("ENV") or os.getenv("APP_ENV") or os.getenv("PYTHON_ENV") or "dev").strip().lower()
+    return env_name in {"dev", "development", "local", "test"}
 
 
 def _ensure_log_api_enabled(request: Request) -> None:
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="Logs API is localhost-only")
     if not _log_api_enabled():
-        raise HTTPException(status_code=404, detail="Logs API disabled")
+        raise HTTPException(status_code=403, detail={"error": "logs_disabled", "how_to_enable": "set WEBSCRAPER_LOGS_ENABLED=1"})
 
 
 def _resolve_log_file(name: str) -> Path:
@@ -1426,7 +1550,7 @@ def _resolve_log_file(name: str) -> Path:
 def api_logs_enabled(request: Request):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="Logs API is localhost-only")
-    return {"enabled": _log_api_enabled()}
+    return {"enabled": _log_api_enabled(), "how_to_enable": "set WEBSCRAPER_LOGS_ENABLED=1"}
 
 
 def _tail_file(path: Path, lines: int) -> list[str]:

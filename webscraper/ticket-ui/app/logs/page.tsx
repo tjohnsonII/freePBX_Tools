@@ -21,10 +21,12 @@ export default function LogsPage() {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [enableHint, setEnableHint] = useState<string>("set WEBSCRAPER_LOGS_ENABLED=1");
 
   const checkEnabled = async () => {
-    const response = await apiGet<{ enabled: boolean }>("/api/logs/enabled");
+    const response = await apiGet<{ enabled: boolean; how_to_enable?: string }>("/api/logs/enabled");
     const isEnabled = Boolean(response?.enabled);
+    setEnableHint(response?.how_to_enable || "set WEBSCRAPER_LOGS_ENABLED=1");
     setEnabled(isEnabled);
     return isEnabled;
   };
@@ -56,7 +58,15 @@ export default function LogsPage() {
         if (!isEnabled) return;
         return loadList();
       })
-      .catch((e) => setError(formatApiError(e)));
+      .catch((e) => {
+        const msg = formatApiError(e);
+        if (msg.includes("logs_disabled")) {
+          setError(`Logs API disabled. To enable: ${enableHint}`);
+          setEnabled(false);
+          return;
+        }
+        setError(msg);
+      });
   }, []);
 
   useEffect(() => {
@@ -90,7 +100,7 @@ export default function LogsPage() {
   return (
     <main>
       <h2>Logs</h2>
-      {enabled === false ? <p style={{ color: "#a22" }}>Logs API disabled.</p> : null}
+      {enabled === false ? <p style={{ color: "#a22" }}>Logs API disabled. To enable: <code>{enableHint}</code></p> : null}
       {error ? <p style={{ color: "#a22" }}>{error}</p> : null}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <label>Log File

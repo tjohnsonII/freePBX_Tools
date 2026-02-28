@@ -44,7 +44,8 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
 
     if (!res.ok) {
       lastApiCall = { url: `${BASE}${path}`, status: res.status, ms: Date.now() - started };
-      const detail = payload?.detail || payload?.message || text || "Unknown API error";
+      const detailRaw = payload?.detail ?? payload?.message ?? text ?? "Unknown API error";
+      const detail = typeof detailRaw === "string" ? detailRaw : JSON.stringify(detailRaw);
       throw new ApiRequestError(`HTTP ${res.status}: ${detail}`, "http", res.status, detail);
     }
     const count = Array.isArray(payload?.items) ? payload.items.length : undefined;
