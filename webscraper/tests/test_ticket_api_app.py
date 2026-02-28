@@ -135,14 +135,14 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
         files={"file": ("cookies.csv", b"name,value", "text/csv")},
     )
     assert bad_ext.status_code == 400
-    assert "cookie format" in bad_ext.json()["detail"].lower()
+    assert "parsed 0 cookies" in bad_ext.json()["detail"].lower()
 
     unmatched = client.post(
         "/api/auth/import-file",
         files={"file": ("cookies.json", b'[{"name":"sid","value":"x","domain":"example.com"}]', "application/json")},
     )
-    assert unmatched.status_code == 400
-    assert "0 matched target domains" in unmatched.json()["detail"]
+    assert unmatched.status_code == 200
+    assert unmatched.json()["cookie_count"] == 1
 
     valid = client.post(
         "/api/auth/import-file",
@@ -151,18 +151,18 @@ def test_auth_cookie_endpoints_localhost(tmp_path, monkeypatch):
     assert valid.status_code == 200
     payload = valid.json()
     assert payload["ok"] is True
-    assert payload["total_kept"] == 1
+    assert payload["cookie_count"] == 1
     assert payload["source"] == "file"
 
     status_response = client.get("/api/auth/status")
     assert status_response.status_code == 200
     status_payload = status_response.json()
     assert status_payload["cookie_count"] >= 1
-    assert status_payload["last_loaded"]
+    assert status_payload["last_imported"]
     assert status_payload["source"] == "file"
 
-    paste_response = client.post("/api/auth/import-text", json={"text": "Cookie: sid=abc; csrftoken=def", "format": "header"})
-    assert paste_response.status_code == 400
+    paste_response = client.post("/api/auth/import-text", json={"text": "Cookie: sid=abc; csrftoken=def"})
+    assert paste_response.status_code == 200
 
     paste_valid = client.post(
         "/api/auth/import-text",

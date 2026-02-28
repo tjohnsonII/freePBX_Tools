@@ -8,9 +8,9 @@ type Ticket = { ticket_id: string; title?: string; subject?: string; status?: st
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
-type AuthStatus = { ok: boolean; cookie_count: number; domains: string[]; last_loaded: string | null; source: string; missing_domains?: string[] };
-type ValidateRow = { domain: string; cookieCount: number; ok: boolean; statusCode?: number | null; finalUrl?: string | null; reason: string; hint: string };
-type ValidateResponse = { ok: boolean; reason: string; domains: string[]; cookie_count: number; results: ValidateRow[] };
+type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string };
+type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
+type ValidateResponse = { authenticated: boolean; reason?: string; domains: string[]; cookie_count: number; checks: ValidateRow[] };
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
 type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; running: boolean; errors: number; error_message?: string; result?: JobResult };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
@@ -20,7 +20,6 @@ function formatApiError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const VALIDATE_TARGETS = ["secure.123.net", "noc-tickets.123.net", "10.123.203.1"];
 
 export default function HandlesPage() {
   const apiInfo = useMemo(() => apiBaseInfo(), []);
@@ -55,7 +54,7 @@ export default function HandlesPage() {
   const loadAuthStatus = async () => setAuthStatus(await apiGet<AuthStatus>("/api/auth/status"));
 
   const runValidate = async () => {
-    const payload = await apiPost<ValidateResponse>("/api/auth/validate", { targets: VALIDATE_TARGETS, timeoutSeconds: 10 });
+    const payload = await apiPost<ValidateResponse>("/api/auth/validate", { timeoutSeconds: 10, targets: [] });
     setAuthValidate(payload);
     await loadAuthStatus();
     return payload;
@@ -98,7 +97,7 @@ export default function HandlesPage() {
     setError(null);
     setAuthMessage(null);
     try {
-      await apiPost<AuthStatus & { total_kept: number }>("/api/auth/import-text", { text, format: "auto" });
+      await apiPost<AuthStatus & { total_kept: number }>("/api/auth/import", { text });
       await loadAuthStatus();
       await runValidate();
       setAuthMessage("Cookie text imported.");
@@ -149,7 +148,7 @@ export default function HandlesPage() {
       if ((authStatus?.cookie_count || 0) === 0) return setError("Load cookies first.");
       setError(null);
       const validation = await runValidate();
-      if (!validation.ok) {
+      if (!validation.authenticated) {
         setError("Auth missing/invalid. Review details below and fix cookies before scraping.");
         return;
       }
@@ -178,9 +177,8 @@ export default function HandlesPage() {
       <section style={{ border: "1px solid #ddd", padding: 12, marginBottom: 14 }}>
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
-        <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_loaded || "-"}</p>
-        {authStatus?.missing_domains?.length ? <p style={{ color: "#b91c1c" }}>Missing domains: {authStatus.missing_domains.join(", ")}</p> : null}
-        <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
+        <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
+                <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />
         <div style={{ marginTop: 8 }}>
           <button onClick={() => fileInputRef.current?.click()}>Import Cookies</button>
           <button onClick={importCookieFile} style={{ marginLeft: 8 }} disabled={!cookieFile}>Upload Selected File</button>
@@ -192,17 +190,17 @@ export default function HandlesPage() {
       </section>
 
       <HandleDropdown selectedHandle={selectedHandle} handles={handles} search={search} onSearchChange={setSearch} onSelect={setSelectedHandle} />
-      <div><button onClick={startScrapeSelected} disabled={!selectedHandle || (authStatus?.cookie_count || 0) === 0}>Scrape Selected Handle</button> {(authStatus?.cookie_count || 0) === 0 ? <span style={{ marginLeft: 8 }}>Load cookies first.</span> : null}</div>
+      <div><button onClick={startScrapeSelected} disabled={!selectedHandle || !authValidate?.authenticated}>Scrape Selected Handle</button> {!authValidate?.authenticated ? <span style={{ marginLeft: 8 }}>Validate auth first.</span> : null}</div>
 
       {jobStatus && <section><h3>Job status</h3><p>Job: {jobStatus.job_id} | Status: {jobStatus.status} | Progress: {jobStatus.completed}/{jobStatus.total_handles} | Errors: {jobStatus.errors}</p></section>}
 
-      {(jobStatus?.status === "failed" || authValidate?.ok === false) && (
+      {(jobStatus?.status === "failed" || authValidate?.authenticated === false) && (
         <section style={{ border: "2px solid #dc2626", background: "#fee2e2", padding: 12, marginTop: 12 }}>
           <h3 style={{ marginTop: 0 }}>Scrape failure details</h3>
           <p><strong>Summary:</strong> {jobError || "Auth validation failed"}</p>
           <table>
-            <thead><tr><th>Domain</th><th>Cookies</th><th>Status</th><th>Final URL</th><th>Reason</th><th>Hint</th></tr></thead>
-            <tbody>{((jobStatus?.result?.auth?.results || authValidate?.results || [])).map((item) => (<tr key={item.domain}><td>{item.domain}</td><td>{item.cookieCount}</td><td>{item.statusCode ?? "-"}</td><td>{item.finalUrl || "-"}</td><td>{item.reason}</td><td>{item.hint}</td></tr>))}</tbody>
+            <thead><tr><th>URL</th><th>Status</th><th>Final URL</th><th>OK</th><th>Hint</th></tr></thead>
+            <tbody>{((jobStatus?.result?.auth?.checks || authValidate?.checks || [])).map((item) => (<tr key={item.url}><td>{item.url}</td><td>{item.status ?? "-"}</td><td>{item.final_url || "-"}</td><td>{item.ok ? "yes" : "no"}</td><td>{item.hint || "-"}</td></tr>))}</tbody>
           </table>
           <details><summary>logTail</summary><pre>{(jobStatus?.result?.logTail || []).join("\n") || "-"}</pre></details>
           <details><summary>stderrTail</summary><pre>{(jobStatus?.result?.stderrTail || []).join("\n") || "-"}</pre></details>

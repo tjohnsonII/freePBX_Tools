@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Any
@@ -33,7 +34,7 @@ def get_target_domains() -> list[str]:
 
 
 def get_default_cookie_domain() -> str | None:
-    value = (os.getenv("DEFAULT_COOKIE_DOMAIN") or "").strip().lstrip(".").lower()
+    value = (os.getenv("DEFAULT_COOKIE_DOMAIN") or ".123.net").strip()
     return value or None
 
 
@@ -56,7 +57,7 @@ def _to_expiry(value: Any) -> int | None:
 
 
 def _normalize_domain(domain: str) -> str:
-    return str(domain or "").strip().lstrip(".").lower()
+    return str(domain or "").strip().lower()
 
 
 def _normalize_same_site(value: Any) -> str | None:
@@ -84,7 +85,7 @@ def _normalize_cookie_item(item: dict[str, Any], idx: int, default_domain: str |
         path=str(item.get("path") or "/"),
         expires=_to_expiry(item.get("expiry", item.get("expirationDate", item.get("expires")))),
         secure=_to_bool(item.get("secure")),
-        httpOnly=_to_bool(item.get("httpOnly")),
+        httpOnly=_to_bool(item.get("httpOnly", item.get("httponly"))),
         sameSite=_normalize_same_site(item.get("sameSite")),
     )
 
@@ -117,9 +118,16 @@ def parse_cookies_from_netscape(text: str) -> list[CookieNormalized]:
     cookies: list[CookieNormalized] = []
     for idx, line in enumerate(text.splitlines()):
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
             continue
-        parts = line.split("\t")
+        http_only = False
+        if stripped.startswith("#HttpOnly_"):
+            stripped = stripped.replace("#HttpOnly_", "", 1)
+            http_only = True
+        elif stripped.startswith("#"):
+            continue
+
+        parts = stripped.split("\t")
         if len(parts) < 7:
             continue
         domain, _, path, secure, expiration, name, value = parts[:7]
@@ -132,7 +140,7 @@ def parse_cookies_from_netscape(text: str) -> list[CookieNormalized]:
                     "path": path,
                     "secure": secure.upper() == "TRUE",
                     "expires": expiration,
-                    "httpOnly": False,
+                    "httpOnly": http_only,
                 },
                 idx,
             )
@@ -141,8 +149,6 @@ def parse_cookies_from_netscape(text: str) -> list[CookieNormalized]:
 
 
 def parse_cookies_from_cookie_header(text: str, default_domain: str) -> list[CookieNormalized]:
-    if not default_domain:
-        raise ValueError("Cookie header format requires a default domain")
     body = text.strip()
     if body.lower().startswith("cookie:"):
         body = body.split(":", 1)[1].strip()
@@ -168,27 +174,38 @@ def parse_cookies(text: str, filename: str, default_domain: str | None) -> tuple
         return parse_cookies_from_json(stripped), "json"
 
     if lower_name.endswith(".txt"):
-        if "\t" in text or "netscape http cookie file" in stripped.lower():
+        if "\t" in text or "netscape http cookie file" in stripped.lower() or "#httponly_" in stripped.lower():
             return parse_cookies_from_netscape(text), "netscape"
-        if default_domain:
-            return parse_cookies_from_cookie_header(text, default_domain), "cookie_header"
-        raise ValueError("Cookie header TXT requires DEFAULT_COOKIE_DOMAIN or form field 'domain'")
+        return parse_cookies_from_cookie_header(text, default_domain or ".123.net"), "cookie_header"
 
     if stripped.startswith("[") or stripped.startswith("{"):
         return parse_cookies_from_json(stripped), "json"
-    if "\t" in text or "netscape http cookie file" in stripped.lower():
+    if "\t" in text or "netscape http cookie file" in stripped.lower() or "#httponly_" in stripped.lower():
         return parse_cookies_from_netscape(text), "netscape"
-    if default_domain:
-        return parse_cookies_from_cookie_header(text, default_domain), "cookie_header"
-    raise ValueError("Unable to determine cookie format; provide .json/.txt file")
+    return parse_cookies_from_cookie_header(text, default_domain or ".123.net"), "cookie_header"
+
+
+def dedupe_and_filter_expired(cookies: list[CookieNormalized], now_ts: int | None = None) -> tuple[list[CookieNormalized], int]:
+    now = int(now_ts or time.time())
+    dropped = 0
+    deduped: dict[tuple[str, str, str], CookieNormalized] = {}
+    for cookie in cookies:
+        if cookie.expires is not None and cookie.expires < (now - 60):
+            dropped += 1
+            continue
+        key = (cookie.name, cookie.domain, cookie.path or "/")
+        current = deduped.get(key)
+        if current is None or int(cookie.expires or now) >= int(current.expires or now):
+            deduped[key] = cookie
+    return list(deduped.values()), dropped
 
 
 def domain_matches_selected(cookie_domain: str, selected_domains: list[str]) -> bool:
-    domain = _normalize_domain(cookie_domain)
+    domain = _normalize_domain(cookie_domain).lstrip(".")
     if not domain:
         return False
     for selected in selected_domains:
-        target = _normalize_domain(selected)
+        target = _normalize_domain(selected).lstrip(".")
         if domain == target or domain.endswith(f".{target}"):
             return True
     return False
@@ -222,18 +239,18 @@ def normalize_cookie_input(raw: Any, selected_domains: list[str] | None = None) 
 
 
 def cookie_header_for_domain(cookies: list[dict[str, Any]], domain: str) -> str:
-    target = _normalize_domain(domain)
+    target = _normalize_domain(domain).lstrip(".")
     parts: list[str] = []
     for cookie in cookies:
-        cookie_domain = _normalize_domain(cookie.get("domain"))
+        cookie_domain = _normalize_domain(cookie.get("domain")).lstrip(".")
         if cookie_domain == target or target.endswith(f".{cookie_domain}"):
             parts.append(f"{cookie['name']}={cookie['value']}")
     return "; ".join(parts)
 
 
 def detected_missing_domains(stored_domains: list[str], selected_domains: list[str]) -> tuple[list[str], list[str]]:
-    normalized_stored = sorted({_normalize_domain(d) for d in stored_domains if _normalize_domain(d)})
-    normalized_selected = [_normalize_domain(d) for d in selected_domains if _normalize_domain(d)]
+    normalized_stored = sorted({_normalize_domain(d).lstrip(".") for d in stored_domains if _normalize_domain(d)})
+    normalized_selected = [_normalize_domain(d).lstrip(".") for d in selected_domains if _normalize_domain(d)]
     missing = [domain for domain in normalized_selected if not any(sd == domain or sd.endswith(f".{domain}") for sd in normalized_stored)]
     return normalized_stored, missing
 
@@ -260,13 +277,10 @@ def cookie_to_selenium(cookie: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def cookie_as_http_line(cookie: dict[str, Any]) -> str:
-    expires = ""
-    expiry = cookie.get("expires")
-    if expiry:
-        try:
-            dt = datetime.fromtimestamp(int(expiry), tz=timezone.utc)
-            expires = f"; Expires={format_datetime(dt, usegmt=True)}"
-        except Exception:
-            expires = ""
-    return f"{cookie['name']}={cookie['value']}; Path={cookie.get('path') or '/'}; Domain={cookie.get('domain')}{expires}"
+def cookie_expires_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return format_datetime(datetime.fromtimestamp(int(value), tz=timezone.utc), usegmt=True)
+    except Exception:
+        return None
