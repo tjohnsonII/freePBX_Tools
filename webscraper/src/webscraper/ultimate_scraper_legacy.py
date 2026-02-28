@@ -44,6 +44,7 @@ from webscraper.cli.attach_parsing import normalize_attach_args
 from webscraper.utils.io import make_run_id, safe_write_json, utc_now_iso
 from webscraper.auth.inject_cookies import inject_imported_cookies
 from webscraper.utils.schema import validate_tickets_all
+from webscraper.logging_config import setup_logging
 
 if __package__ in (None, ""):
     raise RuntimeError("Run as a module: python -m webscraper.ultimate_scraper")
@@ -3392,6 +3393,10 @@ def main() -> int:
     parser.set_defaults(dump_dom_on_fail=True)
     args = parser.parse_args()
 
+    run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
+    logger = setup_logging("scraper")
+    logger.info("scraper_start run_id=%s argv=%s", run_id, " ".join(sys.argv))
+
     try:
         args.attach, args.attach_host = normalize_attach_args(
             attach=args.attach,
@@ -3423,9 +3428,9 @@ def main() -> int:
             with open(args.handles_file, "r", encoding="utf-8") as hf:
                 lines = hf.read().splitlines()
                 handles = [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")]
-            print(f"[INFO] Loaded {len(handles)} handles from {args.handles_file}")
+            logger.info("handles_loaded run_id=%s source=%s count=%s", run_id, args.handles_file, len(handles))
         except Exception as e:
-            print(f"[WARN] Could not read handles file '{args.handles_file}': {e}")
+            logger.warning("handles_file_read_failed run_id=%s path=%s error=%s", run_id, args.handles_file, e)
             handles = None
     if handles is None:
         handles = [h.strip() for h in handles_env.split(",")] if handles_env else args.handles
@@ -3511,7 +3516,10 @@ def main() -> int:
         edge_profile_override = edge_profile_dir(args)
 
     profile_dir_override = os.path.abspath(args.profile_dir) if args.profile_dir else None
+    logger.info("phase=auth_config run_id=%s auth_orchestration=%s profile_dirs=%s cookie_files=%s", run_id, auth_orchestration, len(auth_profile_dirs), len(auth_cookie_files))
+
     if args.http_only:
+        logger.info("phase=http_scrape_start run_id=%s handles=%s target_url=%s", run_id, len(handles or []), args.target_url)
         http_scrape_customers(
             handles=handles,
             output_dir=out_dir,
@@ -3541,12 +3549,13 @@ def main() -> int:
         )
         return 0
 
-    selenium_run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    selenium_run_id = f"{selenium_run_id}_{os.getpid()}"
+    selenium_run_id = run_id
     selenium_out_dir = os.path.join(out_dir, selenium_run_id)
     os.makedirs(selenium_out_dir, exist_ok=True)
+    logger.info("phase=driver_start run_id=%s output_dir=%s browser=%s headless=%s", run_id, selenium_out_dir, args.browser, headless)
     print(f"[INFO] Selenium run output dir: {selenium_out_dir}")
 
+    logger.info("phase=scrape_start run_id=%s handles=%s scrape_ticket_details=%s retries=%s", run_id, len(handles or []), args.scrape_ticket_details, args.retry_on_auth_redirect)
     selenium_scrape_tickets(
         url=url,
         output_dir=selenium_out_dir,
@@ -3608,6 +3617,7 @@ def main() -> int:
         browser=args.browser,
         db_path=args.db,
     )
+    logger.info("scraper_complete run_id=%s status=ok", run_id)
     return 0
 
 if __name__ == "__main__":
