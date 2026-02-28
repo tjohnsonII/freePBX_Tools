@@ -5,57 +5,49 @@ import { ApiRequestError, apiGet, apiPost, apiPostForm } from "../../lib/api";
 
 type DomainCount = { domain: string; count: number };
 type AuthStatus = {
-  ok: boolean;
   cookie_count: number;
   domains: string[];
   domain_counts?: DomainCount[];
-  last_loaded: string | null;
+  last_imported: number | null;
   source: string;
-  missing_domains?: string[];
 };
 type ValidateRow = {
-  domain: string;
-  cookieCount: number;
+  url: string;
+  status?: number | null;
+  final_url?: string | null;
   ok: boolean;
-  statusCode?: number | null;
-  finalUrl?: string | null;
-  reason: string;
-  hint: string;
+  hint?: string | null;
 };
-type ValidateResponse = { ok: boolean; results: ValidateRow[] };
-type ImportResponse = {
-  ok: boolean;
-  format_used: string;
-  source_filename: string;
-  total_parsed: number;
-  total_kept: number;
-  target_domains: string[];
+type ValidateResponse = {
+  authenticated: boolean;
+  reason?: string;
+  checks: ValidateRow[];
+  cookie_count: number;
+  domains: string[];
 };
-
-const DEFAULT_DOMAINS = ["secure.123.net", "123.net"];
 
 export default function AuthPage() {
+  const [text, setText] = useState("");
   const [uploadName, setUploadName] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedDomains, setSelectedDomains] = useState<string[]>(DEFAULT_DOMAINS.slice());
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [validate, setValidate] = useState<ValidateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const refreshStatus = async () => {
-    const res = await apiGet<AuthStatus>(`/api/auth/status?selectedDomains=${encodeURIComponent(selectedDomains.join(","))}`);
+    const res = await apiGet<AuthStatus>("/api/auth/status");
     setStatus(res);
   };
 
   const runValidate = async () => {
-    const val = await apiPost<ValidateResponse>("/api/auth/validate", { targets: selectedDomains, timeoutSeconds: 10 });
+    const val = await apiPost<ValidateResponse>("/api/auth/validate", { timeoutSeconds: 10, targets: [] });
     setValidate(val);
   };
 
   useEffect(() => {
     refreshStatus().catch(() => setStatus(null));
-  }, [selectedDomains.join(",")]);
+  }, []);
 
   const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
@@ -63,7 +55,28 @@ export default function AuthPage() {
     setUploadName(file?.name || "");
   };
 
-  const importCookies = async () => {
+  const importText = async () => {
+    setError(null);
+    setMessage(null);
+    if (!text.trim()) {
+      setError("Paste cookie data first.");
+      return;
+    }
+    try {
+      const result = await apiPost<{ cookie_count: number }>("/api/auth/import", { text });
+      setMessage(`Imported ${result.cookie_count} cookies from pasted text.`);
+      setText("");
+      await refreshStatus();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setError(err.detail || err.message);
+      } else {
+        setError("Cookie import failed.");
+      }
+    }
+  };
+
+  const importFile = async () => {
     setError(null);
     setValidate(null);
     setMessage(null);
@@ -76,12 +89,9 @@ export default function AuthPage() {
     fd.append("file", selectedFile);
 
     try {
-      const result = await apiPostForm<ImportResponse>("/api/auth/import-file", fd);
-      setMessage(
-        `Imported ${result.total_kept}/${result.total_parsed} cookies from ${result.source_filename} (${result.format_used}).`,
-      );
+      const result = await apiPostForm<{ cookie_count: number; filename?: string }>("/api/auth/import-file", fd);
+      setMessage(`Imported ${result.cookie_count} cookies from ${result.filename || selectedFile.name}.`);
       await refreshStatus();
-      await runValidate();
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.detail || err.message);
@@ -96,6 +106,7 @@ export default function AuthPage() {
     setValidate(null);
     setSelectedFile(null);
     setUploadName("");
+    setText("");
     setMessage(null);
     await refreshStatus();
   };
@@ -107,40 +118,33 @@ export default function AuthPage() {
       {message && <p style={{ color: "#166534" }}>{message}</p>}
 
       <section>
-        <h3>Import Cookies</h3>
-        <input type="file" accept=".json,.txt" onChange={onUpload} /> {uploadName ? <span>{uploadName}</span> : null}
+        <h3>Paste cookies</h3>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} style={{ width: "100%" }} />
+        <div style={{ marginTop: 8 }}>
+          <button onClick={importText} disabled={!text.trim()}>Import Pasted Cookies</button>
+        </div>
       </section>
 
-      <h3>Target domains</h3>
-      {DEFAULT_DOMAINS.map((domain) => (
-        <label key={domain} style={{ display: "block" }}>
-          <input
-            type="checkbox"
-            checked={selectedDomains.includes(domain)}
-            onChange={(e) =>
-              setSelectedDomains((current) => (e.target.checked ? [...current, domain] : current.filter((item) => item !== domain)))
-            }
-          />
-          {domain}
-        </label>
-      ))}
+      <section>
+        <h3>Upload cookies file</h3>
+        <input type="file" accept=".json,.txt" onChange={onUpload} /> {uploadName ? <span>{uploadName}</span> : null}
+        <div style={{ marginTop: 8 }}>
+          <button onClick={importFile} disabled={!selectedFile}>Upload Cookies File</button>
+        </div>
+      </section>
 
       <div style={{ marginTop: 8 }}>
-        <button onClick={importCookies}>Import</button>
-        <button onClick={clearCookies} style={{ marginLeft: 8 }}>
-          Clear
-        </button>
+        <button onClick={clearCookies}>Clear</button>
         <button onClick={runValidate} style={{ marginLeft: 8 }}>
           Validate Auth
         </button>
       </div>
 
       <h3>Status</h3>
-      <p>Last import: {status?.last_loaded || "-"}</p>
+      <p>Last import: {status?.last_imported || "-"}</p>
       <p>Imported cookies: {status?.cookie_count ?? 0}</p>
       <p>Source: {status?.source || "none"}</p>
       <p>Domains: {(status?.domains || []).join(", ") || "-"}</p>
-      <p style={{ color: "#b91c1c" }}>Domains missing: {(status?.missing_domains || []).join(", ") || "None"}</p>
       <table>
         <thead>
           <tr>
@@ -161,27 +165,26 @@ export default function AuthPage() {
       {validate && (
         <section>
           <h3>Validation</h3>
-          <p>{validate.ok ? "PASS" : "FAIL"}</p>
+          <p>Authenticated: {validate.authenticated ? "yes" : "no"}</p>
+          <p>Reason: {validate.reason || "-"}</p>
           <table>
             <thead>
               <tr>
-                <th>Domain</th>
-                <th>Cookies</th>
+                <th>URL</th>
                 <th>Status</th>
                 <th>Final URL</th>
-                <th>Reason</th>
+                <th>OK</th>
                 <th>Hint</th>
               </tr>
             </thead>
             <tbody>
-              {validate.results.map((item) => (
-                <tr key={item.domain} style={{ background: item.ok ? "#dcfce7" : "#fee2e2" }}>
-                  <td>{item.domain}</td>
-                  <td>{item.cookieCount}</td>
-                  <td>{item.statusCode ?? "-"}</td>
-                  <td>{item.finalUrl || "-"}</td>
-                  <td>{item.reason}</td>
-                  <td>{item.hint}</td>
+              {validate.checks.map((item) => (
+                <tr key={item.url} style={{ background: item.ok ? "#dcfce7" : "#fee2e2" }}>
+                  <td>{item.url}</td>
+                  <td>{item.status ?? "-"}</td>
+                  <td>{item.final_url || "-"}</td>
+                  <td>{item.ok ? "yes" : "no"}</td>
+                  <td>{item.hint || "-"}</td>
                 </tr>
               ))}
             </tbody>

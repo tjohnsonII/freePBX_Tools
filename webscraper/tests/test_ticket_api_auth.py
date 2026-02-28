@@ -1,6 +1,6 @@
 from webscraper.ticket_api.app import map_batch_mode
 from webscraper.ticket_api.auth import (
-    filter_cookies_for_domains,
+    dedupe_and_filter_expired,
     parse_cookies,
     parse_cookies_from_cookie_header,
     parse_cookies_from_json,
@@ -26,27 +26,38 @@ def test_parse_json_wrapper_and_playwright():
     assert len(playwright) == 1
 
 
-def test_parse_netscape_cookie_text():
+def test_parse_netscape_cookie_text_http_only_prefix():
     payload = """# Netscape HTTP Cookie File
-.secure.123.net\tTRUE\t/\tTRUE\t1730000000\tsid\tabc
+#HttpOnly_.secure.123.net\tTRUE\t/\tTRUE\t2730000000\tsid\tabc
 """
     cookies = parse_cookies_from_netscape(payload)
     assert len(cookies) == 1
-    assert cookies[0].domain == "secure.123.net"
+    assert cookies[0].domain == ".secure.123.net"
+    assert cookies[0].httpOnly is True
 
 
 def test_parse_cookie_header_with_default_domain():
-    cookies = parse_cookies_from_cookie_header("Cookie: sid=abc; csrftoken=xyz", "secure.123.net")
+    cookies = parse_cookies_from_cookie_header("Cookie: sid=abc; csrftoken=xyz", ".123.net")
     assert len(cookies) == 2
-    assert {c.domain for c in cookies} == {"secure.123.net"}
+    assert {c.domain for c in cookies} == {".123.net"}
 
 
-def test_domain_filtering_subdomain_matching():
-    parsed, _ = parse_cookies(
-        '[{"name":"sid","value":"x","domain":"sub.secure.123.net"},{"name":"x","value":"2","domain":"other.com"}]',
-        "cookies.json",
-        None,
+def test_parse_auto_detect_header_without_filename_hint():
+    parsed, fmt = parse_cookies("a=b; c=d", "payload.txt", ".123.net")
+    assert fmt == "cookie_header"
+    assert len(parsed) == 2
+
+
+def test_drop_expired_and_dedupe_keep_latest():
+    cookies = parse_cookies_from_json(
+        """[
+        {"name":"sid","value":"old","domain":"secure.123.net","path":"/","expires":999},
+        {"name":"sid","value":"new","domain":"secure.123.net","path":"/","expires":4102444800},
+        {"name":"keep","value":"1","domain":"secure.123.net","path":"/"}
+    ]"""
     )
-    kept = filter_cookies_for_domains(parsed, ["secure.123.net"])
-    assert len(kept) == 1
-    assert kept[0].name == "sid"
+    kept, dropped = dedupe_and_filter_expired(cookies, now_ts=1700000000)
+    assert dropped == 1
+    assert len(kept) == 2
+    sid = [c for c in kept if c.name == "sid"][0]
+    assert sid.value == "new"
