@@ -1113,12 +1113,12 @@ def _doctor_findings() -> list[Finding]:
             node_version_details = f"node -v failed: {exc}"
 
     if preferred_python.is_file():
-        probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests"]
+        probe_cmd = [str(preferred_python), "-c", "import selenium, bs4, lxml, requests, multipart"]
         try:
             probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=20, check=False)
             import_probe_ok = probe.returncode == 0
             if import_probe_ok:
-                import_probe_details = "selenium/bs4/lxml/requests import check passed"
+                import_probe_details = "selenium/bs4/lxml/requests/python-multipart import check passed"
             else:
                 combined = (probe.stderr or probe.stdout or "import check failed").strip()
                 import_probe_details = combined.splitlines()[-1] if combined else "import check failed"

@@ -70,19 +70,16 @@ def _wait_for_tcp_port(host: str, port: int, timeout_seconds: int) -> bool:
 def _wait_for_api_health(target: str, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
     health_url = f"{target}/api/health"
-    docs_url = f"{target}/docs"
-    urls = (health_url, docs_url)
 
     while time.monotonic() < deadline:
-        for url in urls:
-            try:
-                with urllib.request.urlopen(url, timeout=2) as response:
-                    if 200 <= response.status < 500:
-                        return True
-            except urllib.error.URLError:
-                continue
-            except TimeoutError:
-                continue
+        try:
+            with urllib.request.urlopen(health_url, timeout=2) as response:
+                if response.status == 200:
+                    return True
+        except urllib.error.URLError:
+            pass
+        except TimeoutError:
+            pass
         time.sleep(0.5)
     return False
 
@@ -168,7 +165,7 @@ def main() -> int:
 
     if not _wait_for_api_health(PROXY_TARGET, STARTUP_TIMEOUT_SECONDS):
         print(
-            f"[ERROR] API did not report readiness at {PROXY_TARGET}/api/health (or /docs) within {STARTUP_TIMEOUT_SECONDS}s.\n"
+            f"[ERROR] API did not report readiness at {PROXY_TARGET}/api/health within {STARTUP_TIMEOUT_SECONDS}s.\n"
             "Next steps:\n"
             "  1) Open http://127.0.0.1:8787/api/health in a browser/curl.\n"
             "  2) Start API directly with uvicorn/module command to verify startup.\n"

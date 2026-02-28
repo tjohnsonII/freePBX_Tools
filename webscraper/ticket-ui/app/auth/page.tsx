@@ -5,15 +5,13 @@ import { ApiRequestError, apiGet, apiPost, apiPostForm } from "../../lib/api";
 
 type DomainCount = { domain: string; count: number };
 type AuthStatus = {
-  stored: boolean;
-  total: number;
-  domains: DomainCount[];
-  created_utc: string | null;
+  ok: boolean;
+  cookie_count: number;
+  domains: string[];
+  domain_counts?: DomainCount[];
+  last_loaded: string | null;
+  source: string;
   missing_domains?: string[];
-  has_imported_cookies?: boolean;
-  imported_cookie_count?: number;
-  last_import_time?: string | null;
-  target_domains?: string[];
 };
 type ValidateRow = {
   domain: string;
@@ -78,7 +76,7 @@ export default function AuthPage() {
     fd.append("file", selectedFile);
 
     try {
-      const result = await apiPostForm<ImportResponse>("/api/auth/import-cookies", fd);
+      const result = await apiPostForm<ImportResponse>("/api/auth/import-file", fd);
       setMessage(
         `Imported ${result.total_kept}/${result.total_parsed} cookies from ${result.source_filename} (${result.format_used}).`,
       );
@@ -94,7 +92,7 @@ export default function AuthPage() {
   };
 
   const clearCookies = async () => {
-    await apiPost("/api/auth/clear-cookies", {});
+    await apiPost("/api/auth/clear", {});
     setValidate(null);
     setSelectedFile(null);
     setUploadName("");
@@ -138,10 +136,10 @@ export default function AuthPage() {
       </div>
 
       <h3>Status</h3>
-      <p>Last import: {status?.last_import_time || "-"}</p>
-      <p>Imported cookies: {status?.imported_cookie_count ?? status?.total ?? 0}</p>
-      <p>Has imported cookies: {status?.has_imported_cookies ? "Yes" : "No"}</p>
-      <p>Target domains: {(status?.target_domains || []).join(", ") || "-"}</p>
+      <p>Last import: {status?.last_loaded || "-"}</p>
+      <p>Imported cookies: {status?.cookie_count ?? 0}</p>
+      <p>Source: {status?.source || "none"}</p>
+      <p>Domains: {(status?.domains || []).join(", ") || "-"}</p>
       <p style={{ color: "#b91c1c" }}>Domains missing: {(status?.missing_domains || []).join(", ") || "None"}</p>
       <table>
         <thead>
@@ -151,7 +149,7 @@ export default function AuthPage() {
           </tr>
         </thead>
         <tbody>
-          {(status?.domains || []).map((row) => (
+          {(status?.domain_counts || []).map((row) => (
             <tr key={row.domain}>
               <td>{row.domain}</td>
               <td>{row.count}</td>
