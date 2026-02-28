@@ -202,3 +202,14 @@ imported_cookies.json
 
 # allow tracked webscraper config module
 !webscraper/src/webscraper/config.py
+
+# webscraper runtime/output
+webscraper/var/
+webscraper/**/var/
+
+# browser profiles / selenium user data
+**/chrome-profile/
+**/edge-profile/
+**/user-data-dir/
+**/selenium-profile/
+**/playwright/.cache/
