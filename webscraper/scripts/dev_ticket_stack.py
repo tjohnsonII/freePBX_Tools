@@ -56,6 +56,15 @@ def stream_output(pipe: TextIO, prefix: str) -> None:
     pipe.close()
 
 
+
+
+def _is_port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
 def _wait_for_tcp_port(host: str, port: int, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -176,28 +185,33 @@ def main() -> int:
         api_thread.join(timeout=1)
         return 1
 
-    print(f"API ready, starting UI on http://127.0.0.1:{UI_PORT} (proxy -> {PROXY_TARGET})")
+    ui_proc: subprocess.Popen[str] | None = None
+    threads = [api_thread]
 
-    ui_proc = subprocess.Popen(
-        ui_cmd,
-        cwd=ui_dir,
-        env=ui_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    process_group.add(ui_proc)
+    if _is_port_in_use(API_HOST, int(UI_PORT)):
+        print(f"[WARN] UI port {UI_PORT} is already in use; skipping UI startup and keeping API alive.")
+    else:
+        print(f"API ready, starting UI on http://127.0.0.1:{UI_PORT} (proxy -> {PROXY_TARGET})")
+        ui_proc = subprocess.Popen(
+            ui_cmd,
+            cwd=ui_dir,
+            env=ui_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        process_group.add(ui_proc)
 
-    ui_thread = threading.Thread(target=stream_output, args=(ui_proc.stdout, "UI"), daemon=True)
-    ui_thread.start()
-    threads = [api_thread, ui_thread]
+        ui_thread = threading.Thread(target=stream_output, args=(ui_proc.stdout, "UI"), daemon=True)
+        ui_thread.start()
+        threads.append(ui_thread)
 
     exit_code = 0
     try:
         while not stop_event.is_set():
             api_rc = api_proc.poll()
-            ui_rc = ui_proc.poll()
+            ui_rc = ui_proc.poll() if ui_proc is not None else None
 
             if api_rc is not None or ui_rc is not None:
                 stop_event.set()
