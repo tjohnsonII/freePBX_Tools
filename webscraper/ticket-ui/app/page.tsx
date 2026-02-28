@@ -51,7 +51,6 @@ export default function HandlesPage() {
   const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
   const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
   const [browserSyncDomain, setBrowserSyncDomain] = useState("secure.123.net");
-  const [browserSyncProfile, setBrowserSyncProfile] = useState("Default");
   const [browserSyncLoading, setBrowserSyncLoading] = useState<BrowserSyncTarget | null>(null);
   const [syncConfirmBrowser, setSyncConfirmBrowser] = useState<BrowserSyncTarget | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,6 +65,7 @@ export default function HandlesPage() {
 
   const filteredHandles = useMemo(() => new Set(handles.map((item) => item.toUpperCase())), [handles]);
   const filteredHandleRows = useMemo(() => handleRows.filter((row) => filteredHandles.has(row.handle.toUpperCase())), [filteredHandles, handleRows]);
+  const availableChromeProfiles = chromeProfiles.length ? chromeProfiles : ["Profile 1", "Default"];
   const selectedCount = selectedHandles.size;
   const allFilteredSelected = filteredHandleRows.length > 0 && filteredHandleRows.every((row) => selectedHandles.has(row.handle));
   const someFilteredSelected = filteredHandleRows.some((row) => selectedHandles.has(row.handle));
@@ -251,7 +251,7 @@ export default function HandlesPage() {
   const runBrowserSync = async () => {
     if (!syncConfirmBrowser) return;
     const domain = browserSyncDomain.trim() || "secure.123.net";
-    const profile = browserSyncProfile.trim() || "Default";
+    const profile = chromeProfileDir || "Default";
 
     setSyncConfirmBrowser(null);
     setError(null);
@@ -374,7 +374,7 @@ export default function HandlesPage() {
           <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>Launch Login (isolated)</button>
           <label style={{ marginLeft: 8 }}>Chrome Profile
             <select value={chromeProfileDir} onChange={(e) => setChromeProfileDir(e.target.value)} style={{ marginLeft: 6 }}>
-              {(chromeProfiles.length ? chromeProfiles : ["Profile 1", "Default"]).map((profile) => (
+              {availableChromeProfiles.map((profile) => (
                 <option key={profile} value={profile}>{profile}</option>
               ))}
             </select>
@@ -401,12 +401,11 @@ export default function HandlesPage() {
             </label>
             <label style={{ marginLeft: 10 }}>
               Profile
-              <input
-                value={browserSyncProfile}
-                onChange={(e) => setBrowserSyncProfile(e.target.value)}
-                placeholder="Default"
-                style={{ marginLeft: 6 }}
-              />
+              <select value={chromeProfileDir} onChange={(e) => setChromeProfileDir(e.target.value)} style={{ marginLeft: 6 }}>
+                {availableChromeProfiles.map((profile) => (
+                  <option key={profile} value={profile}>{profile}</option>
+                ))}
+              </select>
             </label>
             <div style={{ marginTop: 8 }}>
               <button onClick={() => requestBrowserSync("chrome")} disabled={browserSyncLoading !== null}>
