@@ -43,6 +43,7 @@ EXIT_USAGE = 2
 EXIT_DOCTOR_ISSUES = 10
 EXIT_SERVICES_UNHEALTHY = 1
 EXIT_TEST_FAILED = 30
+EXIT_AUTH_FAILED = 40
 MANAGER_RUNTIME_MODULES = ["typer", "rich", "psutil", "packaging"]
 
 TITLE_TEXT = "FreePBX Webscraper Manager"
@@ -964,6 +965,51 @@ def write_log(path: Path, content: str) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(content, encoding="utf-8")
     tmp_path.replace(path)
+
+
+def run_auth_check(state: AppState, json_out: bool = False) -> int:
+    root = find_repo_root()
+    console = get_console(state)
+    python_exe = get_runtime_python(state, root)
+    script_path = root / "webscraper" / "scripts" / "auth_probe.py"
+    if not script_path.exists():
+        message = f"Auth probe script not found: {script_path}"
+        if json_out:
+            print(json.dumps({"ok": False, "error": message}, indent=2))
+        elif not state.quiet:
+            (console.print(message) if console is not None else print(message))
+        return EXIT_AUTH_FAILED
+
+    cmd = [str(python_exe), str(script_path), "--json"]
+    rc, out, err = run_subprocess(cmd, cwd=root, timeout=90)
+    payload: dict[str, Any]
+    try:
+        payload = json.loads(out or "{}")
+    except json.JSONDecodeError:
+        payload = {
+            "ok": False,
+            "error": "Invalid JSON output from auth probe",
+            "stdout": out,
+            "stderr": err,
+            "returncode": rc,
+        }
+
+    if json_out:
+        print(json.dumps(payload, indent=2))
+    elif not state.quiet:
+        requests_result = payload.get("requests") if isinstance(payload, dict) else None
+        selenium_result = payload.get("selenium") if isinstance(payload, dict) else None
+        ok = bool(payload.get("ok")) if isinstance(payload, dict) else False
+        lines = [
+            f"Auth check overall: {'PASS' if ok else 'FAIL'}",
+            f"Requests probe: {requests_result.get('ok') if isinstance(requests_result, dict) else 'n/a'}",
+            f"Selenium probe: {selenium_result.get('ok') if isinstance(selenium_result, dict) else 'n/a'}",
+            f"Recommended method: {payload.get('recommended_method', 'n/a') if isinstance(payload, dict) else 'n/a'}",
+        ]
+        for line in lines:
+            (console.print(line) if console is not None else print(line))
+
+    return EXIT_OK if bool(payload.get("ok")) else EXIT_AUTH_FAILED
 
 
 def get_console(state: AppState) -> Console | None:
@@ -2528,6 +2574,16 @@ if TYPER_AVAILABLE:
         if code:
             raise typer.Exit(code)
 
+    @app.command("auth-check")
+    def auth_check(
+        ctx: typer.Context,
+        json_output: bool = typer.Option(False, "--json", help="Output JSON only."),
+        quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
+        verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
+    ) -> None:
+        state = _build_state_from_ctx(ctx, quiet=quiet, verbose=verbose, use_preferred_python=True)
+        raise typer.Exit(run_auth_check(state, json_out=bool(json_output)))
+
     @start_app.callback()
     def start_default(
         ctx: typer.Context,
@@ -2758,6 +2814,11 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
 
     doctor_parser = subparsers.add_parser("doctor", help="Run doctor checks")
     doctor_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
+
+    auth_check_parser = subparsers.add_parser("auth-check", help="Run auth probes for requests and selenium")
+    auth_check_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
+    auth_check_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+    auth_check_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     doctor_parser.add_argument("--quiet", action="store_true", help="Minimal output")
     doctor_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
@@ -2832,6 +2893,10 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
             print_banner(get_console(state))
         code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output))
         return code
+
+    if args.command == "auth-check":
+        state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
+        return run_auth_check(state, json_out=bool(args.json_output))
 
     if args.command in {"start", "stop", "status", "restart"}:
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
