@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from typing import Iterable, List, Optional
@@ -177,11 +178,39 @@ def _resolve_path_candidates(path: str, base_dirs: Iterable[str]) -> List[str]:
 def _default_cookie_candidates(root_dir: str) -> List[str]:
     webscraper_dir = os.path.join(root_dir, "webscraper")
     return [
+        os.path.join(webscraper_dir, "var", "auth", "cookies.json"),
         os.path.join(webscraper_dir, "output", "kb-run", "selenium_cookies.json"),
         os.path.join(webscraper_dir, "cookies.json"),
         os.path.join(webscraper_dir, "live_cookies.json"),
         os.path.join(webscraper_dir, "cookies_netscape_format.txt"),
     ]
+
+
+def _cookie_export_target(ctx: AuthContext) -> str:
+    if ctx.cookie_files:
+        first = (ctx.cookie_files[0] or "").strip()
+        if first:
+            return first
+    return os.path.join(_repo_root(), "webscraper", "var", "auth", "cookies.json")
+
+
+def _persist_auth_artifacts(driver, ctx: AuthContext) -> None:
+    cookie_path = _cookie_export_target(ctx)
+    os.makedirs(os.path.dirname(cookie_path), exist_ok=True)
+    with open(cookie_path, "w", encoding="utf-8") as handle:
+        json.dump(driver.get_cookies() or [], handle, indent=2)
+
+    storage_path = os.path.join(os.path.dirname(cookie_path), "storage.json")
+    storage_payload = driver.execute_script(
+        """
+        return {
+          localStorage: Object.assign({}, window.localStorage || {}),
+          sessionStorage: Object.assign({}, window.sessionStorage || {})
+        };
+        """
+    )
+    with open(storage_path, "w", encoding="utf-8") as handle:
+        json.dump(storage_payload or {}, handle, indent=2)
 
 
 def _resolve_cookie_files(ctx: AuthContext) -> List[str]:
@@ -244,6 +273,11 @@ def authenticate(ctx: AuthContext, modes: Optional[List[AuthMode]] = None) -> Au
             ok, driver, reason = False, None, "unsupported_mode"
         attempts.append(AuthAttempt(mode=mode, ok=ok, reason=reason))
         if ok and driver:
+            try:
+                _persist_auth_artifacts(driver, ctx)
+                print(f"[AUTH] exported cookies to {_cookie_export_target(ctx)}")
+            except Exception as exc:
+                print(f"[AUTH] artifact export warning: {exc}")
             return AuthResult(
                 ok=True,
                 mode=mode,

@@ -10,9 +10,9 @@ from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
 
+from ..driver_factory import create_edge_driver_for_auth
 from ..healthcheck import is_authenticated
 from ..types import AuthContext
-from ..driver_factory import create_edge_driver_for_auth
 
 _MANUAL_PROMPTED = False
 
@@ -145,6 +145,68 @@ def _allow_multiple_prompts() -> bool:
     return os.environ.get("SCRAPER_MANUAL_PROMPT_MULTI", "0") == "1"
 
 
+def _wait_mode() -> str:
+    mode = (os.environ.get("WEBSCRAPER_AUTH_WAIT_MODE") or "auto").strip().lower()
+    return mode if mode in {"auto", "enter"} else "auto"
+
+
+def _wait_timeout_sec() -> int:
+    raw = os.environ.get("WEBSCRAPER_AUTH_WAIT_TIMEOUT_SEC", "180")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 180
+    return max(1, value)
+
+
+def _diagnostic_dump(driver, ctx: AuthContext) -> None:
+    output_dir = Path(_manual_output_dir(ctx.output_dir))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = int(time.time())
+    screenshot_path = output_dir / f"auth_timeout_{timestamp}.png"
+    html_path = output_dir / f"auth_timeout_{timestamp}.html"
+    try:
+        driver.save_screenshot(str(screenshot_path))
+    except Exception:
+        pass
+    try:
+        html_path.write_text(driver.page_source or "", encoding="utf-8")
+    except Exception:
+        pass
+    print(f"[AUTH] timeout diagnostics saved: screenshot={screenshot_path} html={html_path}", flush=True)
+
+
+def _wait_for_manual_auth(driver, ctx: AuthContext) -> Tuple[bool, str]:
+    mode = _wait_mode()
+    timeout_sec = _wait_timeout_sec()
+
+    if mode == "enter":
+        print("Login in the opened browser, then press Enter in terminal to continue", flush=True)
+        _ = sys.stdin.readline()
+        return is_authenticated(driver, ctx)
+
+    print(f"[AUTH] waiting for MFA/login completion (mode=auto timeout={timeout_sec}s)", flush=True)
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        ok, reason = is_authenticated(driver, ctx)
+        if ok:
+            return True, reason
+        time.sleep(1)
+
+    _diagnostic_dump(driver, ctx)
+    print(
+        "[AUTH] Timeout waiting for authenticated selector/state. "
+        "Browser remains open. Complete MFA and press Enter to re-check (Ctrl+C to abort).",
+        flush=True,
+    )
+    while True:
+        _ = sys.stdin.readline()
+        ok, reason = is_authenticated(driver, ctx)
+        if ok:
+            return True, reason
+        print("[AUTH] Still not authenticated. Complete MFA then press Enter to re-check.", flush=True)
+
+
 def _maybe_prompt_for_cookie(ctx: AuthContext) -> Optional[str]:
     global _MANUAL_PROMPTED
     if not _prompt_enabled():
@@ -157,9 +219,7 @@ def _maybe_prompt_for_cookie(ctx: AuthContext) -> Optional[str]:
     return cookie_path
 
 
-def _attempt_manual_with_cookie(
-    ctx: AuthContext, cookie_path: str
-) -> Tuple[bool, Optional[webdriver.Edge], str, bool]:
+def _attempt_manual_with_cookie(ctx: AuthContext, cookie_path: str) -> Tuple[bool, Optional[webdriver.Edge], str, bool]:
     print(f"[AUTH] TRY MANUAL cookie={cookie_path}")
     ctx_for_run = replace(ctx, profile_dirs=[], edge_temp_profile=True)
     try:
@@ -254,13 +314,7 @@ def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     except Exception:
         pass
 
-    if _prompt_enabled():
-        print("Login in the opened browser, then press Enter in terminal to continue", flush=True)
-        _ = sys.stdin.readline()
-    else:
-        time.sleep(1)
-
-    ok, reason = is_authenticated(driver, ctx)
+    ok, reason = _wait_for_manual_auth(driver, ctx)
     if ok:
         cookie_target = (ctx.cookie_files[0] if ctx.cookie_files else "").strip()
         if cookie_target:

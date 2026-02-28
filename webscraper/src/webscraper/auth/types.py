@@ -17,7 +17,7 @@ class AuthMode(str, Enum):
 class AuthContext:
     base_url: str
     auth_check_url: Optional[str]
-    preferred_browser: str = "edge"
+    preferred_browser: str = "chrome"
     profile_dirs: List[str] = field(default_factory=list)
     profile_name: str = "Default"
     cookie_files: List[str] = field(default_factory=list)
