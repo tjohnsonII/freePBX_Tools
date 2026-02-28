@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from dataclasses import replace
+from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
 from selenium import webdriver
@@ -136,7 +138,7 @@ def prompt_for_cookie_source(output_dir: str) -> tuple[Optional[str], Optional[s
 
 
 def _prompt_enabled() -> bool:
-    return os.environ.get("SCRAPER_MANUAL_PROMPT", "1") != "0"
+    return os.environ.get("WEBSCRAPER_AUTH_PAUSE_ON_FAIL", "1") != "0"
 
 
 def _allow_multiple_prompts() -> bool:
@@ -222,23 +224,55 @@ def _sanitize_cookie(cookie: dict) -> dict:
     return {k: v for k, v in cookie.items() if k in allowed and v is not None}
 
 
-def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
+def try_cookies(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
     cookie_path = _first_cookie_file(ctx.cookie_files)
     if not cookie_path:
-        cookie_path = _maybe_prompt_for_cookie(ctx)
-        if not cookie_path:
-            return False, None, "no_cookie_provided"
+        return False, None, "no_cookie_provided"
 
-    ok, driver, reason, healthcheck_ran = _attempt_manual_with_cookie(ctx, cookie_path)
+    ok, driver, reason, _ = _attempt_manual_with_cookie(ctx, cookie_path)
     if ok:
         return True, driver, reason
+    return False, None, reason
 
-    if healthcheck_ran:
-        cookie_path = _maybe_prompt_for_cookie(ctx)
-        if not cookie_path:
-            return False, None, "no_cookie_provided"
-        ok, driver, reason, _ = _attempt_manual_with_cookie(ctx, cookie_path)
-        if ok:
-            return True, driver, reason
 
+def _save_driver_cookies(driver: webdriver.Edge, path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    cookies = driver.get_cookies() or []
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(cookies, handle, indent=2)
+
+
+def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
+    login_url = ctx.auth_check_url or ctx.base_url
+    try:
+        driver, _, _, _ = create_edge_driver_for_auth(replace(ctx, headless=False))
+    except Exception as exc:
+        return False, None, f"driver_start_failed:{type(exc).__name__}"
+
+    try:
+        driver.get(login_url)
+    except Exception:
+        pass
+
+    if _prompt_enabled():
+        print("Login in the opened browser, then press Enter in terminal to continue", flush=True)
+        _ = sys.stdin.readline()
+    else:
+        time.sleep(1)
+
+    ok, reason = is_authenticated(driver, ctx)
+    if ok:
+        cookie_target = (ctx.cookie_files[0] if ctx.cookie_files else "").strip()
+        if cookie_target:
+            try:
+                _save_driver_cookies(driver, cookie_target)
+                print(f"[AUTH] cookies exported to {cookie_target}")
+            except Exception as exc:
+                print(f"[AUTH] cookie export failed: {exc}")
+        return True, driver, reason
+
+    try:
+        driver.quit()
+    except Exception:
+        pass
     return False, None, reason

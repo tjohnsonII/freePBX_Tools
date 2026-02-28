@@ -30,6 +30,7 @@ import urllib.parse
 import hashlib
 import importlib
 import importlib.util
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 from webscraper.browser.edge_driver import (
@@ -1214,7 +1215,7 @@ def _ensure_http_cookies(
     auth_ctx = AuthContext(
         base_url=target_url,
         auth_check_url=auth_check_url or target_url,
-        preferred_browser="edge",
+        preferred_browser=(os.environ.get("WEBSCRAPER_BROWSER") or "chrome").strip().lower(),
         profile_dirs=auth_profile_candidates,
         profile_name=profile_name,
         cookie_files=auth_cookie_candidates,
@@ -1973,10 +1974,12 @@ def selenium_scrape_tickets(
 
     from webscraper.auth.selenium_auth import goto_with_auth
     from webscraper.config import load_config
+    from webscraper.browser.selection import resolve_browser_selection
 
     os.makedirs(output_dir, exist_ok=True)
     run_started_utc = utc_now_iso()
-    browser = (browser or "edge").lower()
+    selected_browser = resolve_browser_selection().browser
+    browser = (browser or selected_browser or "chrome").lower()
     debug_dir = os.path.abspath(debug_dir or output_dir)
     os.makedirs(debug_dir, exist_ok=True)
     db_run_id: Optional[str] = None
@@ -2468,7 +2471,7 @@ def selenium_scrape_tickets(
                 auth_ctx = AuthContext(
                     base_url=effective_target_url,
                     auth_check_url=auth_check_url or effective_auth_url,
-                    preferred_browser="edge",
+                    preferred_browser=(os.environ.get("WEBSCRAPER_BROWSER") or browser or "chrome").strip().lower(),
                     profile_dirs=auth_profile_candidates,
                     profile_name=resolved_profile_name,
                     cookie_files=auth_cookie_candidates,
@@ -3253,6 +3256,9 @@ def main() -> int:
     # Prefer config defaults, allow CLI overrides, and finally env overrides
     cfg = _load_config()
     import argparse
+    from webscraper.browser.selection import resolve_browser_selection
+
+    selection = resolve_browser_selection()
 
     default_url = getattr(cfg, "DEFAULT_URL", "https://noc.123.net/customers")
     default_target_url = getattr(
@@ -3271,7 +3277,7 @@ def main() -> int:
     parser.add_argument("--handles", nargs="+", default=default_handles, help="One or more customer handles")
     parser.add_argument("--handles-file", help="Path to a file containing handles (one per line; '#' for comments)")
     parser.add_argument("--show", action="store_true", help="Run browser in visible (non-headless) mode")
-    parser.add_argument("--browser", choices=["edge", "chrome"], default="edge", help="Browser engine")
+    parser.add_argument("--browser", choices=["edge", "chrome"], default=selection.browser, help="Browser engine")
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
     parser.add_argument("--aggressive", action="store_true", help="Enable extreme scraping: network logs, infinite scroll, deep vacuum")
     parser.add_argument("--cookie-file", help="Path to Selenium cookies JSON to reuse authenticated session")
@@ -3422,7 +3428,7 @@ def main() -> int:
     url = os.environ.get("SCRAPER_URL") or args.url
     out_dir = os.environ.get("SCRAPER_OUT") or args.out
     kb_jsonl = args.kb_jsonl or os.path.join(out_dir, "kb.jsonl")
-    cookie_file = os.environ.get("SCRAPER_COOKIE_FILE") or args.cookie_file
+    cookie_file = os.environ.get("WEBSCRAPER_COOKIES_FILE") or os.environ.get("SCRAPER_COOKIE_FILE") or args.cookie_file
     # Determine handles precedence: --handles-file > env > CLI list
     handles_env = os.environ.get("SCRAPER_HANDLES")
     handles = None
@@ -3468,8 +3474,8 @@ def main() -> int:
     auth_username = os.environ.get("SCRAPER_USERNAME") or os.environ.get("SCRAPER_AUTH_USERNAME") or config_username
     auth_password = os.environ.get("SCRAPER_PASSWORD") or os.environ.get("SCRAPER_AUTH_PASSWORD") or config_password
     auth_user_agent = os.environ.get("SCRAPER_AUTH_USER_AGENT") or os.environ.get("SCRAPER_USER_AGENT")
-    auth_check_url = os.environ.get("SCRAPER_AUTH_CHECK_URL") or args.auth_check_url or args.auth_url
-    auth_mode = os.environ.get("SCRAPER_AUTH_MODE")
+    auth_check_url = os.environ.get("WEBSCRAPER_AUTH_URLS", "").split(",")[0].strip() or os.environ.get("SCRAPER_AUTH_CHECK_URL") or args.auth_check_url or args.auth_url
+    auth_mode = os.environ.get("WEBSCRAPER_AUTH_MODE") or os.environ.get("SCRAPER_AUTH_MODE")
 
     auth_orchestration_cfg = getattr(cfg, "AUTH_ORCHESTRATION", True)
     auth_orchestration_env = os.environ.get("SCRAPER_AUTH_ORCHESTRATION")

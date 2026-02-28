@@ -4,6 +4,8 @@ import json
 import os
 import re
 import urllib.parse
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Tuple
 
 from selenium.webdriver.common.by import By
@@ -36,6 +38,9 @@ def _split_env_list(raw_value: str) -> tuple[str, ...]:
 
 
 def _auth_selectors() -> tuple[str, ...]:
+    explicit = (os.environ.get("WEBSCRAPER_AUTH_EXPECT_SELECTOR") or "").strip()
+    if explicit:
+        return (explicit,)
     override = _split_env_list(os.environ.get("SCRAPER_AUTH_SUCCESS_SELECTORS", ""))
     return override or DEFAULT_AUTH_SELECTORS
 
@@ -46,6 +51,11 @@ def _session_cookie_names() -> tuple[str, ...]:
 
 
 def _expected_auth_hosts() -> tuple[str, ...]:
+    url_list = _split_env_list(os.environ.get("WEBSCRAPER_AUTH_URLS", ""))
+    if url_list:
+        hosts = tuple(_url_host(item) for item in url_list if _url_host(item))
+        if hosts:
+            return hosts
     override = _split_env_list(os.environ.get("SCRAPER_AUTH_HOSTS", ""))
     return tuple(host.lower() for host in (override or DEFAULT_AUTH_HOSTS))
 
@@ -139,11 +149,15 @@ def _write_auth_diagnostics(driver, ctx: AuthContext, auth_check_url: str, final
         "page_text_first_200": _sanitize_text_snippet(page_text),
         "cookie_count": len(cookies),
         "cookie_names": cookie_names,
+        "html_preview": (page_html or "")[:500],
     }
 
-    report_path = _safe_path(ctx, "auth_failure_diagnostics.json")
-    html_path = _safe_path(ctx, "auth_failure_page.html")
-    screenshot_path = _safe_path(ctx, "auth_failure_screenshot.png")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    logs_dir = Path("webscraper") / "var" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    report_path = str(logs_dir / f"auth_fail_{stamp}.json")
+    html_path = str(logs_dir / f"auth_fail_{stamp}.html")
+    screenshot_path = str(logs_dir / f"auth_fail_{stamp}.png")
     with open(report_path, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
     with open(html_path, "w", encoding="utf-8") as handle:
@@ -155,11 +169,24 @@ def _write_auth_diagnostics(driver, ctx: AuthContext, auth_check_url: str, final
         screenshot_written = False
 
     print(f"[AUTH] auth diagnostics report: {report_path}")
+    print(f"[AUTH] final_url={final_url} title={title!r}")
     print(f"[AUTH] auth diagnostics html: {html_path}")
     if screenshot_written:
         print(f"[AUTH] auth diagnostics screenshot: {screenshot_path}")
     else:
         print("[AUTH] auth diagnostics screenshot: unavailable")
+
+    legacy_report_path = _safe_path(ctx, "auth_failure_diagnostics.json")
+    legacy_html_path = _safe_path(ctx, "auth_failure_page.html")
+    legacy_screenshot_path = _safe_path(ctx, "auth_failure_screenshot.png")
+    with open(legacy_report_path, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2)
+    with open(legacy_html_path, "w", encoding="utf-8") as handle:
+        handle.write(page_html)
+    try:
+        driver.save_screenshot(legacy_screenshot_path)
+    except Exception:
+        pass
 
 
 def _has_enough_dom_content(driver) -> bool:

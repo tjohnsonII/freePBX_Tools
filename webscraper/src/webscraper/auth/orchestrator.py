@@ -212,7 +212,16 @@ def _max_profile_dirs() -> int:
 
 def authenticate(ctx: AuthContext, modes: Optional[List[AuthMode]] = None) -> AuthResult:
     attempts: List[AuthAttempt] = []
-    modes = modes or [AuthMode.PROFILE, AuthMode.PROGRAMMATIC, AuthMode.MANUAL]
+    if modes is None:
+        requested = (os.getenv("WEBSCRAPER_AUTH_MODE") or "auto").strip().lower()
+        if requested == "cookies":
+            modes = [AuthMode.COOKIES]
+        elif requested == "profile":
+            modes = [AuthMode.PROFILE]
+        elif requested == "manual":
+            modes = [AuthMode.MANUAL]
+        else:
+            modes = [AuthMode.COOKIES, AuthMode.PROFILE, AuthMode.MANUAL]
     max_attempts_per_strategy = 1
     attempted_by_mode: dict[AuthMode, int] = {}
     ctx = replace(ctx, cookie_files=_resolve_cookie_files(ctx))
@@ -222,7 +231,9 @@ def authenticate(ctx: AuthContext, modes: Optional[List[AuthMode]] = None) -> Au
         if attempted_by_mode.get(mode, 0) >= max_attempts_per_strategy:
             continue
         attempted_by_mode[mode] = attempted_by_mode.get(mode, 0) + 1
-        if mode == AuthMode.PROFILE:
+        if mode == AuthMode.COOKIES:
+            ok, driver, reason = manual.try_cookies(ctx)
+        elif mode == AuthMode.PROFILE:
             profile_ctx = replace(ctx, profile_dirs=ctx.profile_dirs[:max_profiles])
             ok, driver, reason = profile.try_profile(profile_ctx)
         elif mode == AuthMode.PROGRAMMATIC:
