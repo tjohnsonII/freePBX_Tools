@@ -260,12 +260,15 @@
       }
     },
     {
-      "label": "dev: webscraper stack",
+      "label": "dev: webscraper stack (freepbx-tools) [WIN]",
       "type": "process",
       "command": "cmd.exe",
       "args": [
         "/d",
         "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat",
+        "&&",
         "call",
         "${workspaceFolder}\\scripts\\run_py.bat",
         ".venv-webscraper",
@@ -300,6 +303,253 @@
           "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
           "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
           "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
+        }
+      }
+    },
+    {
+      "label": "dev: webscraper stack (freepbx-tools) [WSL]",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "bash ./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper -m webscraper_manager start webscraper"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "webscraper stack started"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+        }
+      }
+    },
+    {
+      "label": "dev: webscraper stack (freepbx-tools)",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat",
+        "&&",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "start",
+        "webscraper"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "webscraper stack started"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
+          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
+        }
+      },
+      "linux": {
+        "command": "bash",
+        "args": [
+          "-lc",
+          "bash ./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper -m webscraper_manager start webscraper"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "env": {
+            "WEBSCRAPER_BROWSER": "chrome",
+            "WEBSCRAPER_AUTH_MODE": "auto",
+            "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+            "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+            "WEBSCRAPER_PROFILE_NAME": "Default",
+            "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+            "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+          }
+        }
+      },
+      "osx": {
+        "command": "bash",
+        "args": [
+          "-lc",
+          "bash ./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper -m webscraper_manager start webscraper"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "env": {
+            "WEBSCRAPER_BROWSER": "chrome",
+            "WEBSCRAPER_AUTH_MODE": "auto",
+            "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+            "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+            "WEBSCRAPER_PROFILE_NAME": "Default",
+            "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+            "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+          }
+        }
+      }
+    },
+    {
+      "label": "dev: stop webscraper stack (freepbx-tools) [WIN]",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "stop",
+        "webscraper",
+        "||",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
+          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
+        }
+      }
+    },
+    {
+      "label": "dev: stop webscraper stack (freepbx-tools) [WSL]",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "./scripts/run_py.sh .venv-webscraper -m webscraper_manager stop webscraper || bash ./scripts/kill_ports.sh"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+        }
+      }
+    },
+    {
+      "label": "dev: stop webscraper stack (freepbx-tools)",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "stop",
+        "webscraper",
+        "||",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "WEBSCRAPER_BROWSER": "chrome",
+          "WEBSCRAPER_AUTH_MODE": "auto",
+          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
+          "WEBSCRAPER_PROFILE_NAME": "Default",
+          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
+        }
+      },
+      "linux": {
+        "command": "bash",
+        "args": [
+          "-lc",
+          "./scripts/run_py.sh .venv-webscraper -m webscraper_manager stop webscraper || bash ./scripts/kill_ports.sh"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "env": {
+            "WEBSCRAPER_BROWSER": "chrome",
+            "WEBSCRAPER_AUTH_MODE": "auto",
+            "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+            "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+            "WEBSCRAPER_PROFILE_NAME": "Default",
+            "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+            "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+          }
+        }
+      },
+      "osx": {
+        "command": "bash",
+        "args": [
+          "-lc",
+          "./scripts/run_py.sh .venv-webscraper -m webscraper_manager stop webscraper || bash ./scripts/kill_ports.sh"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "env": {
+            "WEBSCRAPER_BROWSER": "chrome",
+            "WEBSCRAPER_AUTH_MODE": "auto",
+            "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
+            "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
+            "WEBSCRAPER_PROFILE_NAME": "Default",
+            "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
+            "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
+          }
         }
       }
     },
@@ -376,7 +626,7 @@
         "dev: deploy-ui (no-inspect)",
         "dev: polycom app (no-inspect)",
         "dev: deploy-backend (no-wait)",
-        "dev: webscraper stack",
+        "dev: webscraper stack (freepbx-tools)",
         "dev: cli manager",
         "open: traceroute ui",
         "open: webscraper ui"
