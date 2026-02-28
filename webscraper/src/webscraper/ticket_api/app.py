@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import requests
 
@@ -25,6 +26,12 @@ from pydantic import BaseModel
 
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
+from webscraper.auth.chrome_cookies import (
+    CHROME_CUSTOMERS_URL,
+    ChromeCookieError,
+    load_cookies_from_profile,
+    seed_isolated_profile,
+)
 from webscraper.ticket_api.auth import (
     dedupe_and_filter_expired,
     get_default_cookie_domain,
@@ -75,6 +82,17 @@ class LaunchBrowserRequest(BaseModel):
     url: str | None = None
     profile: str = "ticketing"
     new_window: bool = True
+
+
+class LaunchSeededRequest(BaseModel):
+    target_url: str = CHROME_CUSTOMERS_URL
+    chrome_profile_dir: str = "Default"
+    seed_domains: list[str] = ["secure.123.net"]
+
+
+class ImportFromProfileRequest(BaseModel):
+    temp_profile_dir: str
+    seed_domains: list[str] = ["secure.123.net"]
 
 
 @dataclass
@@ -164,6 +182,10 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
         raise HTTPException(status_code=400, detail="Parsed 0 cookies from payload")
 
     kept, expired_dropped = dedupe_and_filter_expired(parsed)
+    normalized_domains = {str(cookie.domain or "").strip().lstrip(".").lower() for cookie in kept}
+    has_secure_domain = any(domain == "secure.123.net" or domain.endswith(".secure.123.net") for domain in normalized_domains)
+    if not has_secure_domain:
+        raise HTTPException(status_code=400, detail="Wrong cookie domain set loaded — must include secure.123.net")
     store_result = auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
     status_payload = _auth_meta_response(auth_store.status(db_path()))
     _append_event(
@@ -258,14 +280,30 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             login_like = "login.cgi" in final_url.lower() or _is_login_like(response.text[:2500])
             ok = status == 200 and not login_like
             if not ok:
-                hint = "redirected_to_login" if "login.cgi" in final_url.lower() or login_like else "http_error"
+                if "login.cgi" in final_url.lower() or login_like:
+                    hint = "redirected_to_login"
+                elif status == 401:
+                    hint = "missing_cookie"
+                elif status == 403:
+                    hint = "forbidden"
+                else:
+                    hint = "http_error"
         except Exception as exc:
             hint = f"exception:{exc.__class__.__name__}"
         checks.append({"url": url, "status": status, "final_url": final_url, "ok": ok, "hint": hint})
-        _log(f"auth_validate url={url} status={status} final_url={final_url} ok={ok}")
+        _log(f"auth_validate url={url} status={status} final_url={final_url} ok={ok} hint={hint or '-'}")
 
     overall_ok = all(item["ok"] for item in checks)
-    reason = None if overall_ok else ("redirected_to_login" if any((item.get("hint") or "").startswith("redirected_to_login") for item in checks) else "expired")
+    reason = None
+    if not overall_ok:
+        if any((item.get("hint") or "").startswith("redirected_to_login") for item in checks):
+            reason = "redirected_to_login"
+        elif any((item.get("hint") or "") == "missing_cookie" for item in checks):
+            reason = "missing_cookie"
+        elif any((item.get("hint") or "") == "forbidden" for item in checks):
+            reason = "forbidden"
+        else:
+            reason = "expired"
     if any((item.get("hint") or "").startswith("exception") for item in checks):
         reason = "exception"
     return {
@@ -848,6 +886,78 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     subprocess.Popen(command)
     _log(f"launched isolated browser browser={browser_path} profile_dir={profile_dir} url={target_url}")
     return {"ok": True, "browser": str(browser_path), "profile_dir": str(profile_dir)}
+
+
+@app.post("/api/auth/launch_seeded")
+@app.post("/auth/launch_seeded")
+def api_auth_launch_seeded(request: Request, payload: LaunchSeededRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+
+    target_url = (payload.target_url or "").strip() or CHROME_CUSTOMERS_URL
+    parsed_target = urlparse(target_url)
+    if parsed_target.scheme not in {"http", "https"} or not parsed_target.netloc:
+        raise HTTPException(status_code=400, detail="target_url must be an absolute HTTP(S) URL")
+
+    browser_path = _detect_browser_path()
+    var_root = Path(__file__).resolve().parents[4] / "webscraper" / "var"
+    try:
+        seeded_result = seed_isolated_profile(
+            var_root=var_root,
+            chrome_profile_dir=payload.chrome_profile_dir,
+            seed_domains=payload.seed_domains,
+        )
+    except ChromeCookieError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    command = [
+        str(browser_path),
+        f"--user-data-dir={seeded_result.temp_profile_dir}",
+        "--profile-directory=Default",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--new-window",
+        target_url,
+    ]
+    subprocess.Popen(command)
+    _log(
+        f"launched seeded isolated browser browser={browser_path} profile_dir={seeded_result.temp_profile_dir} "
+        f"url={target_url} domain_counts={seeded_result.domain_counts}"
+    )
+    return {
+        "ok": True,
+        "temp_profile_dir": seeded_result.temp_profile_dir,
+        "launched_url": target_url,
+        "seeded_domains": seeded_result.seeded_domains,
+        "domain_counts": seeded_result.domain_counts,
+    }
+
+
+@app.post("/api/auth/import_from_profile")
+@app.post("/auth/import_from_profile")
+def api_auth_import_from_profile(request: Request, payload: ImportFromProfileRequest):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    try:
+        cookies, domain_counts = load_cookies_from_profile(payload.temp_profile_dir, payload.seed_domains)
+    except ChromeCookieError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not cookies:
+        raise HTTPException(status_code=400, detail="No cookies extracted for secure.123.net from profile.")
+
+    store_result = auth_store.replace_cookies(db_path(), cookies, source="seeded_profile")
+    status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _append_event(
+        "info",
+        f"Imported auth cookies from seeded profile count={store_result.get('accepted', 0)} domain_counts={domain_counts}",
+    )
+    return {
+        "ok": True,
+        **status_payload,
+        "cookie_count": int(store_result.get("accepted", 0)),
+        "domain_counts": [{"domain": domain, "count": count} for domain, count in sorted(domain_counts.items())],
+    }
 
 
 @app.get("/api/auth/doctor")

@@ -11,6 +11,12 @@ type AuthStatus = {
   last_imported: number | null;
   source: string;
 };
+type SeededLaunchResponse = {
+  ok: boolean;
+  temp_profile_dir: string;
+  launched_url: string;
+  seeded_domains: string[];
+};
 type ValidateRow = {
   url: string;
   status?: number | null;
@@ -38,6 +44,12 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [statusWarning, setStatusWarning] = useState<string | null>(null);
+
+  const hasSecureDomain = (status?.domains || []).some((domain) => {
+    const normalized = domain.replace(/^\./, "").toLowerCase();
+    return normalized === "secure.123.net" || normalized.endsWith(".secure.123.net");
+  });
+  const wrongDomainLoaded = (status?.cookie_count || 0) > 0 && !hasSecureDomain;
 
   const refreshStatus = async () => {
     try {
@@ -130,6 +142,27 @@ export default function AuthPage() {
     }
   };
 
+  const launchLoginSeeded = async () => {
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await apiPost<SeededLaunchResponse>("/api/auth/launch_seeded", {
+        target_url: "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+        chrome_profile_dir: "Default",
+        seed_domains: ["secure.123.net"],
+      });
+      await apiPost("/api/auth/import_from_profile", {
+        temp_profile_dir: result.temp_profile_dir,
+        seed_domains: ["secure.123.net"],
+      });
+      setMessage("Opened seeded isolated browser profile for login.");
+      await refreshStatus();
+    } catch (err) {
+      const launchError = err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch seeded isolated browser.";
+      setError(launchError);
+    }
+  };
+
   const clearCookies = async () => {
     await apiPost("/api/auth/clear", {});
     setValidate(null);
@@ -146,6 +179,7 @@ export default function AuthPage() {
       {error && <p style={{ color: "#a22" }}>{error}</p>}
       {message && <p style={{ color: "#166534" }}>{message}</p>}
       {statusWarning && <p style={{ color: "#a16207" }}>Status warning: {statusWarning}</p>}
+      {wrongDomainLoaded && <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded — must include secure.123.net</p>}
 
       <section>
         <h3>Paste cookies</h3>
@@ -168,7 +202,10 @@ export default function AuthPage() {
         <button onClick={launchLoginIsolated} style={{ marginLeft: 8 }}>
           Launch Login (isolated)
         </button>
-        <button onClick={runValidate} style={{ marginLeft: 8 }}>
+        <button onClick={launchLoginSeeded} style={{ marginLeft: 8 }}>
+          Launch Login (seeded isolated)
+        </button>
+        <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>
           Validate Auth
         </button>
       </div>
