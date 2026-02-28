@@ -1,76 +1,71 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOG_DIR="${REPO_ROOT}/webscraper/var/logs"
-LOG_FILE="${LOG_DIR}/kill_ports.log"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$REPO_ROOT/webscraper/var/logs"
+LOG_FILE="$LOG_DIR/kill_ports.log"
 
 mkdir -p "$LOG_DIR"
 
-timestamp() {
-  date '+%Y-%m-%d %H:%M:%S'
+timestamp() { date "+%Y-%m-%d %H:%M:%S"; }
+
+log() {
+  echo "$(timestamp) [kill_ports] $*" | tee -a "$LOG_FILE"
 }
 
-append_log() {
-  printf '%s [kill_ports] %s\n' "$(timestamp)" "$1" >> "$LOG_FILE"
-}
-
-collect_pids() {
+kill_port_lsof() {
   local port="$1"
-
   if command -v lsof >/dev/null 2>&1; then
-    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sed '/^$/d'
+    local pids
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+      for pid in $pids; do
+        log "Killing PID $pid on port $port"
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    fi
     return 0
   fi
-
-  if command -v ss >/dev/null 2>&1; then
-    ss -lptn 2>/dev/null | awk -v p=":$port" '
-      index($0, p) {
-        while (match($0, /pid=[0-9]+/)) {
-          print substr($0, RSTART + 4, RLENGTH - 4)
-          $0 = substr($0, RSTART + RLENGTH)
-        }
-      }
-    ' | sed '/^$/d'
-    return 0
-  fi
-
-  if command -v netstat >/dev/null 2>&1; then
-    netstat -lptn 2>/dev/null | awk -v p=":$port" '
-      index($4, p) {
-        split($7, parts, "/")
-        if (parts[1] ~ /^[0-9]+$/) print parts[1]
-      }
-    ' | sed '/^$/d'
-    return 0
-  fi
-
-  append_log "No supported port inspection tool found for port $port"
-  return 0
+  return 1
 }
 
-seen=""
-for port in 8787 3004; do
-  pids="$(collect_pids "$port" | sort -u)"
-  if [ -z "$pids" ]; then
-    continue
+kill_port_ss() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    local pids
+    pids="$(ss -lptn 2>/dev/null | awk -v p=":$port" '$0 ~ p && $0 ~ /users:\(\(".*",pid=/ {print}' \
+      | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u)"
+    if [[ -n "$pids" ]]; then
+      for pid in $pids; do
+        log "Killing PID $pid on port $port"
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    fi
+    return 0
   fi
+  return 1
+}
 
-  while IFS= read -r pid; do
-    [ -z "$pid" ] && continue
-    case "$seen" in
-      *";$pid;"*)
-        continue
-        ;;
-    esac
+kill_port_netstat() {
+  local port="$1"
+  if command -v netstat >/dev/null 2>&1; then
+    # netstat output varies; attempt best-effort parsing
+    local pids
+    pids="$(netstat -lptn 2>/dev/null | awk -v p=":$port" '$4 ~ p && $6 == "LISTEN" {print $7}' \
+      | sed -n 's#/.*##p' | sort -u)"
+    if [[ -n "$pids" ]]; then
+      for pid in $pids; do
+        log "Killing PID $pid on port $port"
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    fi
+    return 0
+  fi
+  return 1
+}
 
-    append_log "Killing PID $pid on port $port"
-    kill -9 "$pid" >/dev/null 2>&1 || true
-    seen="${seen};${pid};"
-  done <<EOF
-$pids
-EOF
-
+log "Checking ports 8787 and 3004..."
+for port in 8787 3004; do
+  kill_port_lsof "$port" || kill_port_ss "$port" || kill_port_netstat "$port" || true
 done
-
-exit 0
+log "Done."
