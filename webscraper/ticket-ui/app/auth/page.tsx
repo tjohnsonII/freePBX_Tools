@@ -52,8 +52,8 @@ type AuthResetResponse = {
   warnings: string[];
 };
 
-const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
-const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
+const FALLBACK_TICKETING_TARGET_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi";
+const TICKETING_TARGET_URL = process.env.NEXT_PUBLIC_TICKETING_TARGET_URL || process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_TARGET_URL;
 
 export default function AuthPage() {
   const [text, setText] = useState("");
@@ -165,7 +165,7 @@ export default function AuthPage() {
     setError(null);
     setMessage(null);
     try {
-      const result = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=false&url=${encodeURIComponent(TICKETING_LOGIN_URL)}`, {});
+      const result = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=false&url=${encodeURIComponent(TICKETING_TARGET_URL)}`, {});
       const warningText = (result.warnings || []).length ? ` Warnings: ${result.warnings?.join(", ")}` : "";
       setMessage(`Opened login browser. Profile: ${result.profile_dir}.${warningText}`);
       await refreshStatus();
@@ -180,7 +180,7 @@ export default function AuthPage() {
     setMessage(null);
     try {
       const reset = await apiPost<AuthResetResponse>("/api/auth/force-reset", {});
-      const launch = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=true&url=${encodeURIComponent(TICKETING_LOGIN_URL)}`, {});
+      const launch = await apiPost<AuthLaunchResponse>(`/api/auth/launch?force=true&url=${encodeURIComponent(TICKETING_TARGET_URL)}`, {});
       const warnings = [...(reset.warnings || []), ...(launch.warnings || [])];
       const warningText = warnings.length ? ` Warnings: ${warnings.join(", ")}` : "";
       setMessage(`Force re-login complete. Profile: ${launch.profile_dir}. Cookies saved: ${launch.cookies_saved}.${warningText}`);

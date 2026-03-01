@@ -98,4 +98,5 @@ def goto_with_auth(driver: webdriver.Chrome, url: str, timeout: int = 300) -> No
 
     if looks_like_login(driver.current_url or "", driver.title or "", html=page_source):
         ensure_authenticated(driver, timeout=timeout)
+        driver.get(url)
         wait_for_document_ready(driver, timeout=30)

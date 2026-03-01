@@ -128,6 +128,8 @@ class AuthManager:
         lowered = (current_url or "").lower()
         if any(marker in lowered for marker in ("login", "signin", "sign-in", "sso")):
             return False
+        if "customers.cgi" not in lowered:
+            return False
         valid_domains = {"secure.123.net", ".secure.123.net", "123.net", ".123.net"}
         for cookie in cookies:
             domain = str(cookie.get("domain") or "").strip().lower()
@@ -174,6 +176,12 @@ class AuthManager:
                 while time.time() < deadline:
                     time.sleep(2)
                     current_cookies = driver.get_cookies() or []
+                    if not self._is_logged_in(driver.current_url, current_cookies):
+                        try:
+                            driver.get(target_url)
+                        except Exception:
+                            pass
+                        current_cookies = driver.get_cookies() or []
                     if self._is_logged_in(driver.current_url, current_cookies):
                         save_result = self.save_cookies(current_cookies, source="selenium_forced_login")
                         cookies_saved = save_result["saved"] > 0
@@ -198,8 +206,7 @@ class AuthManager:
 def default_target_url(explicit_url: str | None = None) -> str:
     if explicit_url and explicit_url.strip():
         return explicit_url.strip()
-    configured = (os.getenv("TICKETING_LOGIN_URL") or "").strip()
+    configured = (os.getenv("TICKETING_TARGET_URL") or os.getenv("TICKETING_LOGIN_URL") or "").strip()
     if configured:
         return configured
-    return "https://secure.123.net/cgi-bin/web_interface/login.cgi"
-
+    return "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"

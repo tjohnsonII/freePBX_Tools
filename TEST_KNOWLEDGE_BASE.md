@@ -344,7 +344,7 @@ Command: python unified_knowledge_base.py --db unified_knowledge_base.db --stats
 ```powershell
 # Test with verbose output (add to webscraper/legacy/ticket_scraper.py temporarily)
 # Or check if URL is accessible
-curl https://secure.123.net/cgi-bin/web_interface/admin/login.cgi
+curl https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi
 ```
 
 ### Issue 2: No Tickets Found

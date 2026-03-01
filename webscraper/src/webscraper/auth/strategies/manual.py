@@ -303,18 +303,26 @@ def _save_driver_cookies(driver: webdriver.Edge, path: str) -> None:
 
 
 def try_manual(ctx: AuthContext) -> Tuple[bool, Optional[webdriver.Edge], str]:
-    login_url = ctx.auth_check_url or ctx.base_url
+    target_url = ctx.auth_check_url or ctx.base_url
     try:
         driver, _, _, _ = create_edge_driver_for_auth(replace(ctx, headless=False))
     except Exception as exc:
         return False, None, f"driver_start_failed:{type(exc).__name__}"
 
     try:
-        driver.get(login_url)
+        driver.get(target_url)
     except Exception:
         pass
 
     ok, reason = _wait_for_manual_auth(driver, ctx)
+    if ok:
+        try:
+            driver.get(target_url)
+            ok, reason = is_authenticated(driver, ctx)
+        except Exception as exc:
+            ok = False
+            reason = f"post_login_navigation_failed:{type(exc).__name__}"
+
     if ok:
         cookie_target = (ctx.cookie_files[0] if ctx.cookie_files else "").strip()
         if cookie_target:
