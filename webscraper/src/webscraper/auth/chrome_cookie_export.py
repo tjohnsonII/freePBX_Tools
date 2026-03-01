@@ -18,8 +18,9 @@ import os
 import shutil
 import sqlite3
 import sys
-import tempfile
 from pathlib import Path
+
+from webscraper.auth.chrome_cookies import ChromeCookieError, copy_cookie_db_for_read
 
 if sys.platform == "win32":
     import win32crypt
@@ -128,10 +129,14 @@ def export_cookies(domain: str = "secure.123.net", profile: str = "Default", bro
     cookies_db_path = _resolve_cookies_db(user_data_dir, profile)
     master_key = _load_master_key(local_state_path)
 
-    with tempfile.TemporaryDirectory(prefix="chromium_cookies_") as temp_dir:
-        temp_db_path = Path(temp_dir) / "Cookies.sqlite"
-        shutil.copy(cookies_db_path, temp_db_path)
+    try:
+        temp_db_path = copy_cookie_db_for_read(cookies_db_path)
+    except ChromeCookieError as exc:
+        if exc.code == "DB_LOCKED":
+            raise RuntimeError("Cookie DB locked. Close Chrome/Edge OR use CDP method (Launch Debug Chrome).") from exc
+        raise
 
+    try:
         conn = sqlite3.connect(str(temp_db_path))
         try:
             cursor = conn.cursor()
@@ -156,6 +161,8 @@ def export_cookies(domain: str = "secure.123.net", profile: str = "Default", bro
             rows = cursor.fetchall()
         finally:
             conn.close()
+    finally:
+        shutil.rmtree(temp_db_path.parent, ignore_errors=True)
 
     payload: list[dict[str, object]] = []
     for host_key, name, value, encrypted_value, path, is_secure, expires_utc in rows:

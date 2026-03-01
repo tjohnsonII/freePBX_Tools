@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import sqlite3
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,7 +50,9 @@ class SeededProfileResult:
 
 
 class ChromeCookieError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class ChromeCookieDBLockedError(ChromeCookieError):
@@ -133,6 +136,29 @@ def _copy_to_temp(source_path: Path) -> Path:
         temp_path = Path(tmp.name)
     shutil.copy2(source_path, temp_path)
     return temp_path
+
+
+def copy_cookie_db_for_read(cookie_db: Path) -> Path:
+    tmp_root = Path(__file__).resolve().parents[3] / "var" / "tmp_cookie_db"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="cookie_db_", dir=tmp_root))
+        copied_db = tmp_dir / "Cookies"
+        shutil.copy2(cookie_db, copied_db)
+
+        wal_src = Path(f"{cookie_db.with_suffix('')}-wal")
+        if wal_src.exists():
+            shutil.copy2(wal_src, tmp_dir / "Cookies-wal")
+
+        shm_src = Path(f"{cookie_db.with_suffix('')}-shm")
+        if shm_src.exists():
+            shutil.copy2(shm_src, tmp_dir / "Cookies-shm")
+        return copied_db
+    except Exception as exc:
+        raise ChromeCookieError(
+            "Cookie DB locked. Close Chrome/Edge OR use CDP method (Launch Debug Chrome).",
+            code="DB_LOCKED",
+        ) from exc
 
 
 def _is_win_lock_error(exc: Exception) -> bool:
@@ -362,7 +388,8 @@ def load_cookies_from_profile(profile_dir: str | Path, seed_domains: list[str] |
     if not allowed:
         allowed = ["secure.123.net"]
 
-    temp_copy = _copy_to_temp(cookie_db)
+    temp_copy = copy_cookie_db_for_read(cookie_db)
+    temp_dir = temp_copy.parent
     cookies: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
     try:
@@ -407,6 +434,6 @@ def load_cookies_from_profile(profile_dir: str | Path, seed_domains: list[str] |
                 }
             )
     finally:
-        temp_copy.unlink(missing_ok=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     return cookies, counts

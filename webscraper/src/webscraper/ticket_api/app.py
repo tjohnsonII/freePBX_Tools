@@ -1560,12 +1560,6 @@ def api_auth_import_from_profile(request: Request, payload: ImportFromProfileReq
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     profile_dir = resolve_profile_dir(payload.temp_profile_dir, payload.profile)
-    cookie_db = profile_dir / "Network" / "Cookies"
-    if not cookie_db.exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Profile cookie DB not found at: {cookie_db}",
-        )
 
     try:
         cookies, domain_counts = load_cookies_from_profile(profile_dir, payload.seed_domains)
