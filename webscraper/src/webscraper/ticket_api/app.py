@@ -387,7 +387,7 @@ AUTH_CHECK_URLS: list[str] = [
     "https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi",
 ]
 
-DEFAULT_TICKETING_LOGIN_URL = (os.getenv("TICKETING_LOGIN_URL") or "").strip()
+DEFAULT_TICKETING_TARGET_URL = (os.getenv("TICKETING_TARGET_URL") or os.getenv("TICKETING_LOGIN_URL") or "").strip()
 
 
 
@@ -441,6 +441,14 @@ def _is_login_like(payload: str) -> bool:
     return any(marker in lowered for marker in ["login", "sign in", "password", "username", "name=\"username\"", "name=\"password\""])
 
 
+def _is_customers_page(url: str, payload: str) -> bool:
+    lowered_url = (url or "").lower()
+    if "customers.cgi" in lowered_url and "admin" in lowered_url:
+        return True
+    lowered_payload = (payload or "").lower()
+    return "account search" in lowered_payload and "customers" in lowered_payload
+
+
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     cookies = auth_store.load_cookies(db_path())
     if not cookies:
@@ -471,11 +479,14 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             response = requests.get(url, cookies=jar, timeout=timeout, allow_redirects=True, verify=False)
             status = response.status_code
             final_url = response.url
-            login_like = "login.cgi" in final_url.lower() or _is_login_like(response.text[:2500])
-            ok = status == 200 and not login_like
+            login_like = _is_login_like(response.text[:2500])
+            on_customers_page = _is_customers_page(final_url, response.text[:6000])
+            ok = status == 200 and not login_like and on_customers_page
             if not ok:
-                if "login.cgi" in final_url.lower() or login_like:
+                if login_like:
                     hint = "redirected_to_login"
+                elif status == 200 and not on_customers_page:
+                    hint = "not_customers_page"
                 elif status == 401:
                     hint = "missing_cookie"
                 elif status == 403:
@@ -1365,9 +1376,9 @@ def api_auth_hybrid(request: Request, payload: HybridAuthRequest):
 def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    target_url = (payload.url or "").strip() or DEFAULT_TICKETING_LOGIN_URL
+    target_url = default_target_url((payload.url or "").strip() or DEFAULT_TICKETING_TARGET_URL)
     if not target_url:
-        raise HTTPException(status_code=400, detail="Missing login URL. Set TICKETING_LOGIN_URL or provide url in request.")
+        raise HTTPException(status_code=400, detail="Missing target URL. Set TICKETING_TARGET_URL or provide url in request.")
 
     browser_path = _detect_browser_path()
     profile_dir = _profile_dir(payload.profile)
@@ -1440,7 +1451,7 @@ def api_auth_launch(
 ):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
-    target_url = default_target_url(url or DEFAULT_TICKETING_LOGIN_URL)
+    target_url = default_target_url(url or DEFAULT_TICKETING_TARGET_URL)
     result = AUTH_MANAGER.launch_login(force_fresh=force, target_url=target_url, timeout_seconds=timeout_seconds)
     _append_event(
         "info",

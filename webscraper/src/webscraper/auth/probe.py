@@ -29,12 +29,20 @@ def _detect_logged_in(body_lower: str) -> bool:
     return any(marker in body_lower for marker in SUCCESS_MARKERS)
 
 
+def _is_customers_page(url: str, body_lower: str) -> bool:
+    lowered_url = (url or "").lower()
+    if "customers.cgi" in lowered_url and "/admin/" in lowered_url:
+        return True
+    return "account search" in body_lower and "customers" in body_lower
+
+
 def _probe_session(session: requests.Session, url: str) -> dict[str, Any]:
     response = session.get(url, timeout=30, allow_redirects=True)
     body_lower = response.text.lower() if isinstance(response.text, str) else ""
     detected_login = _detect_login_page(response.url, body_lower)
     detected_ok = _detect_logged_in(body_lower)
-    ok = bool(response.status_code == 200 and detected_ok and not detected_login)
+    on_customers_page = _is_customers_page(response.url, body_lower)
+    ok = bool(response.status_code == 200 and detected_ok and on_customers_page and not detected_login)
 
     cookie_names = sorted(session.cookies.keys())
     cookie_domains = sorted({str(cookie.domain or "").lstrip(".").lower() for cookie in session.cookies if getattr(cookie, "domain", None)})
@@ -57,7 +65,8 @@ def _probe_session(session: requests.Session, url: str) -> dict[str, Any]:
         "cookie_names": cookie_names,
         "cookie_domains": cookie_domains,
         "url": response.url,
-        "notes": "authenticated content detected" if ok else "login markers or missing admin markers detected",
+        "on_customers_page": on_customers_page,
+        "notes": "authenticated customers page detected" if ok else "login markers, missing admin markers, or non-customers page detected",
     }
 
 
@@ -68,9 +77,10 @@ def _probe_driver(driver: Any, url: str) -> dict[str, Any]:
     body_lower = html.lower()
     detected_login = _detect_login_page(current_url, body_lower)
     detected_ok = _detect_logged_in(body_lower)
+    on_customers_page = _is_customers_page(current_url, body_lower)
 
     status_code = 200 if html else 0
-    ok = bool(status_code == 200 and detected_ok and not detected_login)
+    ok = bool(status_code == 200 and detected_ok and on_customers_page and not detected_login)
 
     raw_cookies = [cookie for cookie in (driver.get_cookies() or []) if isinstance(cookie, dict)]
     cookie_names = sorted([str(cookie.get("name")) for cookie in raw_cookies if cookie.get("name")])
@@ -97,7 +107,8 @@ def _probe_driver(driver: Any, url: str) -> dict[str, Any]:
         "cookie_domains": cookie_domains,
         "session_like_names": session_like_names,
         "url": current_url,
-        "notes": "authenticated content detected" if ok else "login markers or missing admin markers detected",
+        "on_customers_page": on_customers_page,
+        "notes": "authenticated customers page detected" if ok else "login markers, missing admin markers, or non-customers page detected",
     }
 
 

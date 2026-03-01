@@ -19,8 +19,8 @@ type ValidateResponse = { ok?: boolean;
 type JobResult = { errorType?: string; error?: string; auth?: ValidateResponse; logTail?: string[]; stderrTail?: string[]; errors?: number };
 type JobStatus = { job_id: string; status: string; total_handles: number; completed: number; completed_handles?: number; current_handle?: string | null; per_handle_status?: Record<string, string>; running: boolean; errors: number; error_message?: string; result?: JobResult };
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
-const FALLBACK_TICKETING_LOGIN_URL = "https://secure.123.net/cgi-bin/web_interface/login.cgi";
-const TICKETING_LOGIN_URL = process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_LOGIN_URL;
+const FALLBACK_TICKETING_TARGET_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi";
+const TICKETING_TARGET_URL = process.env.NEXT_PUBLIC_TICKETING_TARGET_URL || process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_TARGET_URL;
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) return error.detail || error.message;
@@ -198,7 +198,7 @@ export default function HandlesPage() {
     setAuthMessage(null);
     try {
       const response = await apiPost<{ ok: boolean; browser: string; profile_dir: string; command?: string[]; started?: boolean }>("/api/auth/launch-browser", {
-        url: TICKETING_LOGIN_URL,
+        url: TICKETING_TARGET_URL,
         profile: "ticketing",
         new_window: true,
       });
@@ -211,7 +211,7 @@ export default function HandlesPage() {
     } catch (e) {
       const message = formatApiError(e);
       setError(`Launch Login failed: ${message}`);
-      window.open(TICKETING_LOGIN_URL, "_blank", "noopener,noreferrer");
+      window.open(TICKETING_TARGET_URL, "_blank", "noopener,noreferrer");
     }
   };
 
