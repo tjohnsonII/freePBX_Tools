@@ -10,8 +10,6 @@ import socket
 import sqlite3
 import subprocess
 import sys
-import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +17,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from webscraper.auth.chrome_cdp import ChromeCDPError, connect_browser_ws, find_free_port, get_all_cookies, launch_chrome_with_debug
+from webscraper.auth.chrome_cookies import ChromeCookieError, copy_cookie_db_for_read
 
 try:  # optional dependency
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -137,32 +136,6 @@ def _is_lock_error(exc: Exception) -> bool:
     return False
 
 
-def _copy_with_backoff(source: Path, backoff_seconds: tuple[float, ...] = (0.5, 1.0, 2.0)) -> tuple[Path, Path]:
-    last_exc: Exception | None = None
-    attempts = len(backoff_seconds) + 1
-    for attempt in range(attempts):
-        temp_dir = Path(tempfile.mkdtemp(prefix="cookie_seed_"))
-        target = temp_dir / (source.name or "Cookies.sqlite")
-        try:
-            shutil.copy2(source, target)
-            LOGGER.info("[AUTH][DISK] copied cookie DB source=%s temp=%s", source, target)
-            return temp_dir, target
-        except Exception as exc:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            last_exc = exc
-            if _is_lock_error(exc):
-                LOGGER.warning("[AUTH][DISK] copy failed due to probable lock attempt=%s error=%s", attempt + 1, exc)
-                if attempt < len(backoff_seconds):
-                    time.sleep(backoff_seconds[attempt])
-                continue
-            raise CookieSeedError("DISK_COPY_FAILED", f"Failed copying cookie DB: {exc}") from exc
-    raise CookieSeedError(
-        "DB_LOCKED",
-        "Chrome cookie DB appears locked (Chrome may be running).",
-        details={"source": str(source), "error": str(last_exc) if last_exc else None},
-    )
-
-
 def _crypt_unprotect_data(data: bytes) -> bytes:
     in_blob = _DataBlob(len(data), ctypes.cast(ctypes.create_string_buffer(data), ctypes.POINTER(ctypes.c_byte)))
     out_blob = _DataBlob()
@@ -257,7 +230,17 @@ def seed_from_disk(profile_dir: str | Path | None, domains: list[str], *, profil
         )
     LOGGER.info("Cookie DB selected: %s", cookie_db)
 
-    temp_dir, temp_copy = _copy_with_backoff(cookie_db)
+    try:
+        temp_copy = copy_cookie_db_for_read(cookie_db)
+    except ChromeCookieError as exc:
+        if exc.code == "DB_LOCKED":
+            raise CookieSeedError(
+                "DB_LOCKED",
+                "Cookie DB locked. Close Chrome/Edge OR use CDP method (Launch Debug Chrome).",
+            ) from exc
+        raise CookieSeedError("DISK_COPY_FAILED", f"Failed copying cookie DB: {exc}") from exc
+
+    temp_dir = temp_copy.parent
     cookies: list[dict[str, Any]] = []
     try:
         aes_key: bytes | None = None
