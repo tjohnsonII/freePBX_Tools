@@ -6,8 +6,8 @@ Open the Command Palette → **Tasks: Run Task** and use the labels below.
 
 ## Dev environment bootstrap / doctor
 
-- Task: **dev: bootstrap envs** (creates/fixes all managed Python venvs in one run)
-- Task: **doctor: dev envs** (runs `webscraper_manager doctor` checks against managed environments)
+- Task: **bootstrap: dev envs** (creates/fixes managed Python venvs and installs missing frontend `node_modules` only when needed)
+- Task: **doctor: dev envs** (read-only health checks for managed Python envs + key frontend prerequisites)
 
 ## FreePBX Deploy Backend (FastAPI)
 
@@ -89,10 +89,12 @@ Copy to the remote box (example):
 
 ## Start everything
 
-- Task: **Start: Everything (deploy ui + polycom)**
-	- Starts: Deploy UI backend+frontend + Polycom app
-- Task: **Start: Everything (ALL apps)**
-	- Starts: Deploy UI backend+frontend + Polycom app + Traceroute visualizer+backend + FreePBX Tools Web Manager
-
-- Task: **Start: Everything (ALL apps + CLI manager)**
-	- Starts: everything above, plus the interactive `freepbx_tools_manager.py` menu (will take over a terminal and wait for input)
+- Task: **dev: web tools stack**
+	- Starts the NOC dashboard stack in one command:
+		- `webscraper_manager` API backend at `127.0.0.1:8787`
+		- `manager-ui` frontend at `127.0.0.1:3004`
+		- browser opens to `http://127.0.0.1:3004/dashboard`
+- Task: **stop: web tools stack**
+	- Stops/releases dashboard ports (`8787`, `3004`)
+- Task: **dev: all apps + cli**
+	- Starts traceroute UI + deploy UI + polycom app + deploy backend + webscraper stack + CLI manager

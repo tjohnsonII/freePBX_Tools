@@ -1,21 +1,25 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-set "REPO=E:\DevTools\freepbx-tools"
-set "LOG=%REPO%\webscraper\var\logs\kill_ports.log"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
+set "LOG_DIR=%REPO_ROOT%\webscraper\var\logs"
+set "LOG=%LOG_DIR%\kill_ports.log"
 
-if not exist "%REPO%\webscraper\var\logs" mkdir "%REPO%\webscraper\var\logs" >nul 2>&1
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+
+set "PORTS=%*"
+if "%PORTS%"=="" set "PORTS=8787 3004"
 
 call :timestamp TS
-echo %TS% [kill_ports] Checking ports 8787 and 3004...>>"%LOG%"
-echo [kill_ports] Checking ports 8787 and 3004...
+echo %TS% [kill_ports] Checking ports %PORTS%...>>"%LOG%"
+echo [kill_ports] Checking ports %PORTS%...
 
-for %%P in (8787 3004) do call :kill_port %%P
+for %%P in (%PORTS%) do call :kill_port %%P
 
-REM Re-check a couple times in case something releases late
 for /L %%I in (1,1,3) do (
   timeout /t 1 /nobreak >nul
-  for %%P in (8787 3004) do call :kill_port %%P
+  for %%P in (%PORTS%) do call :kill_port %%P
 )
 
 call :timestamp TS

@@ -45,5 +45,6 @@ if "%~2"=="" (
 )
 
 REM Run python with remaining args ONLY (skip the venv arg entirely)
-"%PY%" %2 %3 %4 %5 %6 %7 %8 %9
+shift
+"%PY%" %*
 exit /b %ERRORLEVEL%
