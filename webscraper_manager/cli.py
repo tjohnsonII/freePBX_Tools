@@ -682,7 +682,7 @@ def _start_webscraper_stack(
 
     services = {
         "api": {
-            "cmd": [str(preferred_python), "-m", "uvicorn", "webscraper.ticket_api.app:app", "--host", "127.0.0.1", "--port", "8787"],
+            "cmd": [str(preferred_python), "-m", "uvicorn", "webscraper.ticket_api.app:app", "--host", "127.0.0.1", "--port", "8787", "--reload", "--no-proxy-headers"],
             "cwd": root,
             "health": "http://127.0.0.1:8787/health",
         },

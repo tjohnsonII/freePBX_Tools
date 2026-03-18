@@ -476,6 +476,151 @@ def vpbx_query():
         return jsonify({'error': str(e)}), 500
 
 
+WEBSERVER_URLS = [
+    'https://123hostedtools.com',
+    'https://auth.123hostedtools.com',
+    'https://tools.123hostedtools.com',
+    'https://grafana.123hostedtools.com',
+    'https://prtg.timsablab.ddns.net',
+    'https://freepbx.timsablab.ddns.net',
+    'https://mail.timsablab.ddns.net',
+]
+
+# Whitelisted SSH commands for webserver debugging
+_WEBSERVER_ALLOWED_COMMANDS = {
+    'apache_status':   'systemctl status apache2 --no-pager',
+    'vhost_list':      'apachectl -S 2>&1',
+    'config_test':     'apachectl configtest 2>&1',
+    'reload_apache':   'sudo systemctl reload apache2',
+    'check_all_vhosts': '/opt/vhost-tools/check-all-vhosts.sh 2>&1',
+    'tail_error_log':  'tail -n 60 /var/log/apache2/error.log 2>&1',
+    'tail_access_log': 'tail -n 60 /var/log/apache2/access.log 2>&1',
+}
+
+
+@app.route('/api/webserver/check-urls', methods=['POST'])
+def webserver_check_urls():
+    """HTTP health check for all known webserver vhost URLs."""
+    import urllib.request
+    import urllib.error
+    import ssl
+    import time
+
+    data = request.get_json() or {}
+    urls = data.get('urls') or WEBSERVER_URLS
+    timeout = int(data.get('timeout', 8))
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    results = []
+    for url in urls:
+        start = time.time()
+        try:
+            req = urllib.request.Request(url, method='GET')
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                elapsed = int((time.time() - start) * 1000)
+                results.append({
+                    'url': url, 'status': resp.status,
+                    'ok': resp.status < 400, 'ms': elapsed,
+                    'error': None,
+                })
+        except urllib.error.HTTPError as e:
+            elapsed = int((time.time() - start) * 1000)
+            # 401/403 may be expected (FreePBX, restricted apps)
+            results.append({
+                'url': url, 'status': e.code,
+                'ok': e.code in (401, 403), 'ms': elapsed,
+                'error': None,
+            })
+        except Exception as e:
+            elapsed = int((time.time() - start) * 1000)
+            results.append({
+                'url': url, 'status': None,
+                'ok': False, 'ms': elapsed,
+                'error': str(e),
+            })
+    return jsonify({'results': results})
+
+
+@app.route('/api/webserver/ssh-run', methods=['POST'])
+def webserver_ssh_run():
+    """Run a whitelisted Apache/webserver command over SSH and return output."""
+    data = request.get_json() or {}
+    host = data.get('host', '192.168.100.10')
+    username = data.get('username', 'tim2')
+    password = data.get('password', '')
+    command_key = data.get('command', '')
+
+    if command_key not in _WEBSERVER_ALLOWED_COMMANDS:
+        return jsonify({'error': f'Unknown command key: {command_key}. '
+                        f'Allowed: {list(_WEBSERVER_ALLOWED_COMMANDS)}'}), 400
+
+    shell_cmd = _WEBSERVER_ALLOWED_COMMANDS[command_key]
+
+    paramiko = _try_import_paramiko()
+    if paramiko is None:
+        return jsonify({'error': 'paramiko not installed. Run: pip install paramiko'}), 500
+
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(host, username=username,
+                    password=password or None,
+                    timeout=15, allow_agent=True, look_for_keys=True)
+        _, stdout, stderr = ssh.exec_command(shell_cmd)
+        out = stdout.read().decode('utf-8', errors='replace')
+        err = stderr.read().decode('utf-8', errors='replace')
+        rc = stdout.channel.recv_exit_status()
+        ssh.close()
+        return jsonify({'ok': rc == 0, 'rc': rc,
+                        'output': out or err, 'command': shell_cmd})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/webserver/check-one-vhost', methods=['POST'])
+def webserver_check_one_vhost():
+    """Run /opt/vhost-tools/check-one-vhost.sh <hostname> <backend_url> over SSH."""
+    data = request.get_json() or {}
+    host = data.get('host', '192.168.100.10')
+    username = data.get('username', 'tim2')
+    password = data.get('password', '')
+    vhost = (data.get('vhost') or '').strip()
+    backend = (data.get('backend') or 'http://127.0.0.1').strip()
+
+    if not vhost:
+        return jsonify({'error': 'vhost is required'}), 400
+
+    # Sanitize: only allow hostname chars and dots/dashes
+    import re
+    if not re.match(r'^[a-zA-Z0-9.\-]+$', vhost):
+        return jsonify({'error': 'Invalid vhost name'}), 400
+
+    shell_cmd = f'/opt/vhost-tools/check-one-vhost.sh {_sh_quote(vhost)} {_sh_quote(backend)} 2>&1'
+
+    paramiko = _try_import_paramiko()
+    if paramiko is None:
+        return jsonify({'error': 'paramiko not installed'}), 500
+
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(host, username=username,
+                    password=password or None,
+                    timeout=15, allow_agent=True, look_for_keys=True)
+        _, stdout, stderr = ssh.exec_command(shell_cmd)
+        out = stdout.read().decode('utf-8', errors='replace')
+        err = stderr.read().decode('utf-8', errors='replace')
+        rc = stdout.channel.recv_exit_status()
+        ssh.close()
+        return jsonify({'ok': rc == 0, 'rc': rc,
+                        'output': out or err, 'command': shell_cmd})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # Main entry point: start the Flask web server with SocketIO
 if __name__ == '__main__':
     print("🌐 Starting FreePBX Tools Manager Web Interface...")

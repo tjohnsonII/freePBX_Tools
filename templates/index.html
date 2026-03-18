@@ -378,6 +378,7 @@
             <button class="tab active" onclick="showTab('deploy')">🚀 Deploy Tools</button>
             <button class="tab" onclick="showTab('phone')">📱 Phone Analyzer</button>
             <button class="tab" onclick="showTab('vpbx')">🗄️ VPBX Database</button>
+            <button class="tab" onclick="showTab('webserver')">🌐 Webserver</button>
             <button class="tab" onclick="showTab('status')">📊 Status</button>
         </div>
         
@@ -509,6 +510,107 @@
             </div>
         </div>
         
+        <!-- Webserver Tab -->
+        <div id="webserver-tab" class="tab-content">
+
+            <!-- SSH credentials (shared across all SSH actions) -->
+            <div class="card">
+                <h2>🌐 Webserver Debugger</h2>
+                <p style="color:#666; margin-bottom:18px;">Apache reverse proxy on <strong>192.168.100.10</strong> — URL health checks, Apache commands, and log viewing.</p>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Webserver Host:</label>
+                        <input type="text" id="ws-host" value="192.168.100.10">
+                    </div>
+                    <div class="form-group">
+                        <label>SSH Username:</label>
+                        <input type="text" id="ws-username" value="tim2">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>SSH Password (leave blank to use key/agent):</label>
+                    <input type="password" id="ws-password">
+                </div>
+            </div>
+
+            <!-- URL Health Checks -->
+            <div class="card">
+                <h2>🔗 URL Health Check</h2>
+                <p style="color:#666; margin-bottom:15px;">Tests HTTP status and response time for all known vhost URLs. 401/403 on restricted apps (FreePBX) counts as OK.</p>
+                <button class="btn btn-success" onclick="runUrlChecks()">▶ Check All URLs</button>
+                <div id="url-check-results" style="margin-top:20px;"></div>
+            </div>
+
+            <!-- Apache Commands -->
+            <div class="card">
+                <h2>⚙️ Apache Commands</h2>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px;">
+                    <button class="btn" onclick="runWsCommand('apache_status')">📊 Service Status</button>
+                    <button class="btn" onclick="runWsCommand('vhost_list')">📋 List Vhosts</button>
+                    <button class="btn" onclick="runWsCommand('config_test')">✅ Config Test</button>
+                    <button class="btn btn-warning" onclick="runWsCommand('reload_apache')">🔄 Reload Apache</button>
+                    <button class="btn btn-success" onclick="runWsCommand('check_all_vhosts')">🔍 Check All Vhosts</button>
+                    <button class="btn" onclick="runWsCommand('tail_error_log')">📄 Tail Error Log</button>
+                    <button class="btn" onclick="runWsCommand('tail_access_log')">📄 Tail Access Log</button>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:flex-end; margin-bottom:15px; flex-wrap:wrap;">
+                    <div class="form-group" style="flex:1; margin:0; min-width:200px;">
+                        <label>Check one vhost:</label>
+                        <input type="text" id="ws-vhost-name" placeholder="e.g., 123hostedtools.com">
+                    </div>
+                    <div class="form-group" style="flex:1; margin:0; min-width:200px;">
+                        <label>Backend URL:</label>
+                        <input type="text" id="ws-backend-url" value="http://127.0.0.1">
+                    </div>
+                    <button class="btn btn-success" style="margin:0;" onclick="runCheckOneVhost()">🔍 Check Vhost</button>
+                </div>
+
+                <div id="ws-command-output" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <strong id="ws-command-label" style="color:#555;"></strong>
+                        <span id="ws-command-rc" style="font-size:0.9em;"></span>
+                    </div>
+                    <div class="log-container" id="ws-command-log" style="max-height:400px;"></div>
+                </div>
+            </div>
+
+            <!-- Quick Reference -->
+            <div class="card">
+                <h2>📖 Quick Reference</h2>
+                <div class="grid-2">
+                    <div>
+                        <h3 style="margin-bottom:10px; color:#333;">Known Vhosts</h3>
+                        <table class="results-table">
+                            <thead><tr><th>URL</th></tr></thead>
+                            <tbody>
+                                <tr><td><a href="https://123hostedtools.com" target="_blank">123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://auth.123hostedtools.com" target="_blank">auth.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://tools.123hostedtools.com" target="_blank">tools.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://grafana.123hostedtools.com" target="_blank">grafana.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://prtg.timsablab.ddns.net" target="_blank">prtg.timsablab.ddns.net</a></td></tr>
+                                <tr><td><a href="https://freepbx.timsablab.ddns.net" target="_blank">freepbx.timsablab.ddns.net</a></td></tr>
+                                <tr><td><a href="https://mail.timsablab.ddns.net" target="_blank">mail.timsablab.ddns.net</a></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom:10px; color:#333;">Interpretation Guide</h3>
+                        <table class="results-table">
+                            <thead><tr><th>Symptom</th><th>Likely Cause</th></tr></thead>
+                            <tbody>
+                                <tr><td>Backend fails</td><td>App or port problem</td></tr>
+                                <tr><td>HTTP fails</td><td>Vhost, rewrite, or port 80</td></tr>
+                                <tr><td>HTTPS fails</td><td>Cert, proxy, or port 443</td></tr>
+                                <tr><td>Local OK, public fails</td><td>NAT / firewall / DNS</td></tr>
+                                <tr><td>403 returned</td><td>May be correct (FreePBX)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Status Tab -->
         <div id="status-tab" class="tab-content">
             <div class="card">
@@ -776,6 +878,159 @@
             });
         }
         
+        // ── Webserver tab ────────────────────────────────────────────
+
+        function wsCredentials() {
+            return {
+                host: document.getElementById('ws-host').value,
+                username: document.getElementById('ws-username').value,
+                password: document.getElementById('ws-password').value,
+            };
+        }
+
+        function runUrlChecks() {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '⏳ Checking…';
+            const resultsDiv = document.getElementById('url-check-results');
+            resultsDiv.innerHTML = '<p style="color:#999;">Checking all URLs…</p>';
+
+            fetch('/api/webserver/check-urls', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = '▶ Check All URLs';
+                let html = '<table class="results-table"><thead><tr><th>URL</th><th>Status</th><th>ms</th><th>Note</th></tr></thead><tbody>';
+                data.results.forEach(r => {
+                    const color = r.ok ? '#27ae60' : '#e74c3c';
+                    const icon = r.ok ? '✓' : '✗';
+                    const status = r.status ? r.status : '—';
+                    const note = r.error ? r.error : (r.status >= 400 && r.ok ? 'Restricted (expected)' : '');
+                    html += `<tr>
+                        <td><a href="${r.url}" target="_blank">${r.url}</a></td>
+                        <td style="color:${color}; font-weight:bold;">${icon} ${status}</td>
+                        <td>${r.ms}ms</td>
+                        <td style="color:#888; font-size:0.9em;">${note}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                resultsDiv.innerHTML = html;
+            })
+            .catch(e => {
+                btn.disabled = false;
+                btn.textContent = '▶ Check All URLs';
+                resultsDiv.innerHTML = `<p style="color:#e74c3c;">Error: ${e}</p>`;
+            });
+        }
+
+        function runWsCommand(commandKey) {
+            const creds = wsCredentials();
+            const labels = {
+                apache_status: 'systemctl status apache2',
+                vhost_list: 'apachectl -S',
+                config_test: 'apachectl configtest',
+                reload_apache: 'systemctl reload apache2',
+                check_all_vhosts: '/opt/vhost-tools/check-all-vhosts.sh',
+                tail_error_log: 'tail -n 60 /var/log/apache2/error.log',
+                tail_access_log: 'tail -n 60 /var/log/apache2/access.log',
+            };
+
+            const outputDiv = document.getElementById('ws-command-output');
+            const logDiv = document.getElementById('ws-command-log');
+            const labelEl = document.getElementById('ws-command-label');
+            const rcEl = document.getElementById('ws-command-rc');
+
+            outputDiv.style.display = 'block';
+            labelEl.textContent = labels[commandKey] || commandKey;
+            rcEl.textContent = '';
+            logDiv.innerHTML = '<span style="color:#888;">Running…</span>';
+
+            fetch('/api/webserver/ssh-run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({...creds, command: commandKey})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    logDiv.innerHTML = `<span style="color:#f48771;">${escHtml(data.error)}</span>`;
+                    rcEl.textContent = '';
+                    return;
+                }
+                rcEl.innerHTML = data.ok
+                    ? '<span style="color:#4ec9b0;">exit 0 ✓</span>'
+                    : `<span style="color:#f48771;">exit ${data.rc} ✗</span>`;
+                logDiv.innerHTML = escHtml(data.output || '(no output)')
+                    .split('\n').map(line => {
+                        const cls = /error|fail|crit/i.test(line) ? 'error'
+                                  : /warn/i.test(line) ? 'warning'
+                                  : /ok|enabled|running|success/i.test(line) ? 'success' : '';
+                        return `<div class="log-line ${cls}">${line}</div>`;
+                    }).join('');
+                logDiv.scrollTop = logDiv.scrollHeight;
+            })
+            .catch(e => {
+                logDiv.innerHTML = `<span style="color:#f48771;">Fetch error: ${e}</span>`;
+            });
+        }
+
+        function runCheckOneVhost() {
+            const creds = wsCredentials();
+            const vhost = document.getElementById('ws-vhost-name').value.trim();
+            const backend = document.getElementById('ws-backend-url').value.trim();
+            if (!vhost) { alert('Enter a vhost name'); return; }
+
+            const outputDiv = document.getElementById('ws-command-output');
+            const logDiv = document.getElementById('ws-command-log');
+            const labelEl = document.getElementById('ws-command-label');
+            const rcEl = document.getElementById('ws-command-rc');
+
+            outputDiv.style.display = 'block';
+            labelEl.textContent = `check-one-vhost.sh ${vhost} ${backend}`;
+            rcEl.textContent = '';
+            logDiv.innerHTML = '<span style="color:#888;">Running…</span>';
+
+            fetch('/api/webserver/check-one-vhost', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({...creds, vhost, backend})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    logDiv.innerHTML = `<span style="color:#f48771;">${escHtml(data.error)}</span>`;
+                    return;
+                }
+                rcEl.innerHTML = data.ok
+                    ? '<span style="color:#4ec9b0;">exit 0 ✓</span>'
+                    : `<span style="color:#f48771;">exit ${data.rc} ✗</span>`;
+                logDiv.innerHTML = escHtml(data.output || '(no output)')
+                    .split('\n').map(line => {
+                        const cls = /error|fail|crit/i.test(line) ? 'error'
+                                  : /warn/i.test(line) ? 'warning'
+                                  : /ok|pass|success/i.test(line) ? 'success' : '';
+                        return `<div class="log-line ${cls}">${line}</div>`;
+                    }).join('');
+                logDiv.scrollTop = logDiv.scrollHeight;
+            })
+            .catch(e => {
+                logDiv.innerHTML = `<span style="color:#f48771;">Fetch error: ${e}</span>`;
+            });
+        }
+
+        function escHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // ── VPBX query results ───────────────────────────────────────
+
         function displayQueryResults(data) {
             const resultsDiv = document.getElementById('query-results');
             

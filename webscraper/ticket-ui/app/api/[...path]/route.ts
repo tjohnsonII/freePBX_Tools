@@ -11,6 +11,13 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
   "host",
+  // Strip forwarding headers so FastAPI sees the real loopback connection IP,
+  // not the browser's IP injected by Next.js 14 App Router into route handler headers.
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-real-ip",
+  "forwarded",
 ]);
 
 export const dynamic = "force-dynamic";

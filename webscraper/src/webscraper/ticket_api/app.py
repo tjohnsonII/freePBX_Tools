@@ -1618,6 +1618,23 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     }
 
 
+@app.post("/api/admin/restart")
+def api_admin_restart(request: Request):
+    """Trigger a hot-reload of the API server (requires --reload / --no-proxy-headers flags on startup)."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    import signal
+    import threading
+
+    def _send_reload():
+        import time
+        time.sleep(0.2)
+        os.kill(os.getpid(), signal.SIGTERM if os.name == "nt" else getattr(signal, "SIGHUP", signal.SIGTERM))
+
+    threading.Thread(target=_send_reload, daemon=True).start()
+    return {"ok": True, "message": "API restart signal sent"}
+
+
 @app.post("/api/auth/force-reset")
 @app.post("/auth/force-reset")
 def api_auth_force_reset(request: Request):
@@ -2046,7 +2063,7 @@ def run_api(*, host: str = "127.0.0.1", port: int = 8787, reload: bool = False, 
         os.environ["TICKETS_DB_PATH"] = str(Path(db_override).resolve())
     import uvicorn
 
-    uvicorn.run("webscraper.ticket_api.app:app", host=host, port=port, reload=reload)
+    uvicorn.run("webscraper.ticket_api.app:app", host=host, port=port, reload=reload, proxy_headers=False)
 
 
 def _pip_check_required_deps() -> list[tuple[str, str, bool]]:

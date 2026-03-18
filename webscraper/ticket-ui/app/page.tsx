@@ -256,6 +256,17 @@ export default function HandlesPage() {
     }
   };
 
+  const restartApi = async () => {
+    setError(null);
+    try {
+      await apiPost("/api/admin/restart", {});
+      setAuthMessage("API restart signal sent. Reconnecting in 3s…");
+      setTimeout(loadAuthStatus, 3000);
+    } catch (e) {
+      setError(`Restart failed: ${e}`);
+    }
+  };
+
   const clearImportedCookies = async () => {
     setError(null);
     setAuthMessage(null);
@@ -413,6 +424,7 @@ export default function HandlesPage() {
           <button onClick={launchDebugChrome} style={{ marginLeft: 8 }}>Launch Debug Chrome</button>
           <button onClick={clearImportedCookies} style={{ marginLeft: 8 }}>Clear Cookies</button>
           <button onClick={runValidate} disabled={wrongDomainLoaded} style={{ marginLeft: 8 }}>Validate Auth</button>
+          <button onClick={restartApi} style={{ marginLeft: 8 }}>Restart API</button>
         </div>
         {cookieFileName ? <p style={{ marginTop: 6 }}>Selected file: {cookieFileName}</p> : null}
 
