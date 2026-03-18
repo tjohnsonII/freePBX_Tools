@@ -5,7 +5,9 @@ import { EventItem } from '@/lib/types';
 export function LogViewer() {
   const [events, setEvents] = useState<EventItem[]>([]);
   useEffect(() => {
-    const ws = new WebSocket('ws://127.0.0.1:8787/ws/events');
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.hostname}:8787/ws/events`;
+    const ws = new WebSocket(wsUrl);
     ws.onmessage = (e) => {
       const item = JSON.parse(e.data) as EventItem;
       setEvents((prev) => [...prev.slice(-200), item]);
