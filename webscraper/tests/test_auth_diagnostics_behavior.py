@@ -47,7 +47,7 @@ class AuthDiagnosticsBehaviorTests(unittest.TestCase):
                 output_dir=td,
             )
 
-            with patch("webscraper.browser.edge_driver.create_edge_driver", side_effect=RuntimeError("boom")):
+            with patch("webscraper.browser.launcher.get_driver", side_effect=RuntimeError("boom")):
                 ok, _driver, reason = profile.try_profile(ctx)
 
             self.assertFalse(ok)

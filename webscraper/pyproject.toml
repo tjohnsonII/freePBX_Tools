@@ -10,6 +10,12 @@ dependencies = [
     "websocket-client>=1.7.0",
 ]
 
+[project.optional-dependencies]
+windows = [
+    "pywin32>=306",
+    "pycryptodome>=3.19",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

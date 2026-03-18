@@ -9,7 +9,8 @@ from webscraper.auth.types import AuthContext
 class AuthAutoModeTests(unittest.TestCase):
     def test_default_cookie_candidates_prioritize_var_auth_path(self) -> None:
         candidates = _default_cookie_candidates("/repo")
-        self.assertEqual(candidates[0], "/repo/webscraper/var/auth/cookies.json")
+        expected = os.path.join("/repo", "webscraper", "var", "auth", "cookies.json")
+        self.assertEqual(candidates[0], expected)
 
     def test_auth_context_defaults_to_chrome(self) -> None:
         ctx = AuthContext(base_url="https://example.com", auth_check_url=None)
