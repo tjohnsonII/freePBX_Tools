@@ -493,6 +493,106 @@
       ],
       "dependsOrder": "parallel",
       "problemMatcher": []
+    },
+    {
+      "label": "dev: webscraper dashboard backend",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-web-manager",
+        "-m",
+        "uvicorn",
+        "webscraper_manager.api.server:app",
+        "--reload",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8787"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "INFO:.*Uvicorn running on",
+            "endsPattern": "Application startup complete"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "dev: manager-ui frontend",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "dev"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "\u25b2 Next\\.js",
+            "endsPattern": "Ready in"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/manager-ui"
+      }
+    },
+    {
+      "label": "dev: webscraper noc dashboard",
+      "dependsOn": [
+        "kill: webscraper noc ports",
+        "dev: webscraper dashboard backend",
+        "dev: manager-ui frontend",
+        "open: webscraper ui"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "stop: webscraper noc dashboard",
+      "dependsOn": [
+        "kill: webscraper noc ports"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "kill: webscraper noc ports",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\kill_ports.bat",
+        "8787",
+        "3004"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     }
   ]
 }
