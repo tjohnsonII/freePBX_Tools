@@ -4,6 +4,7 @@ var/profiles/
 var/db/
 var/runs/
 var/discovery/
+var/debug/
 
 # Local settings
 configs/settings.yaml

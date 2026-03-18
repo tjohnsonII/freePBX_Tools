@@ -438,9 +438,12 @@ The scraper also writes `tickets_all.json` on every run (including empty runs), 
 
 - `src/webscraper/` - Python package source.
 - `scripts/` - local run/dev helper scripts.
+  - `scripts/debug/` - ad-hoc manual debug scripts (not part of the test suite).
 - `configs/handles/handles_master.txt` - canonical handle list.
 - `configs/settings.example.yaml` - sample runtime settings.
+- `docs/ARCHITECTURE.md` - full module map and data-flow reference.
 - `docs/artifacts_contract.md` - run artifact contract.
+- `docs/reviews/` - code review and remediation documents.
 - `var/` - runtime state + generated artifacts (gitignored):
   - `var/profiles/` browser profiles
   - `var/cookies/` cookie files

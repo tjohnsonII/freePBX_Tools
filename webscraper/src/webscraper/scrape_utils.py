@@ -1,6 +1,10 @@
 """
-Central utility functions for scraping scripts
-Place shared helpers here and import as needed
+Miscellaneous scraping helper functions (pre-utils/ era).
+
+.. deprecated::
+    New code should import from ``webscraper.utils.io`` (for JSON/path
+    helpers) or use stdlib equivalents.  This module is retained for
+    historical reference but is not imported by any current production code.
 """
 import re
 import os
