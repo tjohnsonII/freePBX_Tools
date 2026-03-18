@@ -23,6 +23,16 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--readiness-timeout", type=int, default=60)
+    parser.add_argument(
+        "--readiness-path",
+        default="/api/health",
+        help="HTTP path used for readiness checks (default: /api/health)",
+    )
+    parser.add_argument(
+        "--allow-readiness-fail",
+        action="store_true",
+        help="Do not fail launcher if readiness check times out (dev-friendly mode)",
+    )
     args = parser.parse_args()
 
     root = repo_root(Path(__file__))
@@ -62,11 +72,22 @@ def main() -> int:
         )
         save_service_state(root, entry)
 
-        wait_for_http(
-            f"http://{args.host}:{args.port}/healthz",
-            timeout_s=args.readiness_timeout,
-            section="ready",
-        )
+        readiness_path = args.readiness_path if args.readiness_path.startswith("/") else f"/{args.readiness_path}"
+        readiness_url = f"http://{args.host}:{args.port}{readiness_path}"
+        try:
+            wait_for_http(
+                readiness_url,
+                timeout_s=args.readiness_timeout,
+                section="ready",
+            )
+        except LauncherError:
+            if args.allow_readiness_fail:
+                print(
+                    "[warn] readiness check timed out; continuing because --allow-readiness-fail is enabled "
+                    f"({readiness_url}, timeout={args.readiness_timeout}s)"
+                )
+            else:
+                raise
         print("[success] web manager backend started")
         return 0
     except LauncherError as exc:
