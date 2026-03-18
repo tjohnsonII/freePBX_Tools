@@ -59,8 +59,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Webscraper dev launcher")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--api-port", type=int, default=8787)
-    parser.add_argument("--ui-port", type=int, default=3000)
-    parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"))
+    parser.add_argument("--ui-port", type=int, default=3004)
+    parser.add_argument("--db", default=os.path.join("webscraper", "var", "db", "tickets.sqlite"))
     parser.add_argument("--reload", action="store_true")
     parser.add_argument(
         "--ticket-stack",
