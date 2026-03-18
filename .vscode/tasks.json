@@ -2,207 +2,48 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "helper: bootstrap python envs",
-      "type": "process",
-      "command": "python",
-      "args": [
-        "${workspaceFolder}\\scripts\\bootstrap_venvs.py",
-        "--all"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: ensure manager-ui deps",
-      "type": "process",
-      "command": "python",
-      "args": [
-        "${workspaceFolder}\\scripts\\ensure_manager_ui_deps.py"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "bootstrap: dev envs",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "helper: bootstrap python envs",
-        "helper: ensure manager-ui deps"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "doctor: dev envs",
-      "type": "process",
-      "command": "python",
-      "args": [
-        "${workspaceFolder}\\scripts\\doctor_devs.py"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: kill web ports",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\kill_ports.bat",
-        "8787",
-        "3004"
-      ],
-      "problemMatcher": []
-    },
-    {
       "label": "dev: web manager backend",
       "type": "process",
-      "command": "cmd.exe",
+      "command": "python",
       "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-web-manager",
-        "-m",
-        "uvicorn",
-        "webscraper_manager.api.server:app",
-        "--reload",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8787"
-      ],
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: wait for web manager backend",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "$u='http://127.0.0.1:8787/healthz'; $deadline=(Get-Date).AddSeconds(60); while((Get-Date) -lt $deadline){ try { $r=Invoke-WebRequest -Uri $u -UseBasicParsing -Method GET -TimeoutSec 3; if($r.StatusCode -eq 200){ exit 0 } } catch {}; Start-Sleep -Seconds 1 }; Write-Error \"Timed out waiting for $u\"; exit 1"
+        "${workspaceFolder}\\scripts\\run_web_manager_app.py"
       ],
       "problemMatcher": []
     },
     {
       "label": "dev: webscraper backend service",
       "type": "process",
-      "command": "cmd.exe",
+      "command": "python",
       "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-webscraper",
-        "-m",
-        "webscraper_manager",
-        "start",
-        "--json",
-        "--no-kill-ports"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: wait for webscraper backend service",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "$u='http://127.0.0.1:8787/api/tickets/status'; $deadline=(Get-Date).AddSeconds(60); while((Get-Date) -lt $deadline){ try { $r=Invoke-WebRequest -Uri $u -UseBasicParsing -Method GET -TimeoutSec 3; if($r.StatusCode -eq 200){ exit 0 } } catch {}; Start-Sleep -Seconds 1 }; Write-Error \"Timed out waiting for $u\"; exit 1"
+        "${workspaceFolder}\\scripts\\run_webscraper_app.py"
       ],
       "problemMatcher": []
     },
     {
       "label": "dev: manager-ui frontend",
       "type": "process",
-      "command": "npm.cmd",
+      "command": "python",
       "args": [
-        "--prefix",
-        "manager-ui",
-        "run",
-        "dev"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: wait for manager-ui",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "$u='http://127.0.0.1:3004/dashboard'; $deadline=(Get-Date).AddSeconds(90); while((Get-Date) -lt $deadline){ try { $r=Invoke-WebRequest -Uri $u -UseBasicParsing -Method GET -TimeoutSec 3; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ exit 0 } } catch {}; Start-Sleep -Seconds 1 }; Write-Error \"Timed out waiting for $u\"; exit 1"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "helper: open web dashboard",
-      "type": "process",
-      "command": "cmd",
-      "args": [
-        "/c",
-        "start",
-        "",
-        "http://127.0.0.1:3004/dashboard"
+        "${workspaceFolder}\\scripts\\run_manager_ui_app.py"
       ],
       "problemMatcher": []
     },
     {
       "label": "dev: web tools stack",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "helper: bootstrap python envs",
-        "helper: ensure manager-ui deps",
-        "helper: kill web ports",
-        "dev: web manager backend",
-        "helper: wait for web manager backend",
-        "dev: webscraper backend service",
-        "helper: wait for webscraper backend service",
-        "dev: manager-ui frontend",
-        "helper: wait for manager-ui",
-        "helper: open web dashboard"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: webscraper noc dashboard",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "dev: web tools stack"
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\run_all_web_apps.py",
+        "--open-browser"
       ],
       "problemMatcher": []
     },
     {
       "label": "stop: web tools stack",
       "type": "process",
-      "command": "cmd.exe",
+      "command": "python",
       "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\kill_ports.bat",
-        "8787",
-        "3004"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "stop: webscraper noc dashboard",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "stop: web tools stack"
+        "${workspaceFolder}\\scripts\\stop_all_web_apps.py"
       ],
       "problemMatcher": []
     }
