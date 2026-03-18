@@ -260,7 +260,7 @@
       }
     },
     {
-      "label": "dev: webscraper stack (freepbx-tools) [WIN]",
+      "label": "dev: webscraper stack core (freepbx-tools) [WIN]",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -307,7 +307,7 @@
       }
     },
     {
-      "label": "dev: webscraper stack (freepbx-tools) [WSL]",
+      "label": "dev: webscraper stack core (freepbx-tools) [WSL]",
       "type": "process",
       "command": "C:\\Windows\\System32\\bash.exe",
       "args": [
@@ -343,6 +343,26 @@
       }
     },
     {
+      "label": "dev: webscraper stack (freepbx-tools) [WIN]",
+      "type": "shell",
+      "dependsOn": [
+        "dev: webscraper stack core (freepbx-tools) [WIN]",
+        "dev: webscraper manager gui startup"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: webscraper stack (freepbx-tools) [WSL]",
+      "type": "shell",
+      "dependsOn": [
+        "dev: webscraper stack core (freepbx-tools) [WSL]",
+        "dev: webscraper manager gui startup"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
       "label": "dev: webscraper stack (freepbx-tools)",
       "type": "shell",
       "dependsOn": [
@@ -351,7 +371,7 @@
       "problemMatcher": []
     },
     {
-      "label": "dev: stop webscraper stack (freepbx-tools) [WIN]",
+      "label": "dev: stop webscraper stack core (freepbx-tools) [WIN]",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -384,7 +404,7 @@
       }
     },
     {
-      "label": "dev: stop webscraper stack (freepbx-tools) [WSL]",
+      "label": "dev: stop webscraper stack core (freepbx-tools) [WSL]",
       "type": "process",
       "command": "C:\\Windows\\System32\\bash.exe",
       "args": [
@@ -404,6 +424,26 @@
           "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
         }
       }
+    },
+    {
+      "label": "dev: stop webscraper stack (freepbx-tools) [WIN]",
+      "type": "shell",
+      "dependsOn": [
+        "dev: stop webscraper stack core (freepbx-tools) [WIN]",
+        "stop: webscraper manager gui"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: stop webscraper stack (freepbx-tools) [WSL]",
+      "type": "shell",
+      "dependsOn": [
+        "dev: stop webscraper stack core (freepbx-tools) [WSL]",
+        "stop: webscraper manager gui"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
     },
     {
       "label": "dev: stop webscraper stack (freepbx-tools)",
@@ -447,7 +487,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "while(-not (Test-NetConnection 127.0.0.1 -Port 3004).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3004/'"
+        "while(-not (Test-NetConnection 127.0.0.1 -Port 3004).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3004/dashboard'"
       ],
       "problemMatcher": []
     },
@@ -560,24 +600,6 @@
       }
     },
     {
-      "label": "dev: webscraper noc dashboard",
-      "dependsOn": [
-        "kill: webscraper noc ports",
-        "dev: webscraper dashboard backend",
-        "dev: manager-ui frontend",
-        "open: webscraper ui"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "stop: webscraper noc dashboard",
-      "dependsOn": [
-        "kill: webscraper noc ports"
-      ],
-      "problemMatcher": []
-    },
-    {
       "label": "kill: webscraper noc ports",
       "type": "process",
       "command": "cmd.exe",
@@ -593,6 +615,46 @@
       "options": {
         "cwd": "${workspaceFolder}"
       }
+    },
+    {
+      "label": "kill: webscraper manager ports",
+      "type": "shell",
+      "dependsOn": [
+        "kill: webscraper noc ports"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: webscraper manager gui startup",
+      "dependsOn": [
+        "kill: webscraper manager ports",
+        "dev: webscraper dashboard backend",
+        "dev: manager-ui frontend",
+        "open: webscraper ui"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "stop: webscraper manager gui",
+      "dependsOn": [
+        "kill: webscraper manager ports"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: webscraper noc dashboard",
+      "dependsOn": [
+        "dev: webscraper manager gui startup"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "stop: webscraper noc dashboard",
+      "dependsOn": [
+        "stop: webscraper manager gui"
+      ],
+      "problemMatcher": []
     }
   ]
 }
