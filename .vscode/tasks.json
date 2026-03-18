@@ -535,7 +535,7 @@
       "problemMatcher": []
     },
     {
-      "label": "dev: webscraper dashboard backend",
+      "label": "dev: web manager backend",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -625,12 +625,31 @@
       "problemMatcher": []
     },
     {
+      "label": "kill: web ports",
+      "type": "shell",
+      "dependsOn": [
+        "kill: webscraper manager ports"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "dev: webscraper manager gui startup",
       "dependsOn": [
         "kill: webscraper manager ports",
-        "dev: webscraper dashboard backend",
+        "dev: web manager backend",
         "dev: manager-ui frontend",
         "open: webscraper ui"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: web tools stack",
+      "type": "shell",
+      "dependsOn": [
+        "kill: web ports",
+        "dev: web manager backend",
+        "dev: manager-ui frontend"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
