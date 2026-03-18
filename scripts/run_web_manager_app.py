@@ -12,8 +12,10 @@ from lib.dev_runtime import (
     repo_root,
     run_doctor,
     save_service_state,
+    stop_service,
     start_detached,
     wait_for_http,
+    wait_for_process_stable,
 )
 
 
@@ -51,6 +53,7 @@ def main() -> int:
             run_doctor(root)
 
         ensure_port_available(args.port, cleanup=not args.no_port_cleanup, section="ports")
+        stop_service(root, "webscraper_manager_api")
 
         cmd = [
             str(py),
@@ -66,11 +69,12 @@ def main() -> int:
 
         entry = start_detached(
             root=root,
-            service_name="web_manager_backend",
+            service_name="webscraper_manager_api",
             cmd=cmd,
             cwd=root,
         )
         save_service_state(root, entry)
+        wait_for_process_stable(entry["pid"], timeout_s=10, section="ready")
 
         readiness_path = args.readiness_path if args.readiness_path.startswith("/") else f"/{args.readiness_path}"
         readiness_url = f"http://{args.host}:{args.port}{readiness_path}"
