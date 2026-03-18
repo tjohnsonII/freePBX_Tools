@@ -1,5 +1,5 @@
-"""Compatibility wrappers for scraping package imports."""
+"""Deprecated compatibility package for legacy scraping imports."""
 
-from webscraper.scraping.runner import run_scrape
+from webscraper.scrape.runner import run_scrape
 
 __all__ = ["run_scrape"]

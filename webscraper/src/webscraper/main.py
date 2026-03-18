@@ -1,6 +1,6 @@
 import argparse
 
-from webscraper.scraping.runner import run_scrape
+from webscraper.scrape.runner import run_scrape
 from webscraper.ticket_api.app import run_api  # noqa: F401
 
 
