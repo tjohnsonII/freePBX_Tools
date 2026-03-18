@@ -77,12 +77,17 @@ export default function HandlesPage() {
   const someFilteredSelected = filteredHandleRows.some((row) => selectedHandles.has(row.handle));
 
   const loadHandles = async () => {
-    const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
-    const names = Array.isArray(res?.items) ? res.items : [];
-    setHandles(names);
-    const table = await apiGet<{ items: HandleRow[] }>(`/api/handles?limit=1000&offset=0`);
-    setHandleRows(Array.isArray(table?.items) ? table.items : []);
-    if (!selectedHandle && names.length) setSelectedHandle(names[0]);
+    try {
+      const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
+      const names = Array.isArray(res?.items) ? res.items : [];
+      setHandles(names);
+      const table = await apiGet<{ items: HandleRow[] }>(`/api/handles?limit=1000&offset=0`);
+      setHandleRows(Array.isArray(table?.items) ? table.items : []);
+      if (!selectedHandle && names.length) setSelectedHandle(names[0]);
+      setError(null);
+    } catch (e) {
+      setError(`Handles unavailable: ${formatApiError(e)}`);
+    }
   };
 
   const loadAuthStatus = async () => {
@@ -117,7 +122,7 @@ export default function HandlesPage() {
     }
   };
 
-  useEffect(() => { loadHandles().catch((e) => setError(formatApiError(e))); }, [search]);
+  useEffect(() => { loadHandles(); }, [search]);
   useEffect(() => { loadAuthStatus().catch(() => undefined); loadChromeProfiles().catch(() => undefined); }, []);
   useEffect(() => {
     const timer = setInterval(() => {
