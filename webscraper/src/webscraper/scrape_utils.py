@@ -1,47 +1,54 @@
+"""Legacy utility compatibility wrappers.
+
+Canonical filesystem/json helpers live in :mod:`webscraper.utils.io`.
+This module is retained for backwards compatibility with old imports.
 """
-Central utility functions for scraping scripts
-Place shared helpers here and import as needed
-"""
-import re
-import os
-import logging
-from datetime import datetime
-from urllib.parse import urlparse
+
+from __future__ import annotations
 
 import json
+import logging
+import os
+import re
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 
-def sanitize_filename(name):
-    """Sanitize filename for safe filesystem storage."""
+from webscraper.utils.io import safe_write_json
+
+
+def sanitize_filename(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', '_', name)
     name = name.strip('. ')
     return name[:200]
 
-def ensure_dir(path):
-    """Create directory if it doesn't exist."""
-    os.makedirs(path, exist_ok=True)
 
-def log_error(msg, exc=None):
-    """Log error with optional exception info."""
+def ensure_dir(path: str | os.PathLike[str]) -> None:
+    Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def log_error(msg: str, exc: Exception | None = None) -> None:
     if exc:
-        logging.error(f"{msg}: {exc}")
+        logging.error("%s: %s", msg, exc)
     else:
         logging.error(msg)
 
-def timestamp():
-    """Return current timestamp string."""
+
+def timestamp() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-def get_domain(url):
-    """Extract domain from URL."""
+
+def get_domain(url: str) -> str:
     return urlparse(url).netloc
 
-def load_config(config_path):
-    """Load scraper config from a JSON or Python file."""
+
+def load_config(config_path: str):
     if config_path.endswith('.json'):
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    elif config_path.endswith('.py'):
+    if config_path.endswith('.py'):
         import importlib.util
+
         spec = importlib.util.spec_from_file_location('config', config_path)
         if spec is None:
             raise ImportError(f"Could not load spec for {config_path}")
@@ -50,15 +57,14 @@ def load_config(config_path):
             raise ImportError(f"Spec loader is None for {config_path}")
         spec.loader.exec_module(config)
         return getattr(config, 'WEBSCRAPER_CONFIG', {})
-    else:
-        raise ValueError('Unsupported config file type')
+    raise ValueError('Unsupported config file type')
 
-def save_json(data, path):
-    """Save data to a JSON file."""
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
 
-def save_text(data, path):
-    """Save text data to a file."""
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(data)
+def save_json(data, path: str | os.PathLike[str]) -> None:
+    safe_write_json(path, data)
+
+
+def save_text(data: str, path: str | os.PathLike[str]) -> None:
+    path_obj = Path(path)
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
+    path_obj.write_text(data, encoding='utf-8')

@@ -1,14 +1,16 @@
-﻿import os, time
-from selenium import webdriver
-from selenium.webdriver.edge.options import Options
+"""Deprecated debug entrypoint.
 
-root = os.environ["EDGE_PROFILE_DIR"]
-opts = Options()
-opts.add_argument("--user-data-dir=" + root)
-opts.add_argument("--window-size=1400,900")
+Moved to ``webscraper/scripts/debug/selenium_smoke.py``.
+"""
 
-d = webdriver.Edge(options=opts)
-d.get("https://example.com")
-print("TITLE =", d.title)
-time.sleep(3)
-d.quit()
+from runpy import run_path
+from pathlib import Path
+
+
+def main() -> None:
+    script_path = Path(__file__).resolve().parents[2] / "scripts" / "debug" / "selenium_smoke.py"
+    run_path(str(script_path), run_name="__main__")
+
+
+if __name__ == "__main__":
+    main()

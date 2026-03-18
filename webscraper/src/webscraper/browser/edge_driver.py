@@ -1,10 +1,11 @@
 import os
-import json
 import time
-import urllib.request
 from datetime import datetime
 from typing import Any, List, Optional, TYPE_CHECKING, cast
 
+from webscraper.browser.debugger import edge_debug_targets, probe_edge_debugger
+from webscraper.browser.profile import edge_binary_path, validate_path as _validate_path
+from webscraper.browser.session import switch_to_target_tab
 from webscraper.errors import EdgeStartupError
 
 if TYPE_CHECKING:
@@ -13,83 +14,6 @@ if TYPE_CHECKING:
 PROFILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "edge_profile_tmp"))
 
 
-def _validate_path(label: str, path: Optional[str]) -> Optional[str]:
-    if not path:
-        return None
-    if os.path.exists(path):
-        return path
-    print(f"[WARN] {label} not found at '{path}'. Falling back to auto-detect.")
-    return None
-
-def edge_binary_path() -> Optional[str]:
-    edge_binary_env = os.environ.get("EDGE_PATH") or os.environ.get("EDGE_BINARY_PATH")
-    if edge_binary_env:
-        resolved = _validate_path("Edge binary (env)", edge_binary_env)
-        if resolved:
-            print(f"[INFO] Using Edge binary from env: {resolved}")
-            return resolved
-    pf86 = os.environ.get("ProgramFiles(x86)")
-    pf = os.environ.get("ProgramFiles")
-    preferred = []
-    if pf86:
-        preferred.append(os.path.join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"))
-    if pf:
-        preferred.append(os.path.join(pf, "Microsoft", "Edge", "Application", "msedge.exe"))
-    for candidate in preferred:
-        resolved = _validate_path("Edge binary", candidate)
-        if resolved:
-            print(f"[INFO] Using Edge binary: {resolved}")
-            return resolved
-    print("[INFO] Using Selenium Manager to locate Edge binary.")
-    return None
-
-def probe_edge_debugger(host: str, port: int, timeout: float) -> dict:
-    url = f"http://{host}:{port}/json/version"
-    result = {"ok": False, "url": url, "status": None, "error": None, "body": None}
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            result["status"] = resp.status
-            payload = resp.read().decode("utf-8", errors="replace")
-            result["body"] = payload
-            result["ok"] = resp.status == 200
-    except Exception as exc:
-        result["error"] = str(exc)
-    return result
-
-
-def edge_debug_targets(host: str, port: int, timeout: float) -> List[dict]:
-    try:
-        url = f"http://{host}:{port}/json"
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        if isinstance(payload, list):
-            return payload
-    except Exception:
-        return []
-    return []
-
-
-def switch_to_target_tab(driver: Any, target_url: str, url_contains: Optional[str] = None) -> bool:
-    if not driver:
-        return False
-    try:
-        original = driver.current_window_handle
-    except Exception:
-        original = None
-    for handle in driver.window_handles:
-        try:
-            driver.switch_to.window(handle)
-            current = driver.current_url or ""
-            if current == target_url or (url_contains and url_contains in current):
-                return True
-        except Exception:
-            continue
-    if original:
-        try:
-            driver.switch_to.window(original)
-        except Exception:
-            pass
-    return False
 
 
 def create_edge_driver(

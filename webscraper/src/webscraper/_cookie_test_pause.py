@@ -1,23 +1,16 @@
-﻿import os, time
-from selenium import webdriver
-from selenium.webdriver.edge.options import Options
+"""Deprecated debug entrypoint.
 
-root = os.environ["EDGE_PROFILE_DIR"]
+Moved to ``webscraper/scripts/debug/cookie_test_pause.py``.
+"""
 
-opts = Options()
-opts.add_argument("--user-data-dir=" + root)
+from runpy import run_path
+from pathlib import Path
 
-d = webdriver.Edge(options=opts)
-d.get("https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi")
 
-print("\nLogin manually in the opened Edge window.")
-input("Press ENTER here AFTER you are fully logged in and can see the search page... ")
+def main() -> None:
+    script_path = Path(__file__).resolve().parents[2] / "scripts" / "debug" / "cookie_test_pause.py"
+    run_path(str(script_path), run_name="__main__")
 
-print("TITLE =", d.title)
-print("URL   =", d.current_url)
 
-cookies = d.get_cookies()
-print("Cookie count:", len(cookies))
-print("Cookie names:", [c.get("name") for c in cookies[:20]])
-
-d.quit()
+if __name__ == "__main__":
+    main()

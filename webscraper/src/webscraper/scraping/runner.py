@@ -1,6 +1,4 @@
-"""Compatibility wrapper around the existing scraper runner."""
-
-from __future__ import annotations
+"""Deprecated compatibility shim for ``webscraper.scraping.runner``."""
 
 from webscraper.scrape.runner import run_scrape
 
