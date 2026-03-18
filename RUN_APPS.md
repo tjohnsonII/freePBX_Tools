@@ -4,10 +4,13 @@ This repo contains multiple independent apps/tools. The easiest way to run them 
 
 Open the Command Palette → **Tasks: Run Task** and use the labels below.
 
-## Dev environment bootstrap / doctor
+## Web tools stack (recommended local workflow)
 
-- Task: **dev: bootstrap envs** (creates/fixes all managed Python venvs in one run)
-- Task: **doctor: dev envs** (runs `webscraper_manager doctor` checks against managed environments)
+- Task: **dev: web tools stack** (main startup: Python bootstrap, manager-ui deps self-heal, port cleanup, backend, frontend, browser open)
+- Task: **stop: web tools stack** (kills ports `8787` and `3004`)
+- Task: **bootstrap: dev envs** (prepares Python envs + manager-ui dependencies)
+- Task: **doctor: dev envs** (checks managed Python envs and manager-ui dependency state)
+- Compatibility aliases retained: **dev: webscraper noc dashboard**, **stop: webscraper noc dashboard**
 
 ## FreePBX Deploy Backend (FastAPI)
 

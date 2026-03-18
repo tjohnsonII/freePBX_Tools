@@ -2,6 +2,43 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "helper: bootstrap python envs",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\bootstrap_venvs.py",
+        "--all"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "helper: ensure manager-ui deps",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\ensure_manager_ui_deps.py"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "bootstrap: dev envs",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "helper: bootstrap python envs",
+        "helper: ensure manager-ui deps"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "doctor: dev envs",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\doctor_devs.py"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "helper: kill web ports",
       "type": "process",
       "command": "cmd.exe",
@@ -12,25 +49,6 @@
         "${workspaceFolder}\\scripts\\kill_ports.bat",
         "8787",
         "3004"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "bootstrap: dev envs",
-      "type": "process",
-      "command": "python",
-      "args": [
-        "${workspaceFolder}\\scripts\\bootstrap_venvs.py",
-        "--all"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "doctor: dev envs",
-      "type": "process",
-      "command": "python",
-      "args": [
-        "${workspaceFolder}\\scripts\\doctor_devs.py"
       ],
       "problemMatcher": []
     },
@@ -119,7 +137,8 @@
       "label": "dev: web tools stack",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "bootstrap: dev envs",
+        "helper: bootstrap python envs",
+        "helper: ensure manager-ui deps",
         "helper: kill web ports",
         "dev: web manager backend",
         "dev: manager-ui frontend",
