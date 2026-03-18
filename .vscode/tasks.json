@@ -75,16 +75,14 @@
       "problemMatcher": [
         {
           "owner": "custom",
-          "fileLocation": "absolute",
           "pattern": {
-            "regexp": "^(.*)$",
-            "file": 1,
-            "message": 1
+            "regexp": "^(?!)$",
+            "message": 0
           },
           "background": {
             "activeOnStart": true,
-            "beginsPattern": ".*",
-            "endsPattern": "INFO:\\s+Application startup complete\\."
+            "beginsPattern": "^INFO:\\s+Started server process\\b",
+            "endsPattern": "^INFO:\\s+Application startup complete\\.$"
           }
         }
       ]
@@ -106,26 +104,36 @@
       "problemMatcher": [
         {
           "owner": "custom",
-          "fileLocation": "absolute",
           "pattern": {
-            "regexp": "^(.*)$",
-            "file": 1,
-            "message": 1
+            "regexp": "^(?!)$",
+            "message": 0
           },
           "background": {
             "activeOnStart": true,
-            "beginsPattern": ".*",
-            "endsPattern": "Ready in|Local:"
+            "beginsPattern": "^(?:\\s*>|\\s*▲\\s*Next\\.js)",
+            "endsPattern": "(?:Ready in|ready\\s+-\\s+started server on|Local:\\s+http://127\\.0\\.0\\.1:3004|Local:\\s+http://localhost:3004)"
           }
         }
       ]
     },
     {
+      "label": "helper: wait for web dashboard",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$u='http://127.0.0.1:3004/dashboard'; $deadline=(Get-Date).AddSeconds(60); while((Get-Date) -lt $deadline){ try { $r=Invoke-WebRequest -Uri $u -UseBasicParsing -Method GET -TimeoutSec 3; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ exit 0 } } catch {}; Start-Sleep -Seconds 1 }; Write-Error \"Timed out waiting for $u\"; exit 1"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "helper: open web dashboard",
       "type": "process",
-      "command": "cmd.exe",
+      "command": "cmd",
       "args": [
-        "/d",
         "/c",
         "start",
         "",
@@ -142,6 +150,7 @@
         "helper: kill web ports",
         "dev: web manager backend",
         "dev: manager-ui frontend",
+        "helper: wait for web dashboard",
         "helper: open web dashboard"
       ],
       "problemMatcher": []
