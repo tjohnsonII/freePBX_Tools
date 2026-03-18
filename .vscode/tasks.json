@@ -2,265 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "dev: traceroute (inspect 9230)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev",
-        "--",
-        "-p",
-        "3000"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "\u25b2 Next\\.js",
-            "endsPattern": "Ready in"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main",
-        "env": {
-          "NODE_OPTIONS": "--inspect=9230"
-        }
-      }
-    },
-    {
-      "label": "dev: traceroute (no-inspect)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev",
-        "--",
-        "-p",
-        "3000"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "\u25b2 Next\\.js",
-            "endsPattern": "Ready in"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/traceroute-visualizer-main/traceroute-visualizer-main"
-      }
-    },
-    {
-      "label": "dev: deploy-ui (inspect 9232)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-ui",
-        "env": {
-          "NODE_OPTIONS": "--inspect=9232"
-        }
-      }
-    },
-    {
-      "label": "dev: deploy-ui (no-inspect)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/freepbx-deploy-ui"
-      }
-    },
-    {
-      "label": "dev: polycom app (inspect 9233)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main",
-        "env": {
-          "NODE_OPTIONS": "--inspect=9233"
-        }
-      }
-    },
-    {
-      "label": "dev: polycom app (no-inspect)",
-      "type": "process",
-      "command": "npm.cmd",
-      "args": [
-        "run",
-        "dev"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "VITE v",
-            "endsPattern": "Local:\\s+http://"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
-      }
-    },
-    {
-      "label": "dev: deploy-backend (debugpy 5678)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        "freepbx-deploy-backend\\.venv",
-        "-m",
-        "debugpy",
-        "--listen",
-        "127.0.0.1:5678",
-        "--wait-for-client",
-        "-m",
-        "uvicorn",
-        "freepbx_deploy_backend.main:app",
-        "--reload",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8002"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "0\\.",
-            "endsPattern": "Waiting for client"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "dev: deploy-backend (no-wait)",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        "freepbx-deploy-backend\\.venv",
-        "-m",
-        "uvicorn",
-        "freepbx_deploy_backend.main:app",
-        "--reload",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8002"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "INFO:.*Uvicorn running on",
-            "endsPattern": "Application startup complete"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "dev: webscraper stack core (freepbx-tools) [WIN]",
+      "label": "helper: kill web ports",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -268,270 +10,28 @@
         "/c",
         "call",
         "${workspaceFolder}\\scripts\\kill_ports.bat",
-        "&&",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-webscraper",
-        "-m",
-        "webscraper_manager",
-        "start",
-        "webscraper"
+        "8787",
+        "3004"
       ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "Doctor Checks",
-            "endsPattern": "webscraper stack ready"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "WEBSCRAPER_BROWSER": "chrome",
-          "WEBSCRAPER_AUTH_MODE": "auto",
-          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
-          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
-          "WEBSCRAPER_PROFILE_NAME": "Default",
-          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
-          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
-        }
-      }
+      "problemMatcher": []
     },
     {
-      "label": "dev: webscraper stack core (freepbx-tools) [WSL]",
+      "label": "bootstrap: dev envs",
       "type": "process",
-      "command": "C:\\Windows\\System32\\bash.exe",
+      "command": "python",
       "args": [
-        "-lc",
-        "if [ -x \".venv-webscraper-wsl/bin/python\" ]; then ./scripts/kill_ports.sh && ./scripts/run_py.sh .venv-webscraper-wsl -m webscraper_manager start webscraper; else echo \"[WSL] No WSL venv found at .venv-webscraper-wsl (skipping)\"; fi"
-      ],
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "Doctor Checks",
-            "endsPattern": "webscraper stack ready"
-          }
-        }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "WEBSCRAPER_BROWSER": "chrome",
-          "WEBSCRAPER_AUTH_MODE": "auto",
-          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
-          "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
-          "WEBSCRAPER_PROFILE_NAME": "Default",
-          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
-          "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
-        }
-      }
-    },
-    {
-      "label": "dev: webscraper stack (freepbx-tools) [WIN]",
-      "type": "shell",
-      "dependsOn": [
-        "dev: webscraper stack core (freepbx-tools) [WIN]",
-        "dev: webscraper manager gui startup"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: webscraper stack (freepbx-tools) [WSL]",
-      "type": "shell",
-      "dependsOn": [
-        "dev: webscraper stack core (freepbx-tools) [WSL]",
-        "dev: webscraper manager gui startup"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: webscraper stack (freepbx-tools)",
-      "type": "shell",
-      "dependsOn": [
-        "dev: webscraper stack (freepbx-tools) [WIN]"
+        "${workspaceFolder}\\scripts\\bootstrap_venvs.py",
+        "--all"
       ],
       "problemMatcher": []
     },
     {
-      "label": "dev: stop webscraper stack core (freepbx-tools) [WIN]",
+      "label": "doctor: dev envs",
       "type": "process",
-      "command": "cmd.exe",
+      "command": "python",
       "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-webscraper",
-        "-m",
-        "webscraper_manager",
-        "stop",
-        "webscraper",
-        "||",
-        "call",
-        "${workspaceFolder}\\scripts\\kill_ports.bat"
+        "${workspaceFolder}\\scripts\\doctor_devs.py"
       ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "WEBSCRAPER_BROWSER": "chrome",
-          "WEBSCRAPER_AUTH_MODE": "auto",
-          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
-          "WEBSCRAPER_COOKIES_FILE": "webscraper\\var\\auth\\cookies.json",
-          "WEBSCRAPER_PROFILE_NAME": "Default",
-          "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
-          "WEBSCRAPER_PROFILE_DIR": "webscraper\\var\\chrome-profile"
-        }
-      }
-    },
-    {
-      "label": "dev: stop webscraper stack core (freepbx-tools) [WSL]",
-      "type": "process",
-      "command": "C:\\Windows\\System32\\bash.exe",
-      "args": [
-        "-lc",
-        "if [ -x \".venv-webscraper-wsl/bin/python\" ]; then ./scripts/run_py.sh .venv-webscraper-wsl -m webscraper_manager stop webscraper || ./scripts/kill_ports.sh; else echo \"[WSL] No WSL venv found at .venv-webscraper-wsl (skipping)\"; fi"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "WEBSCRAPER_BROWSER": "chrome",
-          "WEBSCRAPER_AUTH_MODE": "auto",
-          "WEBSCRAPER_AUTH_PAUSE_ON_FAIL": "1",
-          "WEBSCRAPER_COOKIES_FILE": "webscraper/var/auth/cookies.json",
-          "WEBSCRAPER_PROFILE_NAME": "Default",
-          "CHROMEDRIVER_PATH": "${env:CHROMEDRIVER_PATH}",
-          "WEBSCRAPER_PROFILE_DIR": "webscraper/var/chrome-profile"
-        }
-      }
-    },
-    {
-      "label": "dev: stop webscraper stack (freepbx-tools) [WIN]",
-      "type": "shell",
-      "dependsOn": [
-        "dev: stop webscraper stack core (freepbx-tools) [WIN]",
-        "stop: webscraper manager gui"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: stop webscraper stack (freepbx-tools) [WSL]",
-      "type": "shell",
-      "dependsOn": [
-        "dev: stop webscraper stack core (freepbx-tools) [WSL]",
-        "stop: webscraper manager gui"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: stop webscraper stack (freepbx-tools)",
-      "type": "shell",
-      "dependsOn": [
-        "dev: stop webscraper stack (freepbx-tools) [WIN]"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: cli manager",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "py",
-        "-3",
-        "freepbx_tools_manager.py"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "open: traceroute ui",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-Command",
-        "while(-not (Test-NetConnection 127.0.0.1 -Port 3000).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3000/'"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "open: webscraper ui",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-Command",
-        "while(-not (Test-NetConnection 127.0.0.1 -Port 3004).TcpTestSucceeded){Start-Sleep -Milliseconds 300}; Start-Process 'http://127.0.0.1:3004/dashboard'"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "kill: dev ports",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "for %%P in (9230 9231 9232 9233 5678 5679) do @for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr /r /c:\":%%P .*LISTENING\"') do @taskkill /F /PID %%a >nul 2>&1"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "kill: service ports",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "for %%P in (3000 3001 3002 3003 3004 3005 3006 3007 3008 3009 3010 8787 8002) do @for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr /r /c:\":%%P .*LISTENING\"') do @taskkill /F /PID %%a >nul 2>&1"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "Start Everything + CLI",
-      "dependsOn": [
-        "dev: traceroute (no-inspect)",
-        "dev: deploy-ui (no-inspect)",
-        "dev: polycom app (no-inspect)",
-        "dev: deploy-backend (no-wait)",
-        "dev: webscraper stack (freepbx-tools)",
-        "dev: cli manager",
-        "open: traceroute ui",
-        "open: webscraper ui"
-      ],
-      "dependsOrder": "parallel",
       "problemMatcher": []
     },
     {
@@ -556,51 +56,87 @@
       "isBackground": true,
       "problemMatcher": [
         {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
+          "owner": "custom",
+          "fileLocation": "absolute",
+          "pattern": {
+            "regexp": "^(.*)$",
+            "file": 1,
+            "message": 1
+          },
           "background": {
             "activeOnStart": true,
-            "beginsPattern": "INFO:.*Uvicorn running on",
-            "endsPattern": "Application startup complete"
+            "beginsPattern": ".*",
+            "endsPattern": "INFO:\\s+Application startup complete\\."
           }
         }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
+      ]
     },
     {
       "label": "dev: manager-ui frontend",
       "type": "process",
       "command": "npm.cmd",
       "args": [
+        "--prefix",
+        "manager-ui",
         "run",
         "dev"
       ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "isBackground": true,
       "problemMatcher": [
         {
-          "pattern": [
-            {
-              "regexp": ".*"
-            }
-          ],
+          "owner": "custom",
+          "fileLocation": "absolute",
+          "pattern": {
+            "regexp": "^(.*)$",
+            "file": 1,
+            "message": 1
+          },
           "background": {
             "activeOnStart": true,
-            "beginsPattern": "\u25b2 Next\\.js",
-            "endsPattern": "Ready in"
+            "beginsPattern": ".*",
+            "endsPattern": "Ready in|Local:"
           }
         }
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}/manager-ui"
-      }
+      ]
     },
     {
-      "label": "kill: webscraper noc ports",
+      "label": "helper: open web dashboard",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "start",
+        "",
+        "http://127.0.0.1:3004/dashboard"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: web tools stack",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "bootstrap: dev envs",
+        "helper: kill web ports",
+        "dev: web manager backend",
+        "dev: manager-ui frontend",
+        "helper: open web dashboard"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: webscraper noc dashboard",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "dev: web tools stack"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "stop: web tools stack",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -611,102 +147,15 @@
         "8787",
         "3004"
       ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "kill: webscraper manager ports",
-      "type": "shell",
-      "dependsOn": [
-        "kill: webscraper noc ports"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "kill: web ports",
-      "type": "shell",
-      "dependsOn": [
-        "kill: webscraper manager ports"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: webscraper manager gui startup",
-      "dependsOn": [
-        "kill: webscraper manager ports",
-        "dev: web manager backend",
-        "dev: manager-ui frontend",
-        "open: webscraper ui"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: web tools stack",
-      "type": "shell",
-      "dependsOn": [
-        "kill: web ports",
-        "dev: web manager backend",
-        "dev: manager-ui frontend"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "stop: webscraper manager gui",
-      "dependsOn": [
-        "kill: webscraper manager ports"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "dev: webscraper noc dashboard",
-      "dependsOn": [
-        "dev: webscraper manager gui startup"
-      ],
       "problemMatcher": []
     },
     {
       "label": "stop: webscraper noc dashboard",
+      "dependsOrder": "sequence",
       "dependsOn": [
-        "stop: webscraper manager gui"
+        "stop: web tools stack"
       ],
       "problemMatcher": []
-    },
-    {
-      "label": "dev: bootstrap envs",
-      "type": "process",
-      "command": "py",
-      "args": [
-        "-3",
-        "scripts/bootstrap_venv.py",
-        "--all"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
-    },
-    {
-      "label": "doctor: dev envs",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "call",
-        "${workspaceFolder}\\scripts\\run_py.bat",
-        ".venv-webscraper",
-        "-m",
-        "webscraper_manager",
-        "doctor"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      }
     }
   ]
 }
