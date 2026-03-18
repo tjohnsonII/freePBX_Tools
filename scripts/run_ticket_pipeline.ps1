@@ -12,8 +12,8 @@ Set-Location $RepoRoot
 $python = Join-Path $RepoRoot ".venv-webscraper\Scripts\python.exe"
 if (-not (Test-Path $python)) { throw "Missing python venv at $python" }
 
-$dbPath = Join-Path $RepoRoot "webscraper\output\tickets.sqlite"
-$outPath = Join-Path $RepoRoot "webscraper\output\scrape_runs"
+$dbPath = Join-Path $RepoRoot "webscraper\var\db\tickets.sqlite"
+$outPath = Join-Path $RepoRoot "webscraper\var\runs"
 $env:TICKETS_DB = $dbPath
 
 $scrapeArgs = @("scripts\scrape_all_handles.py", "--db", $dbPath, "--out", $outPath, "--auth-profile-only")
@@ -43,7 +43,7 @@ $uiCmd = "cd `"$uiDir`"; `$env:NEXT_PUBLIC_TICKET_API_BASE=`"http://127.0.0.1:87
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $uiCmd | Out-Null
 
 Start-Sleep -Seconds 4
-Start-Process "http://localhost:3000" | Out-Null
+Start-Process "http://localhost:3004" | Out-Null
 
 Write-Host "[PIPELINE] DB quick stats"
 & $python -c "import os,sqlite3;db=os.environ.get('TICKETS_DB');conn=sqlite3.connect(db);print('handles=',conn.execute('select count(*) from handles').fetchone()[0]);print('tickets=',conn.execute('select count(*) from tickets').fetchone()[0]);print('runs=',conn.execute('select count(*) from runs').fetchone()[0])"

@@ -2,8 +2,8 @@
 param(
     [string]$ApiHost = '127.0.0.1',
     [int]$ApiPort = 8787,
-    [int]$UiPort = 3000,
-    [string]$DbPath = 'webscraper\output\tickets.sqlite',
+    [int]$UiPort = 3004,
+    [string]$DbPath = 'webscraper\var\db\tickets.sqlite',
     [int]$StartupTimeoutSeconds = 45,
     [switch]$SmokeOnly
 )

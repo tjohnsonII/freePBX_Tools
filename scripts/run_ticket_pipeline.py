@@ -13,8 +13,8 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run ticket scrape pipeline and start API")
-    parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"))
-    parser.add_argument("--out", default=os.path.join("webscraper", "output", "scrape_runs"))
+    parser.add_argument("--db", default=os.path.join("webscraper", "var", "db", "tickets.sqlite"))
+    parser.add_argument("--out", default=os.path.join("webscraper", "var", "runs"))
     parser.add_argument("--handles", nargs="+")
     parser.add_argument("--handles-file")
     parser.add_argument("--attach-debugger")
@@ -71,7 +71,7 @@ def main() -> int:
     api_cmd = [sys.executable, "-m", "uvicorn", "webscraper.ticket_api.app:app", "--port", str(args.api_port)]
     print("[PIPELINE] Starting API server...")
     print(f"[PIPELINE] UI: cd webscraper\\ticket-ui && set NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:{args.api_port} && npm.cmd run dev")
-    print(f"[PIPELINE] Open UI at: http://127.0.0.1:3000")
+    print(f"[PIPELINE] Open UI at: http://127.0.0.1:3004")
     print(f"[PIPELINE] API docs: http://127.0.0.1:{args.api_port}/docs")
     return run_cmd(api_cmd, env=env)
 

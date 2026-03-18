@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from webscraper.ticket_api.db import ensure_indexes, explain_list_tickets_plan, get_conn, table_columns
 
 
-DEFAULT_DB = os.path.join("webscraper", "output", "tickets.sqlite")
+DEFAULT_DB = os.path.join("webscraper", "var", "db", "tickets.sqlite")
 
 
 def main() -> None:

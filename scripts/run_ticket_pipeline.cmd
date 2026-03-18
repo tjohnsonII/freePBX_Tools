@@ -8,8 +8,8 @@ if not exist "%PYTHON%" (
   exit /b 1
 )
 
-set TICKETS_DB=%CD%\webscraper\output\tickets.sqlite
-set OUT_DIR=%CD%\webscraper\output\scrape_runs
+set TICKETS_DB=%CD%\webscraper\var\db\tickets.sqlite
+set OUT_DIR=%CD%\webscraper\var\runs
 set NEXT_PUBLIC_TICKET_API_BASE=http://127.0.0.1:8787
 
 set HANDLE_ARGS=
@@ -29,7 +29,7 @@ if exist "%ProgramFiles%\nodejs\npm.cmd" (
 )
 start "ticket-ui" cmd /k "cd /d %CD%\webscraper\ticket-ui && set NEXT_PUBLIC_TICKET_API_BASE=%NEXT_PUBLIC_TICKET_API_BASE% && "%NPM_CMD%" install && "%NPM_CMD%" run dev"
 
-start "" http://localhost:3000
+start "" http://localhost:3004
 "%PYTHON%" -c "import os,sqlite3;db=os.environ.get('TICKETS_DB');conn=sqlite3.connect(db);print('handles=',conn.execute('select count(*) from handles').fetchone()[0]);print('tickets=',conn.execute('select count(*) from tickets').fetchone()[0]);print('runs=',conn.execute('select count(*) from runs').fetchone()[0])"
 
 echo If PowerShell blocks npm.ps1, use this .cmd launcher or npm.cmd directly.

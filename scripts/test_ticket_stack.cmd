@@ -6,8 +6,8 @@ cd /d "%REPO_ROOT%" || exit /b 1
 
 set "API_HOST=127.0.0.1"
 set "API_PORT=8787"
-set "UI_PORT=3000"
-set "DB_PATH=webscraper\output\tickets.sqlite"
+set "UI_PORT=3004"
+set "DB_PATH=webscraper\var\db\tickets.sqlite"
 set "SMOKE_ONLY=0"
 if /I "%~1"=="--smoke-only" set "SMOKE_ONLY=1"
 
