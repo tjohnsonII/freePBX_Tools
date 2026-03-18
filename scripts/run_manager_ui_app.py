@@ -13,8 +13,10 @@ from lib.dev_runtime import (
     repo_root,
     run_doctor,
     save_service_state,
+    stop_service,
     start_detached,
     wait_for_http,
+    wait_for_process_stable,
 )
 
 
@@ -45,6 +47,7 @@ def main() -> int:
             run_doctor(root)
 
         ensure_port_available(args.port, cleanup=not args.no_port_cleanup, section="ports")
+        stop_service(root, "manager_ui_frontend")
 
         npm = npm_executable()
         cmd = [npm, "--prefix", "manager-ui", "run", "dev"]
@@ -56,9 +59,10 @@ def main() -> int:
             cwd=root,
         )
         save_service_state(root, entry)
+        wait_for_process_stable(entry["pid"], timeout_s=15, section="ready")
 
         wait_for_http(
-            f"http://{args.host}:{args.port}/dashboard",
+            f"http://{args.host}:{args.port}/",
             timeout_s=args.readiness_timeout,
             ok_status_max=499,
             section="ready",

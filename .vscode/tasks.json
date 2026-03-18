@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "dev: web manager backend",
+      "label": "dev: webscraper manager API backend",
       "type": "process",
       "command": "python",
       "args": [
@@ -11,7 +11,7 @@
       "problemMatcher": []
     },
     {
-      "label": "dev: webscraper backend service",
+      "label": "dev: webscraper worker service",
       "type": "process",
       "command": "python",
       "args": [
@@ -29,7 +29,7 @@
       "problemMatcher": []
     },
     {
-      "label": "dev: web tools stack",
+      "label": "dev: webscraper full stack",
       "type": "process",
       "command": "python",
       "args": [
@@ -39,7 +39,7 @@
       "problemMatcher": []
     },
     {
-      "label": "stop: web tools stack",
+      "label": "stop: webscraper full stack",
       "type": "process",
       "command": "python",
       "args": [

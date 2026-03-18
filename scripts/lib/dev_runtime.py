@@ -303,9 +303,61 @@ def _load_state(path: Path) -> dict[str, Any]:
         return {"services": {}}
 
 
+def is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if is_windows():
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            return False
+        output = (proc.stdout or "").strip().lower()
+        return bool(output and "no tasks are running" not in output and f"\"{pid}\"" in output)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def wait_for_process_stable(pid: int, *, timeout_s: int, section: str = "wait", min_alive_s: float = 3.0) -> None:
+    deadline = time.time() + timeout_s
+    stable_until = time.time() + min_alive_s
+    while time.time() < deadline:
+        if not is_pid_alive(pid):
+            raise LauncherError(f"Process exited before reaching stable state (pid={pid}).")
+        if time.time() >= stable_until:
+            log(section, f"Process is stable (pid={pid})")
+            return
+        time.sleep(0.5)
+    raise LauncherError(f"Timed out waiting for process stability (pid={pid}, timeout={timeout_s}s).")
+
+
+def prune_stale_service_state(root: Path, *, section: str = "state") -> None:
+    state_path = root / RUNTIME_STATE_FILE
+    state = _load_state(state_path)
+    services = state.get("services", {})
+    if not isinstance(services, dict):
+        return
+    stale = [name for name, info in services.items() if not is_pid_alive(int(info.get("pid", 0) or 0))]
+    for name in stale:
+        services.pop(name, None)
+        log(section, f"Removed stale runtime service entry: {name}")
+    if stale:
+        state["services"] = services
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
 def save_service_state(root: Path, entry: dict[str, Any]) -> None:
     state_path = root / RUNTIME_STATE_FILE
     state_path.parent.mkdir(parents=True, exist_ok=True)
+    prune_stale_service_state(root)
     state = _load_state(state_path)
     services = state.setdefault("services", {})
     services[entry["service"]] = entry
@@ -314,6 +366,7 @@ def save_service_state(root: Path, entry: dict[str, Any]) -> None:
 
 
 def load_services(root: Path) -> dict[str, dict[str, Any]]:
+    prune_stale_service_state(root)
     state = _load_state(root / RUNTIME_STATE_FILE)
     services = state.get("services", {})
     if isinstance(services, dict):
@@ -362,6 +415,13 @@ def stop_all_known_services(root: Path, *, fallback_ports: list[int] | None = No
             if is_port_open("127.0.0.1", port):
                 for pid in sorted(pids_for_port(port)):
                     kill_pid_tree(pid, section="stop")
+
+
+def clear_runtime_state(root: Path) -> None:
+    state_path = root / RUNTIME_STATE_FILE
+    if state_path.exists():
+        state_path.unlink()
+        log("state", f"Removed runtime state file: {state_path}")
 
 
 def maybe_open_browser(url: str, *, open_browser: bool) -> None:
