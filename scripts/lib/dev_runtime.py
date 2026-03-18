@@ -244,6 +244,158 @@ def wait_for_http(url: str, *, timeout_s: int, ok_status_max: int = 399, section
     raise LauncherError(f"Timed out waiting for {url} after {timeout_s}s.")
 
 
+def _normalize_http_paths(paths: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for path in paths:
+        value = str(path or "").strip()
+        if not value:
+            continue
+        if not value.startswith("/"):
+            value = f"/{value}"
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _probe_http_paths(
+    *,
+    host: str,
+    port: int,
+    paths: list[str],
+    section: str,
+) -> tuple[str | None, list[str]]:
+    errors: list[str] = []
+    for path in paths:
+        url = f"http://{host}:{port}{path}"
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                status = int(response.getcode() or 0)
+            log(section, f"http_probe path={path} status={status}")
+            if status < 500:
+                return f"ready via HTTP {status} {path}", errors
+            errors.append(f"{path}: status={status}")
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code or 0)
+            log(section, f"http_probe path={path} status={status}")
+            if status < 500:
+                return f"ready via HTTP {status} {path}", errors
+            errors.append(f"{path}: status={status}")
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            log(section, f"http_probe path={path} error={detail}")
+            errors.append(f"{path}: {detail}")
+    return None, errors
+
+
+def _read_log_chunk(path: Path, offset: int) -> tuple[str, int]:
+    if not path.exists():
+        return "", offset
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        handle.seek(offset)
+        data = handle.read()
+        return data, handle.tell()
+
+
+def _contains_success_marker(text: str, markers: list[str]) -> str | None:
+    lowered = text.lower()
+    for marker in markers:
+        if marker.lower() in lowered:
+            return marker
+    return None
+
+
+def wait_for_dev_server_ready(
+    *,
+    pid: int,
+    host: str,
+    port: int,
+    timeout_s: int,
+    http_paths: list[str],
+    log_path: Path | None,
+    section: str = "ready",
+    process_stable_s: float = 3.0,
+    http_probe_interval_s: float = 1.0,
+    open_port_fallback_s: float = 12.0,
+    allow_open_port_fallback: bool = True,
+    success_markers: list[str] | None = None,
+) -> str:
+    """Wait for dev server readiness using process, port, stdout markers, and HTTP probes."""
+    paths = _normalize_http_paths(http_paths)
+    if not paths:
+        paths = ["/"]
+
+    markers = success_markers or []
+    deadline = time.monotonic() + timeout_s
+    stable_at = time.monotonic() + process_stable_s
+    next_http_probe_at = 0.0
+    port_open_since: float | None = None
+    process_stable_logged = False
+    port_open_logged = False
+    log_offset = 0
+    recent_errors: list[str] = []
+
+    log(section, f"readiness_start pid={pid} timeout_s={timeout_s} paths={paths}")
+    while time.monotonic() < deadline:
+        if not is_pid_alive(pid):
+            raise LauncherError(f"Frontend process died before readiness completed (pid={pid}).")
+
+        if not process_stable_logged and time.monotonic() >= stable_at:
+            process_stable_logged = True
+            log(section, f"pid_stable pid={pid}")
+
+        if markers and log_path:
+            chunk, log_offset = _read_log_chunk(log_path, log_offset)
+            marker = _contains_success_marker(chunk, markers)
+            if marker:
+                reason = f"ready via stdout marker '{marker}'"
+                log(section, f"readiness_success reason={reason}")
+                return reason
+
+        port_open = is_port_open(host, port, timeout=0.5)
+        if port_open:
+            if port_open_since is None:
+                port_open_since = time.monotonic()
+            if not port_open_logged:
+                port_open_logged = True
+                log(section, f"port_open host={host} port={port}")
+        else:
+            if port_open_logged:
+                log(section, f"port_closed host={host} port={port}")
+            port_open_logged = False
+            port_open_since = None
+
+        if port_open and time.monotonic() >= next_http_probe_at:
+            next_http_probe_at = time.monotonic() + http_probe_interval_s
+            reason, errors = _probe_http_paths(host=host, port=port, paths=paths, section=section)
+            if reason:
+                log(section, f"readiness_success reason={reason}")
+                return reason
+            recent_errors.extend(errors)
+            recent_errors = recent_errors[-5:]
+
+        if (
+            allow_open_port_fallback
+            and process_stable_logged
+            and port_open_since is not None
+            and (time.monotonic() - port_open_since) >= open_port_fallback_s
+        ):
+            reason = (
+                "ready via open port fallback "
+                f"(host={host} port={port} stable_for={int(open_port_fallback_s)}s)"
+            )
+            log(section, f"readiness_success reason={reason}")
+            return reason
+
+        time.sleep(0.5)
+
+    details = "; ".join(recent_errors[-5:]) if recent_errors else "none"
+    raise LauncherError(
+        "Frontend readiness failed "
+        f"(pid={pid}, host={host}, port={port}, timeout={timeout_s}s). "
+        f"Last probe errors: {details}"
+    )
+
+
 def _creationflags() -> int:
     if not is_windows():
         return 0
@@ -365,6 +517,25 @@ def save_service_state(root: Path, entry: dict[str, Any]) -> None:
     log("state", f"Updated runtime state: {state_path}")
 
 
+def update_service_state(root: Path, service_name: str, **fields: Any) -> None:
+    if not fields:
+        return
+    state_path = root / RUNTIME_STATE_FILE
+    state = _load_state(state_path)
+    services = state.get("services", {})
+    if not isinstance(services, dict):
+        return
+    service = services.get(service_name)
+    if not isinstance(service, dict):
+        return
+    service.update(fields)
+    services[service_name] = service
+    state["services"] = services
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    log("state", f"Updated service state fields for {service_name}: {', '.join(sorted(fields.keys()))}")
+
+
 def load_services(root: Path) -> dict[str, dict[str, Any]]:
     prune_stale_service_state(root)
     state = _load_state(root / RUNTIME_STATE_FILE)
@@ -435,7 +606,7 @@ def maybe_open_browser(url: str, *, open_browser: bool) -> None:
         browser = shutil.which("xdg-open")
         if browser:
             subprocess.Popen([browser, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    log("browser", f"Opened: {url}")
+    log("browser", f"Opened URL: {url}")
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
