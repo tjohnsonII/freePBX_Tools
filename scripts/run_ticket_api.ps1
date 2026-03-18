@@ -1,5 +1,5 @@
 param(
-  [string]$DbPath = "webscraper/output/tickets.sqlite"
+  [string]$DbPath = "webscraper/var/db/tickets.sqlite"
 )
 
 $env:TICKETS_DB_PATH = $DbPath

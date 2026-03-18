@@ -137,8 +137,8 @@ def _default_services_config(root: Path) -> dict[str, Any]:
         "ui": {
             "enabled": True,
             "cwd": "webscraper/ticket-ui",
-            "port": 3000,
-            "health_url": "http://127.0.0.1:3000",
+            "port": 3004,
+            "health_url": "http://127.0.0.1:3004",
             "cmd": ["npm.cmd", "run", "dev"],
         },
         "worker": {
@@ -168,8 +168,10 @@ def _load_services_config(root: Path) -> dict[str, Any]:
         if isinstance(ui_cmd, list) and ui_cmd in (["npm", "run", "dev"], ["npm", "run", "dev:local-api"], ["npm.cmd", "run", "dev:local-api"]):
             ui_cfg["cmd"] = ["npm.cmd", "run", "dev"]
             migrated = True
-        if ui_cfg.get("health_url") != "http://127.0.0.1:3000":
-            ui_cfg["health_url"] = "http://127.0.0.1:3000"
+        if ui_cfg.get("health_url") in (None, "", "http://127.0.0.1:3000"):
+            ui_cfg["health_url"] = "http://127.0.0.1:3004"
+            if "port" not in ui_cfg or ui_cfg.get("port") == 3000:
+                ui_cfg["port"] = 3004
             migrated = True
         if migrated:
             config_path.write_text(json.dumps(services_cfg, indent=2) + "\n", encoding="utf-8")
