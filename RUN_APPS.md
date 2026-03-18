@@ -4,6 +4,11 @@ This repo contains multiple independent apps/tools. The easiest way to run them 
 
 Open the Command Palette → **Tasks: Run Task** and use the labels below.
 
+## Dev environment bootstrap / doctor
+
+- Task: **dev: bootstrap envs** (creates/fixes all managed Python venvs in one run)
+- Task: **doctor: dev envs** (runs `webscraper_manager doctor` checks against managed environments)
+
 ## FreePBX Deploy Backend (FastAPI)
 
 - Task: **FreePBX Deploy UI: backend dev (localhost:8002)**

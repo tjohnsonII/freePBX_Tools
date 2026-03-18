@@ -1727,7 +1727,51 @@ def print_result_panel(console: Console | None, ok: bool, message: str) -> None:
     )
 
 
-def _doctor_findings() -> list[Finding]:
+def _run_managed_env_doctor(root: Path, env_id: str, fix: bool) -> tuple[bool, str, list[str]]:
+    bootstrap_script = root / "scripts" / "bootstrap_venv.py"
+    if not bootstrap_script.is_file():
+        return False, f"bootstrap script missing: {bootstrap_script}", []
+
+    cmd = [str(sys.executable), str(bootstrap_script), "--env-id", env_id, "--json", "--quiet"]
+    if not fix:
+        cmd.append("--verify-only")
+
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False, cwd=str(root))
+    except Exception as exc:
+        return False, f"doctor probe failed: {exc}", []
+
+    output = (completed.stdout or "").strip()
+    if not output:
+        error_text = (completed.stderr or "no output from bootstrap_venv.py").strip()
+        return False, error_text, []
+
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        fallback = (completed.stderr or output).strip()
+        return False, f"invalid bootstrap JSON: {fallback}", []
+
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return False, "bootstrap output missing result payload", []
+
+    missing = [str(item) for item in list(result.get("missing_modules", []))]
+    ok = bool(result.get("ok"))
+    if ok:
+        if fix and (result.get("created") or result.get("installed")):
+            details = "fixed"
+        else:
+            details = "OK"
+    else:
+        details = str(result.get("message") or "unhealthy")
+        if missing:
+            details = f"{details}; missing: {', '.join(missing)}"
+
+    return ok, details, missing
+
+
+def _doctor_findings(fix: bool = False) -> list[Finding]:
     root = _repo_root()
     current_python = Path(sys.executable)
     preferred_python = get_preferred_python(root)
@@ -1738,6 +1782,9 @@ def _doctor_findings() -> list[Finding]:
     ui_dir = root / "webscraper" / "ticket-ui"
     ui_package_json = ui_dir / "package.json"
     ui_next_dir = ui_dir / "node_modules" / "next"
+    manager_ui_dir = root / "manager-ui"
+    manager_ui_package_json = manager_ui_dir / "package.json"
+    manager_ui_next_dir = manager_ui_dir / "node_modules" / "next"
     legacy_manager_dir_candidates = [
         root / "webscraper-manager",
         root / "_legacy_webscraper_manager_old",
@@ -1817,10 +1864,34 @@ def _doctor_findings() -> list[Finding]:
     ui_next_details = (
         f"Found {ui_next_dir}"
         if ui_next_ok
-        else f"Missing {ui_next_dir}. Run `E:\\DevTools\\nodejs\\npm.cmd install` in {ui_dir}"
+        else f"Missing {ui_next_dir}. Run `npm.cmd install` in {ui_dir}"
+    )
+    manager_ui_package_ok = manager_ui_package_json.is_file()
+    manager_ui_package_details = f"Expected file: {manager_ui_package_json}"
+    manager_ui_next_ok = manager_ui_next_dir.is_dir()
+    manager_ui_next_details = (
+        f"Found {manager_ui_next_dir}"
+        if manager_ui_next_ok
+        else f"Missing {manager_ui_next_dir}. Run `npm.cmd install` in {manager_ui_dir}"
     )
 
-    return [
+    managed_env_labels = {
+        "webscraper": ".venv-webscraper",
+        "web_manager": ".venv-web-manager",
+        "deploy_backend": "freepbx-deploy-backend/.venv",
+        "traceroute_backend": "traceroute-visualizer-main/backend/.venv",
+    }
+    managed_env_findings: list[Finding] = []
+    for managed_env_id, managed_env_label in managed_env_labels.items():
+        env_ok, env_details, _ = _run_managed_env_doctor(root, managed_env_id, fix=fix)
+        managed_env_findings.append(
+            Finding(
+                check=f"managed_env:{managed_env_label}",
+                ok=env_ok,
+                details=env_details,
+            )
+        )
+    findings = [
         Finding("repo_root", root.exists(), f"Found repo root at {root}"),
         Finding(
             "manager_requirements",
@@ -1862,6 +1933,7 @@ def _doctor_findings() -> list[Finding]:
         ),
         Finding("ui_dir", ui_dir.is_dir(), f"Expected directory: {ui_dir}"),
         Finding("ui_package_json", ui_package_json.is_file(), f"Expected file: {ui_package_json}"),
+        Finding("manager_ui_package_json", manager_ui_package_ok, manager_ui_package_details),
         Finding("node_executable", node_ok, node_details),
         Finding("node_version", node_version_ok, node_version_details),
         Finding("npm_cmd", npm_cmd_ok, npm_cmd_details),
@@ -1876,6 +1948,7 @@ def _doctor_findings() -> list[Finding]:
             warning=ui_ps1_only,
         ),
         Finding("ui_next_dependency", ui_next_ok, ui_next_details),
+        Finding("manager_ui_next_dependency", manager_ui_next_ok, manager_ui_next_details),
         Finding("current_python", True, str(current_python)),
         Finding("preferred_python", True, str(preferred_python)),
         Finding(
@@ -1915,10 +1988,12 @@ def _doctor_findings() -> list[Finding]:
             warning=not matches_preferred,
         ),
     ]
+    findings.extend(managed_env_findings)
+    return findings
 
 
-def run_doctor(console: Console | None, state: AppState, json_out: bool) -> tuple[int, dict[str, Any] | None]:
-    findings = _doctor_findings()
+def run_doctor(console: Console | None, state: AppState, json_out: bool, fix: bool = False) -> tuple[int, dict[str, Any] | None]:
+    findings = _doctor_findings(fix=fix)
     ok = all(finding.ok or finding.warning for finding in findings)
     payload = {
         "ok": ok,
@@ -3219,6 +3294,7 @@ if TYPER_AVAILABLE:
     def doctor(
         ctx: typer.Context,
         json_output: bool = typer.Option(False, "--json", help="Output JSON only."),
+        fix: bool = typer.Option(False, "--fix", help="Attempt to self-heal managed venv dependency issues."),
         quiet: bool = typer.Option(False, "--quiet", help="Minimal output."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output."),
     ) -> None:
@@ -3229,7 +3305,7 @@ if TYPER_AVAILABLE:
         if should_print_banner(state, json_out=use_json, is_help=False):
             print_banner(get_console(state))
 
-        code, _ = run_doctor(get_console(state), state, json_out=use_json)
+        code, _ = run_doctor(get_console(state), state, json_out=use_json, fix=bool(fix))
         if code:
             raise typer.Exit(code)
 
@@ -3526,6 +3602,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
 
     doctor_parser = subparsers.add_parser("doctor", help="Run doctor checks")
     doctor_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
+    doctor_parser.add_argument("--fix", action="store_true", help="Attempt to self-heal managed venv dependency issues")
 
     auth_check_parser = subparsers.add_parser("auth-check", help="Run auth probes for requests and selenium")
     auth_check_parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON only")
@@ -3616,7 +3693,7 @@ def _argparse_fallback(argv: list[str] | None = None) -> int:
         state = AppState(quiet=bool(args.quiet), verbose=bool(args.verbose), use_preferred_python=bool(args.use_preferred_python))
         if should_print_banner(state, json_out=bool(args.json_output), is_help=False):
             print_banner(get_console(state))
-        code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output))
+        code, _ = run_doctor(get_console(state), state, json_out=bool(args.json_output), fix=bool(args.fix))
         return code
 
     if args.command == "auth-check":

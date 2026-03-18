@@ -655,6 +655,39 @@
         "stop: webscraper manager gui"
       ],
       "problemMatcher": []
+    },
+    {
+      "label": "dev: bootstrap envs",
+      "type": "process",
+      "command": "py",
+      "args": [
+        "-3",
+        "scripts/bootstrap_venv.py",
+        "--all"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "doctor: dev envs",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "call",
+        "${workspaceFolder}\\scripts\\run_py.bat",
+        ".venv-webscraper",
+        "-m",
+        "webscraper_manager",
+        "doctor"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     }
   ]
 }
