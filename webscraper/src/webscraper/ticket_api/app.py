@@ -32,6 +32,7 @@ from webscraper.auth.probe import probe_auth
 from webscraper.auth.session import selenium_driver_to_requests_session, summarize_driver_cookies
 from webscraper.auth.cookie_seeder import (
     DEFAULT_CDP_PORT,
+    DEFAULT_DOMAINS,
     CookieSeedError,
     SeedResult,
     auth_doctor,
@@ -115,6 +116,8 @@ def _startup_bootstrap() -> None:
     _log(f"DB path: {db_path()}")
     _log(f"DB OK: handles={stats['total_handles']} tickets={stats['total_tickets']}")
     threading.Thread(target=_job_worker, daemon=True).start()
+    threading.Thread(target=_auto_startup_chrome, daemon=True).start()
+    threading.Thread(target=_cdp_login_watcher, daemon=True).start()
 
 
 @asynccontextmanager
@@ -435,6 +438,12 @@ def _detect_browser_path() -> Path:
 
 AUTH_MANAGER = AuthManager(db_path_getter=db_path, browser_path_getter=_detect_browser_path, log_func=_log)
 
+# ── Auto-Chrome / CDP login watcher ──────────────────────────────────────────
+DEBUG_CHROME_PROC: subprocess.Popen | None = None
+DEBUG_CHROME_PROC_LOCK = threading.Lock()
+AUTO_SEED_LOCK = threading.Lock()
+AUTO_LAUNCH_DEBUG_CHROME: bool = os.getenv("AUTO_LAUNCH_DEBUG_CHROME", "1").strip().lower() in {"1", "true", "yes", "on"}
+
 
 def _is_login_like(payload: str) -> bool:
     lowered = payload.lower()
@@ -540,6 +549,180 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         "cookie_count": len(cookies),
         "domains": sorted({str(cookie.get("domain") or "") for cookie in cookies if cookie.get("domain")}),
     }
+
+
+# ── CDP helpers ───────────────────────────────────────────────────────────────
+
+def _is_cdp_available(port: int = DEFAULT_CDP_PORT) -> bool:
+    """Return True if a debuggable Chrome is listening on *port*."""
+    try:
+        r = requests.get(f"http://127.0.0.1:{port}/json/version", timeout=0.8)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _get_cdp_tab_urls(port: int = DEFAULT_CDP_PORT) -> list[str]:
+    """Return URLs of all open Chrome tabs via CDP /json endpoint."""
+    try:
+        r = requests.get(f"http://127.0.0.1:{port}/json", timeout=1.5)
+        r.raise_for_status()
+        return [str(t.get("url") or "") for t in r.json() if isinstance(t, dict)]
+    except Exception:
+        return []
+
+
+def _url_is_post_login(url: str) -> bool:
+    """Return True if *url* looks like a post-login admin page."""
+    low = url.lower()
+    return ("customers.cgi" in low or "vpbx.cgi" in low) and "admin" in low
+
+
+def _auto_seed_and_validate(port: int = DEFAULT_CDP_PORT) -> bool:
+    """
+    Seed cookies from the CDP instance on *port* and run validation.
+    Returns True if authentication succeeded.  Thread-safe via AUTO_SEED_LOCK.
+    """
+    with AUTO_SEED_LOCK:
+        try:
+            result = seed_from_cdp(port, DEFAULT_DOMAINS)
+        except CookieSeedError as exc:
+            _log(f"[AUTO] CDP seed failed: {exc}")
+            return False
+
+        if not result.cookies:
+            _log("[AUTO] CDP seed returned 0 cookies – user may not be logged in yet")
+            return False
+
+        store_result = auth_store.replace_cookies(db_path(), result.cookies, source="seed_cdp_auto")
+        _log(f"[AUTO] Stored {store_result.get('accepted', 0)} cookies via CDP auto-seed")
+
+        validation = _validate_auth_targets(timeout_seconds=10)
+        authenticated = bool(validation.get("authenticated"))
+        if authenticated:
+            _update_auth_state(
+                authenticated=True,
+                mode="cdp_auto",
+                detail="Auto-seeded auth cookies from CDP after login detected",
+                last_error=None,
+            )
+            _append_event(
+                "info",
+                f"Auto-seeded auth cookies mode=cdp_auto count={store_result.get('accepted', 0)}",
+            )
+        else:
+            _log(f"[AUTO] Validation failed after CDP seed: {validation.get('reason')}")
+        return authenticated
+
+
+def _try_auto_launch_debug_chrome() -> bool:
+    """
+    Launch the debug Chrome profile if not already running.
+    Returns True when a new process was started.
+    """
+    global DEBUG_CHROME_PROC
+    if not AUTO_LAUNCH_DEBUG_CHROME:
+        return False
+
+    with DEBUG_CHROME_PROC_LOCK:
+        # Already alive?
+        if DEBUG_CHROME_PROC is not None and DEBUG_CHROME_PROC.poll() is None:
+            return False
+        if _is_cdp_available(DEFAULT_CDP_PORT):
+            return False  # something else is already on that port
+
+        try:
+            browser_path = _detect_browser_path()
+        except HTTPException:
+            _log("[AUTO] Chrome not found – skipping auto-launch (set CHROME_PATH)")
+            return False
+
+        debug_profile = Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome-debug"
+        try:
+            proc = launch_debug_chrome(
+                chrome_path=browser_path,
+                user_data_dir=debug_profile,
+                profile_name="Default",
+                port=DEFAULT_CDP_PORT,
+            )
+            DEBUG_CHROME_PROC = proc
+            _log(f"[AUTO] Launched debug Chrome pid={proc.pid} cdp_port={DEFAULT_CDP_PORT} profile={debug_profile}")
+            return True
+        except Exception as exc:
+            _log(f"[AUTO] Failed to launch debug Chrome: {exc}")
+            return False
+
+
+# ── Background threads ────────────────────────────────────────────────────────
+
+def _auto_startup_chrome() -> None:
+    """
+    Runs once at startup (in a daemon thread).
+
+    * If Chrome is already on the CDP port → attempt an immediate seed so that
+      sessions left over from a previous run are picked up automatically.
+    * Otherwise → launch the debug Chrome profile so it is ready for the user.
+    """
+    time.sleep(2)  # let the server finish initialising
+    _log("[AUTO] Startup: checking for existing CDP session")
+    if _is_cdp_available(DEFAULT_CDP_PORT):
+        _log("[AUTO] Chrome already on CDP port at startup – attempting quick seed")
+        _auto_seed_and_validate(DEFAULT_CDP_PORT)
+    else:
+        launched = _try_auto_launch_debug_chrome()
+        if launched:
+            # Give Chrome a moment to start, then try seeding from any prior session
+            time.sleep(5)
+            if _is_cdp_available(DEFAULT_CDP_PORT):
+                _log("[AUTO] Debug Chrome started – seeding from prior session cookies (if any)")
+                _auto_seed_and_validate(DEFAULT_CDP_PORT)
+
+
+def _cdp_login_watcher() -> None:
+    """
+    Long-running daemon thread.
+
+    * Polls Chrome via CDP every ~3 s while not authenticated.
+    * When a post-login tab (customers.cgi / vpbx.cgi) is detected,
+      automatically seeds cookies and validates.
+    * If the owned debug Chrome process dies, attempts a re-launch.
+    * When authenticated, backs off to a 30 s check so it can detect
+      session expiry and trigger a re-seed.
+    """
+    _log("[AUTO] CDP login watcher started")
+    while True:
+        try:
+            with AUTH_STATE_LOCK:
+                already_auth = AUTH_STATE.authenticated
+
+            if already_auth:
+                # Slow polling while authenticated – detect expiry
+                time.sleep(30)
+                continue
+
+            time.sleep(3)
+
+            # If Chrome died and we launched it, try to restart
+            if not _is_cdp_available(DEFAULT_CDP_PORT):
+                with DEBUG_CHROME_PROC_LOCK:
+                    proc = DEBUG_CHROME_PROC
+                if proc is not None and proc.poll() is not None:
+                    _log("[AUTO] Debug Chrome process exited – re-launching")
+                    _try_auto_launch_debug_chrome()
+                continue
+
+            # CDP is up – check whether the user has logged in
+            urls = _get_cdp_tab_urls(DEFAULT_CDP_PORT)
+            post_login = [u for u in urls if _url_is_post_login(u)]
+            if not post_login:
+                continue  # still on login page or new tab
+
+            _log(f"[AUTO] Post-login tab detected: {post_login[0]!r} – seeding cookies")
+            _auto_seed_and_validate(DEFAULT_CDP_PORT)
+
+        except Exception as exc:
+            _log(f"[AUTO] Login watcher error: {exc}")
+            time.sleep(5)
 
 
 def _raise_auth_validation_error(job_id: str | None, handle: str | None, validation: dict[str, Any]) -> None:
@@ -770,6 +953,10 @@ def _job_worker() -> None:
             )
             _append_event("info", f"Started scrape job with {len(handles)} handles", job_id=job.job_id)
             validation = _validate_auth_targets()
+            if not validation.get("authenticated") and _is_cdp_available(DEFAULT_CDP_PORT):
+                _log(f"[WORKER] Auth invalid before job start – attempting CDP auto-seed jobId={job.job_id}")
+                _auto_seed_and_validate(DEFAULT_CDP_PORT)
+                validation = _validate_auth_targets()
             _raise_auth_validation_error(job.job_id, job.handle, validation)
 
             for handle in handles:
@@ -1634,6 +1821,33 @@ def api_auth_doctor():
         "auth_cookie_table_ready": auth_table_ready,
         "error": db_error,
         "auth": doctor,
+    }
+
+
+@app.get("/api/auth/auto_status")
+def api_auth_auto_status():
+    """Return the state of the auto Chrome launcher and CDP login watcher."""
+    with DEBUG_CHROME_PROC_LOCK:
+        proc = DEBUG_CHROME_PROC
+    proc_alive = proc is not None and proc.poll() is None
+    cdp_up = _is_cdp_available(DEFAULT_CDP_PORT)
+    tab_urls = _get_cdp_tab_urls(DEFAULT_CDP_PORT) if cdp_up else []
+    post_login = [u for u in tab_urls if _url_is_post_login(u)]
+    with AUTH_STATE_LOCK:
+        auth_snapshot = {
+            "authenticated": AUTH_STATE.authenticated,
+            "mode": AUTH_STATE.mode,
+            "detail": AUTH_STATE.detail,
+        }
+    return {
+        "auto_launch_enabled": AUTO_LAUNCH_DEBUG_CHROME,
+        "debug_chrome_pid": proc.pid if proc_alive else None,
+        "debug_chrome_alive": proc_alive,
+        "cdp_port": DEFAULT_CDP_PORT,
+        "cdp_available": cdp_up,
+        "open_tabs": len(tab_urls),
+        "post_login_tabs": post_login,
+        **auth_snapshot,
     }
 
 
