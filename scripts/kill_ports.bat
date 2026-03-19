@@ -1,44 +1,13 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions
 
-set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%..") do set "REPO=%%~fI"
-set "LOG=%REPO%\webscraper\var\logs\kill_ports.log"
+set "ROOT=%~dp0.."
+for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 
-if not exist "%REPO%\webscraper\var\logs" mkdir "%REPO%\webscraper\var\logs" >nul 2>&1
+set "PYTHON=python"
+where py >nul 2>nul && set "PYTHON=py -3"
 
-set "PORT_LIST=%*"
-if "%PORT_LIST%"=="" set "PORT_LIST=8787 3004"
-
-call :timestamp TS
-echo %TS% [kill_ports] Checking ports %PORT_LIST%...>>"%LOG%"
-echo [kill_ports] Checking ports %PORT_LIST%...
-
-for %%P in (%PORT_LIST%) do call :kill_port %%P
-
-REM Re-check a couple times in case something releases late
-for /L %%I in (1,1,3) do (
-  timeout /t 1 /nobreak >nul
-  for %%P in (%PORT_LIST%) do call :kill_port %%P
-)
-
-call :timestamp TS
-echo %TS% [kill_ports] Done.>>"%LOG%"
-echo [kill_ports] Done.
-exit /b 0
-
-:kill_port
-set "PORT=%~1"
-for /f "tokens=5" %%A in ('netstat -ano ^| findstr /r /c:":%PORT% .*LISTENING"') do (
-  set "PID=%%A"
-  call :timestamp TS
-  echo %TS% [kill_ports] Killing PID !PID! on port %PORT%>>"%LOG%"
-  echo [kill_ports] Killing PID !PID! on port %PORT%
-  taskkill /PID !PID! /F /T >nul 2>&1
-)
-exit /b 0
-
-:timestamp
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value ^| find "="') do set "dt=%%I"
-set "%~1=%dt:~0,4%-%dt:~4,2%-%dt:~6,2% %dt:~8,2%:%dt:~10,2%:%dt:~12,2%"
-exit /b 0
+cd /d "%ROOT%"
+echo [kill_ports] Delegating to canonical stop routine.
+%PYTHON% scripts\stop_all_web_apps.py
+exit /b %ERRORLEVEL%

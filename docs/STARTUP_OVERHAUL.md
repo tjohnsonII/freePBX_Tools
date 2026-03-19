@@ -1,3 +1,5 @@
+> **Status update (2026-03-19):** Canonical launcher is now `scripts/run_all_web_apps.py`. See `docs/startup.md` for current startup contract and VS Code tasks.
+
 # Startup/Control Overhaul (devctl)
 
 ## Architecture summary

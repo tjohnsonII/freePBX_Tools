@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import socketserver
 import sys
@@ -143,3 +144,12 @@ def test_run_all_dry_run_writes_summary(monkeypatch, tmp_path):
     )
     assert run_all_web_apps.main() == 0
     assert status_file.exists()
+    payload = json.loads(status_file.read_text(encoding="utf-8"))
+    assert "timestamp" in payload
+    assert payload["args"]["browser"] == "none"
+    assert "services_attempted" in payload
+
+
+def test_run_all_rejects_deprecated_open_browser_flag(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["run_all_web_apps.py", "--open-browser"])
+    assert run_all_web_apps.main() == 1

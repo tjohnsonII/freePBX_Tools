@@ -1,23 +1,26 @@
 # Running the Dev Stack
 
-This is the single source of truth for starting, stopping, and understanding all local services.
+Canonical startup for the web manager/webscraper stack is now documented in `docs/startup.md`.
 
----
+## Official Daily Dev Path (Webscraper / Manager Stack)
 
-## Official Daily Dev Path (Webscraper / Ticket Stack)
-
-```
-cd webscraper/ticket-ui
-npm run dev:stack
+```bash
+python scripts/run_all_web_apps.py --browser none --webscraper-mode combined --doctor --strict-readiness
 ```
 
-This starts:
-- **Ticket API** (FastAPI/uvicorn) at `http://127.0.0.1:8787`
-- **Ticket UI** (Next.js) at `http://127.0.0.1:3004`
+Open dashboard automatically:
 
-Stop with `Ctrl+C`.
+```bash
+python scripts/run_all_web_apps.py --browser existing-profile --webscraper-mode combined --doctor --strict-readiness
+```
 
-> **Advanced path:** Use `webscraper_manager start webscraper` (via VS Code task "dev: webscraper stack") for the full managed stack with auth, worker, and detached logging.
+Stop stack:
+
+```bash
+python scripts/stop_all_web_apps.py
+```
+
+> Legacy `npm run dev:stack` flows are not the canonical launcher contract for cross-service startup anymore.
 
 ---
 
@@ -28,9 +31,9 @@ Stop with `Ctrl+C`.
 | Traceroute UI | 3000 | Next.js | VS Code task: `dev: traceroute` |
 | Deploy UI | 3003 | Vite/React | VS Code task: `dev: deploy-ui` |
 | Polycom/Yealink Config | 3002 | Vite/React | VS Code task: `dev: polycom app` |
-| Ticket UI (webscraper) | **3004** | Next.js | `cd webscraper/ticket-ui && npm run dev:stack` |
+| Ticket UI (webscraper) | **3004** | Next.js | `python scripts/run_all_web_apps.py --browser none --webscraper-mode combined --doctor --strict-readiness` |
 | Deploy Backend | 8002 | FastAPI | VS Code task: `dev: deploy-backend` |
-| Ticket API (webscraper) | **8787** | FastAPI | started by `dev:stack` above |
+| Ticket API (webscraper) | **8787** | FastAPI | started by `scripts/run_all_web_apps.py` |
 
 ---
 
@@ -40,7 +43,7 @@ Stop with `Ctrl+C`.
 |----------|---------|---------|
 | `TICKETS_DB_PATH` | `webscraper/var/db/tickets.sqlite` | Path to the ticket SQLite database |
 | `TICKET_API_PROXY_TARGET` | `http://127.0.0.1:8787` | Backend URL used by the Next.js proxy |
-| `PORT` | `3004` | UI port (set by `dev:stack`; override to change) |
+| `PORT` | `3004` | UI port (set by the launcher flow; override to change) |
 | `WEBSCRAPER_BROWSER` | `edge` | Browser for auth (`chrome` or `edge`) |
 | `WEBSCRAPER_AUTH_MODE` | _(unset)_ | Set to `auto` to attempt automatic auth |
 
@@ -71,12 +74,12 @@ The runtime module (`webscraper.lib.db_path`) resolves it in this priority:
 ## Stop / Restart
 
 ```bash
-# Ctrl+C in the terminal running dev:stack, or:
+# Ctrl+C in the terminal running run_all_web_apps.py, or:
 ./scripts/kill_ports.sh          # Linux/WSL
 scripts\kill_ports.bat           # Windows CMD
 
 # Or via VS Code task:
-# "dev: stop webscraper stack (freepbx-tools)"
+# "stop: apps"
 ```
 
 ---
@@ -93,10 +96,4 @@ bash scripts/db_sanity.sh
 
 ## Starting Everything at Once
 
-VS Code task **"Start Everything + CLI"** launches all apps in parallel:
-- Traceroute UI (3000)
-- Deploy UI (3003)
-- Polycom Config (3002)
-- Deploy Backend (8002)
-- Webscraper stack (8787 + 3004)
-- CLI manager
+For web manager + webscraper startup, use VS Code task **"start: apps"** (or **"start: apps (no browser)"**).

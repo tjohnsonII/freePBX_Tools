@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -10,7 +11,6 @@ from lib.dev_runtime import (
     ensure_manager_ui_dependencies,
     ensure_paths_exist,
     ensure_port_available,
-    maybe_open_browser,
     npm_executable,
     repo_root,
     run_doctor,
@@ -23,8 +23,19 @@ from lib.dev_runtime import (
     print_inspection,
 )
 
+DEPRECATED_ARG_HINTS = {
+    "--open-browser": "--open-browser is deprecated for scripts/run_manager_ui_app.py; use scripts/run_all_web_apps.py --browser existing-profile",
+}
+
+
+def _maybe_handle_deprecated_args(argv: list[str]) -> None:
+    hits = [token for token in argv if token in DEPRECATED_ARG_HINTS]
+    if hits:
+        raise LauncherError("; ".join(DEPRECATED_ARG_HINTS[token] for token in hits))
+
 
 def main() -> int:
+    _maybe_handle_deprecated_args(sys.argv[1:])
     parser = argparse.ArgumentParser(description="Launch manager-ui frontend (Next.js dev server).")
     add_common_args(parser)
     parser.add_argument("--port", type=int, default=3004)
@@ -50,8 +61,6 @@ def main() -> int:
         default=None,
         help="Log marker that indicates frontend readiness. Repeatable.",
     )
-    parser.add_argument("--open-browser", action="store_true", help="Open dashboard URL after readiness passes")
-    parser.add_argument("--dashboard-url", default="http://127.0.0.1:3004/dashboard")
     parser.add_argument("--skip-npm-install", action="store_true", help="Skip manager-ui dependency self-heal")
     args = parser.parse_args()
 
@@ -119,7 +128,6 @@ def main() -> int:
         else:
             print(f"[ready] {reason}")
         print("[changelog] manager-ui readiness now uses markers, port checks, multi-path HTTP probes, and fallback mode.")
-        maybe_open_browser(args.dashboard_url, open_browser=args.open_browser)
         print("[success] manager-ui frontend started")
         return 0
     except LauncherError as exc:
