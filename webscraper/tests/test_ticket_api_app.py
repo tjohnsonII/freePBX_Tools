@@ -545,14 +545,12 @@ def test_auth_browser_import_routes_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
     monkeypatch.setattr(
         appmod,
-        "import_cookies_auto",
-        lambda **kwargs: {
-            "method_used": "disk",
-            "imported_count": 1,
-            "warnings": [],
-            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
-            "details": {},
-        },
+        "seed_from_disk",
+        lambda *_args, **_kwargs: appmod.SeedResult(
+            mode_used="disk",
+            cookies=[{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            details={"profile_name": "Default"},
+        ),
     )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
@@ -611,17 +609,18 @@ def test_import_from_browser_query_params_override_payload(tmp_path, monkeypatch
 
     captured: dict[str, object] = {}
 
-    def fake_import(**kwargs):
-        captured.update(kwargs)
-        return {
-            "method_used": "disk",
-            "imported_count": 1,
-            "warnings": [],
-            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
-            "details": {},
-        }
+    def fake_seed_from_disk(profile_dir, domains, *, profile_name=None, browser="chrome"):
+        captured["profile_dir"] = profile_dir
+        captured["domains"] = domains
+        captured["profile_name"] = profile_name
+        captured["browser"] = browser
+        return appmod.SeedResult(
+            mode_used="disk",
+            cookies=[{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            details={},
+        )
 
-    monkeypatch.setattr(appmod, "import_cookies_auto", fake_import)
+    monkeypatch.setattr(appmod, "seed_from_disk", fake_seed_from_disk)
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     response = client.post(
@@ -631,6 +630,52 @@ def test_import_from_browser_query_params_override_payload(tmp_path, monkeypatch
     assert response.status_code == 200
     assert captured["browser"] == "edge"
     assert captured["profile_name"] == "Profile 1"
+
+
+def test_import_from_browser_prefers_disk_over_cdp_when_cdp_live(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {
+            "cdp_port": 9222,
+            "json_version_ok": True,
+            "ws_connectable": True,
+            "status": "ok",
+            "error": None,
+        },
+    )
+
+    called = {"disk": 0, "cdp": 0}
+
+    def fake_disk(*_args, **_kwargs):
+        called["disk"] += 1
+        return appmod.SeedResult(
+            mode_used="disk",
+            cookies=[{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            details={},
+        )
+
+    def fake_cdp(*_args, **_kwargs):
+        called["cdp"] += 1
+        return appmod.SeedResult(mode_used="cdp", cookies=[], details={})
+
+    monkeypatch.setattr(appmod, "seed_from_disk", fake_disk)
+    monkeypatch.setattr(appmod, "seed_from_cdp", fake_cdp)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post(
+        "/api/auth/import_from_browser",
+        json={"browser": "chrome", "profile": "Profile 1", "domain": "secure.123.net"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["method_used"] == "disk"
+    assert called["disk"] == 1
+    assert called["cdp"] == 0
 
 
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):

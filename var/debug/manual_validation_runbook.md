@@ -59,3 +59,46 @@ Confirm:
 - Select one handle.
 - Click **Scrape Selected Handle**.
 - Confirm a job id is created and status/events progress updates.
+
+## 9) Auth flow-by-flow log review (do not mix flows)
+
+Run **one auth flow at a time** (A, then B, then C in separate runs).  
+Immediately capture the last 120 lines after each flow.  
+Do **not** mix Flow A, B, and C in one run; compare `flowA.txt`, `flowB.txt`, and `flowC.txt`.
+
+### Live tail ticket API log
+
+```powershell
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Wait -Tail 80
+```
+
+### Capture last 120 lines after one flow
+
+```powershell
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+```
+
+### Save each flow snapshot for side-by-side compare
+
+```powershell
+# Flow A (Debug Chrome)
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowA.txt
+
+# Flow B (Isolated Login)
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowB.txt
+
+# Flow C (Chrome/Edge profile sync)
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowC.txt
+```
+
+### Live tail ticket UI log
+
+```powershell
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_ui.log -Wait -Tail 60
+```
+
+### Filter auth-related API log lines
+
+```powershell
+Select-String -Path E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Pattern "auth_validate|Cookie import requested|route_hit|CDP|missing_cookie|redirected_to_login|isolated|debuggable|seed|import_from_browser"
+```
