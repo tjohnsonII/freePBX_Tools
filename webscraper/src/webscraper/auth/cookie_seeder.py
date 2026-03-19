@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from websocket import create_connection
 
 from webscraper.auth.chrome_cdp import ChromeCDPError, connect_browser_ws, find_free_port, get_all_cookies, launch_chrome_with_debug
 from webscraper.auth.chrome_cookies import ChromeCookieError, copy_cookie_db_for_read
@@ -28,6 +29,62 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_CDP_PORT = 9222
 DEFAULT_DOMAINS = ["secure.123.net", "123.net"]
+CDP_ALLOWED_ORIGIN = "http://127.0.0.1:9222"
+
+
+def is_cdp_origin_rejected(error_text: str) -> bool:
+    text = str(error_text or "")
+    lowered = text.lower()
+    return (
+        "403" in lowered
+        and "websocket" in lowered
+        and ("remote-allow-origins" in lowered or "rejected an incoming websocket connection" in lowered)
+    )
+
+
+def cdp_availability(port: int, *, check_ws: bool = True) -> dict[str, Any]:
+    endpoint = f"http://127.0.0.1:{port}/json/version"
+    status: dict[str, Any] = {
+        "cdp_port": int(port),
+        "json_version_ok": False,
+        "ws_connectable": False,
+        "status": "no_browser",
+        "error": None,
+        "websocket_debugger_url": None,
+    }
+    try:
+        with urllib_request.urlopen(endpoint, timeout=1.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        status["error"] = str(exc)
+        return status
+
+    ws_url = str(payload.get("webSocketDebuggerUrl") or "").strip() if isinstance(payload, dict) else ""
+    status["json_version_ok"] = True
+    status["websocket_debugger_url"] = ws_url or None
+    if not ws_url:
+        status["status"] = "missing_websocket_debugger_url"
+        status["error"] = "missing_websocket_debugger_url"
+        return status
+
+    if not check_ws:
+        status["status"] = "json_version_ok"
+        return status
+
+    ws = None
+    try:
+        ws = create_connection(ws_url, timeout=2)
+        status["ws_connectable"] = True
+        status["status"] = "ok"
+        return status
+    except Exception as exc:
+        error_text = str(exc)
+        status["error"] = error_text
+        status["status"] = "ws_origin_rejected" if is_cdp_origin_rejected(error_text) else "ws_connect_failed"
+        return status
+    finally:
+        if ws is not None:
+            ws.close()
 
 
 class CookieSeedError(RuntimeError):
@@ -298,9 +355,11 @@ def _extract_port(cdp_url_or_port: str | int | None) -> int:
 
 def launch_debug_chrome(*, chrome_path: Path, user_data_dir: Path, profile_name: str = "Default", port: int = DEFAULT_CDP_PORT) -> subprocess.Popen:
     user_data_dir.mkdir(parents=True, exist_ok=True)
+    allowed_origin = CDP_ALLOWED_ORIGIN if port == DEFAULT_CDP_PORT else f"http://127.0.0.1:{port}"
     command = [
         str(chrome_path),
         f"--remote-debugging-port={port}",
+        f"--remote-allow-origins={allowed_origin}",
         f"--user-data-dir={user_data_dir}",
         f"--profile-directory={profile_name}",
         "--no-first-run",
@@ -317,7 +376,15 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
     try:
         ws = connect_browser_ws(port)
     except ChromeCDPError as exc:
-        raise CookieSeedError("CDP_UNAVAILABLE", f"No debuggable Chrome found on port {port}: {exc}") from exc
+        details = {"cdp_port": port}
+        if is_cdp_origin_rejected(str(exc)):
+            details["remote_allow_origins_hint"] = f"--remote-allow-origins=http://127.0.0.1:{port}"
+            raise CookieSeedError(
+                "CDP_WS_ORIGIN_REJECTED",
+                f"Chrome CDP websocket origin rejected on port {port}: {exc}",
+                details=details,
+            ) from exc
+        raise CookieSeedError("CDP_UNAVAILABLE", f"No debuggable Chrome found on port {port}: {exc}", details=details) from exc
 
     try:
         all_cookies = get_all_cookies(ws)
@@ -345,16 +412,8 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
 
 
 def _cdp_json_version_ok(port: int) -> tuple[bool, str | None]:
-    endpoint = f"http://127.0.0.1:{port}/json/version"
-    try:
-        with urllib_request.urlopen(endpoint, timeout=1.0) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        ws_url = str(payload.get("webSocketDebuggerUrl") or "").strip() if isinstance(payload, dict) else ""
-        if ws_url:
-            return True, None
-        return False, "missing_websocket_debugger_url"
-    except Exception as exc:
-        return False, str(exc)
+    availability = cdp_availability(port, check_ws=False)
+    return bool(availability.get("json_version_ok")), availability.get("error")
 
 
 def _select_auto_source(cdp_url_or_port: str | int | None) -> tuple[str, dict[str, Any]]:

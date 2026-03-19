@@ -34,7 +34,9 @@ from webscraper.auth.cookie_seeder import (
     SeedResult,
     auth_doctor,
     browser_user_data_dir,
+    cdp_availability,
     import_cookies_auto,
+    is_cdp_origin_rejected,
     launch_debug_chrome,
     list_browser_profiles,
     resolve_chrome_user_data_dir,
@@ -691,11 +693,8 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
 
 def _is_cdp_available(port: int = DEFAULT_CDP_PORT) -> bool:
     """Return True if a debuggable Chrome is listening on *port*."""
-    try:
-        r = requests.get(f"http://127.0.0.1:{port}/json/version", timeout=0.8)
-        return r.status_code == 200
-    except Exception:
-        return False
+    availability = cdp_availability(port, check_ws=False)
+    return bool(availability.get("json_version_ok"))
 
 
 def _get_cdp_tab_urls(port: int = DEFAULT_CDP_PORT) -> list[str]:
@@ -1882,6 +1881,12 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
         next_step = "Verify auth-doctor output and profile settings."
         if exc.code == "DB_LOCKED":
             next_step = "Chrome is open. Either close Chrome OR start debug Chrome (button) to use CDP."
+        elif exc.code == "CDP_WS_ORIGIN_REJECTED":
+            next_step = (
+                f"Chrome debug websocket rejected this backend origin on port {payload.cdp_port}. "
+                f"Relaunch debug Chrome with --remote-allow-origins=http://127.0.0.1:{payload.cdp_port} "
+                "or use Launch Debug Chrome button."
+            )
         elif exc.code == "CDP_UNAVAILABLE":
             next_step = f"No debuggable Chrome found. Start Chrome with --remote-debugging-port={payload.cdp_port} or use Launch Debug Chrome button."
         _update_auth_state(
@@ -1997,6 +2002,23 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
         profile_name=payload.profile_name,
         port=payload.cdp_port,
     )
+    launch_diagnostics = cdp_availability(payload.cdp_port, check_ws=True)
+    _log(
+        "auth_launch_debug_chrome "
+        f"pid={proc.pid} cdp_port={payload.cdp_port} profile={payload.profile_name} "
+        f"json_version_ok={launch_diagnostics.get('json_version_ok')} "
+        f"ws_connectable={launch_diagnostics.get('ws_connectable')} "
+        f"status={launch_diagnostics.get('status')} error={launch_diagnostics.get('error')}"
+    )
+    if str(launch_diagnostics.get("status")) == "ws_origin_rejected" or is_cdp_origin_rejected(str(launch_diagnostics.get("error") or "")):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Chrome CDP websocket origin rejected on port {payload.cdp_port}. "
+                f"Launch with --remote-allow-origins=http://127.0.0.1:{payload.cdp_port} "
+                "or --remote-allow-origins=*."
+            ),
+        )
     return {
         "ok": True,
         "mode_used": "cdp",
@@ -2005,6 +2027,7 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
             "cdp_port": payload.cdp_port,
             "user_data_dir": str(debug_profile),
             "profile_name": payload.profile_name,
+            "cdp_validation": launch_diagnostics,
         },
         "next_step_if_failed": None,
     }
