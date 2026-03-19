@@ -519,6 +519,28 @@ Isolated Browser Profile -> Login to secure.123.net
 Ticket API -> read isolated profile cookies -> store auth state
 User -> Validate Auth`}
           </pre>
+          <p style={{ marginBottom: 6 }}><strong>Log-driven diagnosis (run one flow at a time)</strong></p>
+          <pre style={{ whiteSpace: "pre-wrap", background: "#ffffff", border: "1px solid #e2e8f0", padding: 8 }}>
+{`Do not mix Flow A/B/C in the same test run.
+After each single flow, immediately capture the last 120 lines and compare outputs.
+
+Live tail of ticket API log:
+Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Wait -Tail 80
+
+Capture last 120 lines after one flow:
+Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Tail 120
+
+Save per-flow snapshots:
+Flow A: Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Tail 120 > flowA.txt
+Flow B: Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Tail 120 > flowB.txt
+Flow C: Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Tail 120 > flowC.txt
+
+Live tail of ticket UI log:
+Get-Content E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_ui.log -Wait -Tail 60
+
+Filter auth-related API lines:
+Select-String -Path E:\\DevTools\\freepbx-tools\\var\\web-app-launcher\\logs\\webscraper_ticket_api.log -Pattern "auth_validate|Cookie import requested|route_hit|CDP|missing_cookie|redirected_to_login|isolated|debuggable|seed|import_from_browser"`}
+          </pre>
         </section>
         {authWarnings.length > 0 ? (
           <div style={{ border: "1px solid #f59e0b", background: "#fffbeb", padding: 10, marginBottom: 10 }}>
@@ -532,7 +554,7 @@ User -> Validate Auth`}
         <p>Active source: <strong>{currentSource}</strong> | DB source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
         <p>Last import attempt: {authStatus?.last_import_method_attempted || "-"} | Last import result: {authStatus?.last_import_result?.result || "-"}</p>
         <p>Last validation result: {authStatus?.last_validation_result?.authenticated === undefined ? "-" : String(Boolean(authStatus?.last_validation_result?.authenticated))} ({authStatus?.last_validation_result?.reason || "-"})</p>
-        <p>Import context: browser={(sourceContext?.browser as string) || "-"} profile={(sourceContext?.profile as string) || "-"} cdp_port={(sourceContext?.cdp_port as number) || "-"}</p>
+        <p>Import context: browser={(sourceContext?.browser as string) || "-"} profile={(sourceContext?.profile as string) || "-"} cdp_port={(sourceContext?.cdp_port as number) || "-"} attempted_sources={JSON.stringify((sourceContext?.attempted_sources as unknown[]) || [])}</p>
         <p>Authenticated: {authStatus?.authenticated === false ? "false" : "true"} | Mode: {authStatus?.mode || "-"} | Last check: {authStatus?.last_check_ts || "-"}</p>
         {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p> : null}
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />

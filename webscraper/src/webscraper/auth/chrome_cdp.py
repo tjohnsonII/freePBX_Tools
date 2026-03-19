@@ -34,6 +34,7 @@ def launch_chrome_with_debug(
         str(chrome_path),
         f"--remote-debugging-port={port}",
         f"--remote-allow-origins=http://127.0.0.1:{port}",
+        "--remote-allow-origins=*",
         "--no-first-run",
         "--no-default-browser-check",
     ]

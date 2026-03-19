@@ -184,6 +184,7 @@ def test_launch_debug_chrome_includes_remote_allow_origins(monkeypatch, tmp_path
     command = list(captured["command"])
     assert "--remote-debugging-port=9222" in command
     assert "--remote-allow-origins=http://127.0.0.1:9222" in command
+    assert "--remote-allow-origins=*" in command
 
 
 def test_cdp_availability_no_browser(monkeypatch) -> None:

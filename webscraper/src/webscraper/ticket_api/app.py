@@ -697,6 +697,10 @@ def _is_cdp_available(port: int = DEFAULT_CDP_PORT) -> bool:
     return bool(availability.get("json_version_ok"))
 
 
+def _cdp_diag(port: int = DEFAULT_CDP_PORT, *, check_ws: bool = True) -> dict[str, Any]:
+    return cdp_availability(port, check_ws=check_ws)
+
+
 def _get_cdp_tab_urls(port: int = DEFAULT_CDP_PORT) -> list[str]:
     """Return URLs of all open Chrome tabs via CDP /json endpoint."""
     try:
@@ -1544,18 +1548,48 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
         f"route_hit path=/api/auth/import_from_browser browser={payload.browser} profile={payload.profile} domain={selected_domain}"
     )
     chosen_source = f"{payload.browser}_profile"
-    if _is_cdp_available(cdp_port):
+    cdp_diag = _cdp_diag(cdp_port, check_ws=True)
+    if bool(cdp_diag.get("json_version_ok")):
         _log(
             f"auth_source_warning debug Chrome CDP is reachable on {cdp_port}; "
             f"sync_from_browser still targets local profile browser={payload.browser} profile={payload.profile}"
         )
-    import_result = import_cookies_auto(
-        profile_dir=user_data_dir,
-        domains=[selected_domain],
-        profile_name=payload.profile,
-        cdp_url_or_port=cdp_port,
-        browser=payload.browser,
-    )
+    import_result: dict[str, Any]
+    try:
+        disk_result = seed_from_disk(user_data_dir, [selected_domain], profile_name=payload.profile, browser=payload.browser)
+        import_result = {
+            "method_used": "disk",
+            "imported_count": len(disk_result.cookies),
+            "warnings": [],
+            "cookies": disk_result.cookies,
+            "details": {**(disk_result.details or {}), "attempted_sources": [{"source": chosen_source, "status": "selected"}]},
+        }
+    except CookieSeedError as exc:
+        _log(
+            f"auth_source_skip source={chosen_source} reason={exc.code} "
+            f"cdp_status={cdp_diag.get('status')} cdp_error={cdp_diag.get('error') or '-'}"
+        )
+        if exc.code != "DB_LOCKED":
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        warnings = [
+            f"{payload.browser} profile DB locked; falling back to CDP import.",
+        ]
+        fallback_sources = [{"source": chosen_source, "status": "failed", "reason": exc.code}]
+        cdp_result = seed_from_cdp(cdp_port, [selected_domain])
+        import_result = {
+            "method_used": "cdp",
+            "imported_count": len(cdp_result.cookies),
+            "warnings": warnings,
+            "cookies": cdp_result.cookies,
+            "details": {
+                **(cdp_result.details or {}),
+                "fallback_from": chosen_source,
+                "fallback_reason": exc.code,
+                "cdp_status": cdp_diag.get("status"),
+                "cdp_error": cdp_diag.get("error"),
+                "attempted_sources": fallback_sources + [{"source": "cdp_debug_chrome", "status": "fallback"}],
+            },
+        }
 
     backend_source = "browser_cdp" if import_result["method_used"] == "cdp" else f"{payload.browser}_profile"
     previous_status = auth_store.status(db_path())
@@ -1583,7 +1617,8 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
         "browser_sync_result "
         f"browser={payload.browser} profile={payload.profile} domain={selected_domain} "
         f"method={import_result['method_used']} imported_count={int(store_result.get('accepted', 0))} "
-        f"warnings={len(import_result.get('warnings', []))}"
+        f"warnings={len(import_result.get('warnings', []))} "
+        f"attempted_sources={import_result.get('details', {}).get('attempted_sources', [])}"
     )
     return {
         "ok": True,
@@ -1854,8 +1889,13 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
     user_data_dir = resolve_chrome_user_data_dir(payload.chrome_user_data_dir)
     try:
         warnings: list[str] = []
-        selected_source = "cdp_debug_chrome" if _is_cdp_available(payload.cdp_port) else "chrome_profile"
-        _log(f"auth_seed source_selection selected={selected_source} mode={mode} cdp_port={payload.cdp_port}")
+        cdp_diag = _cdp_diag(payload.cdp_port, check_ws=True)
+        selected_source = "cdp_debug_chrome" if bool(cdp_diag.get("json_version_ok")) else "chrome_profile"
+        _log(
+            "auth_seed source_selection "
+            f"selected={selected_source} mode={mode} cdp_port={payload.cdp_port} "
+            f"cdp_status={cdp_diag.get('status')} cdp_error={cdp_diag.get('error') or '-'}"
+        )
         if mode == "disk":
             result = seed_from_disk(user_data_dir, payload.seed_domains, profile_name=profile_name)
         elif mode == "cdp":
@@ -1869,13 +1909,24 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
             )
             warnings = list(auto_result.get("warnings") or [])
             result = SeedResult(mode_used=str(auto_result["method_used"]), cookies=list(auto_result["cookies"]), details=dict(auto_result.get("details") or {}))
+            _log(
+                "auth_seed auto_attempts "
+                f"attempted_sources={result.details.get('attempted_sources', [])} "
+                f"warnings={warnings}"
+            )
     except CookieSeedError as exc:
         _record_auth_import_attempt(
             attempted=f"seed_{mode}",
             result="failed",
             source="none",
             cookie_count=0,
-            details={"error_code": exc.code, "error": str(exc), "cdp_port": payload.cdp_port},
+            details={
+                "error_code": exc.code,
+                "error": str(exc),
+                "cdp_port": payload.cdp_port,
+                "cdp_status": cdp_diag.get("status"),
+                "cdp_error": cdp_diag.get("error"),
+            },
         )
         detail = str(exc)
         next_step = "Verify auth-doctor output and profile settings."
@@ -1923,7 +1974,8 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
     _log(
         "auth_seed_result "
         f"attempted=seed_{mode} selected={_normalize_source_label(store_source)} "
-        f"cookie_count={int(store_result.get('accepted', 0))} domains={selected_domains} overwritten_from={overwritten_from or '-'}"
+        f"cookie_count={int(store_result.get('accepted', 0))} domains={selected_domains} overwritten_from={overwritten_from or '-'} "
+        f"attempted_sources={result.details.get('attempted_sources', [])}"
     )
     _update_auth_state(
         authenticated=True,
@@ -2008,7 +2060,8 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
         f"pid={proc.pid} cdp_port={payload.cdp_port} profile={payload.profile_name} "
         f"json_version_ok={launch_diagnostics.get('json_version_ok')} "
         f"ws_connectable={launch_diagnostics.get('ws_connectable')} "
-        f"status={launch_diagnostics.get('status')} error={launch_diagnostics.get('error')}"
+        f"status={launch_diagnostics.get('status')} error={launch_diagnostics.get('error')} "
+        f"launch_args=[--remote-debugging-port={payload.cdp_port},--remote-allow-origins=http://127.0.0.1:{payload.cdp_port},--remote-allow-origins=*]"
     )
     if str(launch_diagnostics.get("status")) == "ws_origin_rejected" or is_cdp_origin_rejected(str(launch_diagnostics.get("error") or "")):
         raise HTTPException(

@@ -57,6 +57,7 @@ def cdp_availability(port: int, *, check_ws: bool = True) -> dict[str, Any]:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         status["error"] = str(exc)
+        status["skip_reason"] = "CDP endpoint unreachable"
         return status
 
     ws_url = str(payload.get("webSocketDebuggerUrl") or "").strip() if isinstance(payload, dict) else ""
@@ -65,6 +66,7 @@ def cdp_availability(port: int, *, check_ws: bool = True) -> dict[str, Any]:
     if not ws_url:
         status["status"] = "missing_websocket_debugger_url"
         status["error"] = "missing_websocket_debugger_url"
+        status["skip_reason"] = "CDP /json/version missing websocket debugger URL"
         return status
 
     if not check_ws:
@@ -81,6 +83,11 @@ def cdp_availability(port: int, *, check_ws: bool = True) -> dict[str, Any]:
         error_text = str(exc)
         status["error"] = error_text
         status["status"] = "ws_origin_rejected" if is_cdp_origin_rejected(error_text) else "ws_connect_failed"
+        status["skip_reason"] = (
+            "CDP websocket origin rejected"
+            if status["status"] == "ws_origin_rejected"
+            else "CDP websocket connection failed"
+        )
         return status
     finally:
         if ws is not None:
@@ -360,6 +367,7 @@ def launch_debug_chrome(*, chrome_path: Path, user_data_dir: Path, profile_name:
         str(chrome_path),
         f"--remote-debugging-port={port}",
         f"--remote-allow-origins={allowed_origin}",
+        "--remote-allow-origins=*",
         f"--user-data-dir={user_data_dir}",
         f"--profile-directory={profile_name}",
         "--no-first-run",
@@ -418,10 +426,24 @@ def _cdp_json_version_ok(port: int) -> tuple[bool, str | None]:
 
 def _select_auto_source(cdp_url_or_port: str | int | None) -> tuple[str, dict[str, Any]]:
     port = _extract_port(cdp_url_or_port)
+    ws_diag = cdp_availability(port, check_ws=True)
     cdp_ok, cdp_error = _cdp_json_version_ok(port)
-    diagnostics = {"cdp_port": port, "cdp_reachable": cdp_ok}
+    diagnostics = {
+        "cdp_port": port,
+        "cdp_reachable": cdp_ok,
+        "cdp_ws_connectable": bool(ws_diag.get("ws_connectable")),
+        "cdp_status": ws_diag.get("status"),
+    }
     if cdp_error:
         diagnostics["cdp_error"] = cdp_error
+    if ws_diag.get("error"):
+        diagnostics["cdp_ws_error"] = ws_diag.get("error")
+    if ws_diag.get("skip_reason"):
+        diagnostics["cdp_skip_reason"] = ws_diag.get("skip_reason")
+
+    # Prefer CDP when json/version is live (flow A), even if websocket attach fails.
+    # This keeps the primary failure visible (e.g., origin rejection) instead of
+    # silently masking it with a profile fallback.
     return ("cdp", diagnostics) if cdp_ok else ("disk", diagnostics)
 
 
@@ -476,8 +498,14 @@ def import_cookies_auto(
         except CookieSeedError as exc:
             attempted[-1]["status"] = "failed"
             attempted[-1]["reason"] = exc.code
+            attempted[-1]["message"] = str(exc)
             warnings.append(f"CDP import failed ({exc.code}); trying browser profile import.")
             LOGGER.warning("[AUTH][AUTO] cdp selected but failed reason=%s diagnostics=%s", exc.code, diagnostics)
+            if exc.code == "CDP_WS_ORIGIN_REJECTED":
+                warnings.append(
+                    f"CDP websocket origin rejected on {diagnostics.get('cdp_port')}; "
+                    "relaunch with --remote-allow-origins and retry Seed Auth."
+                )
 
     attempted.append({"source": f"{browser}_profile", "status": "selected"})
     try:
