@@ -12,8 +12,11 @@ from lib.dev_runtime import (
     repo_root,
     run_doctor,
     save_service_state,
+    set_verbose,
     stop_service,
     start_detached,
+    print_inspection,
+    update_service_state,
     wait_for_http,
     wait_for_process_stable,
 )
@@ -39,6 +42,10 @@ def main() -> int:
 
     root = repo_root(Path(__file__))
     try:
+        set_verbose(args.verbose)
+        if args.inspect:
+            print_inspection(root, browser_mode="none")
+            return 0
         ensure_paths_exist(
             root,
             [
@@ -66,6 +73,9 @@ def main() -> int:
             "--port",
             str(args.port),
         ]
+        if args.dry_run:
+            print(f"[dry-run] would launch webscraper_manager_api: {' '.join(cmd)}")
+            return 0
 
         entry = start_detached(
             root=root,
@@ -86,12 +96,15 @@ def main() -> int:
             )
         except LauncherError:
             if args.allow_readiness_fail:
+                update_service_state(root, "webscraper_manager_api", readiness_status="degraded", readiness_reason=f"readiness timed out for {readiness_url}", degraded=True)
                 print(
                     "[warn] readiness check timed out; continuing because --allow-readiness-fail is enabled "
                     f"({readiness_url}, timeout={args.readiness_timeout}s)"
                 )
             else:
                 raise
+        else:
+            update_service_state(root, "webscraper_manager_api", readiness_status="ready", readiness_reason=f"HTTP probe passed at {readiness_url}", degraded=False, url=readiness_url, mode="backend")
         print("[success] web manager backend started")
         return 0
     except LauncherError as exc:

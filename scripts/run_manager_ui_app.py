@@ -15,10 +15,12 @@ from lib.dev_runtime import (
     repo_root,
     run_doctor,
     save_service_state,
+    set_verbose,
     stop_service,
     start_detached,
     update_service_state,
     wait_for_dev_server_ready,
+    print_inspection,
 )
 
 
@@ -36,16 +38,11 @@ def main() -> int:
         help="HTTP readiness path. Repeatable (default: /, /dashboard, /api/health).",
     )
     parser.add_argument(
-        "--open-port-fallback-seconds",
-        type=int,
-        default=12,
-        help="Open-port fallback stability window in seconds for dev servers.",
-    )
-    parser.add_argument(
-        "--disable-open-port-fallback",
+        "--allow-open-port-fallback",
         action="store_true",
-        help="Disable dev open-port fallback readiness mode.",
+        help="Allow open-port fallback readiness mode (degraded). Disabled by default.",
     )
+    parser.add_argument("--open-port-fallback-seconds", type=int, default=12, help="Open-port fallback stability window.")
     parser.add_argument(
         "--readiness-marker",
         action="append",
@@ -60,6 +57,10 @@ def main() -> int:
 
     root = repo_root(Path(__file__))
     try:
+        set_verbose(args.verbose)
+        if args.inspect:
+            print_inspection(root, browser_mode="none")
+            return 0
         ensure_paths_exist(
             root,
             [
@@ -80,6 +81,9 @@ def main() -> int:
 
         npm = npm_executable()
         cmd = [npm, "--prefix", "manager-ui", "run", "dev"]
+        if args.dry_run:
+            print(f"[dry-run] would launch manager_ui_frontend: {' '.join(cmd)}")
+            return 0
 
         entry = start_detached(
             root=root,
@@ -99,7 +103,7 @@ def main() -> int:
             log_path=Path(entry["log"]),
             section="ready",
             open_port_fallback_s=max(1, args.open_port_fallback_seconds),
-            allow_open_port_fallback=not args.disable_open_port_fallback,
+            allow_open_port_fallback=args.allow_open_port_fallback,
             success_markers=readiness_markers,
         )
         warning = "open port fallback" in reason.lower()
