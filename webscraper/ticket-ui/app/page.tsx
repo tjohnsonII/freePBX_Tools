@@ -27,6 +27,14 @@ function formatApiError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function formatEndpointError(endpoint: string, error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    const status = error.status ?? "n/a";
+    return `${endpoint} failed (status=${status}): ${error.detail || error.message}`;
+  }
+  return `${endpoint} failed: ${formatApiError(error)}`;
+}
+
 
 export default function HandlesPage() {
   const apiInfo = useMemo(() => apiBaseInfo(), []);
@@ -77,12 +85,26 @@ export default function HandlesPage() {
   const someFilteredSelected = filteredHandleRows.some((row) => selectedHandles.has(row.handle));
 
   const loadHandles = async () => {
-    const res = await apiGet<HandleListResponse>(`/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`);
-    const names = Array.isArray(res?.items) ? res.items : [];
-    setHandles(names);
-    const table = await apiGet<{ items: HandleRow[] }>(`/api/handles?limit=1000&offset=0`);
-    setHandleRows(Array.isArray(table?.items) ? table.items : []);
-    if (!selectedHandle && names.length) setSelectedHandle(names[0]);
+    let loadedNames: string[] = [];
+    try {
+      const endpoint = `/api/handles/all?q=${encodeURIComponent(search)}&limit=1000`;
+      const res = await apiGet<HandleListResponse>(endpoint);
+      const names = Array.isArray(res?.items) ? res.items : [];
+      loadedNames = names;
+      setHandles(names);
+    } catch (error) {
+      setHandles([]);
+      setError(formatEndpointError("/api/handles/all", error));
+    }
+    try {
+      const endpoint = "/api/handles?limit=1000&offset=0";
+      const table = await apiGet<{ items: HandleRow[] }>(endpoint);
+      setHandleRows(Array.isArray(table?.items) ? table.items : []);
+    } catch (error) {
+      setHandleRows([]);
+      setError(formatEndpointError("/api/handles", error));
+    }
+    if (!selectedHandle && loadedNames.length) setSelectedHandle(loadedNames[0]);
   };
 
   const loadAuthStatus = async () => {

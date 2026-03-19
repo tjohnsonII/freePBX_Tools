@@ -475,6 +475,16 @@ def _is_customers_page(url: str, payload: str) -> bool:
 
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     cookies = auth_store.load_cookies(db_path())
+    required_cookie_names = ("sessionid", "csrftoken")
+    present_cookie_names = {str(cookie.get("name") or "").strip().lower() for cookie in cookies if cookie.get("name")}
+    required_cookie_names_present = [name for name in required_cookie_names if name in present_cookie_names]
+    missing_required_cookie_names = [name for name in required_cookie_names if name not in present_cookie_names]
+    status_snapshot = auth_store.status(db_path())
+    validation_probe_url = AUTH_CHECK_URLS[0] if AUTH_CHECK_URLS else None
+    source = str(status_snapshot.get("source") or "none")
+    source_browser = "chrome" if "chrome" in source else ("edge" if "edge" in source else None)
+    profile_hint = os.getenv("CHROME_PROFILE_DIR") or os.getenv("BROWSER_PROFILE") or None
+
     if not cookies:
         reasons = [{"code": "missing_cookie", "name": "*", "domain": "secure.123.net"}, {"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
         return {
@@ -484,8 +494,17 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             "reasons": reasons,
             "checks": [],
             "details": {"domain": "secure.123.net", "checked": {"cookie_count": 0}},
+            "validation_mode": "http_probe_with_cookie_inventory",
+            "validation_reason": "missing_cookie",
+            "source": source,
+            "browser": source_browser,
+            "profile": profile_hint,
             "cookie_count": 0,
             "domains": [],
+            "required_cookie_names_present": required_cookie_names_present,
+            "missing_required_cookie_names": missing_required_cookie_names,
+            "validation_probe_url": validation_probe_url,
+            "validation_http_status": None,
         }
 
     timeout = max(2, int(timeout_seconds or 10))
@@ -561,8 +580,17 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         "reasons": reasons,
         "checks": checks,
         "details": {"domain": "secure.123.net", "checked": {"urls": AUTH_CHECK_URLS, "timeout_seconds": timeout}},
+        "validation_mode": "http_probe_with_cookie_inventory",
+        "validation_reason": "authenticated" if overall_ok else (reason or "not_authenticated"),
+        "source": source,
+        "browser": source_browser,
+        "profile": profile_hint,
         "cookie_count": len(cookies),
         "domains": sorted({str(cookie.get("domain") or "") for cookie in cookies if cookie.get("domain")}),
+        "required_cookie_names_present": required_cookie_names_present,
+        "missing_required_cookie_names": missing_required_cookie_names,
+        "validation_probe_url": validation_probe_url,
+        "validation_http_status": next((item.get("status") for item in checks if item.get("status") is not None), None),
     }
 
 
@@ -1095,6 +1123,7 @@ async def request_context(request: Request, call_next):
 
 @app.get("/api/handles")
 def api_handles(limit: int = Query(default=500, ge=1, le=5000), offset: int = 0):
+    _log(f"route_hit path=/api/handles limit={limit} offset={offset}")
     items = db.list_handles(db_path(), limit=limit, offset=offset)
     return {"items": sorted(items, key=lambda item: item.get("last_updated_utc") or item.get("finished_utc") or "", reverse=True)}
 
@@ -1106,6 +1135,7 @@ def api_handles_summary(q: str = "", limit: int = Query(default=200, ge=1, le=50
 
 @app.get("/api/handles/all")
 def api_handles_all(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
+    _log(f"route_hit path=/api/handles/all q={q!r} limit={limit}")
     items = db.list_handle_names(db_path(), q=q, limit=limit)
     return {"items": items, "count": len(items)}
 
@@ -1418,6 +1448,9 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     LOGGER.info("Cookie import requested: browser=%s profile=%s domains=%s", payload.browser, payload.profile, [selected_domain])
+    _log(
+        f"route_hit path=/api/auth/import_from_browser browser={payload.browser} profile={payload.profile} domain={selected_domain}"
+    )
     import_result = import_cookies_auto(
         profile_dir=user_data_dir,
         domains=[selected_domain],
@@ -1435,6 +1468,12 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
             f"method={import_result['method_used']} accepted={store_result.get('accepted', 0)} "
             f"warnings={len(import_result.get('warnings', []))}"
         ),
+    )
+    _log(
+        "browser_sync_result "
+        f"browser={payload.browser} profile={payload.profile} domain={selected_domain} "
+        f"method={import_result['method_used']} imported_count={int(store_result.get('accepted', 0))} "
+        f"warnings={len(import_result.get('warnings', []))}"
     )
     return {
         "ok": True,
@@ -1491,6 +1530,7 @@ def api_auth_sync_from_browser_alias_dash(request: Request, payload: BrowserImpo
 def api_auth_validate_get(request: Request, domain: str = Query(default="secure.123.net"), timeout_seconds: int = Query(default=10, ge=2, le=60)):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
+    _log(f"route_hit path=/api/auth/validate method=GET domain={domain} timeout_seconds={timeout_seconds}")
     payload = _validate_auth_targets(timeout_seconds)
     payload.setdefault("details", {})
     payload["details"]["domain"] = domain
@@ -1501,6 +1541,7 @@ def api_auth_validate_get(request: Request, domain: str = Query(default="secure.
 def api_auth_validate(request: Request, payload: ValidateAuthRequest):
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
+    _log(f"route_hit path=/api/auth/validate method=POST timeoutSeconds={payload.timeoutSeconds}")
     return _validate_auth_targets(payload.timeoutSeconds)
 
 
@@ -1581,6 +1622,7 @@ def api_auth_launch_browser(request: Request, payload: LaunchBrowserRequest):
     target_url = default_target_url((payload.url or "").strip() or DEFAULT_TICKETING_TARGET_URL)
     if not target_url:
         raise HTTPException(status_code=400, detail="Missing target URL. Set TICKETING_TARGET_URL or provide url in request.")
+    _log(f"route_hit path=/api/auth/launch-browser profile={payload.profile} new_window={payload.new_window} target_url={target_url}")
 
     browser_path = _detect_browser_path()
     profile_dir = _profile_dir(payload.profile)
@@ -1671,6 +1713,7 @@ def api_auth_launch(
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
     target_url = default_target_url(url or DEFAULT_TICKETING_TARGET_URL)
+    _log(f"route_hit path=/api/auth/launch force={force} timeout_seconds={timeout_seconds} target_url={target_url}")
     result = AUTH_MANAGER.launch_login(force_fresh=force, target_url=target_url, timeout_seconds=timeout_seconds)
     _append_event(
         "info",

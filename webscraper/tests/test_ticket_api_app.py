@@ -539,3 +539,61 @@ def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
     assert payload["ok"] is False
     assert isinstance(payload.get("reasons"), list)
     assert payload["reasons"]
+
+
+def test_auth_validate_response_includes_debug_fields(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/validate?domain=secure.123.net")
+    assert response.status_code == 200
+    payload = response.json()
+    for key in (
+        "authenticated",
+        "validation_mode",
+        "source",
+        "browser",
+        "profile",
+        "cookie_count",
+        "domains",
+        "required_cookie_names_present",
+        "missing_required_cookie_names",
+        "validation_probe_url",
+        "validation_http_status",
+        "validation_reason",
+    ):
+        assert key in payload
+
+
+def test_launch_login_browser_route_exists_without_404(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_detect_browser_path", lambda: tmp_path / "browser.exe")
+    monkeypatch.setattr(appmod.subprocess, "Popen", lambda *args, **kwargs: object())
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/launch-browser", json={"url": "https://secure.123.net"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ok" in payload
+    assert "profile_dir" in payload
+
+
+def test_handles_endpoint_shape_matches_ticket_ui_expectations(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/handles?limit=50&offset=0")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload.get("items"), list)
+    assert payload["items"], "Expected at least one handle row"
+    first = payload["items"][0]
+    assert "handle" in first
