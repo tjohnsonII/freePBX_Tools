@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_TARGET = process.env.TICKET_API_PROXY_TARGET || "http://127.0.0.1:8787";
+const API_TARGET = process.env.TICKET_API_PROXY_TARGET || "http://127.0.0.1:8788";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "keep-alive",

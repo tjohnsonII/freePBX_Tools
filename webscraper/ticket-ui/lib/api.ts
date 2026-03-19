@@ -89,7 +89,7 @@ export function artifactLink(path: string): string {
 export function apiBaseInfo(): { browserBase: string; proxyTarget: string } {
   return {
     browserBase: BASE || "(same-origin via Next rewrite)",
-    proxyTarget: process.env.NEXT_PUBLIC_TICKET_API_PROXY_TARGET || "http://127.0.0.1:8787",
+    proxyTarget: process.env.NEXT_PUBLIC_TICKET_API_PROXY_TARGET || "http://127.0.0.1:8788",
   };
 }
 

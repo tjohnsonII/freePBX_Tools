@@ -170,7 +170,11 @@ def _start_ui(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
 
-    entry = start_detached(root=root, service_name="webscraper_ticket_ui", cmd=ui_cmd, cwd=root)
+    ui_env = {
+        "TICKET_API_PROXY_TARGET": f"http://{args.api_host}:{args.api_port}",
+        "NEXT_PUBLIC_TICKET_API_PROXY_TARGET": f"http://{args.api_host}:{args.api_port}",
+    }
+    entry = start_detached(root=root, service_name="webscraper_ticket_ui", cmd=ui_cmd, cwd=root, env_overrides=ui_env)
     save_service_state(root, entry)
     reason = wait_for_dev_server_ready(
         pid=int(entry["pid"]),
