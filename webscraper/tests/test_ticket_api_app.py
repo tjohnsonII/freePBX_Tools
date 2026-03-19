@@ -334,6 +334,8 @@ def test_auth_seed_endpoint_auto_mode(tmp_path, monkeypatch):
     assert launch_payload["ok"] is True
     assert launch_payload["mode_used"] == "cdp"
     assert launch_payload["cookie_count"] == 1
+    assert launch_payload["active_source"] == "cdp_debug_chrome"
+    assert launch_payload["last_import_method_attempted"] == "seed_auto"
 
 
 def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypatch):
@@ -494,6 +496,40 @@ def test_auth_browser_import_routes_exist(tmp_path, monkeypatch):
         assert ok.status_code == 200
         bad = client.post(route, json={"browser": 123})
         assert bad.status_code in {200, 422}
+
+
+def test_auth_seed_overwrites_paste_source_with_cdp(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_is_cdp_available", lambda *_args, **_kwargs: True)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    imported = client.post("/api/auth/import", json={"text": '[{"name":"sid","value":"old","domain":"secure.123.net"}]'})
+    assert imported.status_code == 200
+    assert imported.json()["source"] == "paste"
+
+    monkeypatch.setattr(
+        appmod,
+        "import_cookies_auto",
+        lambda **kwargs: {
+            "method_used": "cdp",
+            "cookies": [{"name": "sid", "value": "new", "domain": ".secure.123.net", "path": "/"}],
+            "warnings": [],
+            "details": {"cdp_port": 9222},
+        },
+    )
+
+    launch = client.post(
+        "/api/auth/seed",
+        json={"mode": "auto", "chrome_profile_dir": "Profile 1", "seed_domains": ["secure.123.net"], "cdp_port": 9222},
+    )
+    assert launch.status_code == 200
+    payload = launch.json()
+    assert payload["source"] == "seed_cdp"
+    assert payload["active_source"] == "cdp_debug_chrome"
+    assert payload["last_import_result"]["overwritten_from"] == "paste"
 
 
 def test_import_from_browser_query_params_override_payload(tmp_path, monkeypatch):

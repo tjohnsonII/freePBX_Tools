@@ -344,16 +344,45 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
     return SeedResult(mode_used="cdp", cookies=filtered, details={"cdp_port": port})
 
 
-def seed_auto(*, profile_dir: str | Path | None, domains: list[str], profile_name: str | None = None, cdp_url_or_port: str | int | None = None, browser: str = "chrome") -> SeedResult:
+def _cdp_json_version_ok(port: int) -> tuple[bool, str | None]:
+    endpoint = f"http://127.0.0.1:{port}/json/version"
     try:
-        return seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
+        with urllib_request.urlopen(endpoint, timeout=1.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        ws_url = str(payload.get("webSocketDebuggerUrl") or "").strip() if isinstance(payload, dict) else ""
+        if ws_url:
+            return True, None
+        return False, "missing_websocket_debugger_url"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _select_auto_source(cdp_url_or_port: str | int | None) -> tuple[str, dict[str, Any]]:
+    port = _extract_port(cdp_url_or_port)
+    cdp_ok, cdp_error = _cdp_json_version_ok(port)
+    diagnostics = {"cdp_port": port, "cdp_reachable": cdp_ok}
+    if cdp_error:
+        diagnostics["cdp_error"] = cdp_error
+    return ("cdp", diagnostics) if cdp_ok else ("disk", diagnostics)
+
+
+def seed_auto(*, profile_dir: str | Path | None, domains: list[str], profile_name: str | None = None, cdp_url_or_port: str | int | None = None, browser: str = "chrome") -> SeedResult:
+    source, diagnostics = _select_auto_source(cdp_url_or_port)
+    LOGGER.info("[AUTH][AUTO] selected source=%s diagnostics=%s", source, diagnostics)
+    if source == "cdp":
+        cdp_result = seed_from_cdp(cdp_url_or_port, domains)
+        cdp_result.details.update({"auto_selected_source": "cdp", **diagnostics})
+        return cdp_result
+    try:
+        disk_result = seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
+        disk_result.details.update({"auto_selected_source": "disk", **diagnostics})
+        return disk_result
     except CookieSeedError as exc:
         if exc.code != "DB_LOCKED":
             raise
-        LOGGER.warning("[AUTH][DISK] DB locked after retries; falling back to CDP")
+        LOGGER.warning("[AUTH][AUTO] disk source locked; fallback to CDP diagnostics=%s", diagnostics)
         cdp_result = seed_from_cdp(cdp_url_or_port, domains)
-        cdp_result.details["fallback_from"] = "disk"
-        cdp_result.details["fallback_reason"] = "DB_LOCKED"
+        cdp_result.details.update({"fallback_from": "disk", "fallback_reason": "DB_LOCKED", "auto_selected_source": "disk", **diagnostics})
         return cdp_result
 
 
@@ -366,32 +395,49 @@ def import_cookies_auto(
     browser: str = "chrome",
 ) -> dict[str, Any]:
     warnings: list[str] = []
-    try:
-        result = seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
+    attempted: list[dict[str, Any]] = []
+    source, diagnostics = _select_auto_source(cdp_url_or_port)
+    LOGGER.info("[AUTH][AUTO] import selected source=%s diagnostics=%s", source, diagnostics)
+
+    def _result_payload(method: str, result: SeedResult) -> dict[str, Any]:
         return {
-            "method_used": "disk",
+            "method_used": method,
             "imported_count": len(result.cookies),
             "warnings": warnings,
             "cookies": result.cookies,
-            "details": result.details,
+            "details": {**result.details, **diagnostics, "attempted_sources": attempted},
         }
+
+    if source == "cdp":
+        attempted.append({"source": "cdp_debug_chrome", "status": "selected"})
+        try:
+            cdp_result = seed_from_cdp(cdp_url_or_port, domains)
+            cdp_result.details["source"] = "cdp_debug_chrome"
+            return _result_payload("cdp", cdp_result)
+        except CookieSeedError as exc:
+            attempted[-1]["status"] = "failed"
+            attempted[-1]["reason"] = exc.code
+            warnings.append(f"CDP import failed ({exc.code}); trying browser profile import.")
+            LOGGER.warning("[AUTH][AUTO] cdp selected but failed reason=%s diagnostics=%s", exc.code, diagnostics)
+
+    attempted.append({"source": f"{browser}_profile", "status": "selected"})
+    try:
+        disk_result = seed_from_disk(profile_dir, domains, profile_name=profile_name, browser=browser)
+        disk_result.details["source"] = f"{browser}_profile"
+        return _result_payload("disk", disk_result)
     except CookieSeedError as exc:
+        attempted[-1]["status"] = "failed"
+        attempted[-1]["reason"] = exc.code
+        LOGGER.warning("[AUTH][AUTO] disk import failed reason=%s diagnostics=%s", exc.code, diagnostics)
         if exc.code != "DB_LOCKED":
             raise
+
         lock_warning = "Disk cookie DB locked; switched to CDP import. Close browser to prefer disk import."
         warnings.append(lock_warning)
-        LOGGER.warning("[AUTH][DISK] DB locked after retries; falling back to CDP")
-
-    cdp_result = seed_from_cdp(cdp_url_or_port, domains)
-    cdp_result.details["fallback_from"] = "disk"
-    cdp_result.details["fallback_reason"] = "DB_LOCKED"
-    return {
-        "method_used": "cdp",
-        "imported_count": len(cdp_result.cookies),
-        "warnings": warnings,
-        "cookies": cdp_result.cookies,
-        "details": cdp_result.details,
-    }
+        attempted.append({"source": "cdp_debug_chrome", "status": "fallback"})
+        cdp_result = seed_from_cdp(cdp_url_or_port, domains)
+        cdp_result.details.update({"fallback_from": "disk", "fallback_reason": "DB_LOCKED", "source": "cdp_debug_chrome"})
+        return _result_payload("cdp", cdp_result)
 
 
 def auth_doctor(*, chrome_path: str | None = None, profile_dir: str | Path | None = None, profile_name: str | None = None, cdp_port: int = DEFAULT_CDP_PORT) -> dict[str, Any]:

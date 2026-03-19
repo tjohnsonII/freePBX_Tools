@@ -9,7 +9,24 @@ type Ticket = { ticket_id: string; title?: string; subject?: string; status?: st
 type TicketResponse = { items: Ticket[]; totalCount: number };
 type HandleListResponse = { items: string[]; count: number };
 type HandleRow = { handle: string; status?: string; error?: string; last_updated_utc?: string; ticket_count?: number };
-type AuthStatus = { cookie_count: number; domains: string[]; last_imported: number | null; source: string; authenticated?: boolean; mode?: string; detail?: string; last_check_ts?: string | null; last_error?: string | null; profile_dir?: string | null; suggestion?: string | null };
+type AuthStatus = {
+  cookie_count: number;
+  domains: string[];
+  last_imported: number | null;
+  source: string;
+  authenticated?: boolean;
+  mode?: string;
+  detail?: string;
+  last_check_ts?: string | null;
+  last_error?: string | null;
+  profile_dir?: string | null;
+  suggestion?: string | null;
+  active_source?: string | null;
+  source_context?: Record<string, unknown> | null;
+  last_import_method_attempted?: string | null;
+  last_import_result?: { result?: string; source?: string; cookie_count?: number; overwritten_from?: string | null } | null;
+  last_validation_result?: { authenticated?: boolean; reason?: string | null; source?: string | null } | null;
+};
 type AuthSeedResponse = { ok: boolean; mode_used: "auto" | "disk" | "cdp"; details?: Record<string, unknown>; next_step_if_failed?: string | null; cookie_count?: number };
 type ChromeProfilesResponse = { ok: boolean; profiles: string[]; preferred: string | null };
 type ValidateRow = { url: string; status?: number | null; final_url?: string | null; ok: boolean; hint?: string | null };
@@ -21,6 +38,22 @@ type JobStatus = { job_id: string; status: string; total_handles: number; comple
 type EventsResponse = { items: { ts: string; level: string; handle?: string; message: string }[] };
 const FALLBACK_TICKETING_TARGET_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi";
 const TICKETING_TARGET_URL = process.env.NEXT_PUBLIC_TICKETING_TARGET_URL || process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_TARGET_URL;
+const AUTH_SOURCE_LABELS: Record<string, string> = {
+  none: "none",
+  paste: "paste",
+  chrome_profile: "chrome_profile",
+  edge_profile: "edge_profile",
+  isolated_profile: "isolated_profile",
+  cdp_debug_chrome: "cdp_debug_chrome",
+};
+const AUTH_LEGEND_ROWS = [
+  "none = no auth loaded",
+  "paste = manually pasted cookies",
+  "chrome_profile = cookies imported from normal Chrome profile",
+  "edge_profile = cookies imported from normal Edge profile",
+  "isolated_profile = cookies imported from launcher-created isolated browser",
+  "cdp_debug_chrome = cookies imported from live debug Chrome via CDP on 9222",
+];
 
 function formatApiError(error: unknown): string {
   if (error instanceof ApiRequestError) return error.detail || error.message;
@@ -75,6 +108,25 @@ export default function HandlesPage() {
   const scrapeDisabledReason = !isAuthenticated
     ? "Not authenticated: worker is paused until login completes."
     : (wrongDomainLoaded ? "Wrong cookie domain set loaded" : "");
+  const activeAuthSource = authStatus?.active_source || authStatus?.source || "none";
+  const currentSource = AUTH_SOURCE_LABELS[activeAuthSource] || activeAuthSource;
+  const sourceContext = authStatus?.source_context || {};
+  const authWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    if (currentSource !== "none" && currentSource !== "cdp_debug_chrome") {
+      warnings.push(`Debug Chrome flow note: currently authenticated from ${currentSource}; Seed Auth may replace it with cdp_debug_chrome.`);
+    }
+    if ((sourceContext?.cdp_reachable as boolean | undefined) && currentSource !== "cdp_debug_chrome") {
+      warnings.push("Debug Chrome is live on 9222, but Sync from Chrome targets local profile Profile 1.");
+    }
+    if (currentSource === "paste") {
+      warnings.push("Paste Cookies is currently active; a successful browser import will replace this state.");
+    }
+    if (currentSource !== "isolated_profile") {
+      warnings.push("Launch Login (isolated) uses a different browser profile than Chrome Profile 1.");
+    }
+    return warnings;
+  }, [currentSource, sourceContext]);
 
 
   const filteredHandles = useMemo(() => new Set(handles.map((item) => item.toUpperCase())), [handles]);
@@ -425,8 +477,62 @@ export default function HandlesPage() {
 
       <section style={{ border: "1px solid #ddd", padding: 12, marginBottom: 14 }}>
         <h3 style={{ marginTop: 0 }}>Authentication</h3>
+        <section style={{ background: "#f8fafc", border: "1px solid #cbd5e1", padding: 10, marginBottom: 10 }}>
+          <h4 style={{ margin: "0 0 8px" }}>Auth help: sources + recommended flow</h4>
+          <p style={{ margin: "0 0 8px" }}><strong>Auth legend</strong></p>
+          <ul style={{ marginTop: 0 }}>
+            {AUTH_LEGEND_ROWS.map((item) => <li key={item}><code>{item}</code></li>)}
+          </ul>
+          <p style={{ marginBottom: 6 }}><strong>Recommended auth flows</strong></p>
+          <pre style={{ whiteSpace: "pre-wrap", background: "#ffffff", border: "1px solid #e2e8f0", padding: 8 }}>
+{`Flow A — Debug Chrome (recommended for dev)
+1) Launch Debug Chrome
+2) Confirm http://127.0.0.1:9222/json/version is reachable
+3) Log into secure.123.net in that debug Chrome window
+4) Click Seed Auth (auto)
+5) Click Validate Auth
+
+Flow B — Isolated Login
+1) Launch Login (isolated)
+2) Log into secure.123.net in that isolated browser
+3) Import auth from isolated profile (or Seed Auth / Sync as needed)
+4) Click Validate Auth
+
+Flow C — Local Browser Profile Sync
+1) Select browser/profile
+2) Click Sync from Chrome or Sync from Edge
+3) Click Validate Auth`}
+          </pre>
+          <p style={{ marginBottom: 6 }}><strong>Sequence diagram (text)</strong></p>
+          <pre style={{ whiteSpace: "pre-wrap", background: "#ffffff", border: "1px solid #e2e8f0", padding: 8 }}>
+{`Debug Chrome flow:
+User -> Launch Debug Chrome
+Browser(9222) -> Login to secure.123.net
+User -> Seed Auth (auto)
+Ticket API -> CDP connect 127.0.0.1:9222 -> read cookies -> store auth state
+User -> Validate Auth
+Ticket API -> probe secure.123.net with imported cookies -> authenticated true/false
+
+Isolated flow:
+User -> Launch Login (isolated)
+Isolated Browser Profile -> Login to secure.123.net
+Ticket API -> read isolated profile cookies -> store auth state
+User -> Validate Auth`}
+          </pre>
+        </section>
+        {authWarnings.length > 0 ? (
+          <div style={{ border: "1px solid #f59e0b", background: "#fffbeb", padding: 10, marginBottom: 10 }}>
+            <strong>Auth flow warnings</strong>
+            <ul style={{ marginBottom: 0 }}>
+              {authWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          </div>
+        ) : null}
         <p>Count: {authStatus?.cookie_count ?? 0} | Domains: {(authStatus?.domains || []).join(", ") || "-"}</p>
-        <p>Source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
+        <p>Active source: <strong>{currentSource}</strong> | DB source: {authStatus?.source || "none"} | Last Loaded: {authStatus?.last_imported || "-"}</p>
+        <p>Last import attempt: {authStatus?.last_import_method_attempted || "-"} | Last import result: {authStatus?.last_import_result?.result || "-"}</p>
+        <p>Last validation result: {authStatus?.last_validation_result?.authenticated === undefined ? "-" : String(Boolean(authStatus?.last_validation_result?.authenticated))} ({authStatus?.last_validation_result?.reason || "-"})</p>
+        <p>Import context: browser={(sourceContext?.browser as string) || "-"} profile={(sourceContext?.profile as string) || "-"} cdp_port={(sourceContext?.cdp_port as number) || "-"}</p>
         <p>Authenticated: {authStatus?.authenticated === false ? "false" : "true"} | Mode: {authStatus?.mode || "-"} | Last check: {authStatus?.last_check_ts || "-"}</p>
         {wrongDomainLoaded ? <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p> : null}
                 <input ref={fileInputRef} type="file" accept=".json,.txt" onChange={onPickFile} style={{ display: "none" }} />

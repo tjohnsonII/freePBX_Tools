@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from webscraper.auth import cookie_seeder
 
 
@@ -14,12 +16,34 @@ def test_seed_auto_falls_back_to_cdp(monkeypatch) -> None:
     def fake_cdp(*args, **kwargs):
         return cookie_seeder.SeedResult(mode_used="cdp", cookies=[{"name": "a", "value": "b", "domain": "secure.123.net"}], details={})
 
+    monkeypatch.setattr(cookie_seeder, "_select_auto_source", lambda *_args, **_kwargs: ("disk", {"cdp_reachable": False}))
     monkeypatch.setattr(cookie_seeder, "seed_from_disk", fake_disk)
     monkeypatch.setattr(cookie_seeder, "seed_from_cdp", fake_cdp)
 
     result = cookie_seeder.seed_auto(profile_dir="/tmp/none", domains=["secure.123.net"])
     assert result.mode_used == "cdp"
     assert result.details["fallback_reason"] == "DB_LOCKED"
+
+
+def test_seed_auto_prefers_cdp_when_debug_chrome_reachable(monkeypatch) -> None:
+    monkeypatch.setattr(cookie_seeder, "_select_auto_source", lambda *_args, **_kwargs: ("cdp", {"cdp_reachable": True, "cdp_port": 9222}))
+    monkeypatch.setattr(
+        cookie_seeder,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: cookie_seeder.SeedResult(
+            mode_used="cdp",
+            cookies=[{"name": "sid", "value": "ok", "domain": "secure.123.net"}],
+            details={"cdp_port": 9222},
+        ),
+    )
+    disk_called = {"called": False}
+    monkeypatch.setattr(cookie_seeder, "seed_from_disk", lambda *_args, **_kwargs: disk_called.update({"called": True}))
+
+    result = cookie_seeder.seed_auto(profile_dir="/tmp/none", domains=["secure.123.net"])
+
+    assert result.mode_used == "cdp"
+    assert result.details["auto_selected_source"] == "cdp"
+    assert disk_called["called"] is False
 
 
 def test_auth_doctor_reports_missing_port(monkeypatch, tmp_path) -> None:
@@ -34,7 +58,26 @@ def test_auth_doctor_reports_missing_port(monkeypatch, tmp_path) -> None:
     assert report["ok"] is False
 
 
+def test_cdp_json_version_check_success(monkeypatch) -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/abc"}).encode("utf-8")
+
+    monkeypatch.setattr(cookie_seeder.urllib_request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+
+    ok, error = cookie_seeder._cdp_json_version_ok(9222)
+    assert ok is True
+    assert error is None
+
+
 def test_import_cookies_auto_prefers_disk(monkeypatch) -> None:
+    monkeypatch.setattr(cookie_seeder, "_select_auto_source", lambda *_args, **_kwargs: ("disk", {"cdp_reachable": False}))
     monkeypatch.setattr(
         cookie_seeder,
         "seed_from_disk",
@@ -53,6 +96,7 @@ def test_import_cookies_auto_prefers_disk(monkeypatch) -> None:
 
 
 def test_import_cookies_auto_falls_back_to_cdp_when_disk_locked(monkeypatch) -> None:
+    monkeypatch.setattr(cookie_seeder, "_select_auto_source", lambda *_args, **_kwargs: ("disk", {"cdp_reachable": False}))
     def fake_disk(*args, **kwargs):
         raise cookie_seeder.CookieSeedError("DB_LOCKED", "locked")
 
@@ -72,6 +116,24 @@ def test_import_cookies_auto_falls_back_to_cdp_when_disk_locked(monkeypatch) -> 
     assert result["method_used"] == "cdp"
     assert result["imported_count"] == 1
     assert any("switched to CDP" in warning for warning in result["warnings"])
+
+
+def test_import_cookies_auto_transitions_from_paste_to_cdp(monkeypatch) -> None:
+    monkeypatch.setattr(cookie_seeder, "_select_auto_source", lambda *_args, **_kwargs: ("cdp", {"cdp_reachable": True, "cdp_port": 9222}))
+    monkeypatch.setattr(
+        cookie_seeder,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: cookie_seeder.SeedResult(
+            mode_used="cdp",
+            cookies=[{"name": "sid", "value": "ok", "domain": "secure.123.net"}],
+            details={"cdp_port": 9222},
+        ),
+    )
+
+    result = cookie_seeder.import_cookies_auto(profile_dir="/tmp/none", domains=["secure.123.net"])
+
+    assert result["method_used"] == "cdp"
+    assert result["details"]["attempted_sources"][0]["source"] == "cdp_debug_chrome"
 
 
 def test_browser_user_data_dir_uses_edge_and_chrome_roots(monkeypatch) -> None:
