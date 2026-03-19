@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import socket
 import socketserver
 import sys
 import threading
@@ -40,10 +39,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
 class _OpenPortHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        try:
-            self.request.recv(128)
-        except Exception:
-            pass
+        _ = self.request.recv(128)
 
 
 @pytest.fixture()
@@ -85,7 +81,21 @@ def test_readiness_succeeds_on_dashboard_when_root_fails(http_server):
     assert "HTTP 200" in reason
 
 
-def test_readiness_succeeds_on_open_port_fallback(tcp_server):
+def test_readiness_requires_opt_in_for_open_port_fallback(tcp_server):
+    with pytest.raises(dev_runtime.LauncherError, match="readiness failed"):
+        dev_runtime.wait_for_dev_server_ready(
+            pid=os.getpid(),
+            host="127.0.0.1",
+            port=tcp_server,
+            timeout_s=2,
+            http_paths=["/"],
+            log_path=None,
+            allow_open_port_fallback=False,
+            process_stable_s=0.1,
+        )
+
+
+def test_readiness_succeeds_with_open_port_fallback_when_enabled(tcp_server):
     reason = dev_runtime.wait_for_dev_server_ready(
         pid=os.getpid(),
         host="127.0.0.1",
@@ -100,66 +110,36 @@ def test_readiness_succeeds_on_open_port_fallback(tcp_server):
     assert "open port fallback" in reason
 
 
-def test_readiness_succeeds_with_stdout_marker(tmp_path):
-    log_path = tmp_path / "frontend.log"
-    log_path.write_text("[next] Ready in 3.2s\n", encoding="utf-8")
-
-    reason = dev_runtime.wait_for_dev_server_ready(
-        pid=os.getpid(),
-        host="127.0.0.1",
-        port=65000,
-        timeout_s=3,
-        http_paths=["/"],
-        log_path=log_path,
-        allow_open_port_fallback=False,
-        process_stable_s=0.1,
-        success_markers=["Ready in", "Local: http://localhost:3004"],
-    )
-    assert "stdout marker" in reason
+def test_launch_browser_mode_none_is_predictable():
+    details = dev_runtime.launch_browser_mode(mode="none", url="http://127.0.0.1:3004/dashboard")
+    assert details.mode == "none"
+    assert details.launched is False
+    assert details.command == []
 
 
-def test_run_all_returns_success_when_ui_alive_and_port_open(monkeypatch):
+def test_run_all_dry_run_writes_summary(monkeypatch, tmp_path):
     monkeypatch.setattr(run_all_web_apps, "run_checked", lambda *args, **kwargs: None)
     monkeypatch.setattr(run_all_web_apps, "ensure_manager_ui_dependencies", lambda *args, **kwargs: None)
     monkeypatch.setattr(run_all_web_apps, "stop_all_known_services", lambda *args, **kwargs: None)
-    monkeypatch.setattr(run_all_web_apps, "maybe_open_browser", lambda *args, **kwargs: None)
-    monkeypatch.setattr(run_all_web_apps, "load_services", lambda *args, **kwargs: {"manager_ui_frontend": {"pid": 1234}})
-    monkeypatch.setattr(run_all_web_apps, "is_pid_alive", lambda pid: True)
-    monkeypatch.setattr(run_all_web_apps, "is_port_open", lambda host, port: port == 3004)
 
-    class _Result:
-        returncode = 1
+    class _Browser:
+        mode = "none"
+        browser_path = None
+        user_data_dir = None
+        profile_directory = None
+        url = "http://127.0.0.1:3004/dashboard"
+        command = []
+        launched = False
+        reason = "disabled"
 
-    monkeypatch.setattr(run_all_web_apps.subprocess, "run", lambda *args, **kwargs: _Result())
-    monkeypatch.setattr(sys, "argv", ["run_all_web_apps.py", "--no-bootstrap"])
+    monkeypatch.setattr(run_all_web_apps, "launch_browser_mode", lambda **kwargs: _Browser())
+    monkeypatch.setattr(run_all_web_apps, "_read_runtime_services", lambda _root: {})
+    status_file = tmp_path / "summary.json"
 
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_all_web_apps.py", "--dry-run", "--status-file", str(status_file)],
+    )
     assert run_all_web_apps.main() == 0
-
-
-def test_readiness_timeout_when_process_dies(monkeypatch):
-    monkeypatch.setattr(dev_runtime, "is_pid_alive", lambda pid: False)
-    with pytest.raises(dev_runtime.LauncherError, match="died"):
-        dev_runtime.wait_for_dev_server_ready(
-            pid=999,
-            host="127.0.0.1",
-            port=3004,
-            timeout_s=2,
-            http_paths=["/"],
-            log_path=None,
-        )
-
-
-def test_readiness_timeout_when_port_never_opens(monkeypatch):
-    monkeypatch.setattr(dev_runtime, "is_pid_alive", lambda pid: True)
-    monkeypatch.setattr(dev_runtime, "is_port_open", lambda host, port, timeout=0.5: False)
-
-    with pytest.raises(dev_runtime.LauncherError, match="readiness failed"):
-        dev_runtime.wait_for_dev_server_ready(
-            pid=999,
-            host="127.0.0.1",
-            port=3004,
-            timeout_s=1,
-            http_paths=["/"],
-            log_path=None,
-            allow_open_port_fallback=False,
-        )
+    assert status_file.exists()

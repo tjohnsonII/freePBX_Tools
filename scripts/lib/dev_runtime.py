@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -40,6 +42,19 @@ def log(section: str, message: str) -> None:
     print(f"[{section}] {message}")
 
 
+VERBOSE = False
+
+
+def set_verbose(enabled: bool) -> None:
+    global VERBOSE
+    VERBOSE = bool(enabled)
+
+
+def vlog(section: str, message: str) -> None:
+    if VERBOSE:
+        log(section, message)
+
+
 def host_python() -> str:
     if is_windows():
         py = shutil.which("py")
@@ -52,7 +67,7 @@ def host_python() -> str:
 
 
 def run_checked(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None, section: str = "run") -> None:
-    log(section, f"Running: {' '.join(cmd)}")
+    log(section, f"Running: {shlex.join(cmd)}")
     proc = subprocess.run(cmd, cwd=cwd, env=env)
     if proc.returncode != 0:
         raise LauncherError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
@@ -399,7 +414,21 @@ def wait_for_dev_server_ready(
 def _creationflags() -> int:
     if not is_windows():
         return 0
-    return subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    new_group = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return new_group | no_window
+
+
+@dataclass(frozen=True)
+class BrowserLaunchDetails:
+    mode: str
+    browser_path: str | None
+    user_data_dir: str | None
+    profile_directory: str | None
+    url: str | None
+    command: list[str]
+    launched: bool
+    reason: str
 
 
 def start_detached(
@@ -433,13 +462,14 @@ def start_detached(
         )
 
     log("launch", f"Started {service_name} (pid={proc.pid})")
-    log("launch", f"Command: {' '.join(cmd)}")
+    log("launch", f"Command: {shlex.join(cmd)}")
     log("launch", f"Log file: {log_path}")
 
     return {
         "service": service_name,
         "pid": proc.pid,
         "cmd": cmd,
+        "command": shlex.join(cmd),
         "cwd": str(cwd),
         "log": str(log_path),
         "started_at": int(time.time()),
@@ -609,7 +639,126 @@ def maybe_open_browser(url: str, *, open_browser: bool) -> None:
     log("browser", f"Opened URL: {url}")
 
 
+def launch_browser_mode(
+    *,
+    mode: str,
+    url: str,
+    profile_directory: str = "Default",
+    persistent_user_data_dir: Path | None = None,
+    browser_path: str | None = None,
+) -> BrowserLaunchDetails:
+    normalized = (mode or "none").strip().lower()
+    if normalized in {"none", "off", "disabled"}:
+        return BrowserLaunchDetails(
+            mode="none",
+            browser_path=None,
+            user_data_dir=None,
+            profile_directory=None,
+            url=url,
+            command=[],
+            launched=False,
+            reason="Browser launch disabled by --browser none.",
+        )
+
+    if is_windows():
+        resolved_browser = browser_path or shutil.which("msedge") or shutil.which("msedge.exe")
+        if not resolved_browser:
+            return BrowserLaunchDetails(
+                mode=normalized,
+                browser_path=None,
+                user_data_dir=None,
+                profile_directory=profile_directory,
+                url=url,
+                command=[],
+                launched=False,
+                reason="Microsoft Edge executable was not found in PATH.",
+            )
+        cmd = [resolved_browser, "--no-first-run", "--no-default-browser-check"]
+        user_data_dir: str | None = None
+        if normalized == "persistent-profile":
+            if persistent_user_data_dir is None:
+                return BrowserLaunchDetails(
+                    mode=normalized,
+                    browser_path=resolved_browser,
+                    user_data_dir=None,
+                    profile_directory=profile_directory,
+                    url=url,
+                    command=[],
+                    launched=False,
+                    reason="Persistent profile mode requires a user-data-dir.",
+                )
+            persistent_user_data_dir.mkdir(parents=True, exist_ok=True)
+            user_data_dir = str(persistent_user_data_dir)
+            cmd.append(f"--user-data-dir={user_data_dir}")
+            cmd.append(f"--profile-directory={profile_directory}")
+        elif normalized == "existing-profile":
+            cmd.append(f"--profile-directory={profile_directory}")
+        else:
+            return BrowserLaunchDetails(
+                mode=normalized,
+                browser_path=resolved_browser,
+                user_data_dir=None,
+                profile_directory=profile_directory,
+                url=url,
+                command=[],
+                launched=False,
+                reason=f"Unsupported browser mode: {mode}",
+            )
+        cmd.append(url)
+        creationflags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) | int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
+        return BrowserLaunchDetails(
+            mode=normalized,
+            browser_path=resolved_browser,
+            user_data_dir=user_data_dir,
+            profile_directory=profile_directory,
+            url=url,
+            command=cmd,
+            launched=True,
+            reason="Browser launched.",
+        )
+
+    # Non-Windows fallback.
+    maybe_open_browser(url, open_browser=True)
+    return BrowserLaunchDetails(
+        mode=normalized,
+        browser_path=None,
+        user_data_dir=None,
+        profile_directory=profile_directory,
+        url=url,
+        command=[],
+        launched=True,
+        reason="Opened browser via platform default launcher.",
+    )
+
+
+def inspect_web_stack(root: Path) -> dict[str, Any]:
+    ticket_ui_exists = (root / "webscraper" / "ticket-ui" / "package.json").exists()
+    ticket_api_exists = (root / "webscraper" / "src" / "webscraper" / "ticket_api" / "app.py").exists()
+    return {
+        "services": {
+            "manager_backend": {"exists": (root / "webscraper_manager" / "api" / "server.py").exists(), "url": "http://127.0.0.1:8787/api/health"},
+            "manager_frontend": {"exists": (root / "manager-ui" / "package.json").exists(), "url": "http://127.0.0.1:3004/dashboard"},
+            "webscraper_worker": {"exists": (root / "webscraper" / "__main__.py").exists(), "url": None},
+            "webscraper_api": {"exists": ticket_api_exists, "url": "http://127.0.0.1:8788/api/health"},
+            "webscraper_ui": {"exists": ticket_ui_exists, "url": "http://127.0.0.1:3005"},
+        }
+    }
+
+
+def print_inspection(root: Path, browser_mode: str) -> None:
+    payload = inspect_web_stack(root)
+    log("inspect", f"browser_mode={browser_mode}")
+    for name, info in payload.get("services", {}).items():
+        exists = bool(info.get("exists"))
+        url = info.get("url") or "-"
+        log("inspect", f"{name}: exists={exists} url={url}")
+
+
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-bootstrap", action="store_true", help="Do not auto-bootstrap missing dependencies")
     parser.add_argument("--doctor", action="store_true", help="Run scripts/doctor_devs.py before starting")
     parser.add_argument("--no-port-cleanup", action="store_true", help="Fail if required ports are occupied")
+    parser.add_argument("--dry-run", action="store_true", help="Print launch decisions without starting services")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose launcher logging")
+    parser.add_argument("--inspect", action="store_true", help="Print discoverable services and exit")
