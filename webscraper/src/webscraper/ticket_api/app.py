@@ -156,6 +156,14 @@ MAX_BATCH_HANDLES = 500
 
 AUTH_STATE = AuthState()
 AUTH_STATE_LOCK = threading.Lock()
+AUTH_IMPORT_META: dict[str, Any] = {
+    "active_source": "none",
+    "last_import_method_attempted": None,
+    "last_import_result": None,
+    "last_validation_result": None,
+    "source_context": {},
+}
+AUTH_IMPORT_META_LOCK = threading.Lock()
 
 
 def _has_python_multipart() -> bool:
@@ -328,6 +336,16 @@ def _auth_state_payload() -> dict[str, Any]:
             "profile_dir": AUTH_STATE.profile_dir,
             "suggestion": AUTH_STATE.suggestion,
         }
+    with AUTH_IMPORT_META_LOCK:
+        snapshot.update(
+            {
+                "active_source": AUTH_IMPORT_META.get("active_source"),
+                "source_context": AUTH_IMPORT_META.get("source_context"),
+                "last_import_method_attempted": AUTH_IMPORT_META.get("last_import_method_attempted"),
+                "last_import_result": AUTH_IMPORT_META.get("last_import_result"),
+                "last_validation_result": AUTH_IMPORT_META.get("last_validation_result"),
+            }
+        )
     return snapshot
 
 
@@ -350,6 +368,56 @@ def _update_auth_state(
             AUTH_STATE.profile_dir = profile_dir
         if suggestion is not None:
             AUTH_STATE.suggestion = suggestion
+
+
+def _normalize_source_label(source: str) -> str:
+    raw = str(source or "none").strip().lower()
+    mapping = {
+        "seed_cdp": "cdp_debug_chrome",
+        "seed_cdp_auto": "cdp_debug_chrome",
+        "seed_disk": "chrome_profile",
+        "browser_disk": "chrome_profile",
+        "browser_cdp": "cdp_debug_chrome",
+        "seeded_profile": "isolated_profile",
+        "paste": "paste",
+        "none": "none",
+    }
+    if raw in mapping:
+        return mapping[raw]
+    if "edge" in raw:
+        return "edge_profile"
+    if "chrome" in raw and "cdp" not in raw:
+        return "chrome_profile"
+    if "isolated" in raw or "ticketing" in raw:
+        return "isolated_profile"
+    if "cdp" in raw or "debug" in raw:
+        return "cdp_debug_chrome"
+    return raw
+
+
+def _record_auth_import_attempt(
+    *,
+    attempted: str,
+    result: str,
+    source: str,
+    cookie_count: int,
+    details: dict[str, Any] | None = None,
+    overwritten_from: str | None = None,
+) -> None:
+    normalized_source = _normalize_source_label(source)
+    context = dict(details or {})
+    if overwritten_from:
+        context["overwritten_from"] = _normalize_source_label(overwritten_from)
+    with AUTH_IMPORT_META_LOCK:
+        AUTH_IMPORT_META["last_import_method_attempted"] = attempted
+        AUTH_IMPORT_META["last_import_result"] = {
+            "result": result,
+            "source": normalized_source,
+            "cookie_count": int(cookie_count),
+            "overwritten_from": context.get("overwritten_from"),
+        }
+        AUTH_IMPORT_META["active_source"] = normalized_source if result == "success" else AUTH_IMPORT_META.get("active_source", "none")
+        AUTH_IMPORT_META["source_context"] = context
 
 
 def _import_and_store_cookies(text_payload: str, *, source_label: str, filename: str, default_domain: str | None) -> dict[str, Any]:
@@ -382,8 +450,19 @@ def _import_and_store_cookies(text_payload: str, *, source_label: str, filename:
                 "parsed_domains": parsed_domains,
             },
         )
+    previous_status = auth_store.status(db_path())
+    previous_source = str(previous_status.get("source") or "none")
     store_result = auth_store.replace_cookies(db_path(), [cookie.model_dump() for cookie in kept], source=source_label)
+    overwritten_from = previous_source if previous_source not in {"none", source_label} else None
     status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _record_auth_import_attempt(
+        attempted=source_label,
+        result="success",
+        source=source_label,
+        cookie_count=int(store_result.get("accepted", len(kept))),
+        details={"domains": status_payload.get("domains") or []},
+        overwritten_from=overwritten_from,
+    )
     _append_event(
         "info",
         f"Imported auth cookies count={len(kept)} expired_dropped={expired_dropped} source={source_label} filename={filename} domains={','.join(status_payload.get('domains', []))}",
@@ -487,7 +566,7 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
 
     if not cookies:
         reasons = [{"code": "missing_cookie", "name": "*", "domain": "secure.123.net"}, {"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
-        return {
+        result_payload = {
             "ok": False,
             "authenticated": False,
             "reason": "missing_cookie",
@@ -506,6 +585,13 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             "validation_probe_url": validation_probe_url,
             "validation_http_status": None,
         }
+        with AUTH_IMPORT_META_LOCK:
+            AUTH_IMPORT_META["last_validation_result"] = {
+                "authenticated": False,
+                "reason": result_payload["reason"],
+                "source": _normalize_source_label(source),
+            }
+        return result_payload
 
     timeout = max(2, int(timeout_seconds or 10))
     jar = requests.cookies.RequestsCookieJar()
@@ -573,7 +659,7 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         reasons = [{"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
     if not overall_ok and not any(reason_item.get("code") == "not_authenticated" for reason_item in reasons):
         reasons.append({"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"})
-    return {
+    result_payload = {
         "ok": overall_ok,
         "authenticated": overall_ok,
         "reason": reason,
@@ -592,6 +678,13 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         "validation_probe_url": validation_probe_url,
         "validation_http_status": next((item.get("status") for item in checks if item.get("status") is not None), None),
     }
+    with AUTH_IMPORT_META_LOCK:
+        AUTH_IMPORT_META["last_validation_result"] = {
+            "authenticated": bool(result_payload.get("authenticated")),
+            "reason": result_payload.get("reason"),
+            "source": _normalize_source_label(source),
+        }
+    return result_payload
 
 
 # ── CDP helpers ───────────────────────────────────────────────────────────────
@@ -1451,6 +1544,12 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
     _log(
         f"route_hit path=/api/auth/import_from_browser browser={payload.browser} profile={payload.profile} domain={selected_domain}"
     )
+    chosen_source = f"{payload.browser}_profile"
+    if _is_cdp_available(cdp_port):
+        _log(
+            f"auth_source_warning debug Chrome CDP is reachable on {cdp_port}; "
+            f"sync_from_browser still targets local profile browser={payload.browser} profile={payload.profile}"
+        )
     import_result = import_cookies_auto(
         profile_dir=user_data_dir,
         domains=[selected_domain],
@@ -1459,8 +1558,20 @@ def _import_from_browser_impl(request: Request, payload: BrowserImportRequest) -
         browser=payload.browser,
     )
 
-    store_result = auth_store.replace_cookies(db_path(), import_result["cookies"], source=f"browser_{import_result['method_used']}")
+    backend_source = "browser_cdp" if import_result["method_used"] == "cdp" else f"{payload.browser}_profile"
+    previous_status = auth_store.status(db_path())
+    previous_source = str(previous_status.get("source") or "none")
+    store_result = auth_store.replace_cookies(db_path(), import_result["cookies"], source=backend_source)
+    overwritten_from = previous_source if previous_source not in {"none", backend_source} else None
     status_payload = _auth_meta_response(auth_store.status(db_path()))
+    _record_auth_import_attempt(
+        attempted=chosen_source,
+        result="success",
+        source=backend_source,
+        cookie_count=int(store_result.get("accepted", 0)),
+        details={"browser": payload.browser, "profile": payload.profile, "domain": selected_domain, **(import_result.get("details") or {})},
+        overwritten_from=overwritten_from,
+    )
     _append_event(
         "info",
         (
@@ -1744,6 +1855,8 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
     user_data_dir = resolve_chrome_user_data_dir(payload.chrome_user_data_dir)
     try:
         warnings: list[str] = []
+        selected_source = "cdp_debug_chrome" if _is_cdp_available(payload.cdp_port) else "chrome_profile"
+        _log(f"auth_seed source_selection selected={selected_source} mode={mode} cdp_port={payload.cdp_port}")
         if mode == "disk":
             result = seed_from_disk(user_data_dir, payload.seed_domains, profile_name=profile_name)
         elif mode == "cdp":
@@ -1758,6 +1871,13 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
             warnings = list(auto_result.get("warnings") or [])
             result = SeedResult(mode_used=str(auto_result["method_used"]), cookies=list(auto_result["cookies"]), details=dict(auto_result.get("details") or {}))
     except CookieSeedError as exc:
+        _record_auth_import_attempt(
+            attempted=f"seed_{mode}",
+            result="failed",
+            source="none",
+            cookie_count=0,
+            details={"error_code": exc.code, "error": str(exc), "cdp_port": payload.cdp_port},
+        )
         detail = str(exc)
         next_step = "Verify auth-doctor output and profile settings."
         if exc.code == "DB_LOCKED":
@@ -1780,8 +1900,26 @@ def api_auth_seed(request: Request, payload: AuthSeedRequest):
             **_auth_state_payload(),
         }
 
-    store_result = auth_store.replace_cookies(db_path(), result.cookies, source=f"seed_{result.mode_used}")
+    store_source = "seed_cdp" if result.mode_used == "cdp" else "seed_disk"
+    previous_status = auth_store.status(db_path())
+    previous_source = str(previous_status.get("source") or "none")
+    store_result = auth_store.replace_cookies(db_path(), result.cookies, source=store_source)
+    overwritten_from = previous_source if previous_source not in {"none", store_source} else None
     status_payload = _auth_meta_response(auth_store.status(db_path()))
+    selected_domains = sorted({str(cookie.get("domain") or "") for cookie in result.cookies if cookie.get("domain")})
+    _record_auth_import_attempt(
+        attempted=f"seed_{mode}",
+        result="success",
+        source=store_source,
+        cookie_count=int(store_result.get("accepted", 0)),
+        details={"domains": selected_domains, **(result.details or {})},
+        overwritten_from=overwritten_from,
+    )
+    _log(
+        "auth_seed_result "
+        f"attempted=seed_{mode} selected={_normalize_source_label(store_source)} "
+        f"cookie_count={int(store_result.get('accepted', 0))} domains={selected_domains} overwritten_from={overwritten_from or '-'}"
+    )
     _update_auth_state(
         authenticated=True,
         mode=result.mode_used,
