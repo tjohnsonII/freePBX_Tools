@@ -338,6 +338,34 @@ def test_auth_seed_endpoint_auto_mode(tmp_path, monkeypatch):
     assert launch_payload["last_import_method_attempted"] == "seed_auto"
 
 
+def test_auth_seed_endpoint_reports_ws_origin_rejection(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    def raise_origin_rejected(*_args, **_kwargs):
+        raise appmod.CookieSeedError(
+            "CDP_WS_ORIGIN_REJECTED",
+            "Chrome CDP websocket origin rejected on port 9222",
+            details={"cdp_port": 9222},
+        )
+
+    monkeypatch.setattr(appmod, "seed_from_cdp", raise_origin_rejected)
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post(
+        "/api/auth/seed",
+        json={"mode": "cdp", "seed_domains": ["secure.123.net"], "cdp_port": 9222},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["details"]["error_code"] == "CDP_WS_ORIGIN_REJECTED"
+    assert "origin" in payload["next_step_if_failed"].lower()
+    assert "remote-allow-origins" in payload["next_step_if_failed"]
+
+
 def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
@@ -365,11 +393,54 @@ def test_launch_debug_chrome_endpoint(tmp_path, monkeypatch):
 
     monkeypatch.setattr(appmod, "_detect_browser_path", lambda: fake_browser)
     monkeypatch.setattr(appmod, "launch_debug_chrome", lambda **kwargs: type("P", (), {"pid": 1234})())
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {
+            "cdp_port": 9222,
+            "json_version_ok": True,
+            "ws_connectable": True,
+            "status": "ok",
+            "error": None,
+            "websocket_debugger_url": "ws://127.0.0.1:9222/devtools/browser/test",
+        },
+    )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
     assert response.status_code == 200
     assert response.json()["ok"] is True
+    assert response.json()["details"]["cdp_validation"]["status"] == "ok"
+
+
+def test_launch_debug_chrome_endpoint_surfaces_ws_origin_rejection(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+
+    fake_browser = tmp_path / "chrome.exe"
+    fake_browser.write_text("")
+    monkeypatch.setenv("CHROME_PATH", str(fake_browser))
+    monkeypatch.setattr(appmod, "_detect_browser_path", lambda: fake_browser)
+    monkeypatch.setattr(appmod, "launch_debug_chrome", lambda **kwargs: type("P", (), {"pid": 1234})())
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {
+            "cdp_port": 9222,
+            "json_version_ok": True,
+            "ws_connectable": False,
+            "status": "ws_origin_rejected",
+            "error": "403 Forbidden remote-allow-origins",
+            "websocket_debugger_url": "ws://127.0.0.1:9222/devtools/browser/test",
+        },
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
+    assert response.status_code == 502
+    assert "origin rejected" in response.json()["detail"].lower()
 
 
 def test_auth_force_reset_and_launch_endpoints(tmp_path, monkeypatch):

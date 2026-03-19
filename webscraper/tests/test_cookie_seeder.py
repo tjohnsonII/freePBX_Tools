@@ -162,3 +162,85 @@ def test_cookie_db_candidates_ordering(tmp_path) -> None:
     profile_dir = tmp_path / "Profile 1"
     expected = [profile_dir / "Network" / "Cookies", profile_dir / "Cookies"]
     assert cookie_seeder.cookie_db_candidates(profile_dir) == expected
+
+
+def test_launch_debug_chrome_includes_remote_allow_origins(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeProc:
+        pid = 444
+
+    def fake_popen(command):
+        captured["command"] = command
+        return FakeProc()
+
+    monkeypatch.setattr(cookie_seeder.subprocess, "Popen", fake_popen)
+    cookie_seeder.launch_debug_chrome(
+        chrome_path=tmp_path / "chrome.exe",
+        user_data_dir=tmp_path / "debug-profile",
+        profile_name="Default",
+        port=9222,
+    )
+    command = list(captured["command"])
+    assert "--remote-debugging-port=9222" in command
+    assert "--remote-allow-origins=http://127.0.0.1:9222" in command
+
+
+def test_cdp_availability_no_browser(monkeypatch) -> None:
+    def boom(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(cookie_seeder.urllib_request, "urlopen", boom)
+    availability = cookie_seeder.cdp_availability(9222, check_ws=True)
+    assert availability["status"] == "no_browser"
+    assert availability["json_version_ok"] is False
+    assert availability["ws_connectable"] is False
+
+
+def test_cdp_availability_detects_ws_origin_rejection(monkeypatch) -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/abc"}).encode("utf-8")
+
+    monkeypatch.setattr(cookie_seeder.urllib_request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+
+    def fail_ws(*_args, **_kwargs):
+        raise RuntimeError(
+            "Handshake status 403 Forbidden - Rejected an incoming WebSocket connection from the http://127.0.0.1:9222 origin. "
+            "Use the command line flag --remote-allow-origins=http://127.0.0.1:9222"
+        )
+
+    monkeypatch.setattr(cookie_seeder, "create_connection", fail_ws)
+    availability = cookie_seeder.cdp_availability(9222, check_ws=True)
+    assert availability["status"] == "ws_origin_rejected"
+    assert availability["json_version_ok"] is True
+    assert availability["ws_connectable"] is False
+
+
+def test_cdp_availability_success(monkeypatch) -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/abc"}).encode("utf-8")
+
+    class FakeWs:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(cookie_seeder.urllib_request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    monkeypatch.setattr(cookie_seeder, "create_connection", lambda *_args, **_kwargs: FakeWs())
+    availability = cookie_seeder.cdp_availability(9222, check_ws=True)
+    assert availability["status"] == "ok"
+    assert availability["json_version_ok"] is True
+    assert availability["ws_connectable"] is True
