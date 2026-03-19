@@ -1,0 +1,64 @@
+1. Start manager/backend normally
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_web_manager_app.py --doctor --readiness-timeout 180
+2. Start manager UI normally
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_manager_ui_app.py --doctor --readiness-timeout 180
+3. Start ticket API only
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode api --doctor --readiness-timeout 180
+4. Start the webscraper UI
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode ui --doctor --readiness-timeout 180
+
+http://127.0.0.1:3004 → manager UI
+
+http://127.0.0.1:3005 → webscraper ticket UI
+
+http://127.0.0.1:8787/api/health
+
+http://127.0.0.1:8788/api/health
+
+🔥 Fast + Clean Stop (Recommended)
+
+Use the PIDs from your output:
+
+taskkill /PID 30252 /F   # manager backend (8787)
+taskkill /PID 6352 /F    # manager UI (3004)
+taskkill /PID 26756 /F   # ticket API (8788)
+🧹 Safer (if PIDs change or you rerun things)
+
+Kill by port instead:
+
+Kill 8787 (manager backend)
+netstat -ano | findstr :8787
+taskkill /PID <PID> /F
+Kill 3004 (Next.js UI)
+netstat -ano | findstr :3004
+taskkill /PID <PID> /F
+Kill 8788 (ticket API)
+netstat -ano | findstr :8788
+taskkill /PID <PID> /F
+⚡ One-liner (nuke everything dev-related)
+
+If you don’t care about precision:
+
+taskkill /F /IM python.exe
+taskkill /F /IM node.exe
+
+⚠️ Only do this if you're not running anything else important.
+
+🧠 What your launcher is already doing (FYI)
+
+You saw this earlier:
+
+[ports] Port 8787 is in use; attempting cleanup
+[ports] Sent taskkill to pid ...
+
+So your scripts already try to clean ports — but doing it manually is better while debugging.
+
+✅ After killing everything
+
+Verify clean state:
+
+netstat -ano | findstr :8787
+netstat -ano | findstr :3004
+netstat -ano | findstr :8788
+
+You want no output for each.
