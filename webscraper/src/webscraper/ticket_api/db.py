@@ -155,7 +155,7 @@ def ensure_indexes(db_path: str) -> None:
             if "pk" not in ticket_columns:
                 conn.execute("ALTER TABLE tickets ADD COLUMN pk TEXT")
 
-            conn.execute(
+            conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS events(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,6 +165,66 @@ def ensure_indexes(db_path: str) -> None:
                     message TEXT NOT NULL,
                     meta_json TEXT
                 )
+                ;
+
+                CREATE TABLE IF NOT EXISTS companies(
+                    handle TEXT PRIMARY KEY,
+                    name TEXT,
+                    created_utc TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    last_ingest_job_id TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS ticket_events(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle TEXT NOT NULL,
+                    ticket_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    event_utc TEXT,
+                    summary TEXT NOT NULL,
+                    raw_source_text TEXT,
+                    confidence REAL DEFAULT 0.5,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS narratives(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle TEXT NOT NULL,
+                    narrative_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source_ticket_id TEXT,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS artifacts(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle TEXT NOT NULL,
+                    artifact_type TEXT NOT NULL,
+                    artifact_path TEXT,
+                    metadata_json TEXT,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS company_timeline(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle TEXT NOT NULL,
+                    event_utc TEXT,
+                    category TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    details TEXT,
+                    ticket_id TEXT,
+                    source_event_id INTEGER,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS resolution_patterns(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle TEXT NOT NULL,
+                    pattern TEXT NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    last_seen_utc TEXT,
+                    created_utc TEXT NOT NULL
+                );
                 """
             )
 
@@ -180,6 +240,9 @@ def ensure_indexes(db_path: str) -> None:
                 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);
                 CREATE INDEX IF NOT EXISTS idx_auth_cookies_domain_name ON auth_cookies(domain, name);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_cookies_domain_name_path ON auth_cookies(domain, name, path);
+                CREATE INDEX IF NOT EXISTS idx_ticket_events_handle_time ON ticket_events(handle, event_utc DESC);
+                CREATE INDEX IF NOT EXISTS idx_timeline_handle_time ON company_timeline(handle, event_utc DESC);
+                CREATE INDEX IF NOT EXISTS idx_resolution_patterns_handle ON resolution_patterns(handle);
                 """
             )
 
@@ -715,3 +778,104 @@ def safe_artifact_path(requested_path: str, output_root: str) -> Path | None:
     if root == candidate or root in candidate.parents:
         return candidate
     return None
+
+
+def upsert_company(db_path: str, handle: str, name: str | None = None, last_ingest_job_id: str | None = None, now_utc: str | None = None) -> None:
+    now = now_utc or ""
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO companies(handle, name, created_utc, updated_utc, last_ingest_job_id)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(handle) DO UPDATE SET
+                    name=COALESCE(excluded.name, companies.name),
+                    updated_utc=excluded.updated_utc,
+                    last_ingest_job_id=COALESCE(excluded.last_ingest_job_id, companies.last_ingest_job_id)
+                """,
+                (handle, name, now, now, last_ingest_job_id),
+            )
+
+
+def replace_ticket_events(db_path: str, handle: str, events: list[dict[str, Any]], now_utc: str) -> int:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("DELETE FROM ticket_events WHERE handle=?", (handle,))
+            for event in events:
+                conn.execute(
+                    """
+                    INSERT INTO ticket_events(handle, ticket_id, category, event_utc, summary, raw_source_text, confidence, created_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.get("handle") or handle,
+                        event.get("ticket_id"),
+                        event.get("category"),
+                        event.get("event_utc"),
+                        event.get("summary"),
+                        event.get("raw_source_text"),
+                        float(event.get("confidence") or 0.5),
+                        now_utc,
+                    ),
+                )
+    return len(events)
+
+
+def replace_company_timeline(db_path: str, handle: str, timeline_rows: list[dict[str, Any]], now_utc: str) -> int:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("DELETE FROM company_timeline WHERE handle=?", (handle,))
+            for row in timeline_rows:
+                conn.execute(
+                    """
+                    INSERT INTO company_timeline(handle, event_utc, category, title, details, ticket_id, source_event_id, created_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        handle,
+                        row.get("event_utc"),
+                        row.get("category"),
+                        row.get("title"),
+                        row.get("details"),
+                        row.get("ticket_id"),
+                        row.get("source_event_id"),
+                        now_utc,
+                    ),
+                )
+    return len(timeline_rows)
+
+
+def replace_resolution_patterns(db_path: str, handle: str, patterns: list[dict[str, Any]], now_utc: str) -> int:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute("DELETE FROM resolution_patterns WHERE handle=?", (handle,))
+            for pattern in patterns:
+                conn.execute(
+                    """
+                    INSERT INTO resolution_patterns(handle, pattern, count, last_seen_utc, created_utc)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        handle,
+                        str(pattern.get("pattern") or ""),
+                        int(pattern.get("count") or 0),
+                        pattern.get("last_seen_utc"),
+                        now_utc,
+                    ),
+                )
+    return len(patterns)
+
+
+def get_company(db_path: str, handle: str) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute("SELECT * FROM companies WHERE handle=?", (handle,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_company_timeline(db_path: str, handle: str, limit: int = 500) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM company_timeline WHERE handle=? ORDER BY COALESCE(event_utc, created_utc) DESC, id DESC LIMIT ?",
+            (handle, max(1, min(limit, 5000))),
+        ).fetchall()
+    return [dict(row) for row in rows]

@@ -174,6 +174,106 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+TIMELINE_CATEGORIES: tuple[str, ...] = (
+    "ticket_opened",
+    "follow_up",
+    "phone_replacement",
+    "provisioning_change",
+    "queue_change",
+    "voicemail_issue",
+    "training_provided",
+    "awaiting_customer",
+    "resolved",
+)
+
+
+def _normalize_handle(handle: str) -> str:
+    normalized = (handle or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="handle is required")
+    if not HANDLE_RE.match(normalized):
+        raise HTTPException(status_code=400, detail="handle must be alphanumeric")
+    return normalized
+
+
+def _extract_event_category(raw_text: str) -> tuple[str, float]:
+    text = raw_text.lower()
+    rules: list[tuple[str, tuple[str, ...], float]] = [
+        ("phone_replacement", ("replace phone", "phone replacement", "rma", "replaced handset"), 0.9),
+        ("provisioning_change", ("provision", "template change", "configuration update", "reprovision"), 0.8),
+        ("queue_change", ("queue", "ring group", "call routing", "acd"), 0.75),
+        ("voicemail_issue", ("voicemail", "vm issue", "mailbox"), 0.85),
+        ("training_provided", ("training", "walked through", "explained to customer"), 0.75),
+        ("awaiting_customer", ("awaiting customer", "waiting on customer", "pending customer"), 0.8),
+        ("resolved", ("resolved", "closed", "fixed", "completed"), 0.9),
+        ("follow_up", ("follow up", "follow-up", "called customer", "emailed customer"), 0.7),
+    ]
+    for category, needles, confidence in rules:
+        if any(needle in text for needle in needles):
+            return category, confidence
+    if any(needle in text for needle in ("opened", "new ticket", "created")):
+        return "ticket_opened", 0.7
+    return "follow_up", 0.5
+
+
+def _build_handle_timeline(handle: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    tickets_payload = db.list_tickets(db_path(), handle=handle, page=1, page_size=1000, sort="oldest")
+    ticket_rows = tickets_payload.get("items") if isinstance(tickets_payload, dict) else []
+    events: list[dict[str, Any]] = []
+    for row in ticket_rows:
+        ticket_id = str(row.get("ticket_id") or "").strip()
+        if not ticket_id:
+            continue
+        parts = [str(row.get("title") or ""), str(row.get("subject") or ""), str(row.get("status") or ""), str(row.get("raw_json") or "")]
+        raw_text = " | ".join(part for part in parts if part).strip()
+        category, confidence = _extract_event_category(raw_text)
+        event_time = row.get("updated_utc") or row.get("created_utc") or row.get("opened_utc") or _iso_now()
+        summary = str(row.get("title") or row.get("subject") or f"Ticket {ticket_id}")
+        events.append(
+            {
+                "handle": handle,
+                "ticket_id": ticket_id,
+                "category": category,
+                "event_utc": event_time,
+                "summary": summary,
+                "raw_source_text": raw_text,
+                "confidence": confidence,
+            }
+        )
+        if category != "ticket_opened":
+            events.append(
+                {
+                    "handle": handle,
+                    "ticket_id": ticket_id,
+                    "category": "ticket_opened",
+                    "event_utc": row.get("created_utc") or event_time,
+                    "summary": f"Ticket opened: {summary}",
+                    "raw_source_text": raw_text,
+                    "confidence": 0.6,
+                }
+            )
+
+    timeline_rows = [
+        {
+            "event_utc": event.get("event_utc"),
+            "category": event.get("category"),
+            "title": str(event.get("summary") or ""),
+            "details": event.get("raw_source_text"),
+            "ticket_id": event.get("ticket_id"),
+            "source_event_id": None,
+        }
+        for event in sorted(events, key=lambda item: str(item.get("event_utc") or ""))
+    ]
+    pattern_counts: dict[str, dict[str, Any]] = {}
+    for event in events:
+        category = str(event.get("category") or "follow_up")
+        bucket = pattern_counts.setdefault(category, {"pattern": category, "count": 0, "last_seen_utc": None})
+        bucket["count"] += 1
+        bucket["last_seen_utc"] = event.get("event_utc")
+    patterns = sorted(pattern_counts.values(), key=lambda item: int(item.get("count") or 0), reverse=True)
+    return events, timeline_rows, patterns
+
+
 def _log(msg: str, request_id: str | None = None, job_id: str | None = None) -> None:
     rid = f" requestId={request_id}" if request_id else ""
     jid = f" jobId={job_id}" if job_id else ""
@@ -357,7 +457,7 @@ AUTH_MANAGER = AuthManager(db_path_getter=db_path, browser_path_getter=_detect_b
 DEBUG_CHROME_PROC: subprocess.Popen | None = None
 DEBUG_CHROME_PROC_LOCK = threading.Lock()
 AUTO_SEED_LOCK = threading.Lock()
-AUTO_LAUNCH_DEBUG_CHROME: bool = os.getenv("AUTO_LAUNCH_DEBUG_CHROME", "1").strip().lower() in {"1", "true", "yes", "on"}
+AUTO_LAUNCH_DEBUG_CHROME: bool = os.getenv("AUTO_LAUNCH_DEBUG_CHROME", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _is_login_like(payload: str) -> bool:
@@ -1832,6 +1932,135 @@ def api_health():
         "total_handles": stats_payload.get("total_handles", 0),
         "total_tickets": stats_payload.get("total_tickets", 0),
         "stats": stats_payload,
+    }
+
+
+@app.get("/system/status")
+def api_system_status():
+    auth = _auth_state_payload()
+    return {
+        "ok": True,
+        "backend": api_health(),
+        "auth": auth,
+        "queue_depth": len(JOB_QUEUE),
+        "current_job_id": CURRENT_JOB_ID,
+    }
+
+
+@app.get("/system/logs")
+def api_system_logs(limit: int = Query(default=100, ge=1, le=1000)):
+    items = db.get_latest_events(db_path(), limit=limit)
+    return {"items": items}
+
+
+@app.get("/auth/status")
+def auth_status_alias(request: Request):
+    return api_auth_status(request)
+
+
+@app.post("/auth/open-login")
+def auth_open_login(request: Request):
+    payload = LaunchBrowserRequest()
+    return api_auth_launch_browser(request, payload)
+
+
+@app.post("/auth/check")
+def auth_check(request: Request):
+    return api_auth_validate_post(request, ValidateAuthRequest())
+
+
+@app.post("/jobs/ingest-handle")
+def jobs_ingest_handle(payload: dict[str, Any]):
+    handle = _normalize_handle(str(payload.get("handle") or ""))
+    now = _iso_now()
+    job_id = str(uuid.uuid4())
+    db.upsert_company(db_path(), handle=handle, last_ingest_job_id=job_id, now_utc=now)
+    db.create_scrape_job(
+        db_path(),
+        job_id=job_id,
+        handle=handle,
+        mode="selected",
+        ticket_limit=int(payload.get("ticket_limit") or 50),
+        status="queued",
+        created_utc=now,
+        handles=[handle],
+    )
+    with JOB_QUEUE_LOCK:
+        JOB_QUEUE.append(
+            QueueJob(
+                job_id=job_id,
+                run_id=datetime.now(timezone.utc).strftime("api_%Y%m%d_%H%M%S") + f"_{os.getpid()}",
+                mode="selected",
+                handle=handle,
+                handles=[handle],
+                rescrape=bool(payload.get("rescrape", False)),
+                refresh_handles=False,
+                scrape_mode="full" if bool(payload.get("full", False)) else "incremental",
+                ticket_limit=int(payload.get("ticket_limit") or 50),
+            )
+        )
+    _append_event("info", f"Queued ingest-handle job for {handle}", handle=handle, job_id=job_id)
+    return {"ok": True, "job_id": job_id, "handle": handle, "status": "queued"}
+
+
+@app.post("/jobs/build-timeline")
+def jobs_build_timeline(payload: dict[str, Any]):
+    handle = _normalize_handle(str(payload.get("handle") or ""))
+    now = _iso_now()
+    events, timeline_rows, patterns = _build_handle_timeline(handle)
+    db.upsert_company(db_path(), handle=handle, now_utc=now)
+    event_count = db.replace_ticket_events(db_path(), handle, events, now)
+    timeline_count = db.replace_company_timeline(db_path(), handle, timeline_rows, now)
+    pattern_count = db.replace_resolution_patterns(db_path(), handle, patterns, now)
+    return {
+        "ok": True,
+        "handle": handle,
+        "ticket_events_written": event_count,
+        "timeline_rows_written": timeline_count,
+        "resolution_patterns_written": pattern_count,
+        "categories": list(TIMELINE_CATEGORIES),
+    }
+
+
+@app.get("/handles")
+def handles_alias(q: str = "", limit: int = Query(default=200, ge=1, le=5000), offset: int = Query(default=0, ge=0)):
+    return {"items": db.list_handles_summary(db_path(), q=q, limit=limit, offset=offset)}
+
+
+@app.get("/companies/{handle}")
+def company_detail(handle: str):
+    normalized = _normalize_handle(handle)
+    company = db.get_company(db_path(), normalized) or {"handle": normalized}
+    latest = db.get_handle_latest(db_path(), normalized) or {}
+    return {"company": company, "latest": latest}
+
+
+@app.get("/companies/{handle}/tickets")
+def company_tickets(handle: str, limit: int = Query(default=200, ge=1, le=1000)):
+    normalized = _normalize_handle(handle)
+    return db.list_tickets(db_path(), handle=normalized, page=1, page_size=limit)
+
+
+@app.get("/companies/{handle}/timeline")
+def company_timeline(handle: str, limit: int = Query(default=500, ge=1, le=5000)):
+    normalized = _normalize_handle(handle)
+    rows = db.get_company_timeline(db_path(), normalized, limit=limit)
+    return {"handle": normalized, "items": rows}
+
+
+@app.get("/jobs/{job_id}")
+def job_status_alias(job_id: str):
+    job = db.get_scrape_job(db_path(), job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "result": job.get("result"),
+        "error_message": job.get("error_message"),
+        "created_utc": job.get("created_utc"),
+        "started_utc": job.get("started_utc"),
+        "finished_utc": job.get("finished_utc"),
     }
 
 

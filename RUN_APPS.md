@@ -12,6 +12,19 @@ Open the Command Palette → **Tasks: Run Task** and use the labels below.
 - Task: **doctor: dev envs** (checks managed Python envs and manager-ui dependency state)
 - Compatibility aliases retained: **dev: webscraper noc dashboard**, **stop: webscraper noc dashboard**
 
+### New unified supervisor (recommended)
+
+Use `scripts/devctl.py` for one-entrypoint orchestration with strict readiness checks, auth controls, and ingest/timeline commands:
+
+- `python scripts/devctl.py start`
+- `python scripts/devctl.py status`
+- `python scripts/devctl.py login`
+- `python scripts/devctl.py auth-check`
+- `python scripts/devctl.py ingest --handle HANDLE`
+- `python scripts/devctl.py timeline --handle HANDLE`
+
+See `docs/STARTUP_OVERHAUL.md` for architecture, troubleshooting, deprecated launcher list, and migration steps.
+
 ## FreePBX Deploy Backend (FastAPI)
 
 - Task: **FreePBX Deploy UI: backend dev (localhost:8002)**
