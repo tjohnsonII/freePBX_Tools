@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 
 import requests
 
@@ -83,7 +84,6 @@ from webscraper.ticket_api.orchestration import (
     OrchestratorDeps,
     WebScraperOrchestrator,
 )
-from webscraper import ultimate_scraper_legacy as legacy_scraper
 
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
@@ -126,6 +126,8 @@ POST_LOGIN_SELECTORS = (
     "form[action*='customers.cgi']",
     "table",
 )
+SELENIUM_LOGIN_TIMEOUT_SECONDS = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+TICKET_TABLE_ROW_XPATH = "//div[@id='slideid5']//table//tr[td[1]//a[contains(@href,'/ticket/')]]"
 
 
 def _orchestrator_detect_browser() -> dict[str, Any]:
@@ -307,72 +309,264 @@ def _wait_for_post_login_ready(driver: Any, timeout_seconds: int = 300) -> str:
     raise TimeoutError(f"Timed out waiting for a post-login selector: {POST_LOGIN_SELECTORS}")
 
 
-def _run_selenium_fallback_scrape() -> dict[str, Any]:
+def _load_selenium_fallback_handles() -> list[str]:
+    handles = [str(handle).strip().upper() for handle in load_handles() if str(handle).strip()]
+    deduped = sorted(set(handles))
+    LOGGER.info("selenium_fallback_handles_loaded count=%s", len(deduped))
+    return deduped
+
+
+def _selenium_fallback_search_string(handle: str) -> str:
+    return f"{handle}:company_data:handle:{handle}"
+
+
+def _update_selenium_fallback_job(
+    *,
+    job_id: str,
+    status: str,
+    completed: int,
+    total: int,
+    started_utc: str | None = None,
+    finished_utc: str | None = None,
+    error_message: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    db.update_scrape_job(
+        db_path(),
+        job_id,
+        status=status,
+        progress_completed=completed,
+        progress_total=total,
+        started_utc=started_utc,
+        finished_utc=finished_utc,
+        error_message=error_message,
+        result=result,
+    )
+
+
+def _selenium_fallback_emit(job_id: str, message: str, *, handle: str | None = None, event: str | None = None, data: dict[str, Any] | None = None) -> None:
+    _append_event("info", message, handle=handle, job_id=job_id, meta={"event": event or "progress", **(data or {})})
+
+
+def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_timeout_seconds: int) -> None:
     from selenium import webdriver
+    from selenium.common.exceptions import TimeoutException
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.common.keys import Keys
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.chrome.options import Options
 
-    handles = load_handles()
-    selected_handles = handles[: min(25, len(handles))]
-    if not selected_handles:
-        raise RuntimeError("No handles available to scrape")
-
-    before_stats = db.get_stats(db_path())
-    before_tickets = int(before_stats.get("total_tickets", 0))
+    started_utc = _iso_now()
+    result: dict[str, Any] = {
+        "status_message": "launched_browser",
+        "current_handle": None,
+        "completed_handles": 0,
+        "total_handles": len(handles),
+        "ticket_count": 0,
+        "handle_summaries": [],
+        "output_files": {},
+    }
+    _update_selenium_fallback_job(job_id=job_id, status="running", completed=0, total=len(handles), started_utc=started_utc, result=result)
 
     options = Options()
     options.add_argument("--start-maximized")
     driver = None
+    scraped_rows: list[dict[str, str]] = []
+    handle_summaries: list[dict[str, Any]] = []
     try:
-        LOGGER.info("selenium_launch browser=chrome headless=false")
+        _selenium_fallback_emit(job_id, "launched_browser", event="launched_browser")
         driver = webdriver.Chrome(options=options)
-        LOGGER.info("selenium_navigation url=%s", CHROME_CUSTOMERS_URL)
         driver.get(CHROME_CUSTOMERS_URL)
-        source = driver.page_source or ""
-        if _looks_like_login_page(driver.current_url or "", source):
-            LOGGER.info("selenium_login_detected mode=manual_wait reason=login_page_detected")
-        matched_selector = _wait_for_post_login_ready(driver=driver, timeout_seconds=300)
-        LOGGER.info("selenium_login_detected mode=post_login_selector selector=%s", matched_selector)
+        _selenium_fallback_emit(job_id, "waiting_for_login", event="waiting_for_login", data={"timeout_seconds": login_timeout_seconds})
 
+        login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
+        login_wait.until(
+            lambda d: "secure.123.net" in (d.current_url or "").lower()
+            and (
+                len(d.find_elements(By.CSS_SELECTOR, "#customers")) > 0
+                or len(d.find_elements(By.XPATH, "//th[normalize-space()='Company Handle:']")) > 0
+            )
+        )
+        _selenium_fallback_emit(job_id, "login_detected", event="login_detected")
         cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
-        LOGGER.info("selenium_cookie_count count=%s domains=%s", cookie_summary.get("count", 0), cookie_summary.get("domains", []))
+        LOGGER.info("selenium_fallback_cookie_count job_id=%s count=%s domains=%s", job_id, cookie_summary.get("count", 0), cookie_summary.get("domains", []))
         _ = selenium_driver_to_requests_session(driver)
 
-        run_output_dir = str((runs_dir() / f"selenium_fallback_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}").resolve())
-        os.makedirs(run_output_dir, exist_ok=True)
+        run_output_dir = runs_dir() / f"selenium_fallback_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        run_output_dir.mkdir(parents=True, exist_ok=True)
+        seen_tickets: set[tuple[str, str, str]] = set()
 
-        LOGGER.info("selenium_scrape_start handles=%s output_dir=%s", len(selected_handles), run_output_dir)
-        legacy_scraper.selenium_scrape_tickets(
-            url=CHROME_CUSTOMERS_URL,
-            output_dir=run_output_dir,
-            handles=selected_handles,
-            headless=False,
-            show_browser=True,
-            browser="chrome",
-            auth_orchestration=False,
-            auth_pause=True,
-            auth_timeout=300,
-            db_path=db_path(),
+        for idx, handle in enumerate(handles, start=1):
+            search_string = _selenium_fallback_search_string(handle)
+            result.update({"status_message": f"scraping_handle {handle}", "current_handle": handle, "completed_handles": idx - 1})
+            _update_selenium_fallback_job(job_id=job_id, status="running", completed=idx - 1, total=len(handles), result=result)
+            _selenium_fallback_emit(job_id, f"scraping_handle {handle}", handle=handle, event="scraping_handle", data={"index": idx, "total": len(handles)})
+
+            handle_summary: dict[str, Any] = {
+                "company_handle": handle,
+                "search_string": search_string,
+                "verified_handle": None,
+                "ticket_count": 0,
+                "status": "ok",
+            }
+            try:
+                driver.get(f"{CHROME_CUSTOMERS_URL}?customer={quote_plus(search_string)}")
+                wait = WebDriverWait(driver, 20)
+                search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#customers")))
+                search_input.click()
+                search_input.send_keys(Keys.CONTROL, "a")
+                search_input.send_keys(Keys.BACKSPACE)
+                search_input.send_keys(search_string)
+                search_buttons = driver.find_elements(By.XPATH, "//input[@type='submit' and (contains(@value,'Search') or contains(@name,'search'))]")
+                if search_buttons:
+                    search_buttons[0].click()
+                else:
+                    search_input.send_keys(Keys.ENTER)
+                _selenium_fallback_emit(job_id, f"search_submitted {handle}", handle=handle, event="search_submitted")
+
+                verified_cell = WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.XPATH, "//th[normalize-space()='Company Handle:']/following-sibling::td[1]"))
+                )
+                verified_handle = (verified_cell.text or "").strip().upper()
+                handle_summary["verified_handle"] = verified_handle
+                if verified_handle != handle:
+                    mismatch_msg = f"Expected {handle} but found {verified_handle}"
+                    handle_summary["status"] = "handle_mismatch"
+                    handle_summary["error"] = mismatch_msg
+                    handle_summaries.append(handle_summary)
+                    _selenium_fallback_emit(job_id, f"handle_mismatch {handle} {mismatch_msg}", handle=handle, event="handle_mismatch")
+                    continue
+
+                _selenium_fallback_emit(job_id, f"handle_verified {handle}", handle=handle, event="handle_verified")
+                toggle = WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[contains(@class,'show_hide') and normalize-space()='Show/Hide Trouble Ticket Data']"))
+                )
+                toggle.click()
+                WebDriverWait(driver, 20).until(
+                    lambda d: any(elem.is_displayed() for elem in d.find_elements(By.CSS_SELECTOR, "#slideid5 table"))
+                )
+                _selenium_fallback_emit(job_id, f"toggle_clicked {handle}", handle=handle, event="toggle_clicked")
+
+                rows = driver.find_elements(By.XPATH, TICKET_TABLE_ROW_XPATH)
+                handle_tickets: list[dict[str, str]] = []
+                for row in rows:
+                    anchors = row.find_elements(By.XPATH, ".//td[1]//a[contains(@href,'/ticket/')]")
+                    if not anchors:
+                        continue
+                    anchor = anchors[0]
+                    href = (anchor.get_attribute("href") or "").strip()
+                    label = (anchor.text or "").strip()
+                    if "/new_ticket" in href or "Create Non-Circuit Ticket" in label or "Go To Trouble Ticket Script" in label:
+                        continue
+                    ticket_row = {
+                        "company_handle": handle,
+                        "ticket_id": label,
+                        "ticket_url": href,
+                        "subject": (row.find_element(By.XPATH, ".//td[2]").text or "").strip(),
+                        "status": (row.find_element(By.XPATH, ".//td[3]").text or "").strip(),
+                        "priority": (row.find_element(By.XPATH, ".//td[4]").text or "").strip(),
+                        "created_on": (row.find_element(By.XPATH, ".//td[5]").text or "").strip(),
+                    }
+                    key = (handle, ticket_row["ticket_id"], ticket_row["ticket_url"])
+                    if key in seen_tickets:
+                        continue
+                    seen_tickets.add(key)
+                    handle_tickets.append(ticket_row)
+                    scraped_rows.append(ticket_row)
+
+                handle_summary["ticket_count"] = len(handle_tickets)
+                handle_summaries.append(handle_summary)
+                first_five = [t["ticket_id"] for t in handle_tickets[:5]]
+                _selenium_fallback_emit(
+                    job_id,
+                    f"scraped_tickets {handle} count={len(handle_tickets)}",
+                    handle=handle,
+                    event="scraped_tickets",
+                    data={"count": len(handle_tickets), "first_ticket_ids": first_five},
+                )
+                LOGGER.info("selenium_fallback_ticket_rows handle=%s rows=%s first5=%s", handle, len(handle_tickets), first_five)
+            except Exception as handle_exc:
+                handle_summary["status"] = "failed"
+                handle_summary["error"] = str(handle_exc)
+                handle_summaries.append(handle_summary)
+                LOGGER.exception("selenium_fallback_handle_exception job_id=%s handle=%s error=%s", job_id, handle, handle_exc)
+                _selenium_fallback_emit(job_id, f"handle_exception {handle}: {handle_exc}", handle=handle, event="handle_exception")
+            finally:
+                result.update(
+                    {
+                        "status_message": f"scraped_tickets {handle} count={handle_summary.get('ticket_count', 0)}",
+                        "completed_handles": idx,
+                        "current_handle": handle if idx < len(handles) else None,
+                        "ticket_count": len(scraped_rows),
+                        "handle_summaries": handle_summaries,
+                    }
+                )
+                _update_selenium_fallback_job(job_id=job_id, status="running", completed=idx, total=len(handles), result=result)
+
+        summary_path = run_output_dir / "selenium_fallback_handle_summary.json"
+        tickets_path = run_output_dir / "selenium_fallback_ticket_urls.json"
+        summary_path.write_text(json.dumps(handle_summaries, indent=2, sort_keys=True), encoding="utf-8")
+        tickets_path.write_text(json.dumps(scraped_rows, indent=2, sort_keys=True), encoding="utf-8")
+
+        result.update(
+            {
+                "status_message": "completed",
+                "current_handle": None,
+                "completed_handles": len(handles),
+                "ticket_count": len(scraped_rows),
+                "handle_summaries": handle_summaries,
+                "output_dir": str(run_output_dir.resolve()),
+                "output_files": {
+                    "handle_summary": str(summary_path.resolve()),
+                    "tickets": str(tickets_path.resolve()),
+                },
+                "cookie_count": int(cookie_summary.get("count", 0)),
+            }
         )
-        after_stats = db.get_stats(db_path())
-        after_tickets = int(after_stats.get("total_tickets", 0))
-        ticket_count = max(0, after_tickets - before_tickets)
-        LOGGER.info("selenium_scrape_result success=true ticket_count=%s before=%s after=%s", ticket_count, before_tickets, after_tickets)
-        return {
-            "success": True,
-            "ticket_count": ticket_count,
-            "handles_attempted": len(selected_handles),
-            "output_dir": run_output_dir,
-            "cookie_count": int(cookie_summary.get("count", 0)),
-        }
+        _update_selenium_fallback_job(
+            job_id=job_id,
+            status="completed",
+            completed=len(handles),
+            total=len(handles),
+            finished_utc=_iso_now(),
+            result=result,
+        )
+        _selenium_fallback_emit(job_id, "completed", event="completed", data={"tickets": len(scraped_rows), "handles": len(handles)})
+    except TimeoutException as exc:
+        LOGGER.exception("selenium_fallback_login_timeout job_id=%s error=%s", job_id, exc)
+        result["status_message"] = "failed"
+        result["error"] = f"Manual login timeout after {login_timeout_seconds} seconds"
+        _update_selenium_fallback_job(
+            job_id=job_id,
+            status="failed",
+            completed=int(result.get("completed_handles") or 0),
+            total=len(handles),
+            finished_utc=_iso_now(),
+            error_message=result["error"],
+            result=result,
+        )
+        _selenium_fallback_emit(job_id, "failed", event="failed", data={"error": result["error"]})
     except Exception as exc:
-        LOGGER.exception("selenium_error error=%s", exc)
-        return {"success": False, "ticket_count": 0, "error": str(exc)}
+        LOGGER.exception("selenium_fallback_job_error job_id=%s error=%s", job_id, exc)
+        result["status_message"] = "failed"
+        result["error"] = str(exc)
+        _update_selenium_fallback_job(
+            job_id=job_id,
+            status="failed",
+            completed=int(result.get("completed_handles") or 0),
+            total=len(handles),
+            finished_utc=_iso_now(),
+            error_message=str(exc),
+            result=result,
+        )
+        _selenium_fallback_emit(job_id, "failed", event="failed", data={"error": str(exc)})
     finally:
         if driver is not None:
             try:
                 driver.quit()
             except Exception:
-                pass
+                LOGGER.warning("selenium_fallback_driver_quit_failed job_id=%s", job_id)
 
 
 def _orchestrator_run_scrape(job_id: str) -> dict[str, Any]:
@@ -3180,7 +3374,28 @@ def api_scrape_run_e2e():
 
 @app.post("/api/scrape/selenium_fallback")
 def api_scrape_selenium_fallback():
-    return _run_selenium_fallback_scrape()
+    handles = _load_selenium_fallback_handles()
+    if not handles:
+        raise HTTPException(status_code=400, detail="No handles available to scrape")
+    now = _iso_now()
+    job_id = str(uuid.uuid4())
+    db.create_scrape_job(
+        db_path(),
+        job_id=job_id,
+        handle=None,
+        mode="selenium_fallback",
+        ticket_limit=None,
+        status="queued",
+        created_utc=now,
+        handles=handles,
+    )
+    _append_event("info", "selenium_fallback_queued", job_id=job_id, meta={"event": "queued", "handles": len(handles)})
+    threading.Thread(
+        target=_run_selenium_fallback_scrape_job,
+        kwargs={"job_id": job_id, "handles": handles, "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS},
+        daemon=True,
+    ).start()
+    return {"queued": True, "job_id": job_id, "handles_total": len(handles), "status": "queued"}
 
 
 @app.get("/api/jobs")
