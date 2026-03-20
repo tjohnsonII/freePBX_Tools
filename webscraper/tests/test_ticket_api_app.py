@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 from webscraper.db import init_db, start_run, upsert_handle, upsert_tickets
@@ -439,8 +441,82 @@ def test_launch_debug_chrome_endpoint_surfaces_ws_origin_rejection(tmp_path, mon
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
     response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
-    assert response.status_code == 502
-    assert "origin rejected" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert "origin rejection" in payload["warning"].lower()
+    assert "remote-allow-origins" in payload["next_step_if_failed"]
+
+
+def test_launch_debug_chrome_suppresses_duplicate_launch_when_9222_live(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "launch_debug_chrome", lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not launch")))
+    monkeypatch.setattr(appmod, "_get_cdp_tab_urls", lambda *_args, **_kwargs: ["about:blank"])
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {
+            "cdp_port": 9222,
+            "json_version_ok": True,
+            "ws_connectable": True,
+            "status": "ok",
+            "error": None,
+        },
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["details"]["already_running"] is True
+
+
+def test_launch_debug_chrome_reports_target_tab_already_open(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "launch_debug_chrome", lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not launch")))
+    monkeypatch.setattr(
+        appmod,
+        "_get_cdp_tab_urls",
+        lambda *_args, **_kwargs: ["https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi?x=1"],
+    )
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {
+            "cdp_port": 9222,
+            "json_version_ok": True,
+            "ws_connectable": True,
+            "status": "ok",
+            "error": None,
+        },
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/launch_debug_chrome", json={"cdp_port": 9222, "profile_name": "Default"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["details"]["already_running"] is True
+    assert payload["details"]["target_already_open"] is True
+
+
+def test_auto_seed_blocked_after_recent_fatal_cdp_failure(monkeypatch):
+    now = datetime.now(timezone.utc)
+    with appmod.AUTO_SEED_STATE_LOCK:
+        appmod.AUTO_SEED_STATE["cdp_attach_failed"] = True
+        appmod.AUTO_SEED_STATE["fatal_cdp_error_at"] = (now - timedelta(seconds=10)).isoformat()
+        appmod.AUTO_SEED_STATE["next_seed_attempt_at"] = appmod._now_ts() + 120
+        appmod.AUTO_SEED_STATE["auth_seed_in_progress"] = False
+
+    allowed, reason = appmod._can_attempt_auto_seed()
+    assert allowed is False
+    assert reason in {"fatal_cdp_attach_error", "retry_cooldown"}
 
 
 def test_auth_force_reset_and_launch_endpoints(tmp_path, monkeypatch):
