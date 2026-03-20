@@ -9,7 +9,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <aside className={styles.sidebar}>
           <div className={styles.sidebarBrand}>
             <div className={styles.sidebarBrandTitle}>123.NET<br />Webscraper</div>
-            <div className={styles.sidebarBrandSub}>NOC Dashboard</div>
+            <div className={styles.sidebarBrandSub}>Hosted Dashboard</div>
           </div>
           <nav className={styles.nav}>
             <Link href="/" className={styles.navLink}>Dashboard</Link>
@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className={styles.headerTitle}>
               123.NET Webscraper
               <span className={styles.headerDot}>•</span>
-              <span className={styles.envBadge}>NOC</span>
+              <span className={styles.envBadge}>Hosted</span>
               <span className={styles.headerDot}>•</span>
               <span className={styles.liveIndicator}>● Live</span>
             </span>

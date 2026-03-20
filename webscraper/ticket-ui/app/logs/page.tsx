@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ApiRequestError, apiGet } from "../../lib/api";
+import styles from "./logs.module.css";
 
 type LogItem = { name: string; size: number; mtime: string };
 
@@ -100,23 +101,23 @@ export default function LogsPage() {
   return (
     <main>
       <h2>Logs</h2>
-      {enabled === false ? <p style={{ color: "#f85149" }}>Logs API disabled. To enable: <code>{enableHint}</code></p> : null}
-      {error ? <p style={{ color: "#f85149" }}>{error}</p> : null}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      {enabled === false ? <p className={styles.error}>Logs API disabled. To enable: <code>{enableHint}</code></p> : null}
+      {error ? <p className={styles.error}>{error}</p> : null}
+      <div className={styles.controls}>
         <label>Log File
-          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ marginLeft: 6 }}>
+          <select value={selected} onChange={(e) => setSelected(e.target.value)} className={styles.selectInline}>
             {items.map((item) => (
               <option key={item.name} value={item.name}>{item.name} ({item.size} bytes)</option>
             ))}
           </select>
         </label>
         <label>Lines
-          <select value={lineCount} onChange={(e) => setLineCount(Number(e.target.value))} style={{ marginLeft: 6 }}>
+          <select value={lineCount} onChange={(e) => setLineCount(Number(e.target.value))} className={styles.selectInline}>
             {LINE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
         </label>
         <label>Search
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="filter lines" style={{ marginLeft: 6 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="filter lines" className={styles.selectInline} />
         </label>
         <label>
           <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /> Auto-refresh
@@ -125,7 +126,7 @@ export default function LogsPage() {
         <button onClick={copyFiltered}>Copy</button>
       </div>
       <p>Total lines shown: {filtered.length} / {lines.length}</p>
-      <pre style={{ maxHeight: "70vh", overflow: "auto" }}>
+      <pre className={styles.logOutput}>
         {filtered.join("\n") || "No lines."}
       </pre>
     </main>
