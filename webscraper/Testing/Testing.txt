@@ -17,6 +17,10 @@ http://127.0.0.1:8788/api/health
 
 https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi - Starting scrap point
 
+#Keep the screen open
+powercfg /change monitor-timeout-ac 0
+powercfg /change standby-timeout-ac 0
+while ($true) { (New-Object -ComObject WScript.Shell).SendKeys('{SCROLLLOCK}'); Start-Sleep -Seconds 60 }
 
 If you don’t care about precision:
 
