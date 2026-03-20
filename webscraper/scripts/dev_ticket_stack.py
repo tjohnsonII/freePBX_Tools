@@ -78,7 +78,7 @@ def _wait_for_tcp_port(host: str, port: int, timeout_seconds: int) -> bool:
 
 def _wait_for_api_health(target: str, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
-    health_url = f"{target}/api/health"
+    health_url = f"{target}/api/system/status"
 
     while time.monotonic() < deadline:
         try:

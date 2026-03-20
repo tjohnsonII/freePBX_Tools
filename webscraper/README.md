@@ -11,6 +11,7 @@ Operational scraper workspace for FreePBX ticket/history collection.
 - **API/UI dev stack:**
   - API: `python -m webscraper.dev_server --ticket-stack`
   - UI: `webscraper/ticket-ui/` (Next.js)
+  - Orchestration migration/troubleshooting: `docs/orchestration_migration.md`
 - **Tests:** `webscraper/tests/`
 
 ## Structure highlights
@@ -34,6 +35,18 @@ Or run combined API + UI helper:
 ```bash
 python -m webscraper.dev_server --ticket-stack
 ```
+
+### Orchestrated control-plane endpoints
+
+- `GET /api/system/status`
+- `POST /api/browser/detect`
+- `POST /api/auth/seed`
+- `POST /api/auth/validate`
+- `POST /api/scrape/run`
+- `POST /api/scrape/run-e2e`
+- `GET /api/jobs`
+- `GET /api/jobs/{job_id}`
+- `GET /api/db/status`
 
 ## Run the scraper
 

@@ -77,6 +77,10 @@ from webscraper.ticket_api.schemas import (
     StartScrapeRequest,
     ValidateAuthRequest,
 )
+from webscraper.ticket_api.orchestration import (
+    OrchestratorDeps,
+    WebScraperOrchestrator,
+)
 
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
@@ -111,6 +115,101 @@ def resolve_profile_dir(user_data_dir: str, profile: str) -> Path:
     return ud / p
 
 LOGGER = setup_logging("ticket_api")
+
+
+def _orchestrator_detect_browser() -> dict[str, Any]:
+    profiles = list_browser_profiles()
+    cdp = cdp_availability(DEFAULT_CDP_PORT)
+    available = bool(profiles) or bool(cdp.get("reachable"))
+    return {"available": available, "profiles": profiles, "cdp": cdp}
+
+
+def _orchestrator_seed_auth() -> dict[str, Any]:
+    result = seed_auto(
+        profile_dir=None,
+        domains=DEFAULT_DOMAINS,
+        profile_name=None,
+        cdp_url_or_port=DEFAULT_CDP_PORT,
+        browser="chrome",
+    )
+    return {"seeded": bool(result.cookie_count > 0), "cookie_count": int(result.cookie_count), "source": result.source}
+
+
+def _orchestrator_validate_auth() -> dict[str, Any]:
+    probe = probe_auth(timeout_seconds=10)
+    return {"authenticated": bool(probe.authenticated), "reason": probe.reason, "checks": [row.model_dump() for row in probe.checks]}
+
+
+def _orchestrator_run_scrape(job_id: str) -> dict[str, Any]:
+    handles = load_handles()
+    selected = handles[: min(25, len(handles))]
+    if not selected:
+        raise RuntimeError("No handles available to scrape")
+    now = _iso_now()
+    db.create_scrape_job(
+        db_path(),
+        job_id=job_id,
+        handle=None,
+        mode="selected",
+        ticket_limit=25,
+        status="queued",
+        created_utc=now,
+        handles=selected,
+    )
+    with JOB_QUEUE_LOCK:
+        JOB_QUEUE.append(
+            QueueJob(
+                job_id=job_id,
+                run_id=datetime.now(timezone.utc).strftime("orch_%Y%m%d_%H%M%S") + f"_{os.getpid()}",
+                mode="selected",
+                handle=None,
+                handles=selected,
+                rescrape=False,
+                refresh_handles=False,
+                scrape_mode="incremental",
+                ticket_limit=25,
+            )
+        )
+
+    deadline = time.monotonic() + SCRAPE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        status = db.get_scrape_job(db_path(), job_id)
+        if not status:
+            time.sleep(1)
+            continue
+        if status.get("status") == "completed":
+            result = status.get("result") or {}
+            found = int(result.get("completed_handles") or result.get("completed") or 0)
+            return {"records_found": found, "raw_result": result}
+        if status.get("status") == "failed":
+            raise RuntimeError(status.get("error_message") or "scrape failed")
+        time.sleep(1)
+    raise RuntimeError("scrape timeout waiting for completion")
+
+
+def _orchestrator_persist_records(job_id: str, scrape_result: dict[str, Any]) -> dict[str, Any]:
+    job = db.get_scrape_job(db_path(), job_id) or {}
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    written = int(result.get("completed_handles") or result.get("completed") or scrape_result.get("records_found") or 0)
+    return {"records_written": written}
+
+
+def _orchestrator_db_status() -> dict[str, int]:
+    stats = db.get_stats(db_path())
+    return {"tickets": int(stats.get("total_tickets", 0)), "handles": int(stats.get("total_handles", 0))}
+
+
+ORCHESTRATOR = WebScraperOrchestrator(
+    deps=OrchestratorDeps(
+        detect_browser=_orchestrator_detect_browser,
+        seed_auth=_orchestrator_seed_auth,
+        validate_auth=_orchestrator_validate_auth,
+        run_scrape=_orchestrator_run_scrape,
+        persist_records=_orchestrator_persist_records,
+        db_status=_orchestrator_db_status,
+    ),
+    logger=LOGGER,
+)
 
 
 def _startup_bootstrap() -> None:
@@ -2359,6 +2458,54 @@ def api_health():
         "total_tickets": stats_payload.get("total_tickets", 0),
         "stats": stats_payload,
     }
+
+
+@app.get("/api/system/status")
+def api_system_status_v2():
+    return ORCHESTRATOR.system_status().model_dump()
+
+
+@app.post("/api/browser/detect")
+def api_browser_detect():
+    return ORCHESTRATOR.detect_browser().model_dump()
+
+
+@app.post("/api/orchestrator/auth/seed")
+def api_orchestrator_auth_seed():
+    return ORCHESTRATOR.seed_auth().model_dump()
+
+
+@app.post("/api/orchestrator/auth/validate")
+def api_orchestrator_auth_validate():
+    return ORCHESTRATOR.validate_auth().model_dump()
+
+
+@app.post("/api/scrape/run")
+def api_scrape_run_v2():
+    return ORCHESTRATOR.run_scrape().model_dump()
+
+
+@app.post("/api/scrape/run-e2e")
+def api_scrape_run_e2e():
+    return ORCHESTRATOR.run_end_to_end()
+
+
+@app.get("/api/jobs")
+def api_jobs_v2():
+    return {"items": [job.model_dump() for job in ORCHESTRATOR.list_jobs()]}
+
+
+@app.get("/api/jobs/{job_id}")
+def api_job_v2(job_id: str):
+    job = ORCHESTRATOR.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.model_dump()
+
+
+@app.get("/api/db/status")
+def api_db_status():
+    return ORCHESTRATOR.system_status().db_counts
 
 
 @app.get("/system/status")
