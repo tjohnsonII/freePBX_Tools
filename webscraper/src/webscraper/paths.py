@@ -42,6 +42,15 @@ def knowledge_base_dir() -> Path:
     return ensure_dir(db_dir() / "knowledge_base")
 
 
+def kb_dir() -> Path:
+    """Stable output directory for the Selenium scrape KB files.
+
+    Files are overwritten in-place after every handle so data is preserved
+    even if a run is interrupted mid-way.
+    """
+    return ensure_dir(var_dir() / "kb")
+
+
 def tickets_db_path() -> Path:
     return db_dir() / "tickets.sqlite"
 

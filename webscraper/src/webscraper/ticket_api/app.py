@@ -58,7 +58,7 @@ from webscraper.ticket_api.auth import (
 )
 from webscraper.ticket_api import auth_store
 from webscraper.ticket_api.auth_manager import AuthManager, default_target_url
-from webscraper.paths import runs_dir
+from webscraper.paths import kb_dir, runs_dir
 from webscraper.ticket_api import db
 from webscraper.vpbx.handles import VpbxConfig, fetch_handles
 from webscraper.logging_config import LOG_DIR, setup_logging
@@ -89,6 +89,10 @@ SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
 DEFAULT_TARGET_DOMAINS = get_target_domains()
 CHROME_CUSTOMERS_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
+NOC_TICKETS_BASE_URL = "https://noc-tickets.123.net"
+
+# URL fragments that indicate the browser is on a login / SSO page.
+_LOGIN_URL_MARKERS = ("login", "signin", "sign_in", "sso", "auth", "oauth", "keycloak", "saml")
 
 
 def resolve_profile_dir(user_data_dir: str, profile: str) -> Path:
@@ -309,18 +313,24 @@ def _wait_for_post_login_ready(driver: Any, timeout_seconds: int = 300) -> str:
     raise TimeoutError(f"Timed out waiting for a post-login selector: {POST_LOGIN_SELECTORS}")
 
 
-def _load_selenium_fallback_handles() -> list[str]:
+def _load_scrape_handles() -> list[str]:
     handles = [str(handle).strip().upper() for handle in load_handles() if str(handle).strip()]
     deduped = sorted(set(handles))
-    LOGGER.info("selenium_fallback_handles_loaded count=%s", len(deduped))
+    LOGGER.info("scrape_handles_loaded count=%s", len(deduped))
     return deduped
 
+# Keep old name as alias so any existing callers don't break
+_load_selenium_fallback_handles = _load_scrape_handles
 
-def _selenium_fallback_search_string(handle: str) -> str:
+
+def _scrape_search_string(handle: str) -> str:
     return f"{handle}:company_data:handle:{handle}"
 
+# Keep old name as alias
+_selenium_fallback_search_string = _scrape_search_string
 
-def _update_selenium_fallback_job(
+
+def _update_scrape_job(
     *,
     job_id: str,
     status: str,
@@ -343,12 +353,157 @@ def _update_selenium_fallback_job(
         result=result,
     )
 
+# Keep old name as alias
+_update_selenium_fallback_job = _update_scrape_job
 
-def _selenium_fallback_emit(job_id: str, message: str, *, handle: str | None = None, event: str | None = None, data: dict[str, Any] | None = None) -> None:
+
+def _scrape_emit(job_id: str, message: str, *, handle: str | None = None, event: str | None = None, data: dict[str, Any] | None = None) -> None:
     _append_event("info", message, handle=handle, job_id=job_id, meta={"event": event or "progress", **(data or {})})
 
+# Keep old name as alias
+_selenium_fallback_emit = _scrape_emit
 
-def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_timeout_seconds: int) -> None:
+
+def _is_login_page(driver: object) -> bool:
+    """Return True if the browser is currently showing a login / SSO page."""
+    url = (getattr(driver, "current_url", None) or "").lower()
+    if any(m in url for m in _LOGIN_URL_MARKERS):
+        return True
+    # Also check page source for common login-form signals
+    try:
+        src = (getattr(driver, "page_source", None) or "").lower()
+        return (
+            'type="password"' in src
+            and ("sign in" in src or "log in" in src or "username" in src or "login" in src)
+        )
+    except Exception:
+        return False
+
+
+def _wait_for_domain_access(
+    driver: object,
+    probe_url: str,
+    *,
+    timeout_seconds: int = 300,
+    poll_frequency: float = 2.0,
+    emit_fn=None,
+    label: str = "",
+) -> None:
+    """Navigate to *probe_url* and wait until the page is NOT a login page.
+
+    If the session already covers the domain (common with SSO), this returns
+    immediately after the first poll.  If a login is required, Chrome stays on
+    the login page and the user can complete it manually.
+    """
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    driver.get(probe_url)  # type: ignore[attr-defined]
+    if emit_fn:
+        emit_fn(f"waiting_for_access {label or probe_url}")
+
+    WebDriverWait(driver, timeout_seconds, poll_frequency=poll_frequency).until(
+        lambda d: not _is_login_page(d)
+    )
+    if emit_fn:
+        emit_fn(f"access_confirmed {label or probe_url}")
+
+
+def _scrape_ticket_detail(driver: object, ticket_url: str, *, wait_timeout: int = 15) -> dict[str, Any]:
+    """Open a single ticket detail page and scrape every visible field.
+
+    Returns a dict with:
+      page_title   – browser tab title
+      fields       – {normalised_label: value} for every labeled table row
+      notes        – all textarea content joined (the internal notes / next-action block)
+      scrape_error – None on success, error string if the page failed
+    """
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import Select, WebDriverWait
+
+    detail: dict[str, Any] = {
+        "ticket_url": ticket_url,
+        "page_title": "",
+        "fields": {},
+        "notes": None,
+        "scrape_error": None,
+    }
+    try:
+        driver.get(ticket_url)  # type: ignore[attr-defined]
+        WebDriverWait(driver, wait_timeout).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        # If we landed on a login page the session hasn't reached noc-tickets.123.net yet.
+        # Surface this clearly instead of scraping a login form by mistake.
+        if _is_login_page(driver):
+            detail["scrape_error"] = (
+                "Redirected to login page — session does not cover noc-tickets.123.net. "
+                "Complete login and retry."
+            )
+            LOGGER.warning("ticket_detail_login_redirect url=%s current_url=%s", ticket_url, driver.current_url)  # type: ignore[attr-defined]
+            return detail
+        detail["page_title"] = (driver.title or "").strip()  # type: ignore[attr-defined]
+
+        # ── Generic label → value extraction ──────────────────────────────────
+        # Handles rows where the first cell is a label ("Status:", "Type:", …)
+        # and the second cell contains either an <input>, <select>, <textarea>,
+        # a checkbox, or plain text.
+        fields: dict[str, str] = {}
+        rows = driver.find_elements(By.XPATH, "//table//tr")  # type: ignore[attr-defined]
+        for row in rows:
+            cells = row.find_elements(By.XPATH, ".//td | .//th")
+            if len(cells) < 2:
+                continue
+            raw_label = (cells[0].text or "").strip().rstrip(":").strip()
+            if not raw_label or len(raw_label) > 80:
+                continue
+            value = ""
+            try:
+                inputs = cells[1].find_elements(
+                    By.XPATH, ".//input[@type!='hidden'] | .//select | .//textarea"
+                )
+                if inputs:
+                    el = inputs[0]
+                    tag = el.tag_name.lower()
+                    if tag == "select":
+                        try:
+                            value = Select(el).first_selected_option.text.strip()
+                        except Exception:
+                            value = (el.text or "").strip()
+                    elif tag == "input":
+                        itype = (el.get_attribute("type") or "").lower()
+                        if itype == "checkbox":
+                            value = "yes" if el.is_selected() else "no"
+                        else:
+                            value = (el.get_attribute("value") or "").strip()
+                    else:  # textarea
+                        value = (el.get_attribute("value") or el.text or "").strip()
+                else:
+                    value = (cells[1].text or "").strip()
+            except Exception:
+                value = (cells[1].text or "").strip()
+            key = re.sub(r"[^a-z0-9]+", "_", raw_label.lower()).strip("_")
+            if key:
+                fields[key] = value
+        detail["fields"] = fields
+
+        # ── Internal notes / next-action textarea(s) ─────────────────────────
+        notes_parts: list[str] = []
+        for ta in driver.find_elements(By.XPATH, "//textarea"):  # type: ignore[attr-defined]
+            content = (ta.get_attribute("value") or ta.text or "").strip()
+            if content:
+                notes_parts.append(content)
+        if notes_parts:
+            detail["notes"] = "\n\n---\n\n".join(notes_parts)
+
+    except Exception as exc:
+        detail["scrape_error"] = str(exc)
+        LOGGER.warning("ticket_detail_scrape_failed url=%s error=%s", ticket_url, exc)
+
+    return detail
+
+
+def _run_scrape_job(job_id: str, handles: list[str], login_timeout_seconds: int, resume_from_handle: str | None = None) -> None:
     from selenium import webdriver
     from selenium.common.exceptions import TimeoutException
     from selenium.webdriver.common.by import By
@@ -367,7 +522,7 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
         "handle_summaries": [],
         "output_files": {},
     }
-    _update_selenium_fallback_job(job_id=job_id, status="running", completed=0, total=len(handles), started_utc=started_utc, result=result)
+    _update_scrape_job(job_id=job_id, status="running", completed=0, total=len(handles), started_utc=started_utc, result=result)
 
     options = Options()
     options.add_argument("--start-maximized")
@@ -375,10 +530,10 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []
     try:
-        _selenium_fallback_emit(job_id, "launched_browser", event="launched_browser")
+        _scrape_emit(job_id, "launched_browser", event="launched_browser")
         driver = webdriver.Chrome(options=options)
         driver.get(CHROME_CUSTOMERS_URL)
-        _selenium_fallback_emit(job_id, "waiting_for_login", event="waiting_for_login", data={"timeout_seconds": login_timeout_seconds})
+        _scrape_emit(job_id, "waiting_for_login", event="waiting_for_login", data={"timeout_seconds": login_timeout_seconds})
 
         login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
         login_wait.until(
@@ -388,20 +543,91 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                 or len(d.find_elements(By.XPATH, "//th[normalize-space()='Company Handle:']")) > 0
             )
         )
-        _selenium_fallback_emit(job_id, "login_detected", event="login_detected")
+        _scrape_emit(job_id, "login_detected", event="login_detected")
         cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
-        LOGGER.info("selenium_fallback_cookie_count job_id=%s count=%s domains=%s", job_id, cookie_summary.get("count", 0), cookie_summary.get("domains", []))
+        LOGGER.info("scrape_cookie_count job_id=%s count=%s domains=%s", job_id, cookie_summary.get("count", 0), cookie_summary.get("domains", []))
         _ = selenium_driver_to_requests_session(driver, base_url=CHROME_CUSTOMERS_URL)
 
-        run_output_dir = runs_dir() / f"selenium_fallback_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-        run_output_dir.mkdir(parents=True, exist_ok=True)
+        # ── Verify noc-tickets.123.net is also accessible ─────────────────────
+        # Ticket detail pages live on a different subdomain.  With SSO the first
+        # login usually covers both, but if a second login is required the user
+        # can complete it here before the batch starts.
+        LOGGER.info("scrape_checking_noc_tickets_access job_id=%s", job_id)
+        _scrape_emit(
+            job_id,
+            "checking_noc_tickets_access",
+            event="checking_noc_tickets_access",
+            data={"url": NOC_TICKETS_BASE_URL},
+        )
+        _wait_for_domain_access(
+            driver,
+            NOC_TICKETS_BASE_URL,
+            timeout_seconds=login_timeout_seconds,
+            emit_fn=lambda msg: _scrape_emit(job_id, msg, event="noc_tickets_login_wait"),
+            label="noc-tickets.123.net",
+        )
+        _scrape_emit(job_id, "noc_tickets_access_confirmed", event="noc_tickets_access_confirmed")
+        LOGGER.info("scrape_noc_tickets_access_ok job_id=%s", job_id)
+
+        # Navigate back to the customers page so handle iteration starts cleanly
+        driver.get(CHROME_CUSTOMERS_URL)
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "#customers"))
+        )
+
+        run_output_dir = kb_dir()
         seen_tickets: set[tuple[str, str, str]] = set()
 
+        # Stable output paths — overwritten in-place after every handle
+        summary_path = run_output_dir / "handle_summary.json"
+        tickets_path = run_output_dir / "ticket_urls.json"
+        details_path = run_output_dir / "ticket_details.json"
+        state_path = run_output_dir / "scrape_state.json"
+
+        # Resume: skip handles we've already completed
+        skip_until: str | None = resume_from_handle
+        if skip_until is None and state_path.exists():
+            try:
+                saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+                skip_until = saved_state.get("last_completed_handle")
+                if skip_until:
+                    _scrape_emit(job_id, f"resuming_from {skip_until}", event="resuming_from", data={"handle": skip_until})
+                    LOGGER.info("scrape_resuming job_id=%s from_handle=%s", job_id, skip_until)
+            except Exception as state_exc:
+                LOGGER.warning("scrape_state_read_failed error=%s", state_exc)
+
+        skipping = skip_until is not None
+
+        def _flush_progress(last_completed: str | None = None) -> None:
+            """Write current scraped data to disk after every handle so nothing is lost on interruption."""
+            try:
+                summary_path.write_text(json.dumps(handle_summaries, indent=2, sort_keys=True), encoding="utf-8")
+                tickets_path.write_text(json.dumps(scraped_rows, indent=2, sort_keys=True), encoding="utf-8")
+                flat_details = [
+                    {**{k: v for k, v in row.items() if k != "detail"}, **(row.get("detail") or {})}
+                    for row in scraped_rows
+                ]
+                details_path.write_text(json.dumps(flat_details, indent=2, sort_keys=True), encoding="utf-8")
+                if last_completed:
+                    state_path.write_text(
+                        json.dumps({"last_completed_handle": last_completed, "updated_utc": _iso_now()}, indent=2),
+                        encoding="utf-8",
+                    )
+            except Exception as flush_exc:
+                LOGGER.warning("scrape_flush_failed error=%s", flush_exc)
+
         for idx, handle in enumerate(handles, start=1):
-            search_string = _selenium_fallback_search_string(handle)
+            # Resume: skip handles before the resume point
+            if skipping:
+                if handle == skip_until:
+                    skipping = False
+                _scrape_emit(job_id, f"skipping_handle {handle}", handle=handle, event="skipping_handle")
+                continue
+
+            search_string = _scrape_search_string(handle)
             result.update({"status_message": f"scraping_handle {handle}", "current_handle": handle, "completed_handles": idx - 1})
-            _update_selenium_fallback_job(job_id=job_id, status="running", completed=idx - 1, total=len(handles), result=result)
-            _selenium_fallback_emit(job_id, f"scraping_handle {handle}", handle=handle, event="scraping_handle", data={"index": idx, "total": len(handles)})
+            _update_scrape_job(job_id=job_id, status="running", completed=idx - 1, total=len(handles), result=result)
+            _scrape_emit(job_id, f"scraping_handle {handle}", handle=handle, event="scraping_handle", data={"index": idx, "total": len(handles)})
 
             handle_summary: dict[str, Any] = {
                 "company_handle": handle,
@@ -423,7 +649,7 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                     search_buttons[0].click()
                 else:
                     search_input.send_keys(Keys.ENTER)
-                _selenium_fallback_emit(job_id, f"search_submitted {handle}", handle=handle, event="search_submitted")
+                _scrape_emit(job_id, f"search_submitted {handle}", handle=handle, event="search_submitted")
 
                 verified_cell = WebDriverWait(driver, 20).until(
                     EC.presence_of_element_located((By.XPATH, "//th[normalize-space()='Company Handle:']/following-sibling::td[1]"))
@@ -435,10 +661,10 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                     handle_summary["status"] = "handle_mismatch"
                     handle_summary["error"] = mismatch_msg
                     handle_summaries.append(handle_summary)
-                    _selenium_fallback_emit(job_id, f"handle_mismatch {handle} {mismatch_msg}", handle=handle, event="handle_mismatch")
+                    _scrape_emit(job_id, f"handle_mismatch {handle} {mismatch_msg}", handle=handle, event="handle_mismatch")
                     continue
 
-                _selenium_fallback_emit(job_id, f"handle_verified {handle}", handle=handle, event="handle_verified")
+                _scrape_emit(job_id, f"handle_verified {handle}", handle=handle, event="handle_verified")
                 toggle = WebDriverWait(driver, 20).until(
                     EC.element_to_be_clickable((By.XPATH, "//a[contains(@class,'show_hide') and normalize-space()='Show/Hide Trouble Ticket Data']"))
                 )
@@ -447,7 +673,7 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                 WebDriverWait(driver, 20).until(
                     EC.visibility_of_element_located((By.CSS_SELECTOR, "#slideid5"))
                 )
-                _selenium_fallback_emit(job_id, f"toggle_clicked {handle}", handle=handle, event="toggle_clicked")
+                _scrape_emit(job_id, f"toggle_clicked {handle}", handle=handle, event="toggle_clicked")
 
                 rows = driver.find_elements(By.XPATH, TICKET_TABLE_ROW_XPATH)
                 handle_tickets: list[dict[str, str]] = []
@@ -477,22 +703,52 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                     scraped_rows.append(ticket_row)
 
                 handle_summary["ticket_count"] = len(handle_tickets)
-                handle_summaries.append(handle_summary)
                 first_five = [t["ticket_id"] for t in handle_tickets[:5]]
-                _selenium_fallback_emit(
+                _scrape_emit(
                     job_id,
                     f"scraped_tickets {handle} count={len(handle_tickets)}",
                     handle=handle,
                     event="scraped_tickets",
                     data={"count": len(handle_tickets), "first_ticket_ids": first_five},
                 )
-                LOGGER.info("selenium_fallback_ticket_rows handle=%s rows=%s first5=%s", handle, len(handle_tickets), first_five)
+                LOGGER.info("scrape_ticket_rows handle=%s rows=%s first5=%s", handle, len(handle_tickets), first_five)
+
+                # ── Open each ticket URL and scrape full detail ───────────────
+                detail_errors = 0
+                for tidx, ticket_row in enumerate(handle_tickets, start=1):
+                    t_url = ticket_row.get("ticket_url", "")
+                    if not t_url:
+                        continue
+                    _scrape_emit(
+                        job_id,
+                        f"scraping_ticket_detail {handle} {ticket_row['ticket_id']} ({tidx}/{len(handle_tickets)})",
+                        handle=handle,
+                        event="scraping_ticket_detail",
+                        data={"ticket_id": ticket_row["ticket_id"], "index": tidx, "total": len(handle_tickets)},
+                    )
+                    detail = _scrape_ticket_detail(driver, t_url)
+                    ticket_row["detail"] = detail
+                    if detail.get("scrape_error"):
+                        detail_errors += 1
+                        LOGGER.warning("ticket_detail_error handle=%s ticket=%s error=%s", handle, ticket_row["ticket_id"], detail["scrape_error"])
+                    else:
+                        LOGGER.info("ticket_detail_ok handle=%s ticket=%s title=%r fields=%s", handle, ticket_row["ticket_id"], detail.get("page_title"), list(detail.get("fields", {}).keys()))
+
+                _scrape_emit(
+                    job_id,
+                    f"ticket_details_complete {handle} scraped={len(handle_tickets) - detail_errors} errors={detail_errors}",
+                    handle=handle,
+                    event="ticket_details_complete",
+                    data={"scraped": len(handle_tickets) - detail_errors, "errors": detail_errors},
+                )
+                handle_summary["detail_errors"] = detail_errors
+                handle_summaries.append(handle_summary)
             except Exception as handle_exc:
                 handle_summary["status"] = "failed"
                 handle_summary["error"] = str(handle_exc)
                 handle_summaries.append(handle_summary)
-                LOGGER.exception("selenium_fallback_handle_exception job_id=%s handle=%s error=%s", job_id, handle, handle_exc)
-                _selenium_fallback_emit(job_id, f"handle_exception {handle}: {handle_exc}", handle=handle, event="handle_exception")
+                LOGGER.exception("scrape_handle_exception job_id=%s handle=%s error=%s", job_id, handle, handle_exc)
+                _scrape_emit(job_id, f"handle_exception {handle}: {handle_exc}", handle=handle, event="handle_exception")
             finally:
                 result.update(
                     {
@@ -501,14 +757,19 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                         "current_handle": handle if idx < len(handles) else None,
                         "ticket_count": len(scraped_rows),
                         "handle_summaries": handle_summaries,
+                        "output_dir": str(run_output_dir.resolve()),
+                        "output_files": {
+                            "handle_summary": str(summary_path.resolve()),
+                            "tickets": str(tickets_path.resolve()),
+                            "ticket_details": str(details_path.resolve()),
+                        },
                     }
                 )
-                _update_selenium_fallback_job(job_id=job_id, status="running", completed=idx, total=len(handles), result=result)
+                _flush_progress(last_completed=handle)
+                _update_scrape_job(job_id=job_id, status="running", completed=idx, total=len(handles), result=result)
 
-        summary_path = run_output_dir / "selenium_fallback_handle_summary.json"
-        tickets_path = run_output_dir / "selenium_fallback_ticket_urls.json"
-        summary_path.write_text(json.dumps(handle_summaries, indent=2, sort_keys=True), encoding="utf-8")
-        tickets_path.write_text(json.dumps(scraped_rows, indent=2, sort_keys=True), encoding="utf-8")
+        _flush_progress()  # Final flush at job completion
+        LOGGER.info("scrape_output summary=%s tickets=%s details=%s", summary_path, tickets_path, details_path)
 
         result.update(
             {
@@ -521,11 +782,12 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                 "output_files": {
                     "handle_summary": str(summary_path.resolve()),
                     "tickets": str(tickets_path.resolve()),
+                    "ticket_details": str(details_path.resolve()),
                 },
                 "cookie_count": int(cookie_summary.get("count", 0)),
             }
         )
-        _update_selenium_fallback_job(
+        _update_scrape_job(
             job_id=job_id,
             status="completed",
             completed=len(handles),
@@ -533,12 +795,12 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
             finished_utc=_iso_now(),
             result=result,
         )
-        _selenium_fallback_emit(job_id, "completed", event="completed", data={"tickets": len(scraped_rows), "handles": len(handles)})
+        _scrape_emit(job_id, "completed", event="completed", data={"tickets": len(scraped_rows), "handles": len(handles)})
     except TimeoutException as exc:
-        LOGGER.exception("selenium_fallback_login_timeout job_id=%s error=%s", job_id, exc)
+        LOGGER.exception("scrape_login_timeout job_id=%s error=%s", job_id, exc)
         result["status_message"] = "failed"
         result["error"] = f"Manual login timeout after {login_timeout_seconds} seconds"
-        _update_selenium_fallback_job(
+        _update_scrape_job(
             job_id=job_id,
             status="failed",
             completed=int(result.get("completed_handles") or 0),
@@ -547,12 +809,12 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
             error_message=result["error"],
             result=result,
         )
-        _selenium_fallback_emit(job_id, "failed", event="failed", data={"error": result["error"]})
+        _scrape_emit(job_id, "failed", event="failed", data={"error": result["error"]})
     except Exception as exc:
-        LOGGER.exception("selenium_fallback_job_error job_id=%s error=%s", job_id, exc)
+        LOGGER.exception("scrape_job_error job_id=%s error=%s", job_id, exc)
         result["status_message"] = "failed"
         result["error"] = str(exc)
-        _update_selenium_fallback_job(
+        _update_scrape_job(
             job_id=job_id,
             status="failed",
             completed=int(result.get("completed_handles") or 0),
@@ -561,13 +823,16 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
             error_message=str(exc),
             result=result,
         )
-        _selenium_fallback_emit(job_id, "failed", event="failed", data={"error": str(exc)})
+        _scrape_emit(job_id, "failed", event="failed", data={"error": str(exc)})
     finally:
         if driver is not None:
             try:
                 driver.quit()
             except Exception:
-                LOGGER.warning("selenium_fallback_driver_quit_failed job_id=%s", job_id)
+                LOGGER.warning("scrape_driver_quit_failed job_id=%s", job_id)
+
+
+_run_selenium_fallback_scrape_job = _run_scrape_job
 
 
 def _orchestrator_run_scrape(job_id: str) -> dict[str, Any]:
@@ -3392,11 +3657,60 @@ def api_scrape_selenium_fallback():
     )
     _append_event("info", "selenium_fallback_queued", job_id=job_id, meta={"event": "queued", "handles": len(handles)})
     threading.Thread(
-        target=_run_selenium_fallback_scrape_job,
+        target=_run_scrape_job,
         kwargs={"job_id": job_id, "handles": handles, "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS},
         daemon=True,
     ).start()
     return {"queued": True, "job_id": job_id, "handles_total": len(handles), "status": "queued"}
+
+
+class ScrapeStartRequest(BaseModel):
+    resume_from_handle: str | None = None
+
+
+@app.post("/api/scrape/start")
+def api_scrape_start(payload: ScrapeStartRequest | None = None):
+    """Primary endpoint to start (or resume) a scrape job.
+
+    Accepts optional ``resume_from_handle`` to skip all handles up to and
+    including the given handle.  If omitted, the last completed handle stored
+    in ``var/kb/scrape_state.json`` is used automatically.
+    """
+    handles = _load_scrape_handles()
+    if not handles:
+        raise HTTPException(status_code=400, detail="No handles available to scrape")
+    resume = (payload.resume_from_handle if payload else None)
+    now = _iso_now()
+    job_id = str(uuid.uuid4())
+    db.create_scrape_job(
+        db_path(),
+        job_id=job_id,
+        handle=None,
+        mode="scrape",
+        ticket_limit=None,
+        status="queued",
+        created_utc=now,
+        handles=handles,
+    )
+    _append_event("info", "scrape_queued", job_id=job_id, meta={"event": "queued", "handles": len(handles), "resume_from": resume})
+    threading.Thread(
+        target=_run_scrape_job,
+        kwargs={"job_id": job_id, "handles": handles, "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS, "resume_from_handle": resume},
+        daemon=True,
+    ).start()
+    return {"queued": True, "job_id": job_id, "handles_total": len(handles), "status": "queued", "resume_from_handle": resume}
+
+
+@app.get("/api/scrape/state")
+def api_scrape_state():
+    """Return the last completed handle and other state from var/kb/scrape_state.json."""
+    state_path = kb_dir() / "scrape_state.json"
+    if not state_path.exists():
+        return {"last_completed_handle": None, "updated_utc": None}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read scrape state: {exc}") from exc
 
 
 @app.get("/api/jobs")

@@ -220,3 +220,6 @@ webscraper/var/runtime/
 var/
 **/var/
 *.html
+
+#webscraper ticket UI build artifacts
+webscraper/ticket-ui/*
