@@ -1,3 +1,24 @@
+Run these in order:
+
+1. Webscraper API (8788):
+
+
+$p = (Get-NetTCPConnection -LocalPort 8788 -State Listen).OwningProcess; taskkill /PID $p /F
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode api --doctor --readiness-timeout 180
+2. Webscraper UI (3005):
+
+
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode ui --doctor --readiness-timeout 180
+3. Manager backend (8787):
+
+
+$p = (Get-NetTCPConnection -LocalPort 8787 -State Listen).OwningProcess; taskkill /PID $p /F
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_web_manager_app.py --no-port-cleanup --readiness-timeout 180
+4. Manager UI (3004):
+
+
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_manager_ui_app.py --doctor --readiness-timeout 180
+
 1. Start manager/backend normally
 E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_web_manager_app.py --doctor --readiness-timeout 180
 2. Start manager UI normally
