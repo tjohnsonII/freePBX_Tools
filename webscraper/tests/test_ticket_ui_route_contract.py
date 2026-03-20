@@ -20,3 +20,9 @@ def test_ticket_ui_proxy_defaults_to_ticket_api_port_8788() -> None:
 def test_launch_login_uses_existing_backend_route() -> None:
     page = (_repo_root() / "webscraper" / "ticket-ui" / "app" / "page.tsx").read_text(encoding="utf-8")
     assert '"/api/auth/launch-browser"' in page
+
+
+def test_orchestration_dashboard_exposes_selenium_fallback_route() -> None:
+    dashboard = (_repo_root() / "webscraper" / "ticket-ui" / "app" / "components" / "OrchestrationDashboard.tsx").read_text(encoding="utf-8")
+    assert "Run Selenium Fallback Scrape" in dashboard
+    assert '"/api/scrape/selenium_fallback"' in dashboard

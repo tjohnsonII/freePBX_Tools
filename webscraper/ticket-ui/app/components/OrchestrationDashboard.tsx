@@ -36,6 +36,7 @@ type SystemStatus = {
 };
 
 type StepResult = { ok: boolean; state: StepState; detail: string; data?: Record<string, unknown> };
+type SeleniumFallbackResult = { success: boolean; ticket_count: number; error?: string; handles_attempted?: number };
 
 export default function OrchestrationDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -43,6 +44,7 @@ export default function OrchestrationDashboard() {
   const [steps, setSteps] = useState<StepResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [seleniumResult, setSeleniumResult] = useState<SeleniumFallbackResult | null>(null);
 
   const reload = async () => {
     try {
@@ -91,6 +93,21 @@ export default function OrchestrationDashboard() {
     }
   };
 
+  const runSeleniumFallback = async () => {
+    setBusy("selenium-fallback");
+    setError(null);
+    try {
+      const result = await apiPost<SeleniumFallbackResult>("/api/scrape/selenium_fallback", {});
+      setSeleniumResult(result);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSeleniumResult({ success: false, ticket_count: 0, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <section style={{ border: "1px solid #333", borderRadius: 8, padding: 12, marginBottom: 16 }}>
       <h2>Orchestration Dashboard</h2>
@@ -114,8 +131,19 @@ export default function OrchestrationDashboard() {
         <button onClick={() => runAction("seed", "/api/auth/seed")} disabled={!!busy}>Seed Auth</button>
         <button onClick={() => runAction("validate", "/api/auth/validate")} disabled={!!busy}>Validate Auth</button>
         <button onClick={() => runAction("scrape", "/api/scrape/run")} disabled={!!busy}>Run Scrape</button>
+        <button onClick={runSeleniumFallback} disabled={!!busy}>Run Selenium Fallback Scrape</button>
         <button onClick={runE2E} disabled={!!busy}>Run End-to-End</button>
       </div>
+      {seleniumResult ? (
+        <div style={{ marginTop: 10 }}>
+          <strong>Selenium fallback result</strong>
+          <div>
+            status={seleniumResult.success ? "success" : "failure"} · ticket_count={seleniumResult.ticket_count}
+            {typeof seleniumResult.handles_attempted === "number" ? ` · handles=${seleniumResult.handles_attempted}` : ""}
+            {seleniumResult.error ? ` · error=${seleniumResult.error}` : ""}
+          </div>
+        </div>
+      ) : null}
       {!!steps.length && (
         <div style={{ marginTop: 10 }}>
           <strong>E2E steps</strong>
