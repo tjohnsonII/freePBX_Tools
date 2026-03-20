@@ -36,6 +36,11 @@ class BrowserImportRequest(BaseModel):
     domain: str = "secure.123.net"
 
 
+class BrowserDetectRequest(BaseModel):
+    browser: str | None = None
+    cdp_port: int | None = None
+
+
 class ImportTextRequest(BaseModel):
     text: str | None = None
     cookies: list[dict[str, Any]] | None = None

@@ -114,6 +114,18 @@ class WebScraperOrchestrator:
                     return job.model_copy(deep=True)
         return None
 
+    def _build_browser_step(self, result: dict[str, Any]) -> StepResponse:
+        self._browser_attached = bool(result.get("available", False))
+        self._status.browser_status = str(result.get("status") or ("available" if self._browser_attached else "unavailable"))
+        detail = str(result.get("message") or ("Browser detected" if self._browser_attached else "No browser available"))
+        self._update_state(SystemState.idle)
+        return StepResponse(ok=self._browser_attached, state=SystemState.detecting_browser, detail=detail, data=result)
+
+    def record_browser_detection(self, result: dict[str, Any]) -> StepResponse:
+        with self._lock:
+            self._update_state(SystemState.detecting_browser)
+            return self._build_browser_step(result)
+
     def detect_browser(self) -> StepResponse:
         with self._lock:
             self._update_state(SystemState.detecting_browser)
@@ -121,13 +133,10 @@ class WebScraperOrchestrator:
                 return StepResponse(ok=True, state=SystemState.detecting_browser, detail="Browser already attached", data={"idempotent": True})
             try:
                 result = self._deps.detect_browser()
-                self._browser_attached = bool(result.get("available", False))
-                self._status.browser_status = "available" if self._browser_attached else "unavailable"
-                detail = "Browser detected" if self._browser_attached else "No browser available"
-                self._update_state(SystemState.idle)
-                return StepResponse(ok=self._browser_attached, state=SystemState.detecting_browser, detail=detail, data=result)
+                return self._build_browser_step(result)
             except Exception as exc:  # pragma: no cover - defensive
                 message = f"Browser detection failed: {exc}"
+                self._status.browser_status = "browser_detection_failure"
                 self._update_state(SystemState.error, error=message)
                 return StepResponse(ok=False, state=SystemState.detecting_browser, detail=message)
 

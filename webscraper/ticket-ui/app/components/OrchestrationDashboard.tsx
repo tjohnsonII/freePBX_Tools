@@ -58,11 +58,11 @@ export default function OrchestrationDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const runAction = async (label: string, path: string) => {
+  const runAction = async (label: string, path: string, body: Record<string, unknown> = {}) => {
     setBusy(label);
     setError(null);
     try {
-      await apiPost(path, {});
+      await apiPost(path, body);
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -98,7 +98,7 @@ export default function OrchestrationDashboard() {
         <div><strong>Last error</strong><div>{status?.last_error || "none"}</div></div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-        <button onClick={() => runAction("detect", "/api/browser/detect")} disabled={!!busy}>Detect Browser</button>
+        <button onClick={() => runAction("detect", "/api/browser/detect", { browser: "chrome", cdp_port: 9222 })} disabled={!!busy}>Detect Browser</button>
         <button onClick={() => runAction("seed", "/api/auth/seed")} disabled={!!busy}>Seed Auth</button>
         <button onClick={() => runAction("validate", "/api/auth/validate")} disabled={!!busy}>Validate Auth</button>
         <button onClick={() => runAction("scrape", "/api/scrape/run")} disabled={!!busy}>Run Scrape</button>
