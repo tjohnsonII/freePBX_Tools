@@ -880,6 +880,7 @@ def test_browser_detect_reports_missing_authenticated_session(tmp_path, monkeypa
     payload = response.json()
     assert payload["data"]["status"] == "no_authenticated_secure_session"
     assert payload["data"]["authenticated_session"] is False
+    assert payload["data"]["unauthenticated_reason"] == "no_cookies_returned"
 
 
 def test_inspect_live_secure_session_prefers_secure_tab_over_about_blank(monkeypatch):
@@ -896,16 +897,27 @@ def test_inspect_live_secure_session_prefers_secure_tab_over_about_blank(monkeyp
     monkeypatch.setattr(appmod.requests, "get", lambda *_args, **_kwargs: _Resp())
     monkeypatch.setattr(
         appmod,
-        "seed_from_cdp",
-        lambda *_args, **_kwargs: appmod.SeedResult(
-            mode_used="cdp",
-            cookies=[{"name": "PHPSESSID", "value": "x", "domain": "secure.123.net", "path": "/"}],
-            details={},
-        ),
+        "_inspect_target_session_via_cdp",
+        lambda **_kwargs: {
+            "cookies": [{"name": "PHPSESSID", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "cookie_names": ["PHPSESSID"],
+            "cookie_domains": ["secure.123.net:/"],
+            "candidate_auth_cookie_names": ["PHPSESSID"],
+            "auth_cookie_candidate_present": True,
+            "final_document_url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+            "document_title": "Customers",
+            "dom_login_marker_detected": False,
+            "authenticated_probe_ok": True,
+            "cookie_error": None,
+            "cookie_inspection_context": "target:2",
+            "decision_tree": [{"step": "cookie_inspection", "result": "ok", "reason": "cookies=1 auth_candidates=1"}],
+        },
     )
     result = appmod._inspect_live_secure_session(9222)
     assert result["preferred_tab"]["url"].startswith("https://secure.123.net")
     assert result["cookie_names"] == ["PHPSESSID"]
+    assert result["authenticated_probe_ok"] is True
+    assert result["auth_cookie_present"] is True
 
 
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
@@ -965,7 +977,7 @@ def test_validate_auth_reports_secure_tab_found_but_not_logged_in(tmp_path, monk
     response = client.get("/api/auth/validate")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["reason"] == "secure_tab_found_not_logged_in"
+    assert payload["reason"] == "no_cookies_returned"
     assert payload["secure_tab_found"] is True
 
 
@@ -987,7 +999,12 @@ def test_validate_auth_imports_live_cookies_and_runs_request_test(tmp_path, monk
             "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
             "cookies": [{"name": "PHPSESSID", "value": "abc", "domain": "secure.123.net", "path": "/"}],
             "cookie_names": ["PHPSESSID"],
+            "cookie_domains": ["secure.123.net:/"],
             "cookie_error": None,
+            "auth_cookie_present": True,
+            "authenticated_probe_ok": True,
+            "unauthenticated_reason": "authenticated",
+            "debug": {"decision_tree": [{"step": "authenticated_probe", "result": "ok", "reason": "post_login_url_and_dom_checks_passed"}]},
         },
     )
 
@@ -1006,6 +1023,47 @@ def test_validate_auth_imports_live_cookies_and_runs_request_test(tmp_path, monk
     assert payload["cookie_import_succeeded"] is True
     assert payload["authenticated_request_test_succeeded"] is True
     assert payload["authenticated"] is True
+
+
+def test_derive_unauthenticated_reason_cookie_candidates_missing():
+    reason = appmod._derive_unauthenticated_reason(
+        secure_tab_found=True,
+        cookie_error=None,
+        cookie_count=3,
+        auth_cookie_present=False,
+        dom_login_marker_detected=False,
+        authenticated_probe_ok=False,
+    )
+    assert reason == "cookies_returned_but_no_auth_cookie_candidate"
+
+
+def test_auth_detect_debug_returns_decision_tree(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_is_cdp_available", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        appmod,
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {
+            "secure_tabs": [{"id": "2"}],
+            "cookies": [{"name": "PHPSESSID", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "cookie_names": ["PHPSESSID"],
+            "cookie_domains": ["secure.123.net:/"],
+            "auth_cookie_present": True,
+            "authenticated_probe_ok": True,
+            "unauthenticated_reason": "authenticated",
+            "debug": {"decision_tree": [{"step": "authenticated_probe", "result": "ok", "reason": "post_login_url_and_dom_checks_passed"}]},
+        },
+    )
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/detect_debug")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["secure_tab_detected"] is True
+    assert payload["authenticated_probe_ok"] is True
+    assert payload["debug"]["decision_tree"]
 
 
 def test_auth_validate_response_includes_debug_fields(tmp_path, monkeypatch):

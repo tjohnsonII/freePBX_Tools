@@ -25,6 +25,7 @@ from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.handles_loader import load_handles
 from webscraper.auth.chrome_cookies import ChromeCookieError, load_cookies_from_profile
 from webscraper.auth.chrome_profile import get_driver_reusing_profile
+from webscraper.auth.chrome_cdp import ChromeCDPError, cdp_call, connect_browser_ws
 from webscraper.auth.probe import probe_auth
 from webscraper.auth.session import selenium_driver_to_requests_session, summarize_driver_cookies
 from webscraper.auth.cookie_seeder import (
@@ -181,14 +182,33 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
     )
 
     detected_cookie_count = len(list(live_session.get("cookies") or []))
+    auth_cookie_present = bool(live_session.get("auth_cookie_present"))
+    authenticated_probe_ok = bool(live_session.get("authenticated_probe_ok"))
+    authentication_checks = {
+        "cookie_based_session_detection": auth_cookie_present,
+        "authenticated_probe_detection": authenticated_probe_ok,
+    }
     cookie_error = live_session.get("cookie_error")
-    authenticated_session = detected_cookie_count > 0
+    authenticated_session = auth_cookie_present or authenticated_probe_ok
+    unauthenticated_reason = str(live_session.get("unauthenticated_reason") or "")
+    if not unauthenticated_reason:
+        unauthenticated_reason = _derive_unauthenticated_reason(
+            secure_tab_found=secure_tab_open,
+            cookie_error=cookie_error,
+            cookie_count=detected_cookie_count,
+            auth_cookie_present=auth_cookie_present,
+            dom_login_marker_detected=((live_session.get("debug") or {}).get("dom_login_marker_detected") if isinstance(live_session.get("debug"), dict) else None),
+            authenticated_probe_ok=authenticated_probe_ok,
+        )
     LOGGER.info(
-        "browser_detect secure_session browser=%s authenticated=%s cookie_count=%s cookie_error=%s",
+        "browser_detect secure_session browser=%s authenticated=%s cookie_count=%s auth_cookie_present=%s auth_probe_ok=%s cookie_error=%s unauthenticated_reason=%s",
         requested_browser,
         authenticated_session,
         detected_cookie_count,
+        auth_cookie_present,
+        authenticated_probe_ok,
         cookie_error or "-",
+        unauthenticated_reason or "-",
     )
 
     status = "ready"
@@ -204,7 +224,7 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
         message = "Debug browser is running, but no open tab is on secure.123.net."
     elif not authenticated_session:
         status = "no_authenticated_secure_session"
-        message = "Debug browser is running on secure.123.net, but no authenticated session cookies were found."
+        message = f"Debug browser is running on secure.123.net, but authentication checks failed ({unauthenticated_reason or 'no_signal'})."
 
     return {
         "available": debug_browser_running or bool(profiles),
@@ -227,6 +247,12 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
         "cookie_count": detected_cookie_count,
         "cookie_error": cookie_error,
         "cookie_names": list(live_session.get("cookie_names") or []),
+        "cookie_domains": list(live_session.get("cookie_domains") or []),
+        "authentication_checks": authentication_checks,
+        "authenticated_probe_ok": authenticated_probe_ok,
+        "auth_cookie_present": auth_cookie_present,
+        "unauthenticated_reason": unauthenticated_reason or None,
+        "auth_detection_debug": live_session.get("debug"),
     }
 
 
@@ -873,6 +899,10 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     }
     secure_tab_found = bool(live_session.get("secure_tabs"))
     live_cookie_count = len(list(live_session.get("cookies") or []))
+    live_auth_cookie_present = bool(live_session.get("auth_cookie_present"))
+    live_authenticated_probe_ok = bool(live_session.get("authenticated_probe_ok"))
+    live_unauthenticated_reason = str(live_session.get("unauthenticated_reason") or "")
+    live_debug = live_session.get("debug") if isinstance(live_session.get("debug"), dict) else {}
     cookie_import_succeeded = False
     cookies = auth_store.load_cookies(db_path())
     required_cookie_names = AUTH_COOKIE_NAME_HINTS
@@ -900,6 +930,14 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     if not cookies:
         if not secure_tab_found:
             reason = "no_secure_tab_found"
+        elif live_cookie_count == 0:
+            reason = "no_cookies_returned"
+        elif not live_auth_cookie_present:
+            reason = "cookies_returned_but_no_auth_cookie_candidate"
+        elif live_debug.get("dom_login_marker_detected") is True:
+            reason = "dom_indicates_login_page"
+        elif not live_authenticated_probe_ok:
+            reason = "authenticated_probe_failed"
         else:
             reason = "secure_tab_found_not_logged_in"
         reasons = [{"code": "missing_cookie", "name": "*", "domain": "secure.123.net"}, {"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
@@ -924,6 +962,11 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             "secure_tab_found": secure_tab_found,
             "live_cookie_count": live_cookie_count,
             "live_cookie_names": list(live_session.get("cookie_names") or []),
+            "live_cookie_domains": list(live_session.get("cookie_domains") or []),
+            "live_auth_cookie_present": live_auth_cookie_present,
+            "live_authenticated_probe_ok": live_authenticated_probe_ok,
+            "live_unauthenticated_reason": live_unauthenticated_reason or reason,
+            "auth_detection_debug": live_debug,
             "cookie_import_succeeded": cookie_import_succeeded,
         }
         with AUTH_IMPORT_META_LOCK:
@@ -1023,6 +1066,11 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         "secure_tab_found": secure_tab_found,
         "live_cookie_count": live_cookie_count,
         "live_cookie_names": list(live_session.get("cookie_names") or []),
+        "live_cookie_domains": list(live_session.get("cookie_domains") or []),
+        "live_auth_cookie_present": live_auth_cookie_present,
+        "live_authenticated_probe_ok": live_authenticated_probe_ok,
+        "live_unauthenticated_reason": live_unauthenticated_reason or ("authenticated" if overall_ok else reason or "not_authenticated"),
+        "auth_detection_debug": live_debug,
         "cookie_import_succeeded": cookie_import_succeeded,
         "authenticated_request_test_succeeded": request_test_succeeded,
         "authenticated_request_test_failed": request_test_failed,
@@ -1125,22 +1173,76 @@ def _inspect_live_secure_session(cdp_port: int = DEFAULT_CDP_PORT) -> dict[str, 
         )
     cdp_cookies: list[dict[str, Any]] = []
     cookie_names: list[str] = []
+    cookie_domains: list[str] = []
     cookie_error: str | None = None
+    selected_tab: dict[str, Any] | None = preferred_tab
+    selected_tab_id = str((selected_tab or {}).get("id") or "")
+    active_tab_id = str((tabs[0] if tabs else {}).get("id") or "")
+    selected_debug: dict[str, Any] = {
+        "selected_target_id": selected_tab_id or None,
+        "selected_tab_url": (selected_tab or {}).get("url"),
+        "selected_tab_title": (selected_tab or {}).get("title"),
+        "active_target_id": active_tab_id or None,
+        "selected_tab_active": bool(selected_tab_id and active_tab_id and selected_tab_id == active_tab_id),
+        "final_document_url": None,
+        "document_title": None,
+        "dom_login_marker_detected": None,
+        "authenticated_probe_ok": False,
+        "auth_cookie_candidate_present": False,
+        "candidate_auth_cookie_names": [],
+        "cookie_inspection_context": "cdp_target",
+        "decision_tree": [],
+    }
+
     if ranked:
         try:
-            seed_probe = seed_from_cdp(cdp_port, [SECURE_DOMAIN, "123.net"])
-            cdp_cookies = list(seed_probe.cookies)
-            cookie_names = sorted({str(cookie.get("name") or "") for cookie in cdp_cookies if cookie.get("name")})
+            cdp_target = _inspect_target_session_via_cdp(cdp_port=cdp_port, target_id=selected_tab_id, tab_url=str((selected_tab or {}).get("url") or ""))
+            cdp_cookies = list(cdp_target.get("cookies") or [])
+            cookie_names = list(cdp_target.get("cookie_names") or [])
+            cookie_domains = list(cdp_target.get("cookie_domains") or [])
+            cookie_error = cdp_target.get("cookie_error")
+            selected_debug.update(
+                {
+                    "final_document_url": cdp_target.get("final_document_url"),
+                    "document_title": cdp_target.get("document_title"),
+                    "dom_login_marker_detected": cdp_target.get("dom_login_marker_detected"),
+                    "authenticated_probe_ok": bool(cdp_target.get("authenticated_probe_ok")),
+                    "auth_cookie_candidate_present": bool(cdp_target.get("auth_cookie_candidate_present")),
+                    "candidate_auth_cookie_names": list(cdp_target.get("candidate_auth_cookie_names") or []),
+                    "cookie_inspection_context": str(cdp_target.get("cookie_inspection_context") or "cdp_target"),
+                    "decision_tree": list(cdp_target.get("decision_tree") or []),
+                }
+            )
         except Exception as exc:  # pragma: no cover - runtime dependent
             cookie_error = str(exc)
+            selected_debug["decision_tree"] = [{"step": "cdp_target_inspection", "result": "failed", "reason": f"exception:{exc}"}]
+
+    auth_cookie_present = bool(selected_debug.get("auth_cookie_candidate_present"))
+    authenticated_probe_ok = bool(selected_debug.get("authenticated_probe_ok"))
+    unauthenticated_reason = _derive_unauthenticated_reason(
+        secure_tab_found=bool(secure_tabs),
+        cookie_error=cookie_error,
+        cookie_count=len(cdp_cookies),
+        auth_cookie_present=auth_cookie_present,
+        dom_login_marker_detected=selected_debug.get("dom_login_marker_detected"),
+        authenticated_probe_ok=authenticated_probe_ok,
+    )
     LOGGER.info(
-        "cdp_secure_session_check secure_tab_count=%s selected_url=%r selected_title=%r cookies_found=%s cookie_names=%s cookie_error=%s",
+        "cdp_secure_session_check secure_tab_count=%s selected_target_id=%s selected_url=%r selected_title=%r final_document_url=%r selected_tab_active=%s cookies_found=%s cookie_names=%s cookie_domains=%s auth_cookie_present=%s auth_probe_ok=%s cookie_error=%s unauthenticated_reason=%s decision_tree=%s",
         len(secure_tabs),
+        selected_debug.get("selected_target_id"),
         preferred_tab.get("url") if preferred_tab else None,
         preferred_tab.get("title") if preferred_tab else None,
+        selected_debug.get("final_document_url"),
+        selected_debug.get("selected_tab_active"),
         len(cdp_cookies),
         cookie_names,
+        cookie_domains,
+        auth_cookie_present,
+        authenticated_probe_ok,
         cookie_error or "-",
+        unauthenticated_reason,
+        selected_debug.get("decision_tree"),
     )
     return {
         "tabs": tabs,
@@ -1148,9 +1250,139 @@ def _inspect_live_secure_session(cdp_port: int = DEFAULT_CDP_PORT) -> dict[str, 
         "preferred_tab": preferred_tab,
         "cookies": cdp_cookies,
         "cookie_names": cookie_names,
+        "cookie_domains": cookie_domains,
         "cookie_error": cookie_error,
         "rejection_reasons": rejection_reasons,
+        "auth_cookie_present": auth_cookie_present,
+        "authenticated_probe_ok": authenticated_probe_ok,
+        "unauthenticated_reason": unauthenticated_reason,
+        "debug": selected_debug,
     }
+
+
+def _derive_unauthenticated_reason(
+    *,
+    secure_tab_found: bool,
+    cookie_error: str | None,
+    cookie_count: int,
+    auth_cookie_present: bool,
+    dom_login_marker_detected: bool | None,
+    authenticated_probe_ok: bool,
+) -> str:
+    if not secure_tab_found:
+        return "no_secure_tab_found"
+    if cookie_error:
+        return "cookie_inspection_error"
+    if cookie_count == 0:
+        return "no_cookies_returned"
+    if not auth_cookie_present:
+        return "cookies_returned_but_no_auth_cookie_candidate"
+    if dom_login_marker_detected is True:
+        return "dom_indicates_login_page"
+    if not authenticated_probe_ok:
+        return "authenticated_probe_failed"
+    return "authenticated"
+
+
+def _inspect_target_session_via_cdp(*, cdp_port: int, target_id: str, tab_url: str) -> dict[str, Any]:
+    decision_tree: list[dict[str, Any]] = []
+    ws = connect_browser_ws(cdp_port)
+    try:
+        if not target_id:
+            raise ChromeCDPError("No target id selected for CDP inspection.")
+        attached = cdp_call(ws, "Target.attachToTarget", {"targetId": target_id, "flatten": True})
+        session_id = str(attached.get("sessionId") or "")
+        if not session_id:
+            raise ChromeCDPError(f"Target.attachToTarget returned no sessionId for target={target_id}.")
+        cdp_call(ws, "Runtime.enable", {}, session_id=session_id)
+        cdp_call(ws, "Page.enable", {}, session_id=session_id)
+        cookie_result = cdp_call(
+            ws,
+            "Network.getCookies",
+            {"urls": [f"https://{SECURE_DOMAIN}/", tab_url or f"https://{SECURE_DOMAIN}/cgi-bin/web_interface/admin/customers.cgi"]},
+            session_id=session_id,
+        )
+        raw_cookies = list(cookie_result.get("cookies") or [])
+        filtered_cookies = [cookie for cookie in raw_cookies if SECURE_DOMAIN in str(cookie.get("domain") or "").lower() or "123.net" in str(cookie.get("domain") or "").lower()]
+        cookie_names = sorted({str(cookie.get("name") or "") for cookie in filtered_cookies if cookie.get("name")})
+        cookie_domains = sorted({f"{cookie.get('domain') or ''}:{cookie.get('path') or '/'}" for cookie in filtered_cookies})
+        auth_cookie_candidates = [name for name in cookie_names if _looks_like_auth_cookie_name(name)]
+        auth_cookie_present = bool(auth_cookie_candidates)
+        decision_tree.append({"step": "cookie_inspection", "result": "ok", "reason": f"cookies={len(filtered_cookies)} auth_candidates={len(auth_cookie_candidates)}"})
+
+        eval_result = cdp_call(
+            ws,
+            "Runtime.evaluate",
+            {
+                "expression": """
+                    (() => {
+                      const href = window.location.href || '';
+                      const title = document.title || '';
+                      const body = (document.body && document.body.innerText ? document.body.innerText : '').toLowerCase();
+                      const loginLike = body.includes('login') || body.includes('sign in') || body.includes('username') || body.includes('password');
+                      return JSON.stringify({href, title, loginLike});
+                    })();
+                """,
+                "returnByValue": True,
+            },
+            session_id=session_id,
+        )
+        result_value = (((eval_result.get("result") or {}).get("value")) if isinstance(eval_result, dict) else None) or ""
+        parsed = json.loads(result_value) if isinstance(result_value, str) and result_value else {}
+        final_document_url = str(parsed.get("href") or tab_url or "")
+        document_title = str(parsed.get("title") or "")
+        dom_login_marker_detected = bool(parsed.get("loginLike"))
+        if dom_login_marker_detected:
+            decision_tree.append({"step": "dom_check", "result": "failed", "reason": "dom_indicates_login_page"})
+        else:
+            decision_tree.append({"step": "dom_check", "result": "ok", "reason": "dom_not_login_page"})
+        authenticated_probe_ok = bool(auth_cookie_present and not dom_login_marker_detected and _url_is_post_login(final_document_url))
+        if not authenticated_probe_ok:
+            decision_tree.append({"step": "authenticated_probe", "result": "failed", "reason": "authenticated_probe_request_returned_login_or_non_admin_page"})
+        else:
+            decision_tree.append({"step": "authenticated_probe", "result": "ok", "reason": "post_login_url_and_dom_checks_passed"})
+
+        cdp_call(ws, "Target.detachFromTarget", {"sessionId": session_id})
+        return {
+            "cookies": filtered_cookies,
+            "cookie_names": cookie_names,
+            "cookie_domains": cookie_domains,
+            "candidate_auth_cookie_names": auth_cookie_candidates,
+            "auth_cookie_candidate_present": auth_cookie_present,
+            "final_document_url": final_document_url,
+            "document_title": document_title,
+            "dom_login_marker_detected": dom_login_marker_detected,
+            "authenticated_probe_ok": authenticated_probe_ok,
+            "cookie_error": None,
+            "cookie_inspection_context": f"target:{target_id}",
+            "decision_tree": decision_tree,
+        }
+    except Exception as exc:
+        decision_tree.append({"step": "cdp_target_inspection", "result": "failed", "reason": str(exc)})
+        return {
+            "cookies": [],
+            "cookie_names": [],
+            "cookie_domains": [],
+            "candidate_auth_cookie_names": [],
+            "auth_cookie_candidate_present": False,
+            "final_document_url": tab_url or None,
+            "document_title": None,
+            "dom_login_marker_detected": None,
+            "authenticated_probe_ok": False,
+            "cookie_error": str(exc),
+            "cookie_inspection_context": f"target:{target_id or 'none'}",
+            "decision_tree": decision_tree,
+        }
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def _looks_like_auth_cookie_name(name: str) -> bool:
+    lowered = (name or "").strip().lower()
+    return any(marker in lowered for marker in AUTH_COOKIE_NAME_HINTS)
 
 
 def _url_is_post_login(url: str) -> bool:
@@ -2158,6 +2390,25 @@ def api_auth_validate(request: Request, payload: ValidateAuthRequest):
         raise HTTPException(status_code=403, detail="localhost requests only")
     _log(f"route_hit path=/api/auth/validate method=POST timeoutSeconds={payload.timeoutSeconds}")
     return _validate_auth_targets(payload.timeoutSeconds)
+
+
+@app.get("/api/auth/detect_debug")
+def api_auth_detect_debug(request: Request):
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="localhost requests only")
+    payload = _inspect_live_secure_session(DEFAULT_CDP_PORT) if _is_cdp_available(DEFAULT_CDP_PORT) else {"debug": {"decision_tree": [{"step": "cdp", "result": "failed", "reason": "cdp_unavailable"}]}}
+    return {
+        "ok": True,
+        "cdp_port": DEFAULT_CDP_PORT,
+        "secure_tab_detected": bool(payload.get("secure_tabs")),
+        "cookie_count": len(list(payload.get("cookies") or [])),
+        "cookie_names": list(payload.get("cookie_names") or []),
+        "cookie_domains": list(payload.get("cookie_domains") or []),
+        "auth_cookie_present": bool(payload.get("auth_cookie_present")),
+        "authenticated_probe_ok": bool(payload.get("authenticated_probe_ok")),
+        "unauthenticated_reason": payload.get("unauthenticated_reason"),
+        "debug": payload.get("debug") or {},
+    }
 
 
 @app.post("/api/auth/hybrid")
