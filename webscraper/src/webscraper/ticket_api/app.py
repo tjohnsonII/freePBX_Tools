@@ -83,6 +83,7 @@ from webscraper.ticket_api.orchestration import (
     OrchestratorDeps,
     WebScraperOrchestrator,
 )
+from webscraper import ultimate_scraper_legacy as legacy_scraper
 
 SCRAPE_TIMEOUT_SECONDS = 3600
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
@@ -117,6 +118,14 @@ def resolve_profile_dir(user_data_dir: str, profile: str) -> Path:
     return ud / p
 
 LOGGER = setup_logging("ticket_api")
+
+LOGIN_URL_HINTS = ("login", "signin", "sign-in", "oauth", "sso", "keycloak", "auth")
+POST_LOGIN_SELECTORS = (
+    "input[name='customer_name']",
+    "select[name='customer_name']",
+    "form[action*='customers.cgi']",
+    "table",
+)
 
 
 def _orchestrator_detect_browser() -> dict[str, Any]:
@@ -276,6 +285,94 @@ def _orchestrator_seed_auth() -> dict[str, Any]:
 def _orchestrator_validate_auth() -> dict[str, Any]:
     probe = probe_auth(timeout_seconds=10)
     return {"authenticated": bool(probe.authenticated), "reason": probe.reason, "checks": [row.model_dump() for row in probe.checks]}
+
+
+def _looks_like_login_page(url: str, page_source: str) -> bool:
+    haystack = f"{url} {page_source}".lower()
+    return any(hint in haystack for hint in LOGIN_URL_HINTS)
+
+
+def _wait_for_post_login_ready(driver: Any, timeout_seconds: int = 300) -> str:
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    wait = WebDriverWait(driver, timeout_seconds)
+    for selector in POST_LOGIN_SELECTORS:
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+            return selector
+        except Exception:
+            continue
+    raise TimeoutError(f"Timed out waiting for a post-login selector: {POST_LOGIN_SELECTORS}")
+
+
+def _run_selenium_fallback_scrape() -> dict[str, Any]:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+
+    handles = load_handles()
+    selected_handles = handles[: min(25, len(handles))]
+    if not selected_handles:
+        raise RuntimeError("No handles available to scrape")
+
+    before_stats = db.get_stats(db_path())
+    before_tickets = int(before_stats.get("total_tickets", 0))
+
+    options = Options()
+    options.add_argument("--start-maximized")
+    driver = None
+    try:
+        LOGGER.info("selenium_launch browser=chrome headless=false")
+        driver = webdriver.Chrome(options=options)
+        LOGGER.info("selenium_navigation url=%s", CHROME_CUSTOMERS_URL)
+        driver.get(CHROME_CUSTOMERS_URL)
+        source = driver.page_source or ""
+        if _looks_like_login_page(driver.current_url or "", source):
+            LOGGER.info("selenium_login_detected mode=manual_wait reason=login_page_detected")
+        matched_selector = _wait_for_post_login_ready(driver=driver, timeout_seconds=300)
+        LOGGER.info("selenium_login_detected mode=post_login_selector selector=%s", matched_selector)
+
+        cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
+        LOGGER.info("selenium_cookie_count count=%s domains=%s", cookie_summary.get("count", 0), cookie_summary.get("domains", []))
+        _ = selenium_driver_to_requests_session(driver)
+
+        run_output_dir = str((runs_dir() / f"selenium_fallback_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}").resolve())
+        os.makedirs(run_output_dir, exist_ok=True)
+
+        LOGGER.info("selenium_scrape_start handles=%s output_dir=%s", len(selected_handles), run_output_dir)
+        legacy_scraper.selenium_scrape_tickets(
+            url=CHROME_CUSTOMERS_URL,
+            output_dir=run_output_dir,
+            handles=selected_handles,
+            headless=False,
+            show_browser=True,
+            browser="chrome",
+            auth_orchestration=False,
+            auth_pause=True,
+            auth_timeout=300,
+            db_path=db_path(),
+        )
+        after_stats = db.get_stats(db_path())
+        after_tickets = int(after_stats.get("total_tickets", 0))
+        ticket_count = max(0, after_tickets - before_tickets)
+        LOGGER.info("selenium_scrape_result success=true ticket_count=%s before=%s after=%s", ticket_count, before_tickets, after_tickets)
+        return {
+            "success": True,
+            "ticket_count": ticket_count,
+            "handles_attempted": len(selected_handles),
+            "output_dir": run_output_dir,
+            "cookie_count": int(cookie_summary.get("count", 0)),
+        }
+    except Exception as exc:
+        LOGGER.exception("selenium_error error=%s", exc)
+        return {"success": False, "ticket_count": 0, "error": str(exc)}
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
 
 def _orchestrator_run_scrape(job_id: str) -> dict[str, Any]:
@@ -3079,6 +3176,11 @@ def api_scrape_run_v2():
 @app.post("/api/scrape/run-e2e")
 def api_scrape_run_e2e():
     return ORCHESTRATOR.run_end_to_end()
+
+
+@app.post("/api/scrape/selenium_fallback")
+def api_scrape_selenium_fallback():
+    return _run_selenium_fallback_scrape()
 
 
 @app.get("/api/jobs")

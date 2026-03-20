@@ -1208,3 +1208,22 @@ def test_handles_endpoint_shape_matches_ticket_ui_expectations(tmp_path, monkeyp
     assert payload["items"], "Expected at least one handle row"
     first = payload["items"][0]
     assert "handle" in first
+
+
+def test_selenium_fallback_scrape_endpoint_returns_result(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(
+        appmod,
+        "_run_selenium_fallback_scrape",
+        lambda: {"success": True, "ticket_count": 3, "handles_attempted": 2},
+    )
+
+    client = TestClient(appmod.app)
+    response = client.post("/api/scrape/selenium_fallback", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["ticket_count"] == 3
