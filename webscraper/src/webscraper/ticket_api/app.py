@@ -1294,18 +1294,87 @@ def _inspect_target_session_via_cdp(*, cdp_port: int, target_id: str, tab_url: s
         session_id = str(attached.get("sessionId") or "")
         if not session_id:
             raise ChromeCDPError(f"Target.attachToTarget returned no sessionId for target={target_id}.")
+        target_info = cdp_call(ws, "Target.getTargetInfo", {"targetId": target_id})
+        browser_context_id = str((target_info.get("targetInfo") or {}).get("browserContextId") or "")
         cdp_call(ws, "Runtime.enable", {}, session_id=session_id)
         cdp_call(ws, "Page.enable", {}, session_id=session_id)
+        cookie_urls = [
+            tab_url or f"https://{SECURE_DOMAIN}/cgi-bin/web_interface/admin/customers.cgi",
+            f"https://{SECURE_DOMAIN}/",
+            "https://123.net/",
+        ]
         cookie_result = cdp_call(
             ws,
             "Network.getCookies",
-            {"urls": [f"https://{SECURE_DOMAIN}/", tab_url or f"https://{SECURE_DOMAIN}/cgi-bin/web_interface/admin/customers.cgi"]},
+            {"urls": cookie_urls},
             session_id=session_id,
         )
-        raw_cookies = list(cookie_result.get("cookies") or [])
-        filtered_cookies = [cookie for cookie in raw_cookies if SECURE_DOMAIN in str(cookie.get("domain") or "").lower() or "123.net" in str(cookie.get("domain") or "").lower()]
+        target_raw_cookies = list(cookie_result.get("cookies") or [])
+        LOGGER.info(
+            "cdp_cookie_fetch method=Network.getCookies target_id=%s session_id=%s browser_context_id=%s scope=target urls=%s raw_cookie_count=%s",
+            target_id,
+            session_id,
+            browser_context_id or "-",
+            cookie_urls,
+            len(target_raw_cookies),
+        )
+        raw_cookies = list(target_raw_cookies)
+        cookie_inspection_context = f"target:{target_id}"
+        if not raw_cookies:
+            all_cookie_result = cdp_call(ws, "Network.getAllCookies", {}, session_id=session_id)
+            all_target_cookies = list(all_cookie_result.get("cookies") or [])
+            LOGGER.info(
+                "cdp_cookie_fetch method=Network.getAllCookies target_id=%s session_id=%s browser_context_id=%s scope=target raw_cookie_count=%s",
+                target_id,
+                session_id,
+                browser_context_id or "-",
+                len(all_target_cookies),
+            )
+            raw_cookies = list(all_target_cookies)
+            cookie_inspection_context = f"target_all:{target_id}"
+        if not raw_cookies:
+            all_cookie_result = cdp_call(ws, "Network.getAllCookies", {})
+            browser_all_cookies = list(all_cookie_result.get("cookies") or [])
+            LOGGER.info(
+                "cdp_cookie_fetch method=Network.getAllCookies target_id=%s session_id=%s browser_context_id=%s scope=browser raw_cookie_count=%s",
+                target_id,
+                session_id,
+                browser_context_id or "-",
+                len(browser_all_cookies),
+            )
+            raw_cookies = list(browser_all_cookies)
+            cookie_inspection_context = "browser"
+            decision_tree.append({"step": "cookie_fetch_fallback", "result": "ok", "reason": "target_scoped_empty_used_browser_scoped"})
+        filter_criteria = f"domain contains {SECURE_DOMAIN} or 123.net"
+        filtered_cookies = [
+            cookie
+            for cookie in raw_cookies
+            if SECURE_DOMAIN in str(cookie.get("domain") or "").lower() or "123.net" in str(cookie.get("domain") or "").lower()
+        ]
+        LOGGER.info(
+            "cdp_cookie_filter criteria=%r target_id=%s scope=%s raw_cookie_count=%s filtered_cookie_count=%s",
+            filter_criteria,
+            target_id,
+            cookie_inspection_context,
+            len(raw_cookies),
+            len(filtered_cookies),
+        )
         cookie_names = sorted({str(cookie.get("name") or "") for cookie in filtered_cookies if cookie.get("name")})
         cookie_domains = sorted({f"{cookie.get('domain') or ''}:{cookie.get('path') or '/'}" for cookie in filtered_cookies})
+        cookie_name_domain_pairs = sorted(
+            {
+                f"{str(cookie.get('name') or '')}@{str(cookie.get('domain') or '')}"
+                for cookie in filtered_cookies
+                if cookie.get("name")
+            }
+        )
+        LOGGER.info(
+            "cdp_cookie_inventory target_id=%s scope=%s names=%s name_domain_pairs=%s",
+            target_id,
+            cookie_inspection_context,
+            cookie_names,
+            cookie_name_domain_pairs,
+        )
         auth_cookie_candidates = [name for name in cookie_names if _looks_like_auth_cookie_name(name)]
         auth_cookie_present = bool(auth_cookie_candidates)
         decision_tree.append({"step": "cookie_inspection", "result": "ok", "reason": f"cookies={len(filtered_cookies)} auth_candidates={len(auth_cookie_candidates)}"})
@@ -1354,8 +1423,9 @@ def _inspect_target_session_via_cdp(*, cdp_port: int, target_id: str, tab_url: s
             "dom_login_marker_detected": dom_login_marker_detected,
             "authenticated_probe_ok": authenticated_probe_ok,
             "cookie_error": None,
-            "cookie_inspection_context": f"target:{target_id}",
+            "cookie_inspection_context": cookie_inspection_context,
             "decision_tree": decision_tree,
+            "browser_context_id": browser_context_id or None,
         }
     except Exception as exc:
         decision_tree.append({"step": "cdp_target_inspection", "result": "failed", "reason": str(exc)})
@@ -1415,8 +1485,14 @@ def _auto_seed_and_validate(port: int = DEFAULT_CDP_PORT) -> bool:
                 return False
 
             if not result.cookies:
-                _log("[AUTO] CDP seed returned 0 cookies – user may not be logged in yet")
-                _record_seed_outcome(success=False, error="CDP seed returned 0 cookies", fatal=False)
+                live_session = _inspect_live_secure_session(port) if _is_cdp_available(port) else {}
+                secure_tab_detected = bool((live_session or {}).get("secure_tabs"))
+                if secure_tab_detected:
+                    _log("[AUTO] post-login tab detected but CDP cookie retrieval returned 0")
+                    _record_seed_outcome(success=False, error="post-login tab detected but CDP cookie retrieval returned 0", fatal=False)
+                else:
+                    _log("[AUTO] CDP seed returned 0 cookies")
+                    _record_seed_outcome(success=False, error="CDP seed returned 0 cookies", fatal=False)
                 return False
 
             store_result = auth_store.replace_cookies(db_path(), result.cookies, source="seed_cdp_auto")
