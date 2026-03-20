@@ -401,6 +401,7 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
     finally:
         ws.close()
 
+    LOGGER.info("[AUTH][CDP] method=Network.getAllCookies(raw_target_then_browser_fallback) raw_cookie_count=%s port=%s", len(all_cookies), port)
     filtered = [
         {
             "name": str(cookie.get("name") or ""),
@@ -415,6 +416,13 @@ def seed_from_cdp(cdp_url_or_port: str | int | None, domains: list[str]) -> Seed
         for cookie in all_cookies
         if _domain_match(str(cookie.get("domain") or ""), selected_domains)
     ]
+    LOGGER.info(
+        "[AUTH][CDP] domain_filter selected_domains=%s raw_cookie_count=%s filtered_cookie_count=%s port=%s",
+        selected_domains,
+        len(all_cookies),
+        len(filtered),
+        port,
+    )
     LOGGER.info("[AUTH][CDP] loaded cookies count=%s port=%s", len(filtered), port)
     return SeedResult(mode_used="cdp", cookies=filtered, details={"cdp_port": port})
 

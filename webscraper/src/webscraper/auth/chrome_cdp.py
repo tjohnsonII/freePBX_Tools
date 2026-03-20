@@ -135,8 +135,14 @@ def _open_target_session(ws: Any) -> str:
 
 def get_all_cookies(ws: Any) -> list[dict[str, Any]]:
     session_id = _open_target_session(ws)
-    result = cdp_call(ws, "Network.getAllCookies", {}, session_id=session_id)
-    cookies = result.get("cookies") or []
+    session_result = cdp_call(ws, "Network.getAllCookies", {}, session_id=session_id)
+    session_cookies = session_result.get("cookies") or []
+    if isinstance(session_cookies, list) and session_cookies:
+        return session_cookies
+    # Some Chrome versions/profile attach flows return an empty list on a target
+    # session even when browser-context cookies exist. Fall back to browser-level.
+    browser_result = cdp_call(ws, "Network.getAllCookies", {})
+    cookies = browser_result.get("cookies") or []
     if isinstance(cookies, list):
         return cookies
     return []

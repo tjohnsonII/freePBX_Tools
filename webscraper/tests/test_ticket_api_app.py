@@ -801,9 +801,11 @@ def test_browser_detect_with_explicit_chrome(tmp_path, monkeypatch):
             "tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
             "secure_tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
             "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
-            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
-            "cookie_names": ["sid"],
+            "cookies": [{"name": "PHPSESSID", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "cookie_names": ["PHPSESSID"],
             "cookie_error": None,
+            "auth_cookie_present": True,
+            "authenticated_probe_ok": True,
         },
     )
 
@@ -918,6 +920,90 @@ def test_inspect_live_secure_session_prefers_secure_tab_over_about_blank(monkeyp
     assert result["cookie_names"] == ["PHPSESSID"]
     assert result["authenticated_probe_ok"] is True
     assert result["auth_cookie_present"] is True
+
+
+def test_inspect_target_session_via_cdp_falls_back_to_browser_all_cookies(monkeypatch):
+    class _FakeWs:
+        def close(self):
+            return None
+
+    def fake_cdp_call(_ws, method, params=None, session_id=None):
+        if method == "Target.attachToTarget":
+            return {"sessionId": "session-1"}
+        if method == "Target.getTargetInfo":
+            return {"targetInfo": {"targetId": "tab-1", "browserContextId": "ctx-1"}}
+        if method in {"Runtime.enable", "Page.enable"}:
+            return {}
+        if method == "Network.getCookies":
+            return {"cookies": []}
+        if method == "Network.getAllCookies" and session_id:
+            return {"cookies": []}
+        if method == "Network.getAllCookies" and not session_id:
+            return {
+                "cookies": [
+                    {"name": "PHPSESSID", "domain": "123.net", "path": "/"},
+                    {"name": "x", "domain": "example.com", "path": "/"},
+                ]
+            }
+        if method == "Runtime.evaluate":
+            return {"result": {"value": '{"href":"https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi","title":"Customers","loginLike":false}'}}
+        if method == "Target.detachFromTarget":
+            return {}
+        raise AssertionError(f"Unexpected method {method}")
+
+    monkeypatch.setattr(appmod, "connect_browser_ws", lambda _port: _FakeWs())
+    monkeypatch.setattr(appmod, "cdp_call", fake_cdp_call)
+
+    result = appmod._inspect_target_session_via_cdp(
+        cdp_port=9222,
+        target_id="tab-1",
+        tab_url="https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+    )
+
+    assert result["cookie_inspection_context"] == "browser"
+    assert result["cookie_names"] == ["PHPSESSID"]
+    assert result["cookie_domains"] == ["123.net:/"]
+    assert result["browser_context_id"] == "ctx-1"
+
+
+def test_inspect_target_session_via_cdp_keeps_secure_and_parent_domains(monkeypatch):
+    class _FakeWs:
+        def close(self):
+            return None
+
+    def fake_cdp_call(_ws, method, params=None, session_id=None):
+        if method == "Target.attachToTarget":
+            return {"sessionId": "session-1"}
+        if method == "Target.getTargetInfo":
+            return {"targetInfo": {"targetId": "tab-2"}}
+        if method in {"Runtime.enable", "Page.enable"}:
+            return {}
+        if method == "Network.getCookies":
+            return {
+                "cookies": [
+                    {"name": "A", "domain": "secure.123.net", "path": "/"},
+                    {"name": "B", "domain": ".123.net", "path": "/"},
+                    {"name": "C", "domain": "other.net", "path": "/"},
+                ]
+            }
+        if method == "Runtime.evaluate":
+            return {"result": {"value": '{"href":"https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi","title":"Customers","loginLike":false}'}}
+        if method == "Target.detachFromTarget":
+            return {}
+        raise AssertionError(f"Unexpected method {method}")
+
+    monkeypatch.setattr(appmod, "connect_browser_ws", lambda _port: _FakeWs())
+    monkeypatch.setattr(appmod, "cdp_call", fake_cdp_call)
+
+    result = appmod._inspect_target_session_via_cdp(
+        cdp_port=9222,
+        target_id="tab-2",
+        tab_url="https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+    )
+
+    assert result["cookie_names"] == ["A", "B"]
+    assert "secure.123.net:/" in result["cookie_domains"]
+    assert ".123.net:/" in result["cookie_domains"]
 
 
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
