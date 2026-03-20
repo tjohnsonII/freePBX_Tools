@@ -1316,6 +1316,48 @@ def api_logs_tail(
     return {"name": log_file.name, "lines": rows}
 
 
+# ── VPBX endpoints ───────────────────────────────────────────────────────────
+
+
+@app.get("/api/vpbx/records")
+def api_vpbx_records():
+    """Return cached VPBX records from the database (no live scrape)."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_vpbx_records(db_path())}
+
+
+@app.post("/api/vpbx/refresh")
+def api_vpbx_refresh(request: Request):
+    """Trigger a live fetch from vpbx.cgi, upsert results, and return them."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX refresh is localhost-only")
+
+    username = (os.getenv("VPBX_USERNAME") or "").strip()
+    password = (os.getenv("VPBX_PASSWORD") or "").strip()
+    if not username or not password:
+        raise HTTPException(
+            status_code=503,
+            detail="VPBX credentials not configured — set VPBX_USERNAME and VPBX_PASSWORD env vars",
+        )
+
+    from webscraper.vpbx.handles import VpbxConfig, fetch_handles  # noqa: PLC0415
+
+    base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+    config = VpbxConfig(base_url=base_url, username=username, password=password)
+
+    try:
+        records = fetch_handles(config)
+    except Exception as exc:
+        LOGGER.exception("vpbx_refresh_failed")
+        raise HTTPException(status_code=502, detail=f"VPBX fetch failed: {exc}") from exc
+
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.upsert_vpbx_records(db_path(), records, now)
+    LOGGER.info("vpbx_refresh_done count=%s", len(records))
+    return {"items": db.list_vpbx_records(db_path()), "refreshed_count": len(records)}
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 

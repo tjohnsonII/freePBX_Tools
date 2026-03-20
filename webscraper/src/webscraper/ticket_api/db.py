@@ -246,6 +246,22 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS vpbx_records (
+                    handle TEXT PRIMARY KEY,
+                    name TEXT,
+                    account_status TEXT,
+                    ip TEXT,
+                    web_order TEXT,
+                    deployment_id TEXT,
+                    switch TEXT,
+                    devices TEXT,
+                    last_seen_utc TEXT
+                );
+                """
+            )
+
             auth_cookie_columns = table_columns(conn, "auth_cookies")
             if "expires" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN expires INTEGER")
@@ -891,3 +907,50 @@ def get_company_timeline(db_path: str, handle: str, limit: int = 500) -> list[di
             (handle, max(1, min(limit, 5000))),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT handle, name, account_status, ip, web_order, deployment_id, switch, devices, last_seen_utc"
+            " FROM vpbx_records ORDER BY handle ASC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def upsert_vpbx_records(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                handle = (rec.get("handle") or "").strip()
+                if not handle:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO vpbx_records(handle, name, account_status, ip, web_order, deployment_id, switch, devices, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(handle) DO UPDATE SET
+                        name=excluded.name,
+                        account_status=excluded.account_status,
+                        ip=excluded.ip,
+                        web_order=excluded.web_order,
+                        deployment_id=excluded.deployment_id,
+                        switch=excluded.switch,
+                        devices=excluded.devices,
+                        last_seen_utc=excluded.last_seen_utc
+                    """,
+                    (
+                        handle,
+                        rec.get("name") or "",
+                        rec.get("account_status") or "",
+                        rec.get("ip") or "",
+                        rec.get("web_order") or "",
+                        rec.get("deployment_id") or "",
+                        rec.get("switch") or "",
+                        rec.get("devices") or "",
+                        rec.get("last_seen_utc") or now_utc,
+                    ),
+                )
+    return len(records)
