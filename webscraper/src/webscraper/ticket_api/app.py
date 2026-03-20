@@ -1258,6 +1258,26 @@ def jobs_build_timeline(payload: dict[str, Any]):
     }
 
 
+@app.get("/api/companies/{handle}")
+def api_company_detail(handle: str):
+    return company_detail(handle)
+
+
+@app.get("/api/companies/{handle}/tickets")
+def api_company_tickets(handle: str, limit: int = Query(default=200, ge=1, le=1000)):
+    return company_tickets(handle, limit=limit)
+
+
+@app.get("/api/companies/{handle}/timeline")
+def api_company_timeline(handle: str, limit: int = Query(default=200, ge=1, le=5000)):
+    return company_timeline(handle, limit=limit)
+
+
+@app.post("/api/jobs/build-timeline")
+def api_jobs_build_timeline(payload: dict[str, Any]):
+    return jobs_build_timeline(payload)
+
+
 # ── Log API endpoints ─────────────────────────────────────────────────────────
 
 

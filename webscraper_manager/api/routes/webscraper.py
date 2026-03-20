@@ -71,6 +71,59 @@ async def webscraper_status() -> dict:
     return _fetch_all()
 
 
+@router.get("/handles")
+async def webscraper_handles(q: str = "", limit: int = 500) -> dict:
+    try:
+        result = _get(f"/api/handles/summary?q={q}&limit={limit}")
+    except (URLError, OSError) as exc:
+        return {"items": [], "error": str(exc)}
+    return {"items": result if isinstance(result, list) else []}
+
+
+@router.get("/company/{handle}")
+async def webscraper_company(handle: str) -> dict:
+    detail: dict = {}
+    tickets: dict = {}
+    timeline: dict = {}
+    errors: list[str] = []
+    try:
+        detail = _get(f"/companies/{handle}")
+    except (URLError, OSError) as exc:
+        errors.append(f"detail: {exc}")
+    try:
+        tickets = _get(f"/companies/{handle}/tickets?limit=200")
+    except (URLError, OSError) as exc:
+        errors.append(f"tickets: {exc}")
+    try:
+        timeline = _get(f"/companies/{handle}/timeline?limit=200")
+    except (URLError, OSError) as exc:
+        errors.append(f"timeline: {exc}")
+    return {
+        "handle": handle,
+        "company": detail.get("company"),
+        "latest": detail.get("latest"),
+        "tickets": tickets.get("items", []),
+        "timeline": timeline.get("items", []),
+        "errors": errors,
+    }
+
+
+@router.post("/company/{handle}/build-timeline")
+async def webscraper_build_timeline(handle: str) -> dict:
+    import urllib.request as _ur
+    req = _ur.Request(
+        f"{TICKET_API}/jobs/build-timeline",
+        data=json.dumps({"handle": handle}).encode(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    except (URLError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @router.get("/events")
 async def webscraper_events() -> dict:
     """Return recent events from the most recent scrape job, normalized to the manager event shape."""
