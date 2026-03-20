@@ -1328,34 +1328,46 @@ def api_vpbx_records():
 
 @app.post("/api/vpbx/refresh")
 def api_vpbx_refresh(request: Request):
-    """Trigger a live fetch from vpbx.cgi, upsert results, and return them."""
+    """Start a background Selenium job to scrape vpbx.cgi. Returns job_id immediately."""
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="VPBX refresh is localhost-only")
 
-    username = (os.getenv("VPBX_USERNAME") or "").strip()
-    password = (os.getenv("VPBX_PASSWORD") or "").strip()
-    if not username or not password:
-        raise HTTPException(
-            status_code=503,
-            detail="VPBX credentials not configured — set VPBX_USERNAME and VPBX_PASSWORD env vars",
-        )
-
-    from webscraper.vpbx.handles import VpbxConfig, fetch_handles  # noqa: PLC0415
-
-    base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
-    config = VpbxConfig(base_url=base_url, username=username, password=password)
-
-    try:
-        records = fetch_handles(config)
-    except Exception as exc:
-        LOGGER.exception("vpbx_refresh_failed")
-        raise HTTPException(status_code=502, detail=f"VPBX fetch failed: {exc}") from exc
-
+    job_id = str(uuid.uuid4())
     now = _iso_now()
     db.ensure_indexes(db_path())
-    db.upsert_vpbx_records(db_path(), records, now)
-    LOGGER.info("vpbx_refresh_done count=%s", len(records))
-    return {"items": db.list_vpbx_records(db_path()), "refreshed_count": len(records)}
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode="vpbx",
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", "vpbx_refresh_queued", job_id=job_id)
+
+    def _run() -> None:
+        from webscraper.vpbx.handles import fetch_handles_selenium  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx:{msg}", job_id=job_id)
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            records = fetch_handles_selenium(base_url, login_timeout_seconds=login_timeout,
+                                             emit_fn=_emit)
+            finished = _iso_now()
+            db.upsert_vpbx_records(db_path(), records, finished)
+            _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
+                               finished_utc=finished,
+                               result={"vpbx_count": len(records)})
+            _append_event("info", f"vpbx_refresh_done count={len(records)}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("vpbx_refresh_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
+                               finished_utc=_iso_now(), error_message=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-refresh-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────

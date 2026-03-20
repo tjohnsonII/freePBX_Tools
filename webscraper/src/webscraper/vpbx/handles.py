@@ -5,16 +5,6 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
-import requests
-from bs4 import BeautifulSoup
-
-
-@dataclass
-class VpbxConfig:
-    base_url: str
-    username: str
-    password: str
-
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -36,51 +26,11 @@ def _normalize_header(value: str) -> str:
     return aliases.get(text, text.replace(" ", "_"))
 
 
-def _extract_form_fields(form: Any) -> tuple[str | None, str | None, dict[str, str]]:
-    fields: dict[str, str] = {}
-    username_field: str | None = None
-    password_field: str | None = None
-    for element in form.find_all("input"):
-        name = (element.get("name") or "").strip()
-        if not name:
-            continue
-        input_type = (element.get("type") or "text").strip().lower()
-        fields[name] = element.get("value") or ""
-        lowered = name.lower()
-        if input_type == "password" or "password" in lowered or lowered in {"pass", "pwd"}:
-            password_field = name
-        if lowered in {"username", "user", "login", "email"}:
-            username_field = name
-    return username_field, password_field, fields
+def _parse_vpbx_page_source(page_source: str) -> list[dict[str, str]]:
+    """Parse the VPBX handles table from raw HTML source."""
+    from bs4 import BeautifulSoup
 
-
-def _login(session: requests.Session, config: VpbxConfig, target_url: str) -> None:
-    first = session.get(target_url, timeout=30)
-    first.raise_for_status()
-    soup = BeautifulSoup(first.text, "lxml")
-    form = soup.find("form")
-    if form is None:
-        return
-
-    username_field, password_field, fields = _extract_form_fields(form)
-    if not password_field:
-        return
-    action = form.get("action") or target_url
-    login_url = urljoin(target_url, action)
-    fields[username_field or "username"] = config.username
-    fields[password_field] = config.password
-    response = session.post(login_url, data=fields, timeout=30)
-    response.raise_for_status()
-
-
-def fetch_handles(config: VpbxConfig) -> list[dict[str, str]]:
-    session = requests.Session()
-    target_url = urljoin(config.base_url.rstrip("/") + "/", "cgi-bin/web_interface/admin/vpbx.cgi")
-    _login(session, config, target_url)
-    page = session.get(target_url, timeout=30)
-    page.raise_for_status()
-
-    soup = BeautifulSoup(page.text, "lxml")
+    soup = BeautifulSoup(page_source, "lxml")
     table = None
     for candidate in soup.find_all("table"):
         headers = [_normalize_header(th.get_text(" ", strip=True)) for th in candidate.find_all("th")]
@@ -114,3 +64,50 @@ def fetch_handles(config: VpbxConfig) -> list[dict[str, str]]:
         }
     return list(discovered.values())
 
+
+def fetch_handles_selenium(
+    base_url: str,
+    *,
+    login_timeout_seconds: int = 300,
+    emit_fn: Any = None,
+) -> list[dict[str, str]]:
+    """Open a visible Chrome window, wait for SSO auth, scrape vpbx.cgi, return records."""
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    target_url = urljoin(base_url.rstrip("/") + "/", "cgi-bin/web_interface/admin/vpbx.cgi")
+
+    def _emit(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
+
+    options = Options()
+    options.add_argument("--start-maximized")
+    driver = webdriver.Chrome(options=options)
+    try:
+        _emit("launched_browser")
+        driver.get(target_url)
+        _emit("waiting_for_login")
+
+        # Wait until we land on vpbx.cgi and the page has a table (not a login page)
+        WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
+            lambda d: "vpbx.cgi" in (d.current_url or "")
+            and len(d.find_elements(By.TAG_NAME, "table")) > 0
+        )
+        _emit("login_confirmed")
+
+        # Give the page a moment to fully render
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.TAG_NAME, "table"))
+        )
+        page_source = driver.page_source
+        _emit("page_source_captured")
+    finally:
+        driver.quit()
+
+    records = _parse_vpbx_page_source(page_source)
+    _emit(f"parsed_records count={len(records)}")
+    return records
