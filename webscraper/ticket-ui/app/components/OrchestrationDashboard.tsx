@@ -36,7 +36,20 @@ type SystemStatus = {
 };
 
 type StepResult = { ok: boolean; state: StepState; detail: string; data?: Record<string, unknown> };
-type SeleniumFallbackResult = { success: boolean; ticket_count: number; error?: string; handles_attempted?: number };
+type SeleniumFallbackStart = { queued: boolean; job_id: string; handles_total: number; status: string };
+type SeleniumFallbackJob = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  error_message?: string | null;
+  result?: {
+    status_message?: string;
+    current_handle?: string | null;
+    completed_handles?: number;
+    total_handles?: number;
+    ticket_count?: number;
+    error?: string;
+  } | null;
+};
 
 export default function OrchestrationDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -44,7 +57,7 @@ export default function OrchestrationDashboard() {
   const [steps, setSteps] = useState<StepResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [seleniumResult, setSeleniumResult] = useState<SeleniumFallbackResult | null>(null);
+  const [seleniumJob, setSeleniumJob] = useState<SeleniumFallbackJob | null>(null);
 
   const reload = async () => {
     try {
@@ -97,12 +110,31 @@ export default function OrchestrationDashboard() {
     setBusy("selenium-fallback");
     setError(null);
     try {
-      const result = await apiPost<SeleniumFallbackResult>("/api/scrape/selenium_fallback", {});
-      setSeleniumResult(result);
+      const start = await apiPost<SeleniumFallbackStart>("/api/scrape/selenium_fallback", {});
+      const startedJob: SeleniumFallbackJob = {
+        job_id: start.job_id,
+        status: "queued",
+        result: { status_message: "queued", completed_handles: 0, total_handles: start.handles_total, ticket_count: 0 },
+      };
+      setSeleniumJob(startedJob);
+      let done = false;
+      while (!done) {
+        const next = await apiGet<SeleniumFallbackJob>(`/jobs/${start.job_id}`);
+        setSeleniumJob(next);
+        done = next.status === "completed" || next.status === "failed";
+        if (!done) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setSeleniumResult({ success: false, ticket_count: 0, error: e instanceof Error ? e.message : String(e) });
+      setSeleniumJob({
+        job_id: "unknown",
+        status: "failed",
+        error_message: e instanceof Error ? e.message : String(e),
+        result: { status_message: "failed", error: e instanceof Error ? e.message : String(e), ticket_count: 0 },
+      });
     } finally {
       setBusy(null);
     }
@@ -134,13 +166,18 @@ export default function OrchestrationDashboard() {
         <button onClick={runSeleniumFallback} disabled={!!busy}>Run Selenium Fallback Scrape</button>
         <button onClick={runE2E} disabled={!!busy}>Run End-to-End</button>
       </div>
-      {seleniumResult ? (
+      {seleniumJob ? (
         <div style={{ marginTop: 10 }}>
-          <strong>Selenium fallback result</strong>
+          <strong>Selenium fallback job</strong>
           <div>
-            status={seleniumResult.success ? "success" : "failure"} · ticket_count={seleniumResult.ticket_count}
-            {typeof seleniumResult.handles_attempted === "number" ? ` · handles=${seleniumResult.handles_attempted}` : ""}
-            {seleniumResult.error ? ` · error=${seleniumResult.error}` : ""}
+            job_id={seleniumJob.job_id} · status={seleniumJob.status}
+            {typeof seleniumJob.result?.completed_handles === "number" && typeof seleniumJob.result?.total_handles === "number"
+              ? ` · progress=${seleniumJob.result.completed_handles}/${seleniumJob.result.total_handles}`
+              : ""}
+            {typeof seleniumJob.result?.ticket_count === "number" ? ` · ticket_count=${seleniumJob.result.ticket_count}` : ""}
+            {seleniumJob.result?.current_handle ? ` · current_handle=${seleniumJob.result.current_handle}` : ""}
+            {seleniumJob.result?.status_message ? ` · message=${seleniumJob.result.status_message}` : ""}
+            {seleniumJob.error_message || seleniumJob.result?.error ? ` · error=${seleniumJob.error_message || seleniumJob.result?.error}` : ""}
           </div>
         </div>
       ) : null}

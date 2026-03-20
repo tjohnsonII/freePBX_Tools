@@ -1210,14 +1210,15 @@ def test_handles_endpoint_shape_matches_ticket_ui_expectations(tmp_path, monkeyp
     assert "handle" in first
 
 
-def test_selenium_fallback_scrape_endpoint_returns_result(tmp_path, monkeypatch):
+def test_selenium_fallback_scrape_endpoint_queues_job(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
     monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_load_selenium_fallback_handles", lambda: ["WS7", "ABC"])
     monkeypatch.setattr(
-        appmod,
-        "_run_selenium_fallback_scrape",
-        lambda: {"success": True, "ticket_count": 3, "handles_attempted": 2},
+        appmod.threading,
+        "Thread",
+        lambda *args, **kwargs: type("DummyThread", (), {"start": lambda self: None})(),
     )
 
     client = TestClient(appmod.app)
@@ -1225,5 +1226,7 @@ def test_selenium_fallback_scrape_endpoint_returns_result(tmp_path, monkeypatch)
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["success"] is True
-    assert payload["ticket_count"] == 3
+    assert payload["queued"] is True
+    assert payload["status"] == "queued"
+    assert payload["handles_total"] == 2
+    assert payload["job_id"]
