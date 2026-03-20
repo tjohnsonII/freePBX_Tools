@@ -593,6 +593,18 @@ def _run_scrape_job(
                 handle_summary["detail_errors"] = detail_errors
                 handle_summaries.append(handle_summary)
 
+                # Persist scraped tickets to SQLite so KB search works
+                try:
+                    db.upsert_tickets_batch(db_path(), handle, handle_tickets)
+                    db.update_handle_progress(
+                        db_path(), handle,
+                        status="ok",
+                        last_updated_utc=_iso_now(),
+                        ticket_count=len(handle_tickets),
+                    )
+                except Exception as db_exc:
+                    LOGGER.warning("scrape_db_write_failed handle=%s error=%s", handle, db_exc)
+
             except Exception as handle_exc:
                 handle_summary["status"] = "failed"
                 handle_summary["error"] = str(handle_exc)
@@ -1095,6 +1107,83 @@ def api_ticket(ticket_id: str, handle: str | None = None):
         raise HTTPException(status_code=404, detail="Ticket not found")
     row["artifacts"] = db.get_artifacts(db_path(), row["ticket_id"], row["handle"])
     return row
+
+
+@app.get("/api/kb/tickets")
+def api_kb_tickets(
+    q: str | None = None,
+    handle: str | None = None,
+    status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+):
+    """Search KB tickets. Full-text search includes ticket notes stored in raw_json."""
+    result = db.list_tickets(db_path(), handle=handle, q=q, status=status, page=page, page_size=page_size)
+    items = []
+    for ticket in result["items"]:
+        notes_preview: str | None = None
+        raw = ticket.get("raw_json")
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                notes = parsed.get("detail", {}).get("notes") or parsed.get("notes")
+                if notes:
+                    notes_preview = str(notes)[:300]
+            except Exception:
+                pass
+        items.append({**ticket, "notes_preview": notes_preview})
+    return {**result, "items": items}
+
+
+@app.get("/api/kb/tickets/{ticket_id}")
+def api_kb_ticket(ticket_id: str, handle: str | None = None):
+    """Return a single KB ticket with full detail and parsed notes."""
+    row = db.get_ticket(db_path(), ticket_id, handle)
+    if not row:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    detail: dict[str, Any] = {}
+    raw = row.get("raw_json")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            detail = parsed.get("detail") or {}
+        except Exception:
+            pass
+    return {**row, "detail": detail, "notes": detail.get("notes"), "fields": detail.get("fields", {})}
+
+
+@app.get("/api/kb/handles")
+def api_kb_handles(q: str = "", limit: int = Query(default=500, ge=1, le=5000)):
+    """Return KB handle summary sorted by last scraped date."""
+    rows = db.list_handles_summary(db_path(), q=q, limit=limit)
+    return {"items": sorted(rows, key=lambda r: r.get("updated_latest_utc") or r.get("last_scrape_utc") or "", reverse=True)}
+
+
+@app.get("/api/kb/export")
+def api_kb_export(
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    handle: str | None = None,
+    q: str | None = None,
+    status: str | None = None,
+):
+    """Bulk export of KB tickets as JSON or CSV."""
+    result = db.list_tickets(db_path(), handle=handle, q=q, status=status, page=1, page_size=10000)
+    items = result["items"]
+    if format == "csv":
+        import csv
+        import io
+        output = io.StringIO()
+        fields = ["ticket_id", "handle", "subject", "status", "created_utc", "updated_utc", "ticket_url"]
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for item in items:
+            writer.writerow({k: item.get(k, "") for k in fields})
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=kb_tickets.csv"},
+        )
+    return {"items": items, "total": result["totalCount"]}
 
 
 @app.get("/api/artifacts")

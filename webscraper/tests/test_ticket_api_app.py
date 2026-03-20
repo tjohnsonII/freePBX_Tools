@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
 from webscraper.db import init_db, start_run, upsert_handle, upsert_tickets
-from webscraper.ticket_api import app as appmod
-from webscraper.ticket_api import db as ticket_db
+from webscraper.ticket_api import app as appmod  # type: ignore[attr-defined]
+from webscraper.ticket_api import db as ticket_db  # type: ignore[attr-defined]
 
 
 def _seed_db(db_path: str) -> None:

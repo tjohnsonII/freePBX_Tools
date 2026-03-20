@@ -507,8 +507,8 @@ def list_tickets(db_path: str, handle: str | None = None, status: str | None = N
         params.append(status)
     if q:
         like = f"%{q}%"
-        where.append("(ticket_id LIKE ? OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ?)")
-        params.extend([like, like, like, like])
+        where.append("(ticket_id LIKE ? OR title LIKE ? OR subject LIKE ? OR ticket_url LIKE ? OR raw_json LIKE ?)")
+        params.extend([like, like, like, like, like])
     if from_utc:
         where.append("updated_utc >= ?")
         params.append(from_utc)
