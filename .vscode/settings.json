@@ -7,6 +7,9 @@
     "python.linting.flake8Enabled": false,
     "python.analysis.autoImportCompletions": true,
     "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "webscraper/src"
+    ],
     "terminal.integrated.env.windows": {
         "Path": "E:\\DevTools\\Graphviz\\Graphviz\\bin;${env:Path}",
         "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",

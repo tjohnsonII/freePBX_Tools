@@ -100,8 +100,8 @@ export default function LogsPage() {
   return (
     <main>
       <h2>Logs</h2>
-      {enabled === false ? <p style={{ color: "#a22" }}>Logs API disabled. To enable: <code>{enableHint}</code></p> : null}
-      {error ? <p style={{ color: "#a22" }}>{error}</p> : null}
+      {enabled === false ? <p style={{ color: "#f85149" }}>Logs API disabled. To enable: <code>{enableHint}</code></p> : null}
+      {error ? <p style={{ color: "#f85149" }}>{error}</p> : null}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <label>Log File
           <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ marginLeft: 6 }}>
@@ -125,7 +125,7 @@ export default function LogsPage() {
         <button onClick={copyFiltered}>Copy</button>
       </div>
       <p>Total lines shown: {filtered.length} / {lines.length}</p>
-      <pre style={{ border: "1px solid #ddd", padding: 10, maxHeight: "70vh", overflow: "auto", background: "#0f172a", color: "#e2e8f0" }}>
+      <pre style={{ maxHeight: "70vh", overflow: "auto" }}>
         {filtered.join("\n") || "No lines."}
       </pre>
     </main>
