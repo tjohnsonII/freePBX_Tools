@@ -54,6 +54,7 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
       headers: filteredHeaders(request.headers),
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
       cache: "no-store",
+      signal: AbortSignal.timeout(8000),
     });
 
     const responseHeaders = filteredHeaders(upstream.headers);

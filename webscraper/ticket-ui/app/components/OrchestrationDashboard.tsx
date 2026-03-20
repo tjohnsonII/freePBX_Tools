@@ -78,24 +78,19 @@ export default function OrchestrationDashboard() {
   const [expandedJobError, setExpandedJobError] = useState<string | null>(null);
 
   const reload = async () => {
-    try {
-      const [system, jobList, state] = await Promise.all([
-        apiGet<SystemStatus>("/api/system/status"),
-        apiGet<{ items: Job[] }>("/api/jobs"),
-        apiGet<ScrapeState>("/api/scrape/state").catch(() => ({ last_completed_handle: null, updated_utc: null })),
-      ]);
-      setStatus(system);
-      setJobs(jobList.items || []);
-      setScrapeState(state);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    const [system, jobList, state] = await Promise.all([
+      apiGet<SystemStatus>("/api/system/status").catch(() => null),
+      apiGet<{ items: Job[] }>("/api/jobs").catch(() => null),
+      apiGet<ScrapeState>("/api/scrape/state").catch(() => ({ last_completed_handle: null, updated_utc: null })),
+    ]);
+    if (system) { setStatus(system); setError(null); }
+    if (jobList) setJobs(jobList.items || []);
+    setScrapeState(state);
   };
 
   useEffect(() => {
     reload().catch(() => undefined);
-    const timer = setInterval(() => reload().catch(() => undefined), 3000);
+    const timer = setInterval(() => reload().catch(() => undefined), 5000);
     return () => clearInterval(timer);
   }, []);
 
