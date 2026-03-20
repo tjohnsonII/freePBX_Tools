@@ -4,8 +4,6 @@ import logging
 import os
 from urllib.parse import urlparse
 
-import requests
-
 from .cookie_jar import get_cookiejar
 
 LOGGER = logging.getLogger(__name__)
@@ -16,7 +14,8 @@ _DEFAULT_UA = (
 )
 
 
-def build_authenticated_session(domain: str = "secure.123.net", prefer_browser: str = "chrome") -> requests.Session:
+def build_authenticated_session(domain: str = "secure.123.net", prefer_browser: str = "chrome"):  # type: ignore[return]
+    import requests
     session = requests.Session()
     cookie_jar = get_cookiejar(domain=domain, browser=prefer_browser)
     session.cookies.update(cookie_jar)
@@ -78,7 +77,8 @@ def summarize_driver_cookies(driver: object, domains: list[str] | None = None) -
     }
 
 
-def selenium_driver_to_requests_session(driver: object, base_url: str) -> requests.Session:
+def selenium_driver_to_requests_session(driver: object, base_url: str):  # type: ignore[return]
+    import requests
     session = requests.Session()
     cookies = list(getattr(driver, "get_cookies", lambda: [])() or [])
     for cookie in cookies:

@@ -1,3 +1,5 @@
+import pytest
+
 from webscraper.auth.session import selenium_driver_to_requests_session, summarize_driver_cookies
 
 
@@ -55,6 +57,7 @@ def test_summarize_driver_cookies_no_kwarg_backward_compat():
 
 
 def test_selenium_driver_to_requests_session_seeds_cookie_jar():
+    pytest.importorskip("requests", reason="requests not installed in this environment")
     driver = _FakeDriver([
         {"name": "sid", "value": "token", "domain": ".123.net", "path": "/"},
     ])

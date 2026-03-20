@@ -6,7 +6,14 @@ from urllib.parse import urlsplit
 from webscraper.auth.imported_cookies import load_imported_cookies
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.ticket_api import db as ticket_api_db
-from webscraper.ticket_api.auth import cookie_to_selenium
+
+
+def cookie_to_selenium(cookie: dict) -> dict:
+    """Minimal shim — ticket_api.auth was removed in Phase 2."""
+    safe = {k: v for k, v in cookie.items() if k in {"name", "value", "domain", "path", "secure", "httpOnly", "expiry"}}
+    if "httpOnly" in safe:
+        safe["httpOnly"] = bool(safe.pop("httpOnly"))
+    return safe
 
 
 def _host_matches_domain(host: str, domain: str) -> bool:

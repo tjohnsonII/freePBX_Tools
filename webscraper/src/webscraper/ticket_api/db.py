@@ -573,6 +573,18 @@ def get_scrape_events(db_path: str, job_id: str, limit: int = 50) -> list[dict[s
     return out
 
 
+def list_scrape_jobs(db_path: str, limit: int = 20) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute("SELECT * FROM scrape_jobs ORDER BY created_utc DESC LIMIT ?", (limit,)).fetchall()
+    result = []
+    for row in rows:
+        payload = dict(row)
+        payload["result"] = json.loads(payload["result_json"]) if payload.get("result_json") else None
+        payload["handles"] = json.loads(payload["handles_json"]) if payload.get("handles_json") else None
+        result.append(payload)
+    return result
+
+
 def get_latest_scrape_job(db_path: str) -> dict[str, Any] | None:
     with get_conn(db_path) as conn:
         row = conn.execute("SELECT * FROM scrape_jobs ORDER BY created_utc DESC LIMIT 1").fetchone()

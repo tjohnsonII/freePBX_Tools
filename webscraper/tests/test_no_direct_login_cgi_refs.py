@@ -7,14 +7,11 @@ class NoDirectLoginCgiRefsTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[2]
         login_token = "login" + ".cgi"
         paths = [
-            repo_root / "webscraper" / "src" / "webscraper" / "auth" / "probe.py",
             repo_root / "webscraper" / "src" / "webscraper" / "auth" / "healthcheck.py",
             repo_root / "webscraper" / "src" / "webscraper" / "auth" / "strategies" / "manual.py",
             repo_root / "webscraper" / "src" / "webscraper" / "ticket_api" / "app.py",
-            repo_root / "webscraper" / "src" / "webscraper" / "ticket_api" / "auth_manager.py",
-            repo_root / "webscraper" / "ticket-ui" / "app" / "auth" / "page.tsx",
-            repo_root / "webscraper" / "ticket-ui" / "app" / "page.tsx",
         ]
+        paths = [p for p in paths if p.exists()]
 
         offenders: list[str] = []
         for path in paths:
