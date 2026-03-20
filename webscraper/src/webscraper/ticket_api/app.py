@@ -65,6 +65,7 @@ from webscraper.ticket_api.schemas import (
     AuthSeedRequest,
     AuthState,
     BatchScrapeRequest,
+    BrowserDetectRequest,
     BrowserImportRequest,
     HybridAuthRequest,
     ImportFromProfileRequest,
@@ -118,10 +119,106 @@ LOGGER = setup_logging("ticket_api")
 
 
 def _orchestrator_detect_browser() -> dict[str, Any]:
-    profiles = list_browser_profiles()
-    cdp = cdp_availability(DEFAULT_CDP_PORT)
-    available = bool(profiles) or bool(cdp.get("reachable"))
-    return {"available": available, "profiles": profiles, "cdp": cdp}
+    return _detect_browser_session(browser="chrome", cdp_port=DEFAULT_CDP_PORT)
+
+
+def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, Any]:
+    requested_browser = (browser or "chrome").strip().lower() or "chrome"
+    LOGGER.info("browser_detect request browser=%s cdp_port=%s", requested_browser, cdp_port)
+    try:
+        profiles = list_browser_profiles(requested_browser)
+    except ValueError as exc:
+        LOGGER.warning("browser_detect unsupported browser=%s error=%s", requested_browser, exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive
+        LOGGER.exception("browser_detect profile enumeration failed browser=%s", requested_browser)
+        return {
+            "available": False,
+            "browser": requested_browser,
+            "status": "browser_detection_failure",
+            "message": f"Failed to enumerate {requested_browser} profiles: {exc}",
+            "profiles": [],
+            "cdp": {},
+            "debug_browser_running": False,
+            "secure_tab_open": False,
+            "authenticated_session": False,
+            "cookie_count": 0,
+        }
+
+    LOGGER.info(
+        "browser_detect profile_enumeration browser=%s profile_count=%s profiles=%s",
+        requested_browser,
+        len(profiles),
+        profiles,
+    )
+    cdp = cdp_availability(cdp_port, check_ws=False)
+    debug_browser_running = bool(cdp.get("json_version_ok"))
+    LOGGER.info(
+        "browser_detect cdp_detection browser=%s cdp_status=%s cdp_error=%s debug_browser_running=%s",
+        requested_browser,
+        cdp.get("status"),
+        cdp.get("error"),
+        debug_browser_running,
+    )
+    tab_urls = _get_cdp_tab_urls(cdp_port) if debug_browser_running else []
+    secure_tab_open = any("secure.123.net" in str(url).lower() for url in tab_urls)
+    LOGGER.info(
+        "browser_detect tab_enumeration browser=%s tab_count=%s secure_tab_open=%s",
+        requested_browser,
+        len(tab_urls),
+        secure_tab_open,
+    )
+
+    detected_cookie_count = 0
+    cookie_error: str | None = None
+    authenticated_session = False
+    if debug_browser_running:
+        try:
+            probe = seed_from_cdp(cdp_port, ["secure.123.net"])
+            detected_cookie_count = len(probe.cookies)
+            authenticated_session = detected_cookie_count > 0
+        except CookieSeedError as exc:
+            cookie_error = f"{exc.code}: {exc}"
+        except Exception as exc:  # pragma: no cover - defensive
+            cookie_error = str(exc)
+    LOGGER.info(
+        "browser_detect secure_session browser=%s authenticated=%s cookie_count=%s cookie_error=%s",
+        requested_browser,
+        authenticated_session,
+        detected_cookie_count,
+        cookie_error or "-",
+    )
+
+    status = "ready"
+    message = "Debug browser detected with authenticated secure.123.net session."
+    if not debug_browser_running:
+        status = "no_debug_browser_running"
+        message = f"No debug browser detected on 127.0.0.1:{cdp_port}."
+    elif cookie_error:
+        status = "cookie_extraction_failure"
+        message = f"Detected debug browser but failed reading secure.123.net cookies: {cookie_error}"
+    elif not secure_tab_open:
+        status = "browser_wrong_tab_domain"
+        message = "Debug browser is running, but no open tab is on secure.123.net."
+    elif not authenticated_session:
+        status = "no_authenticated_secure_session"
+        message = "Debug browser is running on secure.123.net, but no authenticated session cookies were found."
+
+    return {
+        "available": debug_browser_running or bool(profiles),
+        "browser": requested_browser,
+        "status": status,
+        "message": message,
+        "profiles": profiles,
+        "profile_count": len(profiles),
+        "cdp": cdp,
+        "debug_browser_running": debug_browser_running,
+        "tabs": {"count": len(tab_urls), "secure_tab_open": secure_tab_open, "urls": tab_urls[:10]},
+        "secure_tab_open": secure_tab_open,
+        "authenticated_session": authenticated_session,
+        "cookie_count": detected_cookie_count,
+        "cookie_error": cookie_error,
+    }
 
 
 def _orchestrator_seed_auth() -> dict[str, Any]:
@@ -2466,8 +2563,15 @@ def api_system_status_v2():
 
 
 @app.post("/api/browser/detect")
-def api_browser_detect():
-    return ORCHESTRATOR.detect_browser().model_dump()
+def api_browser_detect(
+    payload: BrowserDetectRequest | None = None,
+    browser: str | None = Query(default=None),
+    cdp_port: int | None = Query(default=None, ge=1, le=65535),
+):
+    resolved_browser = (browser or (payload.browser if payload else None) or "chrome").strip().lower() or "chrome"
+    resolved_cdp_port = int(cdp_port or (payload.cdp_port if payload else None) or DEFAULT_CDP_PORT)
+    detection = _detect_browser_session(browser=resolved_browser, cdp_port=resolved_cdp_port)
+    return ORCHESTRATOR.record_browser_detection(detection).model_dump()
 
 
 @app.post("/api/orchestrator/auth/seed")

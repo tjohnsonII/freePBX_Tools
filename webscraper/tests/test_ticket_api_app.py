@@ -754,6 +754,92 @@ def test_import_from_browser_prefers_disk_over_cdp_when_cdp_live(tmp_path, monke
     assert called["cdp"] == 0
 
 
+def test_browser_detect_with_explicit_chrome(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "list_browser_profiles", lambda browser: ["Default"] if browser == "chrome" else [])
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {"json_version_ok": True, "status": "ok", "error": None},
+    )
+    monkeypatch.setattr(appmod, "_get_cdp_tab_urls", lambda *_args, **_kwargs: ["https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"])
+    monkeypatch.setattr(
+        appmod,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: appmod.SeedResult(mode_used="cdp", cookies=[{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}], details={}),
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/browser/detect", json={"browser": "chrome", "cdp_port": 9222})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["data"]["browser"] == "chrome"
+    assert payload["data"]["status"] == "ready"
+
+
+def test_browser_detect_defaults_to_chrome_when_omitted(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    seen: dict[str, str] = {}
+
+    def fake_profiles(browser: str):
+        seen["browser"] = browser
+        return []
+
+    monkeypatch.setattr(appmod, "list_browser_profiles", fake_profiles)
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {"json_version_ok": False, "status": "no_browser", "error": "down"},
+    )
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/browser/detect", json={})
+    assert response.status_code == 200
+    assert seen["browser"] == "chrome"
+    assert response.json()["data"]["status"] == "no_debug_browser_running"
+
+
+def test_browser_detect_rejects_invalid_browser_name(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "list_browser_profiles", lambda browser: (_ for _ in ()).throw(ValueError(f"Unsupported browser '{browser}'")))
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/browser/detect", json={"browser": "firefox"})
+    assert response.status_code == 400
+    assert "Unsupported browser" in response.json()["detail"]
+
+
+def test_browser_detect_reports_missing_authenticated_session(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "list_browser_profiles", lambda _browser: ["Default"])
+    monkeypatch.setattr(
+        appmod,
+        "cdp_availability",
+        lambda *_args, **_kwargs: {"json_version_ok": True, "status": "ok", "error": None},
+    )
+    monkeypatch.setattr(appmod, "_get_cdp_tab_urls", lambda *_args, **_kwargs: ["https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"])
+    monkeypatch.setattr(
+        appmod,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: appmod.SeedResult(mode_used="cdp", cookies=[], details={}),
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/browser/detect", json={"browser": "chrome"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["status"] == "no_authenticated_secure_session"
+    assert payload["data"]["authenticated_session"] is False
+
+
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
