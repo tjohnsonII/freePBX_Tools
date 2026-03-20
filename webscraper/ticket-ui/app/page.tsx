@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import HandleDropdown from "./components/HandleDropdown";
+import OrchestrationDashboard from "./components/OrchestrationDashboard";
 import { ApiRequestError, apiBaseInfo, apiGet, apiPost, apiPostForm } from "../lib/api";
 import { BrowserSyncTarget, syncAuthFromBrowser } from "../lib/authBrowserSync";
 
@@ -462,6 +463,7 @@ export default function HandlesPage() {
 
   return (
     <main>
+      <OrchestrationDashboard />
       <p>API Base: <code>{apiInfo.browserBase}</code> Proxy: <code>{apiInfo.proxyTarget}</code></p>
       {!isAuthenticated ? (
         <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", padding: 10, marginBottom: 12 }}>
