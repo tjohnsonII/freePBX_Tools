@@ -391,7 +391,7 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
         _selenium_fallback_emit(job_id, "login_detected", event="login_detected")
         cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
         LOGGER.info("selenium_fallback_cookie_count job_id=%s count=%s domains=%s", job_id, cookie_summary.get("count", 0), cookie_summary.get("domains", []))
-        _ = selenium_driver_to_requests_session(driver)
+        _ = selenium_driver_to_requests_session(driver, base_url=CHROME_CUSTOMERS_URL)
 
         run_output_dir = runs_dir() / f"selenium_fallback_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         run_output_dir.mkdir(parents=True, exist_ok=True)
@@ -415,8 +415,8 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                 wait = WebDriverWait(driver, 20)
                 search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#customers")))
                 search_input.click()
-                search_input.send_keys(Keys.CONTROL, "a")
-                search_input.send_keys(Keys.BACKSPACE)
+                search_input.send_keys(Keys.CONTROL + "a")
+                search_input.send_keys(Keys.DELETE)
                 search_input.send_keys(search_string)
                 search_buttons = driver.find_elements(By.XPATH, "//input[@type='submit' and (contains(@value,'Search') or contains(@name,'search'))]")
                 if search_buttons:
@@ -443,8 +443,9 @@ def _run_selenium_fallback_scrape_job(job_id: str, handles: list[str], login_tim
                     EC.element_to_be_clickable((By.XPATH, "//a[contains(@class,'show_hide') and normalize-space()='Show/Hide Trouble Ticket Data']"))
                 )
                 toggle.click()
+                # Wait for #slideid5 to become visible (handles the case where there are zero tickets and no table)
                 WebDriverWait(driver, 20).until(
-                    lambda d: any(elem.is_displayed() for elem in d.find_elements(By.CSS_SELECTOR, "#slideid5 table"))
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, "#slideid5"))
                 )
                 _selenium_fallback_emit(job_id, f"toggle_clicked {handle}", handle=handle, event="toggle_clicked")
 
@@ -3409,6 +3410,13 @@ def api_job_v2(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job.model_dump()
+
+
+@app.get("/api/jobs/{job_id}/events")
+def api_scrape_job_events(job_id: str, limit: int = Query(default=50, ge=1, le=500)):
+    """Return the last *limit* events for a scrape job as JSON (non-streaming)."""
+    rows = db.get_scrape_events(db_path(), job_id, limit=limit)
+    return {"job_id": job_id, "events": rows}
 
 
 @app.get("/api/db/status")

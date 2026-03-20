@@ -1,0 +1,105 @@
+.section {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.error {
+  color: #ff6b6b;
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.actionRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.seleniumJobStatus {
+  margin-top: 10px;
+}
+
+.seleniumJobSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+
+.seleniumJobMessage {
+  color: #aaa;
+  font-style: italic;
+}
+
+.seleniumJobError {
+  color: #ff6b6b;
+}
+
+.seleniumEventLog {
+  margin-top: 8px;
+}
+
+.seleniumEventList {
+  margin: 4px 0 0 0;
+  padding-left: 1.5rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: decimal;
+}
+
+.seleniumEventItem {
+  padding: 1px 0;
+  color: #ccc;
+}
+
+.seleniumEventError {
+  padding: 1px 0;
+  color: #ff6b6b;
+}
+
+.seleniumEventTs {
+  color: #888;
+  margin-right: 4px;
+}
+
+.seleniumTicketIds {
+  color: #7ec8e3;
+  margin-left: 4px;
+}
+
+.e2eSteps {
+  margin-top: 10px;
+}
+
+.recentJobs {
+  margin-top: 10px;
+}
+
+.jobToggleBtn {
+  background: transparent;
+  color: inherit;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.jobDetails {
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid #555;
+}
+
+.jobDetailsError {
+  color: #ff6b6b;
+}

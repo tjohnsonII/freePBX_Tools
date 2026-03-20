@@ -39,20 +39,40 @@ def build_authenticated_session(domain: str = "secure.123.net", prefer_browser: 
     return session
 
 
-def summarize_driver_cookies(driver: object) -> dict[str, object]:
-    cookies = list(getattr(driver, "get_cookies", lambda: [])() or [])
-    names = sorted({str(cookie.get("name")) for cookie in cookies if isinstance(cookie, dict) and cookie.get("name")})
-    domains = sorted(
+def summarize_driver_cookies(driver: object, domains: list[str] | None = None) -> dict[str, object]:
+    """Return a summary of cookies held by the Selenium driver.
+
+    Args:
+        driver: A Selenium WebDriver instance.
+        domains: Optional list of domain strings to filter cookies by.
+            Each cookie whose ``domain`` field ends with any entry in this list
+            (case-insensitive, leading dot ignored) is included.  When *None*
+            (the default), all cookies are included – preserving prior behaviour.
+    """
+    all_cookies = list(getattr(driver, "get_cookies", lambda: [])() or [])
+
+    if domains is not None:
+        # Normalise filter tokens: strip leading dots, lower-case
+        filter_suffixes = [d.strip().lstrip(".").lower() for d in domains if d and d.strip()]
+        def _domain_matches(cookie: dict) -> bool:  # noqa: E301
+            raw = str(cookie.get("domain") or "").strip().lstrip(".").lower()
+            return any(raw == s or raw.endswith("." + s) or s.endswith("." + raw) for s in filter_suffixes)
+        cookies = [c for c in all_cookies if isinstance(c, dict) and _domain_matches(c)]
+    else:
+        cookies = [c for c in all_cookies if isinstance(c, dict)]
+
+    names = sorted({str(cookie.get("name")) for cookie in cookies if cookie.get("name")})
+    found_domains = sorted(
         {
             str(cookie.get("domain") or "").strip().lstrip(".").lower()
             for cookie in cookies
-            if isinstance(cookie, dict) and str(cookie.get("domain") or "").strip()
+            if str(cookie.get("domain") or "").strip()
         }
     )
     session_like = [name for name in names if any(marker in name.lower() for marker in ("sess", "session", "sid", "auth", "token", "php"))]
     return {
         "count": len(cookies),
-        "domains": domains,
+        "domains": found_domains,
         "names": names,
         "session_like_names": session_like,
     }

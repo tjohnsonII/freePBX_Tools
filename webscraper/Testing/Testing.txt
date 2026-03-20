@@ -15,6 +15,16 @@ http://127.0.0.1:8787/api/health
 
 http://127.0.0.1:8788/api/health
 
+https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi - Starting scrap point
+
+
+If you don’t care about precision:
+
+taskkill /F /IM python.exe
+taskkill /F /IM node.exe
+
+⚠️ Only do this if you're not running anything else important.
+
 🔥 Fast + Clean Stop (Recommended)
 
 Use the PIDs from your output:
@@ -37,12 +47,7 @@ netstat -ano | findstr :8788
 taskkill /PID <PID> /F
 ⚡ One-liner (nuke everything dev-related)
 
-If you don’t care about precision:
 
-taskkill /F /IM python.exe
-taskkill /F /IM node.exe
-
-⚠️ Only do this if you're not running anything else important.
 
 🧠 What your launcher is already doing (FYI)
 
@@ -62,3 +67,37 @@ netstat -ano | findstr :3004
 netstat -ano | findstr :8788
 
 You want no output for each.
+
+Clear the log view and watch the ticket API log live
+
+In PowerShell:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Wait -Tail 80
+
+Best way to isolate the auth breakdown
+
+Run one test at a time and immediately capture the last 120 lines after each.
+
+After Flow A
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+After Flow B
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+After Flow C
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+6. If you want cleaner comparisons, save each run
+
+After each flow:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowA.txt
+
+Then for the next one:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowB.txt
+
+And so on.
+
+7. Also check the UI log if needed
+
+Sometimes the frontend is swallowing useful info. Watch this too in a second terminal:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_ui.log -Wait -Tail 60

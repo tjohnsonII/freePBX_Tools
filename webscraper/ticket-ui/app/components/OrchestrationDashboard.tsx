@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
+import styles from "./OrchestrationDashboard.module.css";
 
 type JobState = "queued" | "running" | "completed" | "failed";
 type StepState = "idle" | "detecting_browser" | "seeding_auth" | "validating_auth" | "scraping" | "persisting" | "exposing_results" | "error";
@@ -51,6 +52,15 @@ type SeleniumFallbackJob = {
   } | null;
 };
 
+type JobEvent = {
+  id: number;
+  ts_utc: string;
+  level: string;
+  event: string;
+  message: string;
+  data?: Record<string, unknown> | null;
+};
+
 export default function OrchestrationDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -58,6 +68,7 @@ export default function OrchestrationDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [seleniumJob, setSeleniumJob] = useState<SeleniumFallbackJob | null>(null);
+  const [seleniumEvents, setSeleniumEvents] = useState<JobEvent[]>([]);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedJob, setExpandedJob] = useState<Job | null>(null);
   const [expandedJobError, setExpandedJobError] = useState<string | null>(null);
@@ -112,6 +123,7 @@ export default function OrchestrationDashboard() {
   const runSeleniumFallback = async () => {
     setBusy("selenium-fallback");
     setError(null);
+    setSeleniumEvents([]);
     try {
       const start = await apiPost<SeleniumFallbackStart>("/api/scrape/selenium_fallback", {});
       const startedJob: SeleniumFallbackJob = {
@@ -122,8 +134,12 @@ export default function OrchestrationDashboard() {
       setSeleniumJob(startedJob);
       let done = false;
       while (!done) {
-        const next = await apiGet<SeleniumFallbackJob>(`/api/jobs/status/${start.job_id}`);
+        const [next, eventsResp] = await Promise.all([
+          apiGet<SeleniumFallbackJob>(`/api/jobs/status/${start.job_id}`),
+          apiGet<{ events: JobEvent[] }>(`/api/jobs/${start.job_id}/events?limit=30`).catch(() => ({ events: [] })),
+        ]);
         setSeleniumJob(next);
+        setSeleniumEvents(eventsResp.events);
         done = next.status === "completed" || next.status === "failed";
         if (!done) {
           await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -156,10 +172,10 @@ export default function OrchestrationDashboard() {
   };
 
   return (
-    <section style={{ border: "1px solid #333", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+    <section className={styles.section}>
       <h2>Orchestration Dashboard</h2>
-      {error ? <p style={{ color: "#ff6b6b" }}>{error}</p> : null}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 }}>
+      {error ? <p className={styles.error}>{error}</p> : null}
+      <div className={styles.statusGrid}>
         <div><strong>Backend</strong><div>{status?.backend_health ?? "unknown"}</div></div>
         <div><strong>Browser</strong><div>{status?.browser_status ?? "unknown"}</div></div>
         <div><strong>Auth</strong><div>{status?.auth_status ?? "unknown"}</div></div>
@@ -173,31 +189,61 @@ export default function OrchestrationDashboard() {
         <div><strong>Last error</strong><div>{status?.last_error || "none"}</div></div>
         <div><strong>Detection reason</strong><div>{status?.detection_reason || "none"}</div></div>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-        <button onClick={() => runAction("detect", "/api/browser/detect", { browser: "chrome", cdp_port: 9222 })} disabled={!!busy}>Detect Browser</button>
-        <button onClick={() => runAction("seed", "/api/auth/seed")} disabled={!!busy}>Seed Auth</button>
-        <button onClick={() => runAction("validate", "/api/auth/validate")} disabled={!!busy}>Validate Auth</button>
-        <button onClick={() => runAction("scrape", "/api/scrape/run")} disabled={!!busy}>Run Scrape</button>
-        <button onClick={runSeleniumFallback} disabled={!!busy}>Run Selenium Fallback Scrape</button>
-        <button onClick={runE2E} disabled={!!busy}>Run End-to-End</button>
+      <div className={styles.actionRow}>
+        <button type="button" onClick={() => runAction("detect", "/api/browser/detect", { browser: "chrome", cdp_port: 9222 })} disabled={!!busy}>Detect Browser</button>
+        <button type="button" onClick={() => runAction("seed", "/api/auth/seed")} disabled={!!busy}>Seed Auth</button>
+        <button type="button" onClick={() => runAction("validate", "/api/auth/validate")} disabled={!!busy}>Validate Auth</button>
+        <button type="button" onClick={() => runAction("scrape", "/api/scrape/run")} disabled={!!busy}>Run Scrape</button>
+        <button type="button" onClick={runSeleniumFallback} disabled={!!busy}>Run Selenium Fallback Scrape</button>
+        <button type="button" onClick={runE2E} disabled={!!busy}>Run End-to-End</button>
       </div>
       {seleniumJob ? (
-        <div style={{ marginTop: 10 }}>
+        <div className={styles.seleniumJobStatus}>
           <strong>Selenium fallback job</strong>
-          <div>
-            job_id={seleniumJob.job_id} · status={seleniumJob.status}
-            {typeof seleniumJob.result?.completed_handles === "number" && typeof seleniumJob.result?.total_handles === "number"
-              ? ` · progress=${seleniumJob.result.completed_handles}/${seleniumJob.result.total_handles}`
-              : ""}
-            {typeof seleniumJob.result?.ticket_count === "number" ? ` · ticket_count=${seleniumJob.result.ticket_count}` : ""}
-            {seleniumJob.result?.current_handle ? ` · current_handle=${seleniumJob.result.current_handle}` : ""}
-            {seleniumJob.result?.status_message ? ` · message=${seleniumJob.result.status_message}` : ""}
-            {seleniumJob.error_message || seleniumJob.result?.error ? ` · error=${seleniumJob.error_message || seleniumJob.result?.error}` : ""}
+          <div className={styles.seleniumJobSummary}>
+            <span>job_id={seleniumJob.job_id}</span>
+            <span>status={seleniumJob.status}</span>
+            {typeof seleniumJob.result?.completed_handles === "number" && typeof seleniumJob.result?.total_handles === "number" && (
+              <span>progress={seleniumJob.result.completed_handles}/{seleniumJob.result.total_handles}</span>
+            )}
+            {typeof seleniumJob.result?.ticket_count === "number" && (
+              <span>tickets={seleniumJob.result.ticket_count}</span>
+            )}
+            {seleniumJob.result?.current_handle && (
+              <span>handle={seleniumJob.result.current_handle}</span>
+            )}
+            {seleniumJob.result?.status_message && (
+              <span className={styles.seleniumJobMessage}>{seleniumJob.result.status_message}</span>
+            )}
+            {(seleniumJob.error_message || seleniumJob.result?.error) && (
+              <span className={styles.seleniumJobError}>{seleniumJob.error_message || seleniumJob.result?.error}</span>
+            )}
           </div>
+          {seleniumEvents.length > 0 && (
+            <div className={styles.seleniumEventLog}>
+              <strong>Live events (last {seleniumEvents.length})</strong>
+              <ol className={styles.seleniumEventList}>
+                {seleniumEvents.map((ev) => {
+                  const firstTickets = (ev.data?.first_ticket_ids as string[] | undefined) ?? [];
+                  const count = ev.data?.count as number | undefined;
+                  return (
+                    <li key={ev.id} className={ev.level === "error" ? styles.seleniumEventError : styles.seleniumEventItem}>
+                      <span className={styles.seleniumEventTs}>{ev.ts_utc.replace("T", " ").slice(0, 19)}</span>
+                      {" "}{ev.message}
+                      {typeof count === "number" && ` · count=${count}`}
+                      {firstTickets.length > 0 && (
+                        <span className={styles.seleniumTicketIds}> [{firstTickets.join(", ")}]</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
         </div>
       ) : null}
       {!!steps.length && (
-        <div style={{ marginTop: 10 }}>
+        <div className={styles.e2eSteps}>
           <strong>E2E steps</strong>
           <ul>
             {steps.map((step, idx) => (
@@ -206,19 +252,19 @@ export default function OrchestrationDashboard() {
           </ul>
         </div>
       )}
-      <div style={{ marginTop: 10 }}>
+      <div className={styles.recentJobs}>
         <strong>Recent jobs</strong>
         <ul>
           {jobs.slice(0, 5).map((job) => (
             <li key={job.job_id}>
-              <button onClick={() => toggleJobDetails(job.job_id)} style={{ background: "transparent", color: "inherit", border: "1px solid #555", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
+              <button type="button" onClick={() => toggleJobDetails(job.job_id)} className={styles.jobToggleBtn}>
                 {job.job_id}
               </button>{" "}
               · {job.current_state} · step={job.current_step} · found={job.records_found} · written={job.records_written}
               {expandedJobId === job.job_id ? (
-                <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: "2px solid #555" }}>
+                <div className={styles.jobDetails}>
                   {expandedJobError ? (
-                    <div style={{ color: "#ff6b6b" }}>Failed to load job details: {expandedJobError}</div>
+                    <div className={styles.jobDetailsError}>Failed to load job details: {expandedJobError}</div>
                   ) : expandedJob ? (
                     <div>
                       created_at={expandedJob.created_at} · started_at={expandedJob.started_at || "n/a"} · completed_at={expandedJob.completed_at || "n/a"}

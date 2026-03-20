@@ -21,6 +21,39 @@ def test_summarize_driver_cookies_collects_domains_and_session_names():
     assert "PHPSESSID" in summary["session_like_names"]
 
 
+def test_summarize_driver_cookies_domains_filter_includes_matching():
+    driver = _FakeDriver([
+        {"name": "PHPSESSID", "value": "abc", "domain": ".123.net", "path": "/"},
+        {"name": "csrftoken", "value": "xyz", "domain": "secure.123.net", "path": "/"},
+        {"name": "unrelated", "value": "q", "domain": "example.com", "path": "/"},
+    ])
+
+    summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
+    assert summary["count"] == 2, "only cookies matching 123.net domain should be counted"
+    assert "example.com" not in summary["domains"]
+    assert "PHPSESSID" in summary["names"]
+    assert "unrelated" not in summary["names"]
+
+
+def test_summarize_driver_cookies_domains_none_includes_all():
+    driver = _FakeDriver([
+        {"name": "a", "value": "1", "domain": "foo.com", "path": "/"},
+        {"name": "b", "value": "2", "domain": "bar.com", "path": "/"},
+    ])
+
+    summary = summarize_driver_cookies(driver, domains=None)
+    assert summary["count"] == 2
+
+
+def test_summarize_driver_cookies_no_kwarg_backward_compat():
+    """Calling without domains kwarg must still work exactly as before."""
+    driver = _FakeDriver([
+        {"name": "PHPSESSID", "value": "abc", "domain": ".123.net", "path": "/"},
+    ])
+    summary = summarize_driver_cookies(driver)
+    assert summary["count"] == 1
+
+
 def test_selenium_driver_to_requests_session_seeds_cookie_jar():
     driver = _FakeDriver([
         {"name": "sid", "value": "token", "domain": ".123.net", "path": "/"},
