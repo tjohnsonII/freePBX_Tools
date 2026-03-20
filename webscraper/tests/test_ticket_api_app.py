@@ -368,6 +368,36 @@ def test_auth_seed_endpoint_reports_ws_origin_rejection(tmp_path, monkeypatch):
     assert "remote-allow-origins" in payload["next_step_if_failed"]
 
 
+def test_auth_seed_cdp_mode_imports_from_live_session(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(
+        appmod,
+        "_cdp_diag",
+        lambda *_args, **_kwargs: {"json_version_ok": True, "status": "ok", "error": None},
+    )
+    monkeypatch.setattr(
+        appmod,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: appmod.SeedResult(
+            mode_used="cdp",
+            cookies=[{"name": "PHPSESSID", "value": "live", "domain": "secure.123.net", "path": "/"}],
+            details={"source": "cdp_debug_chrome"},
+        ),
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.post("/api/auth/seed", json={"mode": "cdp", "seed_domains": ["secure.123.net"], "cdp_port": 9222})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["mode_used"] == "cdp"
+    assert payload["cookie_count"] == 1
+    assert payload["source"] == "seed_cdp"
+
+
 def test_chrome_profiles_endpoint_returns_preferred_profile_1(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tickets.sqlite")
     _seed_db(db_path)
@@ -764,11 +794,17 @@ def test_browser_detect_with_explicit_chrome(tmp_path, monkeypatch):
         "cdp_availability",
         lambda *_args, **_kwargs: {"json_version_ok": True, "status": "ok", "error": None},
     )
-    monkeypatch.setattr(appmod, "_get_cdp_tab_urls", lambda *_args, **_kwargs: ["https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"])
     monkeypatch.setattr(
         appmod,
-        "seed_from_cdp",
-        lambda *_args, **_kwargs: appmod.SeedResult(mode_used="cdp", cookies=[{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}], details={}),
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {
+            "tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
+            "secure_tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
+            "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
+            "cookies": [{"name": "sid", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            "cookie_names": ["sid"],
+            "cookie_error": None,
+        },
     )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
@@ -825,11 +861,17 @@ def test_browser_detect_reports_missing_authenticated_session(tmp_path, monkeypa
         "cdp_availability",
         lambda *_args, **_kwargs: {"json_version_ok": True, "status": "ok", "error": None},
     )
-    monkeypatch.setattr(appmod, "_get_cdp_tab_urls", lambda *_args, **_kwargs: ["https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"])
     monkeypatch.setattr(
         appmod,
-        "seed_from_cdp",
-        lambda *_args, **_kwargs: appmod.SeedResult(mode_used="cdp", cookies=[], details={}),
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {
+            "tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
+            "secure_tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
+            "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
+            "cookies": [],
+            "cookie_names": [],
+            "cookie_error": None,
+        },
     )
 
     client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
@@ -838,6 +880,32 @@ def test_browser_detect_reports_missing_authenticated_session(tmp_path, monkeypa
     payload = response.json()
     assert payload["data"]["status"] == "no_authenticated_secure_session"
     assert payload["data"]["authenticated_session"] is False
+
+
+def test_inspect_live_secure_session_prefers_secure_tab_over_about_blank(monkeypatch):
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"id": "1", "type": "page", "url": "about:blank", "title": "New Tab"},
+                {"id": "2", "type": "page", "url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers"},
+            ]
+
+    monkeypatch.setattr(appmod.requests, "get", lambda *_args, **_kwargs: _Resp())
+    monkeypatch.setattr(
+        appmod,
+        "seed_from_cdp",
+        lambda *_args, **_kwargs: appmod.SeedResult(
+            mode_used="cdp",
+            cookies=[{"name": "PHPSESSID", "value": "x", "domain": "secure.123.net", "path": "/"}],
+            details={},
+        ),
+    )
+    result = appmod._inspect_live_secure_session(9222)
+    assert result["preferred_tab"]["url"].startswith("https://secure.123.net")
+    assert result["cookie_names"] == ["PHPSESSID"]
 
 
 def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
@@ -853,6 +921,91 @@ def test_auth_validate_returns_reasons_when_missing(tmp_path, monkeypatch):
     assert payload["ok"] is False
     assert isinstance(payload.get("reasons"), list)
     assert payload["reasons"]
+
+
+def test_validate_auth_reports_no_secure_tab_found(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_is_cdp_available", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        appmod,
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {"tabs": [{"url": "about:blank", "title": "New Tab", "matched_domain": False}], "secure_tabs": [], "preferred_tab": None, "cookies": [], "cookie_names": [], "cookie_error": None},
+    )
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/validate")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reason"] == "no_secure_tab_found"
+    assert payload["secure_tab_found"] is False
+
+
+def test_validate_auth_reports_secure_tab_found_but_not_logged_in(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_is_cdp_available", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        appmod,
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {
+            "tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True}],
+            "secure_tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True}],
+            "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True},
+            "cookies": [],
+            "cookie_names": [],
+            "cookie_error": None,
+        },
+    )
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/validate")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reason"] == "secure_tab_found_not_logged_in"
+    assert payload["secure_tab_found"] is True
+
+
+def test_validate_auth_imports_live_cookies_and_runs_request_test(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "tickets.sqlite")
+    _seed_db(db_path)
+    monkeypatch.setenv("TICKETS_DB", db_path)
+    monkeypatch.setattr(appmod, "_is_localhost_request", lambda request: True)
+    monkeypatch.setattr(appmod, "_is_cdp_available", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        appmod,
+        "_inspect_live_secure_session",
+        lambda *_args, **_kwargs: {
+            "tabs": [
+                {"url": "about:blank", "title": "New Tab", "matched_domain": False, "score": -100},
+                {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
+            ],
+            "secure_tabs": [{"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80}],
+            "preferred_tab": {"url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi", "title": "Customers", "matched_domain": True, "score": 80},
+            "cookies": [{"name": "PHPSESSID", "value": "abc", "domain": "secure.123.net", "path": "/"}],
+            "cookie_names": ["PHPSESSID"],
+            "cookie_error": None,
+        },
+    )
+
+    class _Resp:
+        status_code = 200
+        url = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
+        text = "<html>customers account search</html>"
+
+    monkeypatch.setattr(appmod.requests, "get", lambda *_args, **_kwargs: _Resp())
+
+    client = TestClient(appmod.app, base_url="http://127.0.0.1:8000")
+    response = client.get("/api/auth/validate")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["secure_tab_found"] is True
+    assert payload["cookie_import_succeeded"] is True
+    assert payload["authenticated_request_test_succeeded"] is True
+    assert payload["authenticated"] is True
 
 
 def test_auth_validate_response_includes_debug_fields(tmp_path, monkeypatch):

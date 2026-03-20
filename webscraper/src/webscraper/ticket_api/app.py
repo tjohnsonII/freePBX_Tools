@@ -160,8 +160,19 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
         cdp.get("error"),
         debug_browser_running,
     )
-    tab_urls = _get_cdp_tab_urls(cdp_port) if debug_browser_running else []
-    secure_tab_open = any("secure.123.net" in str(url).lower() for url in tab_urls)
+    live_session = _inspect_live_secure_session(cdp_port) if debug_browser_running else {
+        "tabs": [],
+        "secure_tabs": [],
+        "preferred_tab": None,
+        "cookies": [],
+        "cookie_names": [],
+        "cookie_error": None,
+    }
+    tabs = list(live_session.get("tabs") or [])
+    secure_tabs = list(live_session.get("secure_tabs") or [])
+    preferred_tab = live_session.get("preferred_tab") if isinstance(live_session.get("preferred_tab"), dict) else None
+    tab_urls = [str(tab.get("url") or "") for tab in tabs]
+    secure_tab_open = bool(secure_tabs)
     LOGGER.info(
         "browser_detect tab_enumeration browser=%s tab_count=%s secure_tab_open=%s",
         requested_browser,
@@ -169,18 +180,9 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
         secure_tab_open,
     )
 
-    detected_cookie_count = 0
-    cookie_error: str | None = None
-    authenticated_session = False
-    if debug_browser_running:
-        try:
-            probe = seed_from_cdp(cdp_port, ["secure.123.net"])
-            detected_cookie_count = len(probe.cookies)
-            authenticated_session = detected_cookie_count > 0
-        except CookieSeedError as exc:
-            cookie_error = f"{exc.code}: {exc}"
-        except Exception as exc:  # pragma: no cover - defensive
-            cookie_error = str(exc)
+    detected_cookie_count = len(list(live_session.get("cookies") or []))
+    cookie_error = live_session.get("cookie_error")
+    authenticated_session = detected_cookie_count > 0
     LOGGER.info(
         "browser_detect secure_session browser=%s authenticated=%s cookie_count=%s cookie_error=%s",
         requested_browser,
@@ -213,11 +215,18 @@ def _detect_browser_session(*, browser: str | None, cdp_port: int) -> dict[str, 
         "profile_count": len(profiles),
         "cdp": cdp,
         "debug_browser_running": debug_browser_running,
-        "tabs": {"count": len(tab_urls), "secure_tab_open": secure_tab_open, "urls": tab_urls[:10]},
+        "tabs": {
+            "count": len(tab_urls),
+            "secure_tab_open": secure_tab_open,
+            "urls": tab_urls[:10],
+            "preferred_tab": preferred_tab,
+            "secure_count": len(secure_tabs),
+        },
         "secure_tab_open": secure_tab_open,
         "authenticated_session": authenticated_session,
         "cookie_count": detected_cookie_count,
         "cookie_error": cookie_error,
+        "cookie_names": list(live_session.get("cookie_names") or []),
     }
 
 
@@ -229,7 +238,13 @@ def _orchestrator_seed_auth() -> dict[str, Any]:
         cdp_url_or_port=DEFAULT_CDP_PORT,
         browser="chrome",
     )
-    return {"seeded": bool(result.cookie_count > 0), "cookie_count": int(result.cookie_count), "source": result.source}
+    return {
+        "seeded": bool(len(result.cookies) > 0),
+        "cookie_count": int(len(result.cookies)),
+        "source": result.details.get("source") or result.mode_used,
+        "mode_used": result.mode_used,
+        "cookie_names": sorted({str(cookie.get("name") or "") for cookie in result.cookies if cookie.get("name")}),
+    }
 
 
 def _orchestrator_validate_auth() -> dict[str, Any]:
@@ -681,6 +696,17 @@ AUTH_CHECK_URLS: list[str] = [
     "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
     "https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi",
 ]
+SECURE_DOMAIN = "secure.123.net"
+AUTH_COOKIE_NAME_HINTS: tuple[str, ...] = (
+    "sessionid",
+    "session",
+    "phpsessid",
+    "jsessionid",
+    "csrftoken",
+    "xsrf",
+    "auth",
+    "token",
+)
 
 DEFAULT_TICKETING_TARGET_URL = (os.getenv("TICKETING_TARGET_URL") or os.getenv("TICKETING_LOGIN_URL") or "").strip()
 
@@ -837,8 +863,19 @@ def _is_customers_page(url: str, payload: str) -> bool:
 
 
 def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
+    live_session = _inspect_live_secure_session(DEFAULT_CDP_PORT) if _is_cdp_available(DEFAULT_CDP_PORT) else {
+        "tabs": [],
+        "secure_tabs": [],
+        "preferred_tab": None,
+        "cookies": [],
+        "cookie_names": [],
+        "cookie_error": None,
+    }
+    secure_tab_found = bool(live_session.get("secure_tabs"))
+    live_cookie_count = len(list(live_session.get("cookies") or []))
+    cookie_import_succeeded = False
     cookies = auth_store.load_cookies(db_path())
-    required_cookie_names = ("sessionid", "csrftoken")
+    required_cookie_names = AUTH_COOKIE_NAME_HINTS
     present_cookie_names = {str(cookie.get("name") or "").strip().lower() for cookie in cookies if cookie.get("name")}
     required_cookie_names_present = [name for name in required_cookie_names if name in present_cookie_names]
     missing_required_cookie_names = [name for name in required_cookie_names if name not in present_cookie_names]
@@ -848,12 +885,28 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
     source_browser = "chrome" if "chrome" in source else ("edge" if "edge" in source else None)
     profile_hint = os.getenv("CHROME_PROFILE_DIR") or os.getenv("BROWSER_PROFILE") or None
 
+    if not cookies and live_cookie_count > 0:
+        store_result = auth_store.replace_cookies(db_path(), list(live_session.get("cookies") or []), source="seed_cdp_validate")
+        cookie_import_succeeded = bool(int(store_result.get("accepted", 0)) > 0)
+        cookies = auth_store.load_cookies(db_path())
+        present_cookie_names = {str(cookie.get("name") or "").strip().lower() for cookie in cookies if cookie.get("name")}
+        required_cookie_names_present = [name for name in required_cookie_names if name in present_cookie_names]
+        missing_required_cookie_names = [name for name in required_cookie_names if name not in present_cookie_names]
+        _log(
+            "auth_validate live_cookie_import "
+            f"secure_tab_found={secure_tab_found} live_cookie_count={live_cookie_count} accepted={store_result.get('accepted', 0)}"
+        )
+
     if not cookies:
+        if not secure_tab_found:
+            reason = "no_secure_tab_found"
+        else:
+            reason = "secure_tab_found_not_logged_in"
         reasons = [{"code": "missing_cookie", "name": "*", "domain": "secure.123.net"}, {"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
         result_payload = {
             "ok": False,
             "authenticated": False,
-            "reason": "missing_cookie",
+            "reason": reason,
             "reasons": reasons,
             "checks": [],
             "details": {"domain": "secure.123.net", "checked": {"cookie_count": 0}},
@@ -868,6 +921,10 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
             "missing_required_cookie_names": missing_required_cookie_names,
             "validation_probe_url": validation_probe_url,
             "validation_http_status": None,
+            "secure_tab_found": secure_tab_found,
+            "live_cookie_count": live_cookie_count,
+            "live_cookie_names": list(live_session.get("cookie_names") or []),
+            "cookie_import_succeeded": cookie_import_succeeded,
         }
         with AUTH_IMPORT_META_LOCK:
             AUTH_IMPORT_META["last_validation_result"] = {
@@ -943,6 +1000,8 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         reasons = [{"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"}]
     if not overall_ok and not any(reason_item.get("code") == "not_authenticated" for reason_item in reasons):
         reasons.append({"code": "not_authenticated", "hint": "Import cookies from browser or login to debug profile"})
+    request_test_succeeded = bool(overall_ok)
+    request_test_failed = not request_test_succeeded
     result_payload = {
         "ok": overall_ok,
         "authenticated": overall_ok,
@@ -961,6 +1020,15 @@ def _validate_auth_targets(timeout_seconds: int = 10) -> dict[str, Any]:
         "missing_required_cookie_names": missing_required_cookie_names,
         "validation_probe_url": validation_probe_url,
         "validation_http_status": next((item.get("status") for item in checks if item.get("status") is not None), None),
+        "secure_tab_found": secure_tab_found,
+        "live_cookie_count": live_cookie_count,
+        "live_cookie_names": list(live_session.get("cookie_names") or []),
+        "cookie_import_succeeded": cookie_import_succeeded,
+        "authenticated_request_test_succeeded": request_test_succeeded,
+        "authenticated_request_test_failed": request_test_failed,
+        "secure_session_state": "secure_tab_found_and_cookies_present" if secure_tab_found and live_cookie_count > 0 else (
+            "secure_tab_found_but_not_logged_in" if secure_tab_found else "no_secure_tab_found"
+        ),
     }
     with AUTH_IMPORT_META_LOCK:
         AUTH_IMPORT_META["last_validation_result"] = {
@@ -983,14 +1051,106 @@ def _cdp_diag(port: int = DEFAULT_CDP_PORT, *, check_ws: bool = True) -> dict[st
     return cdp_availability(port, check_ws=check_ws)
 
 
-def _get_cdp_tab_urls(port: int = DEFAULT_CDP_PORT) -> list[str]:
-    """Return URLs of all open Chrome tabs via CDP /json endpoint."""
+def _get_cdp_tabs(port: int = DEFAULT_CDP_PORT) -> list[dict[str, Any]]:
+    """Return all CDP page targets from /json without creating new tabs."""
     try:
-        r = requests.get(f"http://127.0.0.1:{port}/json", timeout=1.5)
-        r.raise_for_status()
-        return [str(t.get("url") or "") for t in r.json() if isinstance(t, dict)]
+        response = requests.get(f"http://127.0.0.1:{port}/json", timeout=1.5)
+        response.raise_for_status()
+        payload = response.json()
     except Exception:
         return []
+    if not isinstance(payload, list):
+        return []
+    tabs: list[dict[str, Any]] = []
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("type") or "page") != "page":
+            continue
+        url = str(row.get("url") or "")
+        title = str(row.get("title") or "")
+        lowered_url = url.lower()
+        matched_domain = SECURE_DOMAIN in lowered_url or lowered_url.endswith(".123.net")
+        score = 0
+        if matched_domain:
+            score += 50
+        if _url_is_post_login(url):
+            score += 30
+        if lowered_url == "about:blank":
+            score -= 100
+        if not url:
+            score -= 10
+        tabs.append(
+            {
+                "index": index,
+                "id": row.get("id"),
+                "url": url,
+                "title": title,
+                "matched_domain": matched_domain,
+                "post_login": _url_is_post_login(url),
+                "score": score,
+            }
+        )
+    return tabs
+
+
+def _get_cdp_tab_urls(port: int = DEFAULT_CDP_PORT) -> list[str]:
+    return [str(tab.get("url") or "") for tab in _get_cdp_tabs(port)]
+
+
+def _inspect_live_secure_session(cdp_port: int = DEFAULT_CDP_PORT) -> dict[str, Any]:
+    tabs = _get_cdp_tabs(cdp_port)
+    secure_tabs = [tab for tab in tabs if tab.get("matched_domain")]
+    ranked = sorted(secure_tabs or tabs, key=lambda tab: int(tab.get("score") or 0), reverse=True)
+    preferred_tab = ranked[0] if ranked else None
+    rejection_reasons: list[str] = []
+    for tab in tabs:
+        url = str(tab.get("url") or "")
+        title = str(tab.get("title") or "")
+        matched_domain = bool(tab.get("matched_domain"))
+        if not matched_domain:
+            if url.lower() == "about:blank":
+                rejection_reasons.append("about:blank")
+            else:
+                rejection_reasons.append("wrong_domain")
+        LOGGER.info(
+            "cdp_tab_check index=%s url=%r title=%r matched_domain=%s post_login=%s score=%s reject_reason=%s",
+            tab.get("index"),
+            url,
+            title,
+            matched_domain,
+            tab.get("post_login"),
+            tab.get("score"),
+            "none" if matched_domain else rejection_reasons[-1],
+        )
+    cdp_cookies: list[dict[str, Any]] = []
+    cookie_names: list[str] = []
+    cookie_error: str | None = None
+    if ranked:
+        try:
+            seed_probe = seed_from_cdp(cdp_port, [SECURE_DOMAIN, "123.net"])
+            cdp_cookies = list(seed_probe.cookies)
+            cookie_names = sorted({str(cookie.get("name") or "") for cookie in cdp_cookies if cookie.get("name")})
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            cookie_error = str(exc)
+    LOGGER.info(
+        "cdp_secure_session_check secure_tab_count=%s selected_url=%r selected_title=%r cookies_found=%s cookie_names=%s cookie_error=%s",
+        len(secure_tabs),
+        preferred_tab.get("url") if preferred_tab else None,
+        preferred_tab.get("title") if preferred_tab else None,
+        len(cdp_cookies),
+        cookie_names,
+        cookie_error or "-",
+    )
+    return {
+        "tabs": tabs,
+        "secure_tabs": secure_tabs,
+        "preferred_tab": preferred_tab,
+        "cookies": cdp_cookies,
+        "cookie_names": cookie_names,
+        "cookie_error": cookie_error,
+        "rejection_reasons": rejection_reasons,
+    }
 
 
 def _url_is_post_login(url: str) -> bool:
