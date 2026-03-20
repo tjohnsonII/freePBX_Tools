@@ -51,9 +51,6 @@ class StateStore:
         self.ticket_pipeline = {
             stage: {"status": "unknown", "timestamp": None, "message": "not run", "failure_reason": None}
             for stage in [
-                "login_complete",
-                "cookies_loaded",
-                "auth_validated",
                 "handles_loaded",
                 "ticket_fetch_started",
                 "ticket_fetch_succeeded",

@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import auth, db, diagnostics, health, logs, manager, system, tickets
+from .routes import auth, db, diagnostics, health, logs, manager, system, tickets, webscraper
 from .services.auth_inspector import AuthInspector
 from .services.command_runner import CommandRunner
 from .services.db_inspector import DBInspector
@@ -20,7 +20,7 @@ def create_app() -> FastAPI:
     state = StateStore(repo_root=repo_root)
     event_bus = EventBus(jsonl_path=repo_root / ".webscraper_manager" / "events.jsonl")
 
-    app = FastAPI(title="Webscraper NOC Dashboard API", version="0.1.0")
+    app = FastAPI(title="Webscraper Hosted Dashboard API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
     app.state.command_runner = CommandRunner(repo_root)
     app.state.auth_inspector = AuthInspector(state, event_bus)
     app.state.ticket_pipeline = TicketPipelineService(state, event_bus)
-    app.state.db_inspector = DBInspector(repo_root / ".webscraper_manager" / "tickets.db")
+    app.state.db_inspector = DBInspector(repo_root / "webscraper" / "var" / "db" / "tickets.sqlite")
     app.state.system_inspector = SystemInspector(repo_root)
 
     app.include_router(health.router)
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(logs.router)
     app.include_router(diagnostics.router)
+    app.include_router(webscraper.router)
     return app
 
 
