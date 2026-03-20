@@ -51,6 +51,10 @@ type AuthResetResponse = {
   removed: string[];
   warnings: string[];
 };
+type AutoStatusResponse = {
+  cdp_attach_failed?: boolean;
+  last_cdp_error?: string | null;
+};
 
 const FALLBACK_TICKETING_TARGET_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi";
 const TICKETING_TARGET_URL = process.env.NEXT_PUBLIC_TICKETING_TARGET_URL || process.env.NEXT_PUBLIC_TICKETING_LOGIN_URL || FALLBACK_TICKETING_TARGET_URL;
@@ -65,6 +69,7 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [modeUsed, setModeUsed] = useState<string | null>(null);
   const [statusWarning, setStatusWarning] = useState<string | null>(null);
+  const [cdpWarning, setCdpWarning] = useState<string | null>(null);
   const [chromeProfiles, setChromeProfiles] = useState<string[]>([]);
   const [chromeProfileDir, setChromeProfileDir] = useState<string>("Profile 1");
 
@@ -82,6 +87,21 @@ export default function AuthPage() {
     } catch (err) {
       setStatus({ cookie_count: 0, domains: [], domain_counts: [], last_imported: null, source: "none" });
       setStatusWarning(err instanceof ApiRequestError ? (err.detail || err.message) : "Auth status unavailable.");
+    }
+  };
+
+  const refreshAutoStatus = async () => {
+    try {
+      const auto = await apiGet<AutoStatusResponse>("/api/auth/auto_status");
+      if (auto.cdp_attach_failed) {
+        setCdpWarning(
+          "Debug Chrome is running, but CDP attach failed due to remote origin rejection. Tabs will not be reopened until configuration is fixed.",
+        );
+      } else {
+        setCdpWarning(null);
+      }
+    } catch {
+      setCdpWarning(null);
     }
   };
 
@@ -104,6 +124,7 @@ export default function AuthPage() {
 
   useEffect(() => {
     refreshStatus().catch(() => undefined);
+    refreshAutoStatus().catch(() => undefined);
     loadChromeProfiles().catch(() => undefined);
   }, []);
 
@@ -197,6 +218,7 @@ export default function AuthPage() {
     try {
       await apiPost("/api/auth/launch_debug_chrome", { cdp_port: 9222, profile_name: "Default" });
       setMessage("Launched debug Chrome on port 9222. Retry auth seed in CDP/Auto mode.");
+      await refreshAutoStatus();
     } catch (err) {
       setError(err instanceof ApiRequestError ? (err.detail || err.message) : "Failed to launch debug Chrome.");
     }
@@ -244,6 +266,7 @@ export default function AuthPage() {
       {message && <p style={{ color: "#166534" }}>{message}</p>}
       {modeUsed && <p>Mode used: <strong>{modeUsed}</strong></p>}
       {statusWarning && <p style={{ color: "#a16207" }}>Status warning: {statusWarning}</p>}
+      {cdpWarning && <p style={{ color: "#a16207" }}>{cdpWarning}</p>}
       {wrongDomainLoaded && <p style={{ color: "#b91c1c", fontWeight: 600 }}>Wrong cookie domain set loaded; must include secure.123.net</p>}
 
       <section>

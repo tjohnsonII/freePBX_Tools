@@ -539,6 +539,92 @@ DEBUG_CHROME_PROC: subprocess.Popen | None = None
 DEBUG_CHROME_PROC_LOCK = threading.Lock()
 AUTO_SEED_LOCK = threading.Lock()
 AUTO_LAUNCH_DEBUG_CHROME: bool = os.getenv("AUTO_LAUNCH_DEBUG_CHROME", "0").strip().lower() in {"1", "true", "yes", "on"}
+AUTO_SEED_RETRY_BASE_SECONDS = 3
+AUTO_SEED_RETRY_MAX_SECONDS = 60
+AUTO_SEED_FATAL_COOLDOWN_SECONDS = 300
+AUTO_SEED_STATE_LOCK = threading.Lock()
+AUTO_SEED_STATE: dict[str, Any] = {
+    "debug_browser_running": False,
+    "cdp_attach_failed": False,
+    "last_cdp_error": None,
+    "auth_seed_in_progress": False,
+    "last_seed_attempt_at": None,
+    "next_seed_attempt_at": 0.0,
+    "consecutive_seed_failures": 0,
+    "fatal_cdp_error_at": None,
+}
+
+
+def _now_ts() -> float:
+    return time.time()
+
+
+def _is_fatal_cdp_attach_error(error_text: str | None, status: str | None = None) -> bool:
+    lowered_status = str(status or "").strip().lower()
+    if lowered_status in {"ws_origin_rejected", "origin_rejected"}:
+        return True
+    return is_cdp_origin_rejected(str(error_text or ""))
+
+
+def _mark_cdp_attach_failure(*, error: str, fatal: bool) -> None:
+    now_iso = _iso_now()
+    now_ts = _now_ts()
+    with AUTO_SEED_STATE_LOCK:
+        AUTO_SEED_STATE["cdp_attach_failed"] = True
+        AUTO_SEED_STATE["last_cdp_error"] = error
+        if fatal:
+            AUTO_SEED_STATE["fatal_cdp_error_at"] = now_iso
+            AUTO_SEED_STATE["next_seed_attempt_at"] = now_ts + AUTO_SEED_FATAL_COOLDOWN_SECONDS
+            AUTO_SEED_STATE["consecutive_seed_failures"] = max(1, int(AUTO_SEED_STATE.get("consecutive_seed_failures") or 0))
+
+
+def _clear_cdp_attach_failure() -> None:
+    with AUTO_SEED_STATE_LOCK:
+        AUTO_SEED_STATE["cdp_attach_failed"] = False
+        AUTO_SEED_STATE["last_cdp_error"] = None
+        AUTO_SEED_STATE["fatal_cdp_error_at"] = None
+
+
+def _set_seed_in_progress(in_progress: bool) -> None:
+    with AUTO_SEED_STATE_LOCK:
+        AUTO_SEED_STATE["auth_seed_in_progress"] = in_progress
+        if in_progress:
+            AUTO_SEED_STATE["last_seed_attempt_at"] = _iso_now()
+
+
+def _record_seed_outcome(*, success: bool, error: str | None = None, fatal: bool = False) -> None:
+    now_ts = _now_ts()
+    with AUTO_SEED_STATE_LOCK:
+        if success:
+            AUTO_SEED_STATE["consecutive_seed_failures"] = 0
+            AUTO_SEED_STATE["next_seed_attempt_at"] = now_ts
+            AUTO_SEED_STATE["cdp_attach_failed"] = False
+            AUTO_SEED_STATE["last_cdp_error"] = None
+            AUTO_SEED_STATE["fatal_cdp_error_at"] = None
+            return
+        failures = int(AUTO_SEED_STATE.get("consecutive_seed_failures") or 0) + 1
+        AUTO_SEED_STATE["consecutive_seed_failures"] = failures
+        delay = min(AUTO_SEED_RETRY_MAX_SECONDS, AUTO_SEED_RETRY_BASE_SECONDS * (2 ** max(0, failures - 1)))
+        AUTO_SEED_STATE["next_seed_attempt_at"] = now_ts + delay
+        if error:
+            AUTO_SEED_STATE["last_cdp_error"] = error
+        if fatal:
+            AUTO_SEED_STATE["cdp_attach_failed"] = True
+            AUTO_SEED_STATE["fatal_cdp_error_at"] = _iso_now()
+            AUTO_SEED_STATE["next_seed_attempt_at"] = now_ts + AUTO_SEED_FATAL_COOLDOWN_SECONDS
+
+
+def _can_attempt_auto_seed() -> tuple[bool, str | None]:
+    now_ts = _now_ts()
+    with AUTO_SEED_STATE_LOCK:
+        if bool(AUTO_SEED_STATE.get("auth_seed_in_progress")):
+            return False, "seed_in_progress"
+        next_at = float(AUTO_SEED_STATE.get("next_seed_attempt_at") or 0.0)
+        if now_ts < next_at:
+            return False, "retry_cooldown"
+        if bool(AUTO_SEED_STATE.get("cdp_attach_failed")) and bool(AUTO_SEED_STATE.get("fatal_cdp_error_at")):
+            return False, "fatal_cdp_attach_error"
+    return True, None
 
 
 def _is_login_like(payload: str) -> bool:
@@ -722,36 +808,52 @@ def _auto_seed_and_validate(port: int = DEFAULT_CDP_PORT) -> bool:
     Seed cookies from the CDP instance on *port* and run validation.
     Returns True if authentication succeeded.  Thread-safe via AUTO_SEED_LOCK.
     """
+    allowed, reason = _can_attempt_auto_seed()
+    if not allowed:
+        _log(f"[AUTO] Skipping seed attempt reason={reason}")
+        return False
+
     with AUTO_SEED_LOCK:
+        _set_seed_in_progress(True)
         try:
-            result = seed_from_cdp(port, DEFAULT_DOMAINS)
-        except CookieSeedError as exc:
-            _log(f"[AUTO] CDP seed failed: {exc}")
-            return False
+            try:
+                result = seed_from_cdp(port, DEFAULT_DOMAINS)
+            except CookieSeedError as exc:
+                fatal = exc.code == "CDP_WS_ORIGIN_REJECTED" or _is_fatal_cdp_attach_error(str(exc))
+                _record_seed_outcome(success=False, error=str(exc), fatal=fatal)
+                if fatal:
+                    _mark_cdp_attach_failure(error=str(exc), fatal=True)
+                _log(f"[AUTO] CDP seed failed fatal={fatal}: {exc}")
+                return False
 
-        if not result.cookies:
-            _log("[AUTO] CDP seed returned 0 cookies – user may not be logged in yet")
-            return False
+            if not result.cookies:
+                _log("[AUTO] CDP seed returned 0 cookies – user may not be logged in yet")
+                _record_seed_outcome(success=False, error="CDP seed returned 0 cookies", fatal=False)
+                return False
 
-        store_result = auth_store.replace_cookies(db_path(), result.cookies, source="seed_cdp_auto")
-        _log(f"[AUTO] Stored {store_result.get('accepted', 0)} cookies via CDP auto-seed")
+            store_result = auth_store.replace_cookies(db_path(), result.cookies, source="seed_cdp_auto")
+            _log(f"[AUTO] Stored {store_result.get('accepted', 0)} cookies via CDP auto-seed")
 
-        validation = _validate_auth_targets(timeout_seconds=10)
-        authenticated = bool(validation.get("authenticated"))
-        if authenticated:
-            _update_auth_state(
-                authenticated=True,
-                mode="cdp_auto",
-                detail="Auto-seeded auth cookies from CDP after login detected",
-                last_error=None,
-            )
-            _append_event(
-                "info",
-                f"Auto-seeded auth cookies mode=cdp_auto count={store_result.get('accepted', 0)}",
-            )
-        else:
-            _log(f"[AUTO] Validation failed after CDP seed: {validation.get('reason')}")
-        return authenticated
+            validation = _validate_auth_targets(timeout_seconds=10)
+            authenticated = bool(validation.get("authenticated"))
+            if authenticated:
+                _record_seed_outcome(success=True)
+                _update_auth_state(
+                    authenticated=True,
+                    mode="cdp_auto",
+                    detail="Auto-seeded auth cookies from CDP after login detected",
+                    last_error=None,
+                )
+                _append_event(
+                    "info",
+                    f"Auto-seeded auth cookies mode=cdp_auto count={store_result.get('accepted', 0)}",
+                )
+            else:
+                _log(f"[AUTO] Validation failed after CDP seed: {validation.get('reason')}")
+                _record_seed_outcome(success=False, error=f"Validation failed: {validation.get('reason')}", fatal=False)
+            return authenticated
+        finally:
+            _set_seed_in_progress(False)
 
 
 def _try_auto_launch_debug_chrome() -> bool:
@@ -766,8 +868,12 @@ def _try_auto_launch_debug_chrome() -> bool:
     with DEBUG_CHROME_PROC_LOCK:
         # Already alive?
         if DEBUG_CHROME_PROC is not None and DEBUG_CHROME_PROC.poll() is None:
+            with AUTO_SEED_STATE_LOCK:
+                AUTO_SEED_STATE["debug_browser_running"] = True
             return False
         if _is_cdp_available(DEFAULT_CDP_PORT):
+            with AUTO_SEED_STATE_LOCK:
+                AUTO_SEED_STATE["debug_browser_running"] = True
             return False  # something else is already on that port
 
         try:
@@ -785,9 +891,13 @@ def _try_auto_launch_debug_chrome() -> bool:
                 port=DEFAULT_CDP_PORT,
             )
             DEBUG_CHROME_PROC = proc
+            with AUTO_SEED_STATE_LOCK:
+                AUTO_SEED_STATE["debug_browser_running"] = True
             _log(f"[AUTO] Launched debug Chrome pid={proc.pid} cdp_port={DEFAULT_CDP_PORT} profile={debug_profile}")
             return True
         except Exception as exc:
+            with AUTO_SEED_STATE_LOCK:
+                AUTO_SEED_STATE["debug_browser_running"] = False
             _log(f"[AUTO] Failed to launch debug Chrome: {exc}")
             return False
 
@@ -843,12 +953,16 @@ def _cdp_login_watcher() -> None:
 
             # If Chrome died and we launched it, try to restart
             if not _is_cdp_available(DEFAULT_CDP_PORT):
+                with AUTO_SEED_STATE_LOCK:
+                    AUTO_SEED_STATE["debug_browser_running"] = False
                 with DEBUG_CHROME_PROC_LOCK:
                     proc = DEBUG_CHROME_PROC
                 if proc is not None and proc.poll() is not None:
                     _log("[AUTO] Debug Chrome process exited – re-launching")
                     _try_auto_launch_debug_chrome()
                 continue
+            with AUTO_SEED_STATE_LOCK:
+                AUTO_SEED_STATE["debug_browser_running"] = True
 
             # CDP is up – check whether the user has logged in
             urls = _get_cdp_tab_urls(DEFAULT_CDP_PORT)
@@ -2046,6 +2160,50 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="localhost requests only")
 
+    cdp_diag = cdp_availability(payload.cdp_port, check_ws=True)
+    cdp_running = bool(cdp_diag.get("json_version_ok"))
+    target_already_open = any(
+        str(url).lower().startswith(CHROME_CUSTOMERS_URL.lower())
+        for url in (_get_cdp_tab_urls(payload.cdp_port) if cdp_running else [])
+    )
+    fatal_cdp_error = _is_fatal_cdp_attach_error(str(cdp_diag.get("error") or ""), str(cdp_diag.get("status") or ""))
+
+    if cdp_running:
+        with AUTO_SEED_STATE_LOCK:
+            AUTO_SEED_STATE["debug_browser_running"] = True
+        if fatal_cdp_error:
+            _mark_cdp_attach_failure(error=str(cdp_diag.get("error") or "CDP websocket attach failure"), fatal=True)
+            return {
+                "ok": False,
+                "mode_used": "cdp",
+                "details": {
+                    "cdp_port": payload.cdp_port,
+                    "already_running": True,
+                    "target_already_open": target_already_open,
+                    "cdp_validation": cdp_diag,
+                },
+                "warning": (
+                    "Debug Chrome is running, but CDP attach failed due to remote origin rejection. "
+                    "Tabs will not be reopened until configuration is fixed."
+                ),
+                "next_step_if_failed": (
+                    f"Chrome debug websocket rejected this backend origin on port {payload.cdp_port}. "
+                    f"Relaunch debug Chrome with --remote-allow-origins=http://127.0.0.1:{payload.cdp_port} "
+                    "or --remote-allow-origins=*."
+                ),
+            }
+        return {
+            "ok": True,
+            "mode_used": "cdp",
+            "details": {
+                "cdp_port": payload.cdp_port,
+                "already_running": True,
+                "target_already_open": target_already_open,
+                "cdp_validation": cdp_diag,
+            },
+            "next_step_if_failed": None,
+        }
+
     browser_path = _detect_browser_path()
     debug_profile = Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome-debug"
     proc = launch_debug_chrome(
@@ -2064,6 +2222,7 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
         f"launch_args=[--remote-debugging-port={payload.cdp_port},--remote-allow-origins=http://127.0.0.1:{payload.cdp_port},--remote-allow-origins=*]"
     )
     if str(launch_diagnostics.get("status")) == "ws_origin_rejected" or is_cdp_origin_rejected(str(launch_diagnostics.get("error") or "")):
+        _mark_cdp_attach_failure(error=str(launch_diagnostics.get("error") or "CDP websocket origin rejected"), fatal=True)
         raise HTTPException(
             status_code=502,
             detail=(
@@ -2072,6 +2231,7 @@ def api_auth_launch_debug_chrome(request: Request, payload: LaunchDebugChromeReq
                 "or --remote-allow-origins=*."
             ),
         )
+    _clear_cdp_attach_failure()
     return {
         "ok": True,
         "mode_used": "cdp",
@@ -2128,6 +2288,8 @@ def api_auth_auto_status():
             "mode": AUTH_STATE.mode,
             "detail": AUTH_STATE.detail,
         }
+    with AUTO_SEED_STATE_LOCK:
+        auto_seed_snapshot = dict(AUTO_SEED_STATE)
     return {
         "auto_launch_enabled": AUTO_LAUNCH_DEBUG_CHROME,
         "debug_chrome_pid": proc.pid if proc_alive else None,
@@ -2136,6 +2298,13 @@ def api_auth_auto_status():
         "cdp_available": cdp_up,
         "open_tabs": len(tab_urls),
         "post_login_tabs": post_login,
+        "debug_browser_running": bool(auto_seed_snapshot.get("debug_browser_running")) or cdp_up or proc_alive,
+        "cdp_attach_failed": bool(auto_seed_snapshot.get("cdp_attach_failed")),
+        "last_cdp_error": auto_seed_snapshot.get("last_cdp_error"),
+        "auth_seed_in_progress": bool(auto_seed_snapshot.get("auth_seed_in_progress")),
+        "last_seed_attempt_at": auto_seed_snapshot.get("last_seed_attempt_at"),
+        "next_seed_attempt_at": auto_seed_snapshot.get("next_seed_attempt_at"),
+        "fatal_cdp_error_at": auto_seed_snapshot.get("fatal_cdp_error_at"),
         **auth_snapshot,
     }
 
