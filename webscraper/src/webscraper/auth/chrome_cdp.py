@@ -95,8 +95,33 @@ def _open_target_session(ws: Any) -> str:
     cached = getattr(ws, "_cdp_default_session", None)
     if isinstance(cached, str) and cached:
         return cached
-    target = cdp_call(ws, "Target.createTarget", {"url": "about:blank"})
-    target_id = target.get("targetId")
+    target_id = None
+    target_info = cdp_call(ws, "Target.getTargets", {})
+    target_infos = target_info.get("targetInfos") if isinstance(target_info, dict) else []
+    if isinstance(target_infos, list):
+        secure_targets = []
+        normal_targets = []
+        for row in target_infos:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("type") or "") != "page":
+                continue
+            row_url = str(row.get("url") or "").lower()
+            row_id = row.get("targetId")
+            if not row_id:
+                continue
+            if "secure.123.net" in row_url:
+                secure_targets.append(str(row_id))
+            elif row_url and row_url != "about:blank":
+                normal_targets.append(str(row_id))
+        if secure_targets:
+            target_id = secure_targets[0]
+        elif normal_targets:
+            target_id = normal_targets[0]
+
+    if not target_id:
+        target = cdp_call(ws, "Target.createTarget", {"url": "about:blank"})
+        target_id = target.get("targetId")
     if not target_id:
         raise ChromeCDPError("CDP Target.createTarget did not return targetId.")
     attached = cdp_call(ws, "Target.attachToTarget", {"targetId": target_id, "flatten": True})

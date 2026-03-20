@@ -22,6 +22,10 @@ type SystemStatus = {
   backend_health: string;
   browser_status: string;
   auth_status: string;
+  secure_tab_status?: string;
+  session_status?: string;
+  cookies_status?: string;
+  validation_status?: string;
   current_job?: Job | null;
   last_successful_scrape?: string | null;
   db_counts: { tickets: number; handles: number };
@@ -93,6 +97,10 @@ export default function OrchestrationDashboard() {
         <div><strong>Backend</strong><div>{status?.backend_health ?? "unknown"}</div></div>
         <div><strong>Browser</strong><div>{status?.browser_status ?? "unknown"}</div></div>
         <div><strong>Auth</strong><div>{status?.auth_status ?? "unknown"}</div></div>
+        <div><strong>Secure tab</strong><div>{status?.secure_tab_status ?? "unknown"}</div></div>
+        <div><strong>Session</strong><div>{status?.session_status ?? "unknown"}</div></div>
+        <div><strong>Cookies</strong><div>{status?.cookies_status ?? "unknown"}</div></div>
+        <div><strong>Validation</strong><div>{status?.validation_status ?? "unknown"}</div></div>
         <div><strong>Current state</strong><div>{status?.state ?? "idle"}</div></div>
         <div><strong>DB counts</strong><div>tickets={status?.db_counts?.tickets ?? 0}, handles={status?.db_counts?.handles ?? 0}</div></div>
         <div><strong>Last error</strong><div>{status?.last_error || "none"}</div></div>

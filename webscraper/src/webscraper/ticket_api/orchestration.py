@@ -53,6 +53,10 @@ class SystemStatus(BaseModel):
     backend_health: str = "ok"
     browser_status: str = "unknown"
     auth_status: str = "unknown"
+    secure_tab_status: str = "unknown"
+    session_status: str = "unknown"
+    cookies_status: str = "unknown"
+    validation_status: str = "unknown"
     current_job: OrchestrationJob | None = None
     last_successful_scrape: str | None = None
     db_counts: dict[str, int] = Field(default_factory=lambda: {"tickets": 0, "handles": 0})
@@ -117,6 +121,8 @@ class WebScraperOrchestrator:
     def _build_browser_step(self, result: dict[str, Any]) -> StepResponse:
         self._browser_attached = bool(result.get("available", False))
         self._status.browser_status = str(result.get("status") or ("available" if self._browser_attached else "unavailable"))
+        self._status.secure_tab_status = "detected" if bool(result.get("secure_tab_open")) else "not_found"
+        self._status.session_status = "detected" if bool(result.get("authenticated_session")) else "not_detected"
         detail = str(result.get("message") or ("Browser detected" if self._browser_attached else "No browser available"))
         self._update_state(SystemState.idle)
         return StepResponse(ok=self._browser_attached, state=SystemState.detecting_browser, detail=detail, data=result)
@@ -146,6 +152,7 @@ class WebScraperOrchestrator:
             result = self._deps.seed_auth()
             seeded = bool(result.get("seeded", False))
             self._status.auth_status = "seeded" if seeded else "not_seeded"
+            self._status.cookies_status = "seeded" if seeded else "not_seeded"
             detail = "Auth seeded" if seeded else "Auth seeding returned no credentials"
             self._update_state(SystemState.idle)
             return StepResponse(ok=seeded, state=SystemState.seeding_auth, detail=detail, data=result)
@@ -156,6 +163,8 @@ class WebScraperOrchestrator:
             result = self._deps.validate_auth()
             authenticated = bool(result.get("authenticated", False))
             self._status.auth_status = "valid" if authenticated else "invalid"
+            self._status.validation_status = "passed" if authenticated else "failed"
+            self._status.session_status = "validated" if authenticated else "not_validated"
             detail = "Auth is valid" if authenticated else "Auth is invalid"
             self._update_state(SystemState.idle)
             return StepResponse(ok=authenticated, state=SystemState.validating_auth, detail=detail, data=result)
