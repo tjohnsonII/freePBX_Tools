@@ -26,3 +26,11 @@ def test_orchestration_dashboard_exposes_selenium_fallback_route() -> None:
     dashboard = (_repo_root() / "webscraper" / "ticket-ui" / "app" / "components" / "OrchestrationDashboard.tsx").read_text(encoding="utf-8")
     assert "Run Selenium Fallback Scrape" in dashboard
     assert '"/api/scrape/selenium_fallback"' in dashboard
+    assert "`/api/jobs/status/${start.job_id}`" in dashboard
+    assert "`/jobs/${start.job_id}`" not in dashboard
+
+
+def test_ticket_ui_exposes_backend_job_status_proxy_route() -> None:
+    proxy_route = (_repo_root() / "webscraper" / "ticket-ui" / "app" / "api" / "jobs" / "status" / "[jobId]" / "route.ts").read_text(encoding="utf-8")
+    assert 'const API_TARGET = process.env.TICKET_API_PROXY_TARGET || "http://127.0.0.1:8788";' in proxy_route
+    assert 'const url = `${API_TARGET}/jobs/${jobId}`;' in proxy_route

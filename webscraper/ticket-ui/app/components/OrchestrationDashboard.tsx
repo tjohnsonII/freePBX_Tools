@@ -58,6 +58,9 @@ export default function OrchestrationDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [seleniumJob, setSeleniumJob] = useState<SeleniumFallbackJob | null>(null);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [expandedJob, setExpandedJob] = useState<Job | null>(null);
+  const [expandedJobError, setExpandedJobError] = useState<string | null>(null);
 
   const reload = async () => {
     try {
@@ -119,7 +122,7 @@ export default function OrchestrationDashboard() {
       setSeleniumJob(startedJob);
       let done = false;
       while (!done) {
-        const next = await apiGet<SeleniumFallbackJob>(`/jobs/${start.job_id}`);
+        const next = await apiGet<SeleniumFallbackJob>(`/api/jobs/status/${start.job_id}`);
         setSeleniumJob(next);
         done = next.status === "completed" || next.status === "failed";
         if (!done) {
@@ -129,14 +132,26 @@ export default function OrchestrationDashboard() {
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setSeleniumJob({
-        job_id: "unknown",
-        status: "failed",
-        error_message: e instanceof Error ? e.message : String(e),
-        result: { status_message: "failed", error: e instanceof Error ? e.message : String(e), ticket_count: 0 },
-      });
     } finally {
       setBusy(null);
+    }
+  };
+
+  const toggleJobDetails = async (jobId: string) => {
+    if (expandedJobId === jobId) {
+      setExpandedJobId(null);
+      setExpandedJob(null);
+      setExpandedJobError(null);
+      return;
+    }
+    setExpandedJobId(jobId);
+    setExpandedJob(null);
+    setExpandedJobError(null);
+    try {
+      const details = await apiGet<Job>(`/api/jobs/${jobId}`);
+      setExpandedJob(details);
+    } catch (e) {
+      setExpandedJobError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -195,7 +210,26 @@ export default function OrchestrationDashboard() {
         <strong>Recent jobs</strong>
         <ul>
           {jobs.slice(0, 5).map((job) => (
-            <li key={job.job_id}>{job.job_id} · {job.current_state} · step={job.current_step} · found={job.records_found} · written={job.records_written}</li>
+            <li key={job.job_id}>
+              <button onClick={() => toggleJobDetails(job.job_id)} style={{ background: "transparent", color: "inherit", border: "1px solid #555", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
+                {job.job_id}
+              </button>{" "}
+              · {job.current_state} · step={job.current_step} · found={job.records_found} · written={job.records_written}
+              {expandedJobId === job.job_id ? (
+                <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: "2px solid #555" }}>
+                  {expandedJobError ? (
+                    <div style={{ color: "#ff6b6b" }}>Failed to load job details: {expandedJobError}</div>
+                  ) : expandedJob ? (
+                    <div>
+                      created_at={expandedJob.created_at} · started_at={expandedJob.started_at || "n/a"} · completed_at={expandedJob.completed_at || "n/a"}
+                      {expandedJob.error_message ? ` · error=${expandedJob.error_message}` : ""}
+                    </div>
+                  ) : (
+                    <div>Loading job details…</div>
+                  )}
+                </div>
+              ) : null}
+            </li>
           ))}
         </ul>
       </div>
