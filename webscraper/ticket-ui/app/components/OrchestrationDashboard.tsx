@@ -26,6 +26,8 @@ type SystemStatus = {
   session_status?: string;
   cookies_status?: string;
   validation_status?: string;
+  probe_status?: string;
+  detection_reason?: string | null;
   current_job?: Job | null;
   last_successful_scrape?: string | null;
   db_counts: { tickets: number; handles: number };
@@ -93,17 +95,19 @@ export default function OrchestrationDashboard() {
     <section style={{ border: "1px solid #333", borderRadius: 8, padding: 12, marginBottom: 16 }}>
       <h2>Orchestration Dashboard</h2>
       {error ? <p style={{ color: "#ff6b6b" }}>{error}</p> : null}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 }}>
         <div><strong>Backend</strong><div>{status?.backend_health ?? "unknown"}</div></div>
         <div><strong>Browser</strong><div>{status?.browser_status ?? "unknown"}</div></div>
         <div><strong>Auth</strong><div>{status?.auth_status ?? "unknown"}</div></div>
         <div><strong>Secure tab</strong><div>{status?.secure_tab_status ?? "unknown"}</div></div>
         <div><strong>Session</strong><div>{status?.session_status ?? "unknown"}</div></div>
         <div><strong>Cookies</strong><div>{status?.cookies_status ?? "unknown"}</div></div>
+        <div><strong>Auth probe</strong><div>{status?.probe_status ?? "unknown"}</div></div>
         <div><strong>Validation</strong><div>{status?.validation_status ?? "unknown"}</div></div>
         <div><strong>Current state</strong><div>{status?.state ?? "idle"}</div></div>
         <div><strong>DB counts</strong><div>tickets={status?.db_counts?.tickets ?? 0}, handles={status?.db_counts?.handles ?? 0}</div></div>
         <div><strong>Last error</strong><div>{status?.last_error || "none"}</div></div>
+        <div><strong>Detection reason</strong><div>{status?.detection_reason || "none"}</div></div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
         <button onClick={() => runAction("detect", "/api/browser/detect", { browser: "chrome", cdp_port: 9222 })} disabled={!!busy}>Detect Browser</button>

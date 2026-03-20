@@ -76,3 +76,34 @@ def test_full_success_path():
     assert result["job"]["current_state"] == JobState.completed
     assert result["job"]["records_found"] == 4
     assert result["job"]["records_written"] == 4
+
+
+def test_browser_detection_status_maps_cookie_and_probe_fields():
+    def detect_browser():
+        return {
+            "available": True,
+            "status": "ready",
+            "secure_tab_open": True,
+            "authenticated_session": False,
+            "cookie_count": 2,
+            "authenticated_probe_ok": False,
+            "unauthenticated_reason": "authenticated_probe_failed",
+        }
+
+    deps = OrchestratorDeps(
+        detect_browser=detect_browser,
+        seed_auth=lambda: {"seeded": False},
+        validate_auth=lambda: {"authenticated": False},
+        run_scrape=lambda _job_id: {"records_found": 0},
+        persist_records=lambda _job_id, _payload: {"records_written": 0},
+        db_status=lambda: {"tickets": 0, "handles": 0},
+    )
+    orchestrator = WebScraperOrchestrator(deps=deps, logger=logging.getLogger("test.orchestrator"))
+    response = orchestrator.detect_browser()
+    assert response.ok is True
+    status = orchestrator.system_status()
+    assert status.secure_tab_status == "detected"
+    assert status.cookies_status == "detected"
+    assert status.probe_status == "failed"
+    assert status.session_status == "not_detected"
+    assert status.detection_reason == "authenticated_probe_failed"

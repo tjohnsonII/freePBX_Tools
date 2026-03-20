@@ -57,6 +57,8 @@ class SystemStatus(BaseModel):
     session_status: str = "unknown"
     cookies_status: str = "unknown"
     validation_status: str = "unknown"
+    probe_status: str = "unknown"
+    detection_reason: str | None = None
     current_job: OrchestrationJob | None = None
     last_successful_scrape: str | None = None
     db_counts: dict[str, int] = Field(default_factory=lambda: {"tickets": 0, "handles": 0})
@@ -122,7 +124,10 @@ class WebScraperOrchestrator:
         self._browser_attached = bool(result.get("available", False))
         self._status.browser_status = str(result.get("status") or ("available" if self._browser_attached else "unavailable"))
         self._status.secure_tab_status = "detected" if bool(result.get("secure_tab_open")) else "not_found"
+        self._status.cookies_status = "detected" if int(result.get("cookie_count") or 0) > 0 else "not_detected"
+        self._status.probe_status = "succeeded" if bool(result.get("authenticated_probe_ok")) else "failed"
         self._status.session_status = "detected" if bool(result.get("authenticated_session")) else "not_detected"
+        self._status.detection_reason = str(result.get("unauthenticated_reason") or "") or None
         detail = str(result.get("message") or ("Browser detected" if self._browser_attached else "No browser available"))
         self._update_state(SystemState.idle)
         return StepResponse(ok=self._browser_attached, state=SystemState.detecting_browser, detail=detail, data=result)
@@ -163,8 +168,12 @@ class WebScraperOrchestrator:
             result = self._deps.validate_auth()
             authenticated = bool(result.get("authenticated", False))
             self._status.auth_status = "valid" if authenticated else "invalid"
+            self._status.probe_status = "succeeded" if bool(result.get("authenticated_request_test_succeeded")) else "failed"
+            self._status.cookies_status = "detected" if int(result.get("cookie_count") or 0) > 0 else "not_detected"
+            self._status.secure_tab_status = "detected" if bool(result.get("secure_tab_found")) else "not_found"
             self._status.validation_status = "passed" if authenticated else "failed"
             self._status.session_status = "validated" if authenticated else "not_validated"
+            self._status.detection_reason = str(result.get("live_unauthenticated_reason") or result.get("reason") or "") or None
             detail = "Auth is valid" if authenticated else "Auth is invalid"
             self._update_state(SystemState.idle)
             return StepResponse(ok=authenticated, state=SystemState.validating_auth, detail=detail, data=result)
