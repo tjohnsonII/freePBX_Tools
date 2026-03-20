@@ -6,8 +6,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <header>
-          <h1>Ticket History</h1>
-          <nav><Link href="/">Handles</Link> | <Link href="/auth">Auth</Link> | <Link href="/logs">Logs</Link></nav>
+          <h1>123.NET Ticket Knowledge Base</h1>
+          <nav><Link href="/">KB Dashboard</Link> | <Link href="/logs">Logs</Link></nav>
         </header>
         {children}
       </body>
