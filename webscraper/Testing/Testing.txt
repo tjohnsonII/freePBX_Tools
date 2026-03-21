@@ -126,3 +126,42 @@ And so on.
 Sometimes the frontend is swallowing useful info. Watch this too in a second terminal:
 
 Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_ui.log -Wait -Tail 60
+
+What was built
+scripts/run_extra_apps.py — new standalone launcher using the same dev_runtime helpers as everything else:
+
+Key	Service	Port	Kind
+traceroute	Traceroute Visualizer	3006	Next.js
+polycom	Polycom/Yealink/Mikrotik App	3002	Vite
+web_manager	FreePBX Tools Web Manager	5000	Flask
+run_all_web_apps.py — gained --extras and --only-extras flags, runs the extras phase after the core stack is ready.
+
+.vscode/tasks.json — three new VS Code tasks:
+
+start: everything — full stack (manager + webscraper + extras) + opens browser
+start: everything (no browser) — same, no browser launch
+start: extras only — just the three extra services, for when the core is already running
+To run now
+Via VS Code → Ctrl+Shift+P → Tasks: Run Task → start: everything
+
+Via terminal (equivalent to your Testing.txt paste, but one command):
+
+
+python scripts\run_all_web_apps.py --browser existing-profile --webscraper-mode combined --extras
+Just the 3 extra services (if core stack is already up):
+
+
+python scripts\run_extra_apps.py
+Only specific extras:
+
+
+python scripts\run_extra_apps.py --only traceroute polycom
+
+Done. On next run, after all services are ready, Chrome will open tabs for:
+
+Tab	URL
+1 (first)	http://127.0.0.1:3004/dashboard — Manager
+2	http://127.0.0.1:3005 — Webscraper / VPBX
+3	http://127.0.0.1:3006 — Traceroute Visualizer
+4	http://127.0.0.1:3002 — Polycom/Yealink/Mikrotik
+5	http://127.0.0.1:5000 — FreePBX Web Manager

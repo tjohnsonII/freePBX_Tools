@@ -13,6 +13,7 @@ from lib.dev_runtime import (
     ensure_manager_ui_dependencies,
     inspect_web_stack,
     launch_browser_mode,
+    open_urls_in_chrome,
     print_inspection,
     repo_root,
     run_checked,
@@ -54,7 +55,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Also start extra services: Traceroute Visualizer (3006), Polycom App (3002), FreePBX Web Manager (5000)",
     )
     parser.add_argument(
-        "--only-extras", nargs="+", choices=["traceroute", "polycom", "web_manager"],
+        "--only-extras", nargs="+", choices=["remote_traceroute", "traceroute", "polycom", "web_manager"],
         metavar="SERVICE",
         help="With --extras, limit which extra services to start",
     )
@@ -243,13 +244,30 @@ def wait_for_readiness(root: Path, args: argparse.Namespace, commands: dict[str,
     return summary
 
 
-def maybe_launch_browser(root: Path, args: argparse.Namespace) -> BrowserLaunchDetails:
-    return launch_browser_mode(
+def maybe_launch_browser(
+    root: Path,
+    args: argparse.Namespace,
+    service_summary: list[dict] | None = None,
+) -> BrowserLaunchDetails:
+    result = launch_browser_mode(
         mode=args.browser,
         url=args.dashboard_url,
         profile_directory=args.browser_profile_directory,
         persistent_user_data_dir=root / args.browser_user_data_dir,
     )
+    if result.launched and service_summary:
+        # Collect ready UI service URLs — skip API health endpoints and the dashboard
+        extra_urls = [
+            item["url"] for item in service_summary
+            if item.get("started") and item.get("url")
+            and item["url"] != args.dashboard_url
+            and item.get("readiness_status") == "ready"
+            and "/api/health" not in item["url"]
+            and item.get("mode") not in {"api", "worker"}
+        ]
+        if extra_urls:
+            open_urls_in_chrome(extra_urls, profile_directory=args.browser_profile_directory)
+    return result
 
 
 def write_status_file(
@@ -338,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
 
         print("[phase] browser")
-        browser = maybe_launch_browser(root, args)
+        browser = maybe_launch_browser(root, args, service_summary)
 
         failures: list[str] = []
         if args.strict_readiness and warnings:
@@ -355,10 +373,11 @@ def main(argv: list[str] | None = None) -> int:
 
         print("[startup-summary]")
         for item in service_summary:
+            port = item.get("target_port") or item.get("port")
             print(
                 " - "
                 f"{item['service_name']}: started={item['started']} pid={item['pid']} "
-                f"port={item['target_port']} readiness={item['readiness_status']} "
+                f"port={port} readiness={item['readiness_status']} "
                 f"reason={item['readiness_reason']}"
             )
         print(f" - browser: mode={browser.mode} launched={browser.launched} reason={browser.reason}")

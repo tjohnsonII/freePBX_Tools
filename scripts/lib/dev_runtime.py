@@ -625,6 +625,51 @@ def clear_runtime_state(root: Path) -> None:
         log("state", f"Removed runtime state file: {state_path}")
 
 
+def _find_chrome() -> str | None:
+    """Return path to Chrome executable on Windows, or None."""
+    candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return shutil.which("chrome") or shutil.which("chrome.exe")
+
+
+def open_urls_in_chrome(urls: list[str], *, profile_directory: str = "Default") -> None:
+    """Open each URL as a new tab in the user's existing Chrome session."""
+    if not urls:
+        return
+    chrome = _find_chrome()
+    if not chrome:
+        log("browser", "Chrome not found — falling back to default browser for each URL")
+        for url in urls:
+            maybe_open_browser(url, open_browser=True)
+        return
+    creationflags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) | int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    base_cmd = [chrome, "--no-first-run", "--no-default-browser-check",
+                f"--profile-directory={profile_directory}"]
+    # First URL: new window if Chrome isn't open, else new tab
+    subprocess.Popen(
+        [*base_cmd, urls[0]],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+    # Remaining URLs: force new tab in same session
+    import time as _time
+    _time.sleep(0.5)
+    for url in urls[1:]:
+        subprocess.Popen(
+            [*base_cmd, url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        _time.sleep(0.2)
+    log("browser", f"Opened {len(urls)} tab(s) in Chrome: {urls}")
+
+
 def maybe_open_browser(url: str, *, open_browser: bool) -> None:
     if not open_browser:
         return

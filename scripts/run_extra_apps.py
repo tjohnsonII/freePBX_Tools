@@ -33,7 +33,22 @@ from lib.dev_runtime import (
 
 # ── Service definitions ───────────────────────────────────────────────────────
 
+REMOTE_TRACEROUTE_HOST = "192.168.50.1"
+REMOTE_TRACEROUTE_USER = "tjohnson"
+REMOTE_TRACEROUTE_DIR  = "~"          # directory containing traceroute_server_update.py
+REMOTE_TRACEROUTE_CTL  = "~/traceroute_server_ctl.sh"
+
 SERVICES = {
+    "remote_traceroute": {
+        "label": "Remote Traceroute Server (CAGE)",
+        "service_name": "remote_traceroute",
+        "kind": "ssh-remote",
+        "host": REMOTE_TRACEROUTE_HOST,
+        "user": REMOTE_TRACEROUTE_USER,
+        "remote_dir": REMOTE_TRACEROUTE_DIR,
+        "remote_ctl": REMOTE_TRACEROUTE_CTL,
+        "port": 8000,   # informational only
+    },
     "traceroute": {
         "label": "Traceroute Visualizer",
         "service_name": "traceroute_ui",
@@ -113,6 +128,75 @@ def _start_npm(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) 
     return _ok_result(svc, entry, reason, url)
 
 
+def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:  # noqa: ARG001
+    """Ensure the remote traceroute server is running via SSH + traceroute_server_ctl.sh."""
+    import shutil
+    ssh = shutil.which("ssh")
+    if not ssh:
+        return _unavailable(svc, "ssh not found in PATH")
+
+    host = svc["host"]
+    user = svc["user"]
+    remote_dir = svc["remote_dir"]
+    remote_ctl = svc["remote_ctl"]
+    target = f"{user}@{host}"
+
+    # Command: copy the ctl script if missing, then start (idempotent)
+    # Uses BatchMode=yes so it fails fast if no key auth is set up
+    ssh_check = [ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, "echo ok"]
+    ssh_start = [
+        ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target,
+        f"cd {remote_dir} && sh {remote_ctl} start",
+    ]
+    ssh_status = [
+        ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target,
+        f"cd {remote_dir} && sh {remote_ctl} status",
+    ]
+
+    if dry_run:
+        return _dry_run_result(svc, ssh_start)
+
+    import subprocess
+    # Verify key-based auth works
+    result = subprocess.run(ssh_check, capture_output=True, text=True, timeout=15)
+    if result.returncode != 0:
+        return _unavailable(
+            svc,
+            f"SSH key auth to {target} failed — run: ssh-copy-id {target}\n"
+            f"  stderr: {result.stderr.strip()}",
+        )
+
+    # Start (idempotent — ctl script skips if already running)
+    result = subprocess.run(ssh_start, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        return _unavailable(svc, f"Remote start failed: {result.stderr.strip() or result.stdout.strip()}")
+
+    print(f"[remote] {result.stdout.strip()}")
+
+    # Confirm running
+    result = subprocess.run(ssh_status, capture_output=True, text=True, timeout=15)
+    running = result.returncode == 0
+    status_out = result.stdout.strip()
+
+    if not running:
+        return _unavailable(svc, f"Remote status check failed: {status_out}")
+
+    url = f"http://{host}:{svc['port']}"
+    print(f"[startup] remote_traceroute started=True url={url}")
+    return {
+        "service_name": svc["service_name"],
+        "label": svc["label"],
+        "started": True,
+        "pid": None,
+        "port": svc["port"],
+        "url": url,
+        "readiness_status": "ready",
+        "readiness_reason": status_out,
+        "degraded": False,
+        "log_file": None,
+    }
+
+
 def _start_flask(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:
     """Start the Flask web manager (web_manager.py)."""
     import shutil
@@ -132,7 +216,13 @@ def _start_flask(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int
     if dry_run:
         return _dry_run_result(svc, cmd)
 
-    env = {"FLASK_RUN_HOST": host, "FLASK_RUN_PORT": str(port), "FLASK_ENV": "development"}
+    env = {
+        "FLASK_RUN_HOST": host,
+        "FLASK_RUN_PORT": str(port),
+        "FLASK_ENV": "development",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
     entry = start_detached(root=root, service_name=name, cmd=cmd, cwd=svc_dir,
                            env_overrides=env)
     save_service_state(root, entry)
@@ -221,6 +311,8 @@ def start_extras(
                 result = _start_npm(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
             elif svc["kind"] == "flask":
                 result = _start_flask(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
+            elif svc["kind"] == "ssh-remote":
+                result = _start_ssh_remote(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
             else:
                 result = _unavailable(svc, f"Unknown kind '{svc['kind']}'")
         except Exception as exc:
@@ -240,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only", nargs="+", choices=list(SERVICES.keys()),
         metavar="SERVICE",
-        help=f"Start only these services. Choices: {list(SERVICES.keys())}",
+        help=f"Start only these services. Choices: {list(SERVICES.keys())}",  # noqa: E501
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
