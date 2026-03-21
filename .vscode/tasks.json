@@ -101,6 +101,71 @@
       "problemMatcher": []
     },
     {
+      "label": "start: everything",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\run_all_web_apps.py",
+        "--browser", "existing-profile",
+        "--webscraper-mode", "combined",
+        "--doctor",
+        "--strict-readiness",
+        "--extras"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "echo": true,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "start: everything (no browser)",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\run_all_web_apps.py",
+        "--browser", "none",
+        "--webscraper-mode", "combined",
+        "--extras"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "echo": true,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "start: extras only (traceroute + polycom + web_manager)",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}\\scripts\\run_extra_apps.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "echo": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "stop: apps",
       "type": "process",
       "command": "python",
