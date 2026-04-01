@@ -706,7 +706,11 @@ def launch_browser_mode(
         )
 
     if is_windows():
-        resolved_browser = browser_path or shutil.which("msedge") or shutil.which("msedge.exe")
+        resolved_browser = (
+            browser_path
+            or shutil.which("msedge") or shutil.which("msedge.exe")
+            or _find_chrome()
+        )
         if not resolved_browser:
             return BrowserLaunchDetails(
                 mode=normalized,
@@ -716,7 +720,7 @@ def launch_browser_mode(
                 url=url,
                 command=[],
                 launched=False,
-                reason="Microsoft Edge executable was not found in PATH.",
+                reason="Neither Microsoft Edge nor Google Chrome was found.",
             )
         cmd = [resolved_browser, "--no-first-run", "--no-default-browser-check"]
         user_data_dir: str | None = None

@@ -249,25 +249,37 @@ def maybe_launch_browser(
     args: argparse.Namespace,
     service_summary: list[dict] | None = None,
 ) -> BrowserLaunchDetails:
-    result = launch_browser_mode(
+    if args.browser in {"none", "off", "disabled"}:
+        return launch_browser_mode(
+            mode=args.browser,
+            url=args.dashboard_url,
+            profile_directory=args.browser_profile_directory,
+            persistent_user_data_dir=root / args.browser_user_data_dir,
+        )
+
+    # Collect all ready UI URLs: dashboard first, then extras
+    all_urls = [args.dashboard_url]
+    if service_summary:
+        for item in service_summary:
+            url = item.get("url") or ""
+            if (
+                item.get("started")
+                and url
+                and url != args.dashboard_url
+                and item.get("readiness_status") == "ready"
+                and "/api/health" not in url
+                and item.get("mode") not in {"api", "worker"}
+            ):
+                all_urls.append(url)
+
+    open_urls_in_chrome(all_urls, profile_directory=args.browser_profile_directory)
+
+    return launch_browser_mode(
         mode=args.browser,
         url=args.dashboard_url,
         profile_directory=args.browser_profile_directory,
         persistent_user_data_dir=root / args.browser_user_data_dir,
     )
-    if result.launched and service_summary:
-        # Collect ready UI service URLs — skip API health endpoints and the dashboard
-        extra_urls = [
-            item["url"] for item in service_summary
-            if item.get("started") and item.get("url")
-            and item["url"] != args.dashboard_url
-            and item.get("readiness_status") == "ready"
-            and "/api/health" not in item["url"]
-            and item.get("mode") not in {"api", "worker"}
-        ]
-        if extra_urls:
-            open_urls_in_chrome(extra_urls, profile_directory=args.browser_profile_directory)
-    return result
 
 
 def write_status_file(

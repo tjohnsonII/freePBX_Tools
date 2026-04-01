@@ -248,6 +248,28 @@ def ensure_indexes(db_path: str) -> None:
 
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS noc_queue_tickets (
+                    ticket_id TEXT NOT NULL,
+                    view TEXT NOT NULL,
+                    subject TEXT,
+                    status TEXT,
+                    opened TEXT,
+                    customer TEXT,
+                    priority TEXT,
+                    assigned_to TEXT,
+                    ticket_type TEXT,
+                    ticket_id_url TEXT,
+                    raw_json TEXT,
+                    last_seen_utc TEXT,
+                    PRIMARY KEY (ticket_id, view)
+                );
+                CREATE INDEX IF NOT EXISTS idx_noc_queue_view ON noc_queue_tickets(view);
+                CREATE INDEX IF NOT EXISTS idx_noc_queue_status ON noc_queue_tickets(status);
+                """
+            )
+
+            conn.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS vpbx_records (
                     handle TEXT PRIMARY KEY,
                     name TEXT,
@@ -909,6 +931,62 @@ def get_company_timeline(db_path: str, handle: str, limit: int = 500) -> list[di
     return [dict(row) for row in rows]
 
 
+def list_noc_queue_tickets(db_path: str, view: str | None = None) -> list[dict[str, Any]]:
+    q = "SELECT * FROM noc_queue_tickets"
+    params: list[Any] = []
+    if view:
+        q += " WHERE view=?"
+        params.append(view)
+    q += " ORDER BY view ASC, last_seen_utc DESC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_noc_queue_tickets(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                ticket_id = (rec.get("ticket_id") or "").strip()
+                view = (rec.get("view") or "all").strip()
+                if not ticket_id:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO noc_queue_tickets(ticket_id, view, subject, status, opened, customer,
+                        priority, assigned_to, ticket_type, ticket_id_url, raw_json, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ticket_id, view) DO UPDATE SET
+                        subject=excluded.subject,
+                        status=excluded.status,
+                        opened=excluded.opened,
+                        customer=excluded.customer,
+                        priority=excluded.priority,
+                        assigned_to=excluded.assigned_to,
+                        ticket_type=excluded.ticket_type,
+                        ticket_id_url=excluded.ticket_id_url,
+                        raw_json=excluded.raw_json,
+                        last_seen_utc=excluded.last_seen_utc
+                    """,
+                    (
+                        ticket_id, view,
+                        rec.get("subject") or "",
+                        rec.get("status") or "",
+                        rec.get("opened") or "",
+                        rec.get("customer") or "",
+                        rec.get("priority") or "",
+                        rec.get("assigned_to") or "",
+                        rec.get("ticket_type") or "",
+                        rec.get("ticket_id_url") or "",
+                        rec.get("raw_json") or "{}",
+                        rec.get("last_seen_utc") or now_utc,
+                    ),
+                )
+    return len(records)
+
+
 def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
@@ -916,6 +994,14 @@ def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
             " FROM vpbx_records ORDER BY handle ASC"
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def delete_handle(db_path: str, handle: str) -> bool:
+    """Remove a handle row. Returns True if a row was deleted."""
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            cur = conn.execute("DELETE FROM handles WHERE handle=?", (handle,))
+    return cur.rowcount > 0
 
 
 def upsert_vpbx_records(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:

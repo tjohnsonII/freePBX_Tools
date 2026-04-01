@@ -265,7 +265,7 @@ def _unavailable(svc: dict, reason: str) -> dict:
         "url": None,
         "readiness_status": "unavailable",
         "readiness_reason": reason,
-        "degraded": True,
+        "degraded": False,
         "log_file": None,
     }
 

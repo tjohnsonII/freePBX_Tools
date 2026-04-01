@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import OrchestrationDashboard from "./components/OrchestrationDashboard";
-import { apiGet } from "../lib/api";
+import { apiGet, apiPost, apiRequest } from "../lib/api";
 import styles from "./kb.module.css";
 
 type HandleRow = {
@@ -37,6 +37,12 @@ export default function KBPage() {
   const [totalTickets, setTotalTickets] = useState<number | null>(null);
   const [handleError, setHandleError] = useState<string | null>(null);
 
+  // Handle add/remove state
+  const [addHandleInput, setAddHandleInput] = useState("");
+  const [addHandleError, setAddHandleError] = useState<string | null>(null);
+  const [addHandleBusy, setAddHandleBusy] = useState(false);
+  const [removingHandle, setRemovingHandle] = useState<string | null>(null);
+
   // Ticket search state
   const [ticketQ, setTicketQ] = useState("");
   const [ticketHandle, setTicketHandle] = useState("");
@@ -63,6 +69,35 @@ export default function KBPage() {
       setTotalTickets(res.total_tickets ?? res.db_counts?.tickets ?? null);
     } catch {
       // non-critical
+    }
+  };
+
+  const handleAdd = async () => {
+    const h = addHandleInput.trim().toUpperCase();
+    if (!h) return;
+    setAddHandleBusy(true);
+    setAddHandleError(null);
+    try {
+      await apiPost("/api/handles", { handle: h });
+      setAddHandleInput("");
+      await loadHandles();
+    } catch (e) {
+      setAddHandleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddHandleBusy(false);
+    }
+  };
+
+  const handleRemove = async (handle: string) => {
+    if (!confirm(`Remove handle ${handle} from the knowledge base?`)) return;
+    setRemovingHandle(handle);
+    try {
+      await apiRequest(`/api/handles/${encodeURIComponent(handle)}`, { method: "DELETE" });
+      await loadHandles();
+    } catch (e) {
+      setHandleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemovingHandle(null);
     }
   };
 
@@ -212,7 +247,24 @@ export default function KBPage() {
 
       {/* ── Handle Summary ────────────────────────────────────────────────── */}
       <section className={styles.kbSection}>
-        <h2>Knowledge Base</h2>
+        <div className={styles.kbHeader}>
+          <h2 className={styles.kbTitle}>Knowledge Base</h2>
+          <div className={styles.addHandleRow}>
+            <input
+              type="text"
+              className={styles.addHandleInput}
+              placeholder="Handle (e.g. ACME)"
+              value={addHandleInput}
+              onChange={(e) => setAddHandleInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              maxLength={32}
+            />
+            <button type="button" onClick={handleAdd} disabled={addHandleBusy || !addHandleInput.trim()}>
+              {addHandleBusy ? "Adding…" : "+ Add Handle"}
+            </button>
+          </div>
+        </div>
+        {addHandleError && <p className={styles.error}>{addHandleError}</p>}
         {handleError && <p className={styles.error}>{handleError}</p>}
         <div className={styles.kbStats}>
           <span>Total: {totalTickets !== null ? totalTickets.toLocaleString() : "…"} tickets</span>
@@ -232,6 +284,7 @@ export default function KBPage() {
               <th>Tickets</th>
               <th>Last Scraped</th>
               <th>Status</th>
+              <th scope="col" aria-label="Actions"></th>
             </tr>
           </thead>
           <tbody>
@@ -243,11 +296,22 @@ export default function KBPage() {
                 <td>{row.ticket_count ?? 0}</td>
                 <td>{row.last_updated_utc ? row.last_updated_utc.slice(0, 10) : "-"}</td>
                 <td>{row.status || "-"}</td>
+                <td>
+                  <button
+                    type="button"
+                    className={styles.removeBtn}
+                    onClick={() => handleRemove(row.handle)}
+                    disabled={removingHandle === row.handle}
+                    title={`Remove ${row.handle}`}
+                  >
+                    {removingHandle === row.handle ? "…" : "✕"}
+                  </button>
+                </td>
               </tr>
             ))}
             {filteredHandleRows.length === 0 && (
               <tr>
-                <td colSpan={4} className={styles.emptyCell}>
+                <td colSpan={5} className={styles.emptyCell}>
                   {handleSearch ? "No handles match filter." : "No handles found."}
                 </td>
               </tr>

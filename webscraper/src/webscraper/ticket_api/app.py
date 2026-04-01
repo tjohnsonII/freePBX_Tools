@@ -1316,6 +1316,89 @@ def api_logs_tail(
     return {"name": log_file.name, "lines": rows}
 
 
+# ── Handle management endpoints ──────────────────────────────────────────────
+
+
+class HandleAddRequest(BaseModel):
+    handle: str
+
+
+@app.post("/api/handles")
+def api_handle_add(payload: HandleAddRequest, request: Request):
+    """Add a new handle to the knowledge base."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Handle management is localhost-only")
+    handle = _normalize_handle(payload.handle)
+    db.ensure_handle_row(db_path(), handle)
+    _append_event("info", f"handle_added handle={handle}")
+    return {"handle": handle, "status": "added"}
+
+
+@app.delete("/api/handles/{handle}")
+def api_handle_delete(handle: str, request: Request):
+    """Remove a handle and all its tickets from the knowledge base."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Handle management is localhost-only")
+    handle = _normalize_handle(handle)
+    deleted = db.delete_handle(db_path(), handle)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Handle {handle!r} not found")
+    _append_event("info", f"handle_deleted handle={handle}")
+    return {"handle": handle, "status": "deleted"}
+
+
+# ── NOC Queue endpoints ───────────────────────────────────────────────────────
+
+
+@app.get("/api/noc-queue/records")
+def api_noc_queue_records(view: str | None = Query(None)):
+    """Return cached NOC queue tickets. Optionally filter by view: hosted|noc|all|local."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_noc_queue_tickets(db_path(), view=view)}
+
+
+@app.post("/api/noc-queue/refresh")
+def api_noc_queue_refresh(request: Request):
+    """Start a background Selenium job to scrape all NOC queue views. Returns job_id."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="NOC queue refresh is localhost-only")
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode="noc_queue",
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", "noc_queue_refresh_queued", job_id=job_id)
+
+    def _run() -> None:
+        from webscraper.noc_queue.scraper import fetch_noc_queues  # noqa: PLC0415
+
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"noc_queue:{msg}", job_id=job_id)
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            records = fetch_noc_queues(login_timeout_seconds=login_timeout, emit_fn=_emit)
+            finished = _iso_now()
+            db.upsert_noc_queue_tickets(db_path(), records, finished)
+            _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
+                               finished_utc=finished,
+                               result={"noc_queue_count": len(records)})
+            _append_event("info", f"noc_queue_refresh_done count={len(records)}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("noc_queue_refresh_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
+                               finished_utc=_iso_now(), error_message=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"noc-queue-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
+
+
 # ── VPBX endpoints ───────────────────────────────────────────────────────────
 
 
