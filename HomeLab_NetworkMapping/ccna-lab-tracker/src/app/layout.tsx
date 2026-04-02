@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
   title: "CCNA Lab Tracker",
-  description: "Track your CCNA homelab progress by day.",
+  description: "90-day homelab tracker",
 };
 
 export default function RootLayout({
@@ -12,8 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="flex min-h-full flex-col">{children}</body>
+    <html lang="en">
+      <body className="bg-black text-white">
+        <Navbar />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,45 +1,248 @@
-export type DayStatus = "not_started" | "in_progress" | "done" | "blocked";
-
-export interface DayPlan {
-  day: number;
-  title: string;
-  tasks: string[];
-  status: DayStatus;
-  notes: string;
-}
+import type { DayPlan } from "@/lib/types";
 
 export const plan: DayPlan[] = [
+  // ── Week 1 ──────────────────────────────────────────────────────────────
   {
     day: 1,
+    week: 1,
     title: "Lab Baseline & Inventory",
     tasks: [
       "Document available routers, switches, and host OS versions",
       "Verify console and SSH access to all devices",
-      "Create an addressing worksheet for management interfaces"
+      "Create an addressing worksheet for management interfaces",
     ],
     status: "not_started",
-    notes: ""
+    notes: "",
   },
   {
     day: 2,
+    week: 1,
     title: "IPv4 Subnetting Practice",
     tasks: [
       "Solve at least 20 subnetting questions",
       "Create three /30 point-to-point links in the lab",
-      "Validate routes and connectivity with ping/traceroute"
+      "Validate routes and connectivity with ping/traceroute",
     ],
     status: "not_started",
-    notes: ""
+    notes: "",
   },
   {
     day: 3,
+    week: 1,
     title: "VLANs and Trunking",
     tasks: [
       "Create VLAN 10/20/30 and assign access ports",
       "Configure 802.1Q trunk between switches",
-      "Verify tagging and inter-VLAN reachability prerequisites"
+      "Verify tagging and inter-VLAN reachability prerequisites",
     ],
     status: "not_started",
-    notes: ""
-  }
+    notes: "",
+  },
+  {
+    day: 4,
+    week: 1,
+    title: "Inter-VLAN Routing",
+    tasks: [
+      "Configure router-on-a-stick or L3 switch SVI routing",
+      "Test ping between VLANs",
+      "Document routing table entries",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 5,
+    week: 1,
+    title: "Spanning Tree Protocol",
+    tasks: [
+      "Observe default STP behavior",
+      "Manually set root bridge priority",
+      "Verify port states (root, designated, blocking)",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  // ── Week 2 ──────────────────────────────────────────────────────────────
+  {
+    day: 6,
+    week: 2,
+    title: "EtherChannel",
+    tasks: [
+      "Configure LACP EtherChannel between two switches",
+      "Verify bundle is active with show etherchannel summary",
+      "Test failover by disabling one member link",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 7,
+    week: 2,
+    title: "OSPFv2 Single Area",
+    tasks: [
+      "Enable OSPF on all routers in area 0",
+      "Verify neighbor adjacencies",
+      "Confirm full routing table convergence",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 8,
+    week: 2,
+    title: "OSPFv2 Tuning",
+    tasks: [
+      "Set router-id manually on each router",
+      "Tune hello/dead timers",
+      "Configure passive interfaces on LAN-facing ports",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 9,
+    week: 2,
+    title: "ACLs — Standard",
+    tasks: [
+      "Write numbered and named standard ACLs",
+      "Apply ACLs to restrict host-to-network access",
+      "Verify permit/deny with extended ping",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 10,
+    week: 2,
+    title: "ACLs — Extended",
+    tasks: [
+      "Write extended ACLs filtering by protocol, src/dst",
+      "Apply close to source per best practice",
+      "Test and document results",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  // ── Week 3 ──────────────────────────────────────────────────────────────
+  {
+    day: 11,
+    week: 3,
+    title: "NAT — Static and Dynamic",
+    tasks: [
+      "Configure static NAT for a DMZ host",
+      "Configure dynamic NAT with an address pool",
+      "Verify translations with show ip nat translations",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 12,
+    week: 3,
+    title: "PAT (NAT Overload)",
+    tasks: [
+      "Configure PAT using interface overload",
+      "Verify multiple inside hosts share one public IP",
+      "Capture and inspect translation table",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 13,
+    week: 3,
+    title: "DHCPv4",
+    tasks: [
+      "Configure router as DHCP server",
+      "Exclude gateway and DNS addresses",
+      "Verify client receives address, mask, gateway, DNS",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 14,
+    week: 3,
+    title: "IPv6 Addressing",
+    tasks: [
+      "Assign global unicast and link-local addresses",
+      "Enable IPv6 routing",
+      "Verify reachability with ping ipv6",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 15,
+    week: 3,
+    title: "OSPFv3 / IPv6 OSPF",
+    tasks: [
+      "Enable OSPFv3 on IPv6-enabled interfaces",
+      "Verify neighbor adjacencies",
+      "Check IPv6 routing table",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  // ── Week 4 ──────────────────────────────────────────────────────────────
+  {
+    day: 16,
+    week: 4,
+    title: "Device Hardening",
+    tasks: [
+      "Set enable secret, console, VTY passwords",
+      "Enable service password-encryption",
+      "Configure login banners and SSH only",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 17,
+    week: 4,
+    title: "CDP and LLDP",
+    tasks: [
+      "Use CDP to discover neighbors",
+      "Enable LLDP globally and verify",
+      "Disable CDP on untrusted interfaces",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 18,
+    week: 4,
+    title: "NTP and Syslog",
+    tasks: [
+      "Configure NTP client/server relationship",
+      "Set timezone and verify clock",
+      "Send syslog to a remote host",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 19,
+    week: 4,
+    title: "SNMP",
+    tasks: [
+      "Configure SNMPv2c community strings",
+      "Verify with snmpwalk or MIB browser",
+      "Set SNMP traps to a management station",
+    ],
+    status: "not_started",
+    notes: "",
+  },
+  {
+    day: 20,
+    week: 4,
+    title: "Full Lab Review & Exam Sim",
+    tasks: [
+      "Rebuild full topology from scratch without notes",
+      "Run through all verification commands",
+      "Score yourself and note gaps for final review",
+    ],
+    status: "not_started",
+    notes: "",
+  },
 ];
