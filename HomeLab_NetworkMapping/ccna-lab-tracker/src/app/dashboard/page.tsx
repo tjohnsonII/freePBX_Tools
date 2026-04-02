@@ -1,12 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ProgressBar from "@/components/ProgressBar";
-import { loadPlan } from "@/lib/plan-storage";
+import { loadPlanFromDb } from "@/lib/plan-storage";
 import { getPlanProgress } from "@/lib/plan-utils";
+import type { DayPlan } from "@/lib/types";
 
 export default function DashboardPage() {
-  const stats = useMemo(() => getPlanProgress(loadPlan()), []);
+  const [plan, setPlan] = useState<DayPlan[]>([]);
+
+  useEffect(() => {
+    loadPlanFromDb().then(setPlan);
+  }, []);
+
+  const stats = useMemo(() => getPlanProgress(plan), [plan]);
 
   return (
     <main className="min-h-screen p-6">

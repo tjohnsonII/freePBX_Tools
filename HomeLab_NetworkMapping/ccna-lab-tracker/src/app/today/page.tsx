@@ -1,23 +1,35 @@
 "use client";
 
-import DayCard from "@/components/DayCard";
-import { loadPlan, savePlan } from "@/lib/plan-storage";
-import type { DayPlan, DayStatus } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
+import DayCard from "@/components/DayCard";
+import { loadPlanFromDb, savePlanToDb } from "@/lib/plan-storage";
+import type { DayPlan, DayStatus } from "@/lib/types";
 
 export default function TodayPage() {
-  const [plan, setPlan] = useState<DayPlan[]>(() => loadPlan());
+  const [plan, setPlan] = useState<DayPlan[]>([]);
 
   useEffect(() => {
-    savePlan(plan);
+    loadPlanFromDb().then(setPlan);
+  }, []);
+
+  useEffect(() => {
+    if (plan.length > 0) savePlanToDb(plan);
   }, [plan]);
 
   const todayItem = useMemo(() => {
-    return (
-      plan.find((item) => item.status !== "done") ??
-      plan[0]
-    );
+    return plan.find((item) => item.status !== "done") ?? plan[0];
   }, [plan]);
+
+  if (plan.length === 0) {
+    return (
+      <main className="min-h-screen p-6">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-3xl font-bold">Today</h1>
+          <p className="text-gray-400 mt-4">Loading...</p>
+        </div>
+      </main>
+    );
+  }
 
   if (!todayItem) {
     return (
@@ -50,9 +62,7 @@ export default function TodayPage() {
     <main className="min-h-screen p-6">
       <div className="max-w-4xl mx-auto space-y-4">
         <h1 className="text-3xl font-bold">Today</h1>
-        <p className="text-gray-400">
-          Current focus: Day {todayItem.day}
-        </p>
+        <p className="text-gray-400">Current focus: Day {todayItem.day}</p>
 
         <DayCard
           item={todayItem}

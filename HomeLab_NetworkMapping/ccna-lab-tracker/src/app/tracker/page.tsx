@@ -2,32 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 import WeekSection from "@/components/WeekSection";
-import { loadPlan, savePlan } from "@/lib/plan-storage";
+import { loadPlanFromDb, savePlanToDb } from "@/lib/plan-storage";
 import { groupPlanByWeek } from "@/lib/plan-utils";
 import type { DayPlan, DayStatus } from "@/lib/types";
 
 export default function TrackerPage() {
-  const [plan, setPlan] = useState<DayPlan[]>(() => loadPlan());
+  const [plan, setPlan] = useState<DayPlan[]>([]);
 
   useEffect(() => {
-    savePlan(plan);
+    loadPlanFromDb().then(setPlan);
+  }, []);
+
+  useEffect(() => {
+    if (plan.length > 0) savePlanToDb(plan);
   }, [plan]);
 
   const grouped = useMemo(() => groupPlanByWeek(plan), [plan]);
 
   const updateStatus = (day: number, status: DayStatus) => {
     setPlan((current) =>
-      current.map((item) =>
-        item.day === day ? { ...item, status } : item
-      )
+      current.map((item) => (item.day === day ? { ...item, status } : item))
     );
   };
 
   const updateNotes = (day: number, notes: string) => {
     setPlan((current) =>
-      current.map((item) =>
-        item.day === day ? { ...item, notes } : item
-      )
+      current.map((item) => (item.day === day ? { ...item, notes } : item))
     );
   };
 
