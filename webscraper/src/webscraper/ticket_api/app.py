@@ -1509,24 +1509,45 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
 
+        # Resume: skip handles already in the DB (only when scraping all handles)
+        skip: set[str] | None = None
+        if not handles:
+            existing = db.list_vpbx_device_configs(db_path())
+            skip = {r["handle"].upper() for r in existing if r.get("handle")}
+            if skip:
+                _emit(f"resume skip_count={len(skip)}")
+
+        total_saved = 0
+
+        def _on_handle_done(handle: str, records: list) -> None:
+            nonlocal total_saved
+            now = _iso_now()
+            db.upsert_vpbx_device_configs(db_path(), records, now)
+            total_saved += len(records)
+            _update_scrape_job(job_id=job_id, status="running",
+                               completed=total_saved, total=total_saved + 1)
+
         try:
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
             records = fetch_device_configs(
                 base_url,
                 handles=handles,
+                skip_handles=skip,
+                on_handle_done=_on_handle_done,
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
+            # Final upsert for any records not already flushed (e.g. partial handle batches)
             finished = _iso_now()
             db.upsert_vpbx_device_configs(db_path(), records, finished)
-            _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
+            _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
                                finished_utc=finished,
                                result={"device_count": len(records)})
             _append_event("info", f"vpbx_device_configs_done count={len(records)}", job_id=job_id)
         except Exception as exc:
             LOGGER.exception("vpbx_device_configs_failed job_id=%s", job_id)
-            _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
+            _update_scrape_job(job_id=job_id, status="error", completed=total_saved, total=total_saved,
                                finished_utc=_iso_now(), error_message=str(exc))
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-devconf-{job_id[:8]}").start()

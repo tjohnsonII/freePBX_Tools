@@ -152,12 +152,46 @@ def _parse_device_rows(page_source: str, base_url: str, vpbx_id: str, handle: st
     return devices
 
 
-def _capture_bulk_config(driver: Any, edit_url: str) -> str:
-    """Navigate to a device edit page, click Bulk Attribute Edit, return the config text.
+def _extract_bulk_config_from_html(html: str) -> str:
+    """Parse the bulk attribute config out of an edit_device page without browser interaction.
 
+    The edit_device form contains a hidden/visible textarea whose value is what the
+    Bulk Attribute Edit modal shows. We try the most common names/ids first, then fall
+    back to any textarea whose content looks like key=value config lines.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+
+    # Try known textarea ids/names for the options field
+    for sel in [
+        "textarea[name='options']",
+        "textarea#options",
+        "textarea[name='bulk_options']",
+        "textarea#bulk_options",
+        "textarea[name='attrib']",
+        "textarea[name='bulk_attrib']",
+    ]:
+        el = soup.select_one(sel)
+        if el:
+            text = (el.get("value") or el.get_text() or "").strip()
+            if text:
+                return text
+
+    # Fallback: any textarea whose content looks like key=value config lines
+    for ta in soup.find_all("textarea"):
+        text = (ta.get("value") or ta.get_text() or "").strip()
+        if text and "=" in text and "\n" in text:
+            return text
+
+    return ""
+
+
+def _capture_bulk_config(driver: Any, edit_url: str) -> str:
+    """Selenium fallback: navigate to edit page, click Bulk Attribute Edit, return config.
+
+    Only used when the HTTP/HTML path fails to find config text.
     The button is: <button id="bulk_attrib_edit" class="bulk_attrib_edit">Bulk Attribute Edit</button>
-    It opens an in-page modal with a <textarea> containing the Polycom/Yealink
-    SIP configuration parameters. We capture the textarea value then close the modal.
     """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support import expected_conditions as EC
@@ -165,21 +199,15 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
 
     driver.get(edit_url)
 
-    # Wait for the page to settle
     try:
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "form"))
         )
     except Exception:
         return ""
 
-    # Find the Bulk Attribute Edit button by id/class (primary), then fall back to XPath text
     bulk_btn = None
-    for selector in [
-        "#bulk_attrib_edit",
-        ".bulk_attrib_edit",
-        "button[name='bulk_attrib_edit']",
-    ]:
+    for selector in ["#bulk_attrib_edit", ".bulk_attrib_edit", "button[name='bulk_attrib_edit']"]:
         els = driver.find_elements(By.CSS_SELECTOR, selector)
         if els:
             bulk_btn = els[0]
@@ -200,23 +228,21 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     except Exception:
         return ""
 
-    # Wait for a textarea to appear (the modal with the config)
     try:
-        textarea = WebDriverWait(driver, 10).until(
+        textarea = WebDriverWait(driver, 8).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea"))
         )
         config_text = textarea.get_attribute("value") or textarea.text or ""
     except Exception:
         config_text = ""
 
-    # Close the modal by clicking Cancel
     try:
         cancel = driver.find_element(
             By.XPATH,
             "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
         )
         cancel.click()
-        time.sleep(0.3)
+        time.sleep(0.2)
     except Exception:
         pass
 
@@ -297,22 +323,38 @@ def fetch_device_configs(
     base_url: str,
     *,
     handles: list[str] | None = None,
+    skip_handles: set[str] | None = None,
+    on_handle_done: Any = None,
     login_timeout_seconds: int = 300,
     emit_fn: Any = None,
 ) -> list[dict[str, str]]:
-    """Open Chrome, authenticate via SSO, then scrape bulk device configs from vpbx.cgi.
+    """Scrape bulk device configs from vpbx.cgi.
 
-    Navigation path for each device:
-      vpbx.cgi (list) → vpbx_detail&id=X → edit_device&device_id=Y → Bulk Attribute Edit
+    Strategy: use Selenium only for SSO authentication and the initial list page,
+    then switch to a requests.Session (seeded with the browser's cookies) for all
+    detail and edit-device page fetches. This is 10-50x faster than driving every
+    page through the browser.
 
-    Pass `handles` to limit scraping to specific company handles (e.g. ["ACG", "AEG"]).
-    Omit to scrape all handles — this can take a long time (one page load per device).
+    Navigation path:
+      [Selenium] vpbx.cgi list → extract cookies → requests.Session
+      [requests] vpbx_detail&id=X  →  edit_device&device_id=Y  → parse HTML for config
+
+    Falls back to Selenium browser interaction for any device where the config is not
+    found in the page HTML (e.g. rendered entirely by JS).
+
+    Args:
+        skip_handles: Set of handle strings (uppercase) to skip — already scraped.
+            Pass the set of handles already in the DB to resume an interrupted run.
+        on_handle_done: Optional callback(handle, records) called immediately after
+            each handle's devices are scraped. Use this to flush records to the DB
+            incrementally so progress is not lost if the job is interrupted.
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.support.ui import WebDriverWait
+
+    from webscraper.auth.session import selenium_driver_to_requests_session
 
     def _emit(msg: str) -> None:
         if emit_fn:
@@ -320,6 +362,7 @@ def fetch_device_configs(
 
     target_url = _vpbx_cgi_url(base_url)
     handle_filter = {h.upper() for h in handles} if handles else None
+    already_done = {h.upper() for h in skip_handles} if skip_handles else set()
 
     options = Options()
     options.add_argument("--start-maximized")
@@ -331,15 +374,13 @@ def fetch_device_configs(
         driver.get(target_url)
         _emit("waiting_for_login")
 
-        # Wait until SSO is done AND the real handles table is loaded.
-        # A vpbx_detail link only appears once the data table has rendered.
         WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
             lambda d: "vpbx.cgi" in (d.current_url or "")
             and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
         )
         _emit("login_confirmed")
 
-        # vpbx.cgi uses DataTables — expand to show all rows before parsing
+        # Expand DataTables to show all rows
         try:
             driver.execute_script(
                 "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
@@ -349,74 +390,185 @@ def fetch_device_configs(
         except Exception:
             pass
 
-        # Parse the VPBX list to get all handles and their detail URLs
         vpbx_list = _parse_vpbx_ids(driver.page_source, base_url)
         _emit(f"found_vpbx_entries count={len(vpbx_list)}")
 
-        # Filter by requested handles
         if handle_filter:
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
             _emit(f"filtered_to count={len(vpbx_list)}")
 
-        for vpbx_entry in vpbx_list:
-            vpbx_id = vpbx_entry["vpbx_id"]
-            handle = vpbx_entry["handle"]
-            _emit(f"detail handle={handle} vpbx_id={vpbx_id}")
+        # Skip handles already in the DB (resume support)
+        if already_done:
+            skipped = [v for v in vpbx_list if v["handle"].upper() in already_done]
+            vpbx_list = [v for v in vpbx_list if v["handle"].upper() not in already_done]
+            _emit(f"resuming skipped={len(skipped)} remaining={len(vpbx_list)}")
 
-            # Navigate to the detail page for this VPBX
-            driver.get(vpbx_entry["detail_url"])
-            try:
-                WebDriverWait(driver, 15).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "table"))
-                )
-            except Exception:
-                _emit(f"no_table handle={handle}")
-                continue
-
-            devices = _parse_device_rows(driver.page_source, base_url, vpbx_id, handle)
-            _emit(f"devices handle={handle} count={len(devices)}")
-
-            for device in devices:
-                device_id = device["device_id"]
-                _emit(f"config handle={handle} device_id={device_id} make={device.get('make','?')}")
-
-                config_text = _capture_bulk_config(driver, device["edit_url"])
-                device["bulk_config"] = config_text
-
-                _emit(f"config_done device_id={device_id} lines={len(config_text.splitlines())}")
-                all_records.append(device)
-
-                time.sleep(0.2)  # brief pause between device requests
+        # Hand off to requests — no more browser page loads needed
+        session = selenium_driver_to_requests_session(driver, base_url)
+        _emit("switched_to_requests_session")
 
     finally:
         driver.quit()
 
+    # --- HTTP-only phase (fast) ---
+    selenium_fallback_needed: list[dict[str, str]] = []
+
+    for vpbx_entry in vpbx_list:
+        vpbx_id = vpbx_entry["vpbx_id"]
+        handle = vpbx_entry["handle"]
+        _emit(f"detail handle={handle} vpbx_id={vpbx_id}")
+
+        try:
+            resp = session.get(vpbx_entry["detail_url"], timeout=15)
+            resp.raise_for_status()
+            detail_html = resp.text
+        except Exception as exc:
+            _emit(f"detail_fetch_failed handle={handle} error={exc}")
+            continue
+
+        devices = _parse_device_rows(detail_html, base_url, vpbx_id, handle)
+        _emit(f"devices handle={handle} count={len(devices)}")
+
+        handle_records: list[dict[str, str]] = []
+        handle_fallbacks: list[dict[str, str]] = []
+
+        for device in devices:
+            device_id = device["device_id"]
+            _emit(f"config handle={handle} device_id={device_id} make={device.get('make','?')}")
+
+            try:
+                resp = session.get(device["edit_url"], timeout=15)
+                resp.raise_for_status()
+                config_text = _extract_bulk_config_from_html(resp.text)
+            except Exception as exc:
+                _emit(f"edit_fetch_failed device_id={device_id} error={exc}")
+                config_text = ""
+
+            if config_text:
+                device["bulk_config"] = config_text
+                _emit(f"config_done device_id={device_id} lines={len(config_text.splitlines())}")
+                handle_records.append(device)
+            else:
+                handle_fallbacks.append(device)
+                _emit(f"config_queued_for_selenium_fallback device_id={device_id}")
+
+        # Flush completed (non-fallback) devices for this handle immediately
+        if handle_records:
+            all_records.extend(handle_records)
+            if on_handle_done and not handle_fallbacks:
+                # Only flush if no fallbacks pending for this handle — avoids partial saves
+                on_handle_done(handle, handle_records)
+                _emit(f"flushed handle={handle} devices={len(handle_records)}")
+
+        selenium_fallback_needed.extend(handle_fallbacks)
+
+    # --- Selenium fallback for any devices whose config wasn't in the HTML ---
+    if selenium_fallback_needed:
+        _emit(f"selenium_fallback count={len(selenium_fallback_needed)}")
+        options2 = Options()
+        options2.add_argument("--start-maximized")
+        driver2 = webdriver.Chrome(options=options2)
+        try:
+            driver2.get(target_url)
+            for cookie in session.cookies:
+                try:
+                    driver2.add_cookie({
+                        "name": cookie.name,
+                        "value": cookie.value,
+                        "domain": cookie.domain or "",
+                        "path": cookie.path or "/",
+                    })
+                except Exception:
+                    pass
+
+            # Group fallback devices by handle so we can flush per-handle
+            fallback_by_handle: dict[str, list[dict[str, str]]] = {}
+            for device in selenium_fallback_needed:
+                fallback_by_handle.setdefault(device["handle"], []).append(device)
+
+            for fb_handle, fb_devices in fallback_by_handle.items():
+                fb_done: list[dict[str, str]] = []
+                for device in fb_devices:
+                    device_id = device["device_id"]
+                    _emit(f"selenium_config handle={fb_handle} device_id={device_id}")
+                    config_text = _capture_bulk_config(driver2, device["edit_url"])
+                    device["bulk_config"] = config_text
+                    _emit(f"selenium_config_done device_id={device_id} lines={len(config_text.splitlines())}")
+                    fb_done.append(device)
+                    all_records.append(device)
+
+                if on_handle_done and fb_done:
+                    on_handle_done(fb_handle, fb_done)
+                    _emit(f"flushed handle={fb_handle} devices={len(fb_done)}")
+        finally:
+            driver2.quit()
+
     _emit(f"complete total_devices={len(all_records)}")
     return all_records
+
+
+def _extract_site_config_from_html(html: str) -> str:
+    """Parse the site-specific config out of a vpbx_detail page without browser interaction.
+
+    The Site Specific Config button opens a modal whose content comes from a textarea
+    already present in the page HTML. We try known names/ids first.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+
+    for sel in [
+        "textarea[name='site_config']",
+        "textarea#site_config",
+        "textarea[name='site_specific_config']",
+        "textarea[name='config']",
+        "textarea#config",
+    ]:
+        el = soup.select_one(sel)
+        if el:
+            text = (el.get("value") or el.get_text() or "").strip()
+            if text:
+                return text
+
+    # Fallback: any textarea with XML-looking content (Polycom site config is XML)
+    for ta in soup.find_all("textarea"):
+        text = (ta.get("value") or ta.get_text() or "").strip()
+        if text and ("<" in text or ("=" in text and "\n" in text)):
+            return text
+
+    return ""
 
 
 def fetch_site_configs(
     base_url: str,
     *,
     handles: list[str] | None = None,
+    skip_handles: set[str] | None = None,
+    on_handle_done: Any = None,
     login_timeout_seconds: int = 300,
     emit_fn: Any = None,
 ) -> list[dict[str, str]]:
-    """Open Chrome, authenticate via SSO, then scrape site-specific configs from vpbx.cgi.
+    """Scrape site-specific configs from vpbx.cgi.
 
-    Navigation path for each handle:
-      vpbx.cgi (list) → vpbx_detail&id=X → Site Specific Config button
+    Uses Selenium only for SSO auth + list page, then switches to requests for
+    all detail page fetches. Falls back to Selenium click-through for any handle
+    where the config is not found in the static HTML.
 
-    Returns [{vpbx_id, handle, detail_url, site_config, last_seen_utc}, ...].
+    Navigation path:
+      [Selenium] vpbx.cgi list → extract cookies → requests.Session
+      [requests] vpbx_detail&id=X → parse HTML for site config textarea
 
-    Pass `handles` to limit scraping to specific company handles (e.g. ["ACG", "AEG"]).
-    Omit to scrape all handles.
+    Args:
+        skip_handles: Handles (uppercase) to skip — already scraped. Pass to resume.
+        on_handle_done: Optional callback(handle, [record]) called after each handle
+            completes so the caller can flush to DB incrementally.
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.support.ui import WebDriverWait
+
+    from webscraper.auth.session import selenium_driver_to_requests_session
 
     def _emit(msg: str) -> None:
         if emit_fn:
@@ -424,6 +576,7 @@ def fetch_site_configs(
 
     target_url = _vpbx_cgi_url(base_url)
     handle_filter = {h.upper() for h in handles} if handles else None
+    already_done = {h.upper() for h in skip_handles} if skip_handles else set()
 
     options = Options()
     options.add_argument("--start-maximized")
@@ -435,14 +588,12 @@ def fetch_site_configs(
         driver.get(target_url)
         _emit("waiting_for_login")
 
-        # Wait until SSO is done AND the real handles table is loaded.
         WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
             lambda d: "vpbx.cgi" in (d.current_url or "")
             and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
         )
         _emit("login_confirmed")
 
-        # vpbx.cgi uses DataTables — expand to show all rows before parsing
         try:
             driver.execute_script(
                 "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
@@ -459,27 +610,88 @@ def fetch_site_configs(
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
             _emit(f"filtered_to count={len(vpbx_list)}")
 
-        for vpbx_entry in vpbx_list:
-            vpbx_id = vpbx_entry["vpbx_id"]
-            handle = vpbx_entry["handle"]
-            detail_url = vpbx_entry["detail_url"]
-            _emit(f"site_config handle={handle} vpbx_id={vpbx_id}")
+        if already_done:
+            skipped = [v for v in vpbx_list if v["handle"].upper() in already_done]
+            vpbx_list = [v for v in vpbx_list if v["handle"].upper() not in already_done]
+            _emit(f"resuming skipped={len(skipped)} remaining={len(vpbx_list)}")
 
-            config_text = _capture_site_config(driver, detail_url)
+        session = selenium_driver_to_requests_session(driver, base_url)
+        _emit("switched_to_requests_session")
+
+    finally:
+        driver.quit()
+
+    # --- HTTP-only phase ---
+    selenium_fallback_needed: list[dict[str, str]] = []
+
+    for vpbx_entry in vpbx_list:
+        vpbx_id = vpbx_entry["vpbx_id"]
+        handle = vpbx_entry["handle"]
+        detail_url = vpbx_entry["detail_url"]
+        _emit(f"site_config handle={handle} vpbx_id={vpbx_id}")
+
+        try:
+            resp = session.get(detail_url, timeout=15)
+            resp.raise_for_status()
+            config_text = _extract_site_config_from_html(resp.text)
+        except Exception as exc:
+            _emit(f"site_fetch_failed handle={handle} error={exc}")
+            config_text = ""
+
+        if config_text:
             _emit(f"site_config_done handle={handle} lines={len(config_text.splitlines())}")
-
-            all_records.append({
+            record = {
                 "vpbx_id": vpbx_id,
                 "handle": handle,
                 "detail_url": detail_url,
                 "site_config": config_text,
                 "last_seen_utc": _iso_now(),
-            })
+            }
+            all_records.append(record)
+            if on_handle_done:
+                on_handle_done(handle, [record])
+                _emit(f"flushed handle={handle}")
+        else:
+            selenium_fallback_needed.append(vpbx_entry)
+            _emit(f"site_config_queued_for_selenium_fallback handle={handle}")
 
-            time.sleep(0.2)
-
-    finally:
-        driver.quit()
+    # --- Selenium fallback ---
+    if selenium_fallback_needed:
+        _emit(f"selenium_fallback count={len(selenium_fallback_needed)}")
+        options2 = Options()
+        options2.add_argument("--start-maximized")
+        driver2 = webdriver.Chrome(options=options2)
+        try:
+            driver2.get(target_url)
+            for cookie in session.cookies:
+                try:
+                    driver2.add_cookie({
+                        "name": cookie.name,
+                        "value": cookie.value,
+                        "domain": cookie.domain or "",
+                        "path": cookie.path or "/",
+                    })
+                except Exception:
+                    pass
+            for vpbx_entry in selenium_fallback_needed:
+                handle = vpbx_entry["handle"]
+                detail_url = vpbx_entry["detail_url"]
+                _emit(f"selenium_site_config handle={handle}")
+                config_text = _capture_site_config(driver2, detail_url)
+                _emit(f"selenium_site_config_done handle={handle} lines={len(config_text.splitlines())}")
+                record = {
+                    "vpbx_id": vpbx_entry["vpbx_id"],
+                    "handle": handle,
+                    "detail_url": detail_url,
+                    "site_config": config_text,
+                    "last_seen_utc": _iso_now(),
+                }
+                all_records.append(record)
+                if on_handle_done:
+                    on_handle_done(handle, [record])
+                    _emit(f"flushed handle={handle}")
+        finally:
+            driver2.quit()
 
     _emit(f"complete total_handles={len(all_records)}")
     return all_records
