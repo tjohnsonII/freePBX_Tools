@@ -1357,20 +1357,30 @@ def api_noc_queue_records(view: str | None = Query(None)):
     return {"items": db.list_noc_queue_tickets(db_path(), view=view)}
 
 
+class _NocQueueRefreshBody(BaseModel):
+    view: str | None = None  # hosted | noc | all | local — omit to scrape all
+
+
 @app.post("/api/noc-queue/refresh")
-def api_noc_queue_refresh(request: Request):
-    """Start a background Selenium job to scrape all NOC queue views. Returns job_id."""
+def api_noc_queue_refresh(body: _NocQueueRefreshBody, request: Request):
+    """Start a background Selenium job to scrape NOC queue views. Returns job_id.
+
+    Pass {"view": "hosted"} (etc.) to scrape a single view; omit for all views.
+    """
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="NOC queue refresh is localhost-only")
+
+    view_key = body.view or None
+    mode = f"noc_queue:{view_key}" if view_key else "noc_queue"
 
     job_id = str(uuid.uuid4())
     now = _iso_now()
     db.ensure_indexes(db_path())
     db.create_scrape_job(
-        db_path(), job_id=job_id, handle=None, mode="noc_queue",
+        db_path(), job_id=job_id, handle=None, mode=mode,
         ticket_limit=None, status="queued", created_utc=now,
     )
-    _append_event("info", "noc_queue_refresh_queued", job_id=job_id)
+    _append_event("info", f"noc_queue_refresh_queued view={view_key or 'all'}", job_id=job_id)
 
     def _run() -> None:
         from webscraper.noc_queue.scraper import fetch_noc_queues  # noqa: PLC0415
@@ -1383,7 +1393,11 @@ def api_noc_queue_refresh(request: Request):
         try:
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
-            records = fetch_noc_queues(login_timeout_seconds=login_timeout, emit_fn=_emit)
+            records = fetch_noc_queues(
+                view_key=view_key,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
             finished = _iso_now()
             db.upsert_noc_queue_tickets(db_path(), records, finished)
             _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
@@ -1450,6 +1464,72 @@ def api_vpbx_refresh(request: Request):
                                finished_utc=_iso_now(), error_message=str(exc))
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-refresh-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+class _VpbxDeviceConfigsRefreshBody(BaseModel):
+    handles: list[str] | None = None  # limit to specific handles; omit for all
+
+
+@app.get("/api/vpbx/device-configs")
+def api_vpbx_device_configs(handle: str | None = Query(None)):
+    """Return cached VPBX device configs. Filter by handle= to narrow results."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_vpbx_device_configs(db_path(), handle=handle)}
+
+
+@app.post("/api/vpbx/device-configs/refresh")
+def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request: Request):
+    """Start a Selenium job to scrape bulk device configs from vpbx.cgi.
+
+    Navigation: vpbx.cgi → vpbx_detail per handle → edit_device per phone → Bulk Attribute Edit.
+    Pass {"handles": ["ACG"]} to limit to one handle; omit for all.
+    """
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX device config refresh is localhost-only")
+
+    handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_device_configs:{','.join(handles)}" if handles else "vpbx_device_configs"
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode=mode,
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", f"vpbx_device_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
+
+    def _run() -> None:
+        from webscraper.vpbx.device_configs import fetch_device_configs  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            records = fetch_device_configs(
+                base_url,
+                handles=handles,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
+            finished = _iso_now()
+            db.upsert_vpbx_device_configs(db_path(), records, finished)
+            _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
+                               finished_utc=finished,
+                               result={"device_count": len(records)})
+            _append_event("info", f"vpbx_device_configs_done count={len(records)}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("vpbx_device_configs_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
+                               finished_utc=_iso_now(), error_message=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-devconf-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
 
 

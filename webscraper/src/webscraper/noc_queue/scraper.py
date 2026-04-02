@@ -295,10 +295,14 @@ def fetch_local_noc(
 
 def fetch_noc_queues(
     *,
+    view_key: str | None = None,
     login_timeout_seconds: int = 300,
     emit_fn: Any = None,
 ) -> list[dict[str, Any]]:
-    """Scrape all NOC queue views and return a combined list of ticket records.
+    """Scrape NOC queue views and return a combined list of ticket records.
+
+    Pass view_key to scrape only one view (hosted | noc | all | local).
+    Omit view_key to scrape all views.
 
     Two separate Selenium sessions are used:
       1. noc-tickets.123.net (SSO/Keycloak) — hosted, NOC, all queue views
@@ -317,47 +321,53 @@ def fetch_noc_queues(
 
     all_records: list[dict[str, Any]] = []
 
+    # Determine which SSO views to scrape
+    sso_views = [v for v in SSO_VIEWS if view_key is None or v["key"] == view_key]
+    run_local = view_key is None or view_key == "local"
+
     # ── Session 1: noc-tickets.123.net (SSO) ─────────────────────────────────
-    options = Options()
-    options.add_argument("--start-maximized")
-    driver = webdriver.Chrome(options=options)
+    if sso_views:
+        options = Options()
+        options.add_argument("--start-maximized")
+        driver = webdriver.Chrome(options=options)
 
-    try:
-        first_url = SSO_VIEWS[0]["url"]
-        driver.get(first_url)
-        _emit("waiting_for_login")
+        try:
+            first_url = sso_views[0]["url"]
+            driver.get(first_url)
+            _emit("waiting_for_login")
 
-        # Wait until SSO completes and a ticket table is visible
-        WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
-            lambda d: "noc-tickets.123.net" in (d.current_url or "")
-            and len(d.find_elements(By.TAG_NAME, "table")) > 0
-        )
-        _emit("login_confirmed")
+            # Wait until SSO completes and a ticket table is visible
+            WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
+                lambda d: "noc-tickets.123.net" in (d.current_url or "")
+                and len(d.find_elements(By.TAG_NAME, "table")) > 0
+            )
+            _emit("login_confirmed")
 
-        for view in SSO_VIEWS:
-            _emit(f"scraping_view view={view['key']}")
+            for view in sso_views:
+                _emit(f"scraping_view view={view['key']}")
 
-            if driver.current_url.rstrip("/") != view["url"].rstrip("/"):
-                driver.get(view["url"])
+                if driver.current_url.rstrip("/") != view["url"].rstrip("/"):
+                    driver.get(view["url"])
 
-            # DataTables renders rows async — wait for real data, not just <table>
-            got_rows = _wait_for_data_rows(driver, timeout=30)
-            if not got_rows:
-                _emit(f"no_data_rows view={view['key']}")
+                # DataTables renders rows async — wait for real data, not just <table>
+                got_rows = _wait_for_data_rows(driver, timeout=30)
+                if not got_rows:
+                    _emit(f"no_data_rows view={view['key']}")
 
-            records = _parse_queue_table(driver.page_source, view["key"])
-            _emit(f"parsed view={view['key']} count={len(records)}")
-            all_records.extend(records)
+                records = _parse_queue_table(driver.page_source, view["key"])
+                _emit(f"parsed view={view['key']} count={len(records)}")
+                all_records.extend(records)
 
-    finally:
-        driver.quit()
+        finally:
+            driver.quit()
 
     # ── Session 2: 10.123.203.1 (form auth) ──────────────────────────────────
-    _emit("starting_local_noc")
-    try:
-        local_records = fetch_local_noc(emit_fn=emit_fn)
-        all_records.extend(local_records)
-    except Exception as exc:
-        _emit(f"local_noc_error: {exc}")
+    if run_local:
+        _emit("starting_local_noc")
+        try:
+            local_records = fetch_local_noc(emit_fn=emit_fn)
+            all_records.extend(local_records)
+        except Exception as exc:
+            _emit(f"local_noc_error: {exc}")
 
     return all_records

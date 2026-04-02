@@ -270,6 +270,26 @@ def ensure_indexes(db_path: str) -> None:
 
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS vpbx_device_configs (
+                    device_id TEXT NOT NULL,
+                    vpbx_id   TEXT NOT NULL,
+                    handle    TEXT,
+                    directory_name TEXT,
+                    extension TEXT,
+                    mac       TEXT,
+                    make      TEXT,
+                    model     TEXT,
+                    site_code TEXT,
+                    bulk_config TEXT,
+                    last_seen_utc TEXT,
+                    PRIMARY KEY (device_id, vpbx_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_vpbx_device_handle ON vpbx_device_configs(handle);
+                """
+            )
+
+            conn.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS vpbx_records (
                     handle TEXT PRIMARY KEY,
                     name TEXT,
@@ -1036,6 +1056,61 @@ def upsert_vpbx_records(db_path: str, records: list[dict[str, Any]], now_utc: st
                         rec.get("deployment_id") or "",
                         rec.get("switch") or "",
                         rec.get("devices") or "",
+                        rec.get("last_seen_utc") or now_utc,
+                    ),
+                )
+    return len(records)
+
+
+def list_vpbx_device_configs(db_path: str, handle: str | None = None) -> list[dict[str, Any]]:
+    q = "SELECT * FROM vpbx_device_configs"
+    params: list[Any] = []
+    if handle:
+        q += " WHERE handle=?"
+        params.append(handle.upper())
+    q += " ORDER BY handle ASC, directory_name ASC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                device_id = (rec.get("device_id") or "").strip()
+                vpbx_id = (rec.get("vpbx_id") or "").strip()
+                if not device_id or not vpbx_id:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO vpbx_device_configs
+                        (device_id, vpbx_id, handle, directory_name, extension, mac,
+                         make, model, site_code, bulk_config, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(device_id, vpbx_id) DO UPDATE SET
+                        handle=excluded.handle,
+                        directory_name=excluded.directory_name,
+                        extension=excluded.extension,
+                        mac=excluded.mac,
+                        make=excluded.make,
+                        model=excluded.model,
+                        site_code=excluded.site_code,
+                        bulk_config=excluded.bulk_config,
+                        last_seen_utc=excluded.last_seen_utc
+                    """,
+                    (
+                        device_id, vpbx_id,
+                        (rec.get("handle") or "").upper(),
+                        rec.get("directory_name") or "",
+                        rec.get("extension") or "",
+                        rec.get("mac") or "",
+                        rec.get("make") or "",
+                        rec.get("model") or "",
+                        rec.get("site_code") or "",
+                        rec.get("bulk_config") or "",
                         rec.get("last_seen_utc") or now_utc,
                     ),
                 )

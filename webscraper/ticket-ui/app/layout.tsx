@@ -1,6 +1,18 @@
 import "./globals.css";
 import styles from "./layout.module.css";
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "123.NET Webscraper",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+  },
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

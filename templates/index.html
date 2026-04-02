@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FreePBX Tools Manager</title>
+    <title>123.NET FreePBX Tools Manager</title>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
         * {
@@ -362,6 +362,35 @@
         .results-table tr:hover {
             background: #f8f9fa;
         }
+
+        /* Utility classes (replaces inline styles) */
+        .hidden { display: none; }
+        .block { display: block; }
+        .mt-20 { margin-top: 20px; }
+        .mt-30 { margin-top: 30px; }
+        .mt-15 { margin-top: 15px; }
+        .mb-15 { margin-bottom: 15px; }
+        .mb-20 { margin-bottom: 20px; }
+        .mb-18 { margin-bottom: 18px; }
+        .text-muted { color: #666; }
+        .text-light { color: #999; }
+        .text-dark { color: #555; }
+        .text-sm { font-size: 0.9em; }
+        .text-success { color: #4ec9b0; }
+        .text-error { color: #f48771; }
+        .text-subtle { color: #888; }
+        .font-bold { font-weight: bold; }
+        .upload-hint-primary { font-size: 1.2em; margin-bottom: 10px; }
+        .btn-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+        .flex-form-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px; flex-wrap: wrap; }
+        .flex-form-field { flex: 1; margin: 0; min-width: 200px; }
+        .btn-no-margin { margin: 0; }
+        .ws-command-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .log-short { max-height: 400px; }
+        .section-title { margin-bottom: 10px; color: #333; }
+        .analysis-pre { background: #f8f9fa; padding: 20px; border-radius: 8px; overflow-x: auto; }
+        .status-cell-ok { color: #27ae60; font-weight: bold; }
+        .status-cell-fail { color: #e74c3c; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -388,7 +417,7 @@
                 <h2>🚀 Deploy FreePBX Tools</h2>
                 
                 <div class="form-group">
-                    <label>Server Target:</label>
+                    <label for="server-type">Server Target:</label>
                     <select id="server-type" onchange="updateServerInput()">
                         <option value="single">Single Server</option>
                         <option value="multiple">Multiple Servers (comma-separated)</option>
@@ -401,30 +430,30 @@
                     <input type="text" id="servers" placeholder="e.g., 216.109.194.151">
                 </div>
                 
-                <div class="form-group" id="file-select-group" style="display:none;">
-                    <label>Server File:</label>
+                <div class="form-group hidden" id="file-select-group">
+                    <label for="server-file">Server File:</label>
                     <select id="server-file"></select>
                 </div>
                 
                 <div class="grid-2">
                     <div class="form-group">
-                        <label>SSH Username:</label>
+                        <label for="username">SSH Username:</label>
                         <input type="text" id="username" value="123net">
                     </div>
-                    
+
                     <div class="form-group">
-                        <label>SSH Password:</label>
+                        <label for="password">SSH Password:</label>
                         <input type="password" id="password">
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label>Root Password (leave blank if same as SSH password):</label>
+                    <label for="root-password">Root Password (leave blank if same as SSH password):</label>
                     <input type="password" id="root-password">
                 </div>
                 
                 <div class="form-group">
-                    <label>Action:</label>
+                    <label for="action">Action:</label>
                     <select id="action">
                         <option value="deploy">Install Tools</option>
                         <option value="uninstall">Uninstall Tools</option>
@@ -434,8 +463,8 @@
                 
                 <button class="btn" onclick="startDeployment()">🚀 Start Deployment</button>
                 
-                <div id="deployment-status" style="display:none;">
-                    <h3 style="margin-top: 30px;">Deployment Progress</h3>
+                <div id="deployment-status" class="hidden">
+                    <h3 class="mt-30">Deployment Progress</h3>
                     <p><span class="spinner"></span> <span id="status-text">Initializing...</span></p>
                     <div class="log-container" id="deployment-logs"></div>
                 </div>
@@ -443,26 +472,26 @@
 
             <div class="card">
                 <h2>🛰️ Traceroute Server Helper</h2>
-                <p style="color:#666; margin-bottom: 15px;">Push the background/log-follow helper script to your traceroute server (default 192.168.50.1).</p>
+                <p class="text-muted mb-15">Push the background/log-follow helper script to your traceroute server (default 192.168.50.1).</p>
 
                 <div class="grid-2">
                     <div class="form-group">
-                        <label>Host:</label>
+                        <label for="tr-host">Host:</label>
                         <input type="text" id="tr-host" value="192.168.50.1">
                     </div>
                     <div class="form-group">
-                        <label>Remote Directory:</label>
+                        <label for="tr-remote-dir">Remote Directory:</label>
                         <input type="text" id="tr-remote-dir" value=".">
                     </div>
                 </div>
 
                 <div class="grid-2">
                     <div class="form-group">
-                        <label>SSH Username:</label>
+                        <label for="tr-username">SSH Username:</label>
                         <input type="text" id="tr-username" value="tjohnson">
                     </div>
                     <div class="form-group">
-                        <label>SSH Password (optional if keys/agent):</label>
+                        <label for="tr-password">SSH Password (optional if keys/agent):</label>
                         <input type="password" id="tr-password">
                     </div>
                 </div>
@@ -477,12 +506,12 @@
                 <h2>📱 Phone Configuration Analyzer</h2>
                 
                 <div class="file-upload" id="file-upload" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" onclick="document.getElementById('config-file').click()">
-                    <p style="font-size: 1.2em; margin-bottom: 10px;">📁 Drop .cfg file here or click to browse</p>
-                    <p style="color: #999;">Supported: Yealink, Polycom configuration files</p>
-                    <input type="file" id="config-file" accept=".cfg" style="display:none;" onchange="analyzeConfig()">
+                    <p class="upload-hint-primary">📁 Drop .cfg file here or click to browse</p>
+                    <p class="text-light">Supported: Yealink, Polycom configuration files</p>
+                    <input type="file" id="config-file" accept=".cfg" class="hidden" onchange="analyzeConfig()">
                 </div>
                 
-                <div id="analysis-results" style="display:none; margin-top: 30px;"></div>
+                <div id="analysis-results" class="hidden mt-30"></div>
             </div>
         </div>
         
@@ -516,7 +545,7 @@
             <!-- SSH credentials (shared across all SSH actions) -->
             <div class="card">
                 <h2>🌐 Webserver Debugger</h2>
-                <p style="color:#666; margin-bottom:18px;">Apache reverse proxy on <strong>192.168.100.10</strong> — URL health checks, Apache commands, and log viewing.</p>
+                <p class="text-muted mb-18">Apache reverse proxy on <strong>192.168.100.10</strong> — URL health checks, Apache commands, and log viewing.</p>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Webserver Host:</label>
@@ -536,15 +565,15 @@
             <!-- URL Health Checks -->
             <div class="card">
                 <h2>🔗 URL Health Check</h2>
-                <p style="color:#666; margin-bottom:15px;">Tests HTTP status and response time for all known vhost URLs. 401/403 on restricted apps (FreePBX) counts as OK.</p>
+                <p class="text-muted mb-15">Tests HTTP status and response time for all known vhost URLs. 401/403 on restricted apps (FreePBX) counts as OK.</p>
                 <button class="btn btn-success" onclick="runUrlChecks()">▶ Check All URLs</button>
-                <div id="url-check-results" style="margin-top:20px;"></div>
+                <div id="url-check-results" class="mt-20"></div>
             </div>
 
             <!-- Apache Commands -->
             <div class="card">
                 <h2>⚙️ Apache Commands</h2>
-                <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px;">
+                <div class="btn-toolbar">
                     <button class="btn" onclick="runWsCommand('apache_status')">📊 Service Status</button>
                     <button class="btn" onclick="runWsCommand('vhost_list')">📋 List Vhosts</button>
                     <button class="btn" onclick="runWsCommand('config_test')">✅ Config Test</button>
@@ -554,24 +583,24 @@
                     <button class="btn" onclick="runWsCommand('tail_access_log')">📄 Tail Access Log</button>
                 </div>
 
-                <div style="display:flex; gap:10px; align-items:flex-end; margin-bottom:15px; flex-wrap:wrap;">
-                    <div class="form-group" style="flex:1; margin:0; min-width:200px;">
+                <div class="flex-form-row">
+                    <div class="form-group flex-form-field">
                         <label>Check one vhost:</label>
                         <input type="text" id="ws-vhost-name" placeholder="e.g., 123hostedtools.com">
                     </div>
-                    <div class="form-group" style="flex:1; margin:0; min-width:200px;">
+                    <div class="form-group flex-form-field">
                         <label>Backend URL:</label>
                         <input type="text" id="ws-backend-url" value="http://127.0.0.1">
                     </div>
-                    <button class="btn btn-success" style="margin:0;" onclick="runCheckOneVhost()">🔍 Check Vhost</button>
+                    <button class="btn btn-success btn-no-margin" onclick="runCheckOneVhost()">🔍 Check Vhost</button>
                 </div>
 
-                <div id="ws-command-output" style="display:none;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <strong id="ws-command-label" style="color:#555;"></strong>
-                        <span id="ws-command-rc" style="font-size:0.9em;"></span>
+                <div id="ws-command-output" class="hidden">
+                    <div class="ws-command-header">
+                        <strong id="ws-command-label" class="text-dark"></strong>
+                        <span id="ws-command-rc" class="text-sm"></span>
                     </div>
-                    <div class="log-container" id="ws-command-log" style="max-height:400px;"></div>
+                    <div class="log-container log-short" id="ws-command-log"></div>
                 </div>
             </div>
 
@@ -580,22 +609,22 @@
                 <h2>📖 Quick Reference</h2>
                 <div class="grid-2">
                     <div>
-                        <h3 style="margin-bottom:10px; color:#333;">Known Vhosts</h3>
+                        <h3 class="section-title">Known Vhosts</h3>
                         <table class="results-table">
                             <thead><tr><th>URL</th></tr></thead>
                             <tbody>
-                                <tr><td><a href="https://123hostedtools.com" target="_blank">123hostedtools.com</a></td></tr>
-                                <tr><td><a href="https://auth.123hostedtools.com" target="_blank">auth.123hostedtools.com</a></td></tr>
-                                <tr><td><a href="https://tools.123hostedtools.com" target="_blank">tools.123hostedtools.com</a></td></tr>
-                                <tr><td><a href="https://grafana.123hostedtools.com" target="_blank">grafana.123hostedtools.com</a></td></tr>
-                                <tr><td><a href="https://prtg.timsablab.ddns.net" target="_blank">prtg.timsablab.ddns.net</a></td></tr>
-                                <tr><td><a href="https://freepbx.timsablab.ddns.net" target="_blank">freepbx.timsablab.ddns.net</a></td></tr>
-                                <tr><td><a href="https://mail.timsablab.ddns.net" target="_blank">mail.timsablab.ddns.net</a></td></tr>
+                                <tr><td><a href="https://123hostedtools.com" target="_blank" rel="noopener noreferrer">123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://auth.123hostedtools.com" target="_blank" rel="noopener noreferrer">auth.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://tools.123hostedtools.com" target="_blank" rel="noopener noreferrer">tools.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://grafana.123hostedtools.com" target="_blank" rel="noopener noreferrer">grafana.123hostedtools.com</a></td></tr>
+                                <tr><td><a href="https://prtg.timsablab.ddns.net" target="_blank" rel="noopener noreferrer">prtg.timsablab.ddns.net</a></td></tr>
+                                <tr><td><a href="https://freepbx.timsablab.ddns.net" target="_blank" rel="noopener noreferrer">freepbx.timsablab.ddns.net</a></td></tr>
+                                <tr><td><a href="https://mail.timsablab.ddns.net" target="_blank" rel="noopener noreferrer">mail.timsablab.ddns.net</a></td></tr>
                             </tbody>
                         </table>
                     </div>
                     <div>
-                        <h3 style="margin-bottom:10px; color:#333;">Interpretation Guide</h3>
+                        <h3 class="section-title">Interpretation Guide</h3>
                         <table class="results-table">
                             <thead><tr><th>Symptom</th><th>Likely Cause</th></tr></thead>
                             <tbody>
@@ -616,7 +645,7 @@
             <div class="card">
                 <h2>📊 Deployment Status</h2>
                 <div id="status-list">
-                    <p style="color: #999;">No active deployments</p>
+                    <p class="text-light">No active deployments</p>
                 </div>
             </div>
         </div>
@@ -823,9 +852,10 @@
         function displayAnalysisResults(data) {
             const resultsDiv = document.getElementById('analysis-results');
             resultsDiv.style.display = 'block';
+            resultsDiv.classList.remove('hidden');
             resultsDiv.innerHTML = `
                 <h3>Analysis Results</h3>
-                <pre style="background: #f8f9fa; padding: 20px; border-radius: 8px; overflow-x: auto;">${JSON.stringify(data, null, 2)}</pre>
+                <pre class="analysis-pre">${JSON.stringify(data, null, 2)}</pre>
             `;
         }
         
@@ -893,7 +923,7 @@
             btn.disabled = true;
             btn.textContent = '⏳ Checking…';
             const resultsDiv = document.getElementById('url-check-results');
-            resultsDiv.innerHTML = '<p style="color:#999;">Checking all URLs…</p>';
+            resultsDiv.innerHTML = '<p class="text-light">Checking all URLs…</p>';
 
             fetch('/api/webserver/check-urls', {
                 method: 'POST',
@@ -906,15 +936,15 @@
                 btn.textContent = '▶ Check All URLs';
                 let html = '<table class="results-table"><thead><tr><th>URL</th><th>Status</th><th>ms</th><th>Note</th></tr></thead><tbody>';
                 data.results.forEach(r => {
-                    const color = r.ok ? '#27ae60' : '#e74c3c';
+                    const statusClass = r.ok ? 'status-cell-ok' : 'status-cell-fail';
                     const icon = r.ok ? '✓' : '✗';
                     const status = r.status ? r.status : '—';
                     const note = r.error ? r.error : (r.status >= 400 && r.ok ? 'Restricted (expected)' : '');
                     html += `<tr>
-                        <td><a href="${r.url}" target="_blank">${r.url}</a></td>
-                        <td style="color:${color}; font-weight:bold;">${icon} ${status}</td>
+                        <td><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.url}</a></td>
+                        <td class="${statusClass}">${icon} ${status}</td>
                         <td>${r.ms}ms</td>
-                        <td style="color:#888; font-size:0.9em;">${note}</td>
+                        <td class="text-subtle text-sm">${note}</td>
                     </tr>`;
                 });
                 html += '</tbody></table>';
@@ -923,7 +953,7 @@
             .catch(e => {
                 btn.disabled = false;
                 btn.textContent = '▶ Check All URLs';
-                resultsDiv.innerHTML = `<p style="color:#e74c3c;">Error: ${e}</p>`;
+                resultsDiv.innerHTML = `<p class="text-error">Error: ${e}</p>`;
             });
         }
 
@@ -945,9 +975,10 @@
             const rcEl = document.getElementById('ws-command-rc');
 
             outputDiv.style.display = 'block';
+            outputDiv.classList.remove('hidden');
             labelEl.textContent = labels[commandKey] || commandKey;
             rcEl.textContent = '';
-            logDiv.innerHTML = '<span style="color:#888;">Running…</span>';
+            logDiv.innerHTML = '<span class="text-subtle">Running…</span>';
 
             fetch('/api/webserver/ssh-run', {
                 method: 'POST',
@@ -957,13 +988,13 @@
             .then(r => r.json())
             .then(data => {
                 if (data.error) {
-                    logDiv.innerHTML = `<span style="color:#f48771;">${escHtml(data.error)}</span>`;
+                    logDiv.innerHTML = `<span class="text-error">${escHtml(data.error)}</span>`;
                     rcEl.textContent = '';
                     return;
                 }
                 rcEl.innerHTML = data.ok
-                    ? '<span style="color:#4ec9b0;">exit 0 ✓</span>'
-                    : `<span style="color:#f48771;">exit ${data.rc} ✗</span>`;
+                    ? '<span class="text-success">exit 0 ✓</span>'
+                    : `<span class="text-error">exit ${data.rc} ✗</span>`;
                 logDiv.innerHTML = escHtml(data.output || '(no output)')
                     .split('\n').map(line => {
                         const cls = /error|fail|crit/i.test(line) ? 'error'
@@ -974,7 +1005,7 @@
                 logDiv.scrollTop = logDiv.scrollHeight;
             })
             .catch(e => {
-                logDiv.innerHTML = `<span style="color:#f48771;">Fetch error: ${e}</span>`;
+                logDiv.innerHTML = `<span class="text-error">Fetch error: ${e}</span>`;
             });
         }
 
@@ -990,9 +1021,10 @@
             const rcEl = document.getElementById('ws-command-rc');
 
             outputDiv.style.display = 'block';
+            outputDiv.classList.remove('hidden');
             labelEl.textContent = `check-one-vhost.sh ${vhost} ${backend}`;
             rcEl.textContent = '';
-            logDiv.innerHTML = '<span style="color:#888;">Running…</span>';
+            logDiv.innerHTML = '<span class="text-subtle">Running…</span>';
 
             fetch('/api/webserver/check-one-vhost', {
                 method: 'POST',
@@ -1002,12 +1034,12 @@
             .then(r => r.json())
             .then(data => {
                 if (data.error) {
-                    logDiv.innerHTML = `<span style="color:#f48771;">${escHtml(data.error)}</span>`;
+                    logDiv.innerHTML = `<span class="text-error">${escHtml(data.error)}</span>`;
                     return;
                 }
                 rcEl.innerHTML = data.ok
-                    ? '<span style="color:#4ec9b0;">exit 0 ✓</span>'
-                    : `<span style="color:#f48771;">exit ${data.rc} ✗</span>`;
+                    ? '<span class="text-success">exit 0 ✓</span>'
+                    : `<span class="text-error">exit ${data.rc} ✗</span>`;
                 logDiv.innerHTML = escHtml(data.output || '(no output)')
                     .split('\n').map(line => {
                         const cls = /error|fail|crit/i.test(line) ? 'error'
@@ -1018,7 +1050,7 @@
                 logDiv.scrollTop = logDiv.scrollHeight;
             })
             .catch(e => {
-                logDiv.innerHTML = `<span style="color:#f48771;">Fetch error: ${e}</span>`;
+                logDiv.innerHTML = `<span class="text-error">Fetch error: ${e}</span>`;
             });
         }
 
@@ -1035,7 +1067,7 @@
             const resultsDiv = document.getElementById('query-results');
             
             if (data.results.length === 0) {
-                resultsDiv.innerHTML = '<p style="color: #999; margin-top: 20px;">No results found</p>';
+                resultsDiv.innerHTML = '<p class="text-light mt-20">No results found</p>';
                 return;
             }
             
@@ -1054,7 +1086,7 @@
             });
             
             html += '</tbody></table>';
-            html += `<p style="margin-top: 15px; color: #666;">Total: ${data.count} results</p>`;
+            html += `<p class="mt-15 text-muted">Total: ${data.count} results</p>`;
             
             resultsDiv.innerHTML = html;
         }
