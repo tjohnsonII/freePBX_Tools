@@ -129,7 +129,8 @@ def _parse_device_rows(page_source: str, base_url: str, vpbx_id: str, handle: st
 def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     """Navigate to a device edit page, click Bulk Attribute Edit, return the config text.
 
-    The button opens an in-page modal with a <textarea> containing the Polycom/Yealink
+    The button is: <button id="bulk_attrib_edit" class="bulk_attrib_edit">Bulk Attribute Edit</button>
+    It opens an in-page modal with a <textarea> containing the Polycom/Yealink
     SIP configuration parameters. We capture the textarea value then close the modal.
     """
     from selenium.webdriver.common.by import By
@@ -146,13 +147,12 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     except Exception:
         return ""
 
-    # Find and click the Bulk Attribute Edit button (usually an <input type="button">)
+    # Find the Bulk Attribute Edit button by id/class (primary), then fall back to XPath text
     bulk_btn = None
     for selector in [
-        "input[value='Bulk Attribute Edit']",
-        "button[value='Bulk Attribute Edit']",
-        "input[value*='Bulk']",
-        "button:contains('Bulk')",
+        "#bulk_attrib_edit",
+        ".bulk_attrib_edit",
+        "button[name='bulk_attrib_edit']",
     ]:
         els = driver.find_elements(By.CSS_SELECTOR, selector)
         if els:
@@ -160,11 +160,11 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
             break
 
     if not bulk_btn:
-        # Fallback: find by XPath text
         try:
             bulk_btn = driver.find_element(
                 By.XPATH,
-                "//input[@value='Bulk Attribute Edit'] | //button[contains(text(),'Bulk Attribute Edit')]",
+                "//button[contains(normalize-space(),'Bulk Attribute Edit')]"
+                " | //input[@value='Bulk Attribute Edit']",
             )
         except Exception:
             return ""
@@ -187,7 +187,77 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     try:
         cancel = driver.find_element(
             By.XPATH,
-            "//input[@value='Cancel'] | //button[normalize-space()='Cancel']",
+            "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
+        )
+        cancel.click()
+        time.sleep(0.3)
+    except Exception:
+        pass
+
+    return config_text.strip()
+
+
+def _capture_site_config(driver: Any, detail_url: str) -> str:
+    """Navigate to a vpbx_detail page, click Site Specific Config, return the config text.
+
+    The button is: <button id="site_editor_button" class="site_editor_button">Site Specific Config</button>
+    It opens an in-page modal with a <textarea> containing the site-wide XML/key-value config
+    (Polycom site config, admin passwords, SNTP settings, etc.).
+    """
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    driver.get(detail_url)
+
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.TAG_NAME, "table"))
+        )
+    except Exception:
+        return ""
+
+    # Find the Site Specific Config button by id/class (primary), then fall back to XPath text
+    site_btn = None
+    for selector in [
+        "#site_editor_button",
+        ".site_editor_button",
+        "button[name='site_editor_button']",
+    ]:
+        els = driver.find_elements(By.CSS_SELECTOR, selector)
+        if els:
+            site_btn = els[0]
+            break
+
+    if not site_btn:
+        try:
+            site_btn = driver.find_element(
+                By.XPATH,
+                "//button[contains(normalize-space(),'Site Specific Config')]"
+                " | //input[@value='Site Specific Config']",
+            )
+        except Exception:
+            return ""
+
+    try:
+        site_btn.click()
+    except Exception:
+        return ""
+
+    # Wait for the config textarea to appear
+    try:
+        textarea = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea"))
+        )
+        config_text = textarea.get_attribute("value") or textarea.text or ""
+    except Exception:
+        config_text = ""
+
+    # Close the modal by clicking Cancel
+    try:
+        cancel = driver.find_element(
+            By.XPATH,
+            "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
         )
         cancel.click()
         time.sleep(0.3)
@@ -285,4 +355,83 @@ def fetch_device_configs(
         driver.quit()
 
     _emit(f"complete total_devices={len(all_records)}")
+    return all_records
+
+
+def fetch_site_configs(
+    base_url: str,
+    *,
+    handles: list[str] | None = None,
+    login_timeout_seconds: int = 300,
+    emit_fn: Any = None,
+) -> list[dict[str, str]]:
+    """Open Chrome, authenticate via SSO, then scrape site-specific configs from vpbx.cgi.
+
+    Navigation path for each handle:
+      vpbx.cgi (list) → vpbx_detail&id=X → Site Specific Config button
+
+    Returns [{vpbx_id, handle, detail_url, site_config, last_seen_utc}, ...].
+
+    Pass `handles` to limit scraping to specific company handles (e.g. ["ACG", "AEG"]).
+    Omit to scrape all handles.
+    """
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    def _emit(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
+
+    target_url = _vpbx_cgi_url(base_url)
+    handle_filter = {h.upper() for h in handles} if handles else None
+
+    options = Options()
+    options.add_argument("--start-maximized")
+    driver = webdriver.Chrome(options=options)
+
+    all_records: list[dict[str, str]] = []
+
+    try:
+        driver.get(target_url)
+        _emit("waiting_for_login")
+
+        WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
+            lambda d: "vpbx.cgi" in (d.current_url or "")
+            and len(d.find_elements(By.TAG_NAME, "table")) > 0
+        )
+        _emit("login_confirmed")
+
+        vpbx_list = _parse_vpbx_ids(driver.page_source, base_url)
+        _emit(f"found_vpbx_entries count={len(vpbx_list)}")
+
+        if handle_filter:
+            vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
+            _emit(f"filtered_to count={len(vpbx_list)}")
+
+        for vpbx_entry in vpbx_list:
+            vpbx_id = vpbx_entry["vpbx_id"]
+            handle = vpbx_entry["handle"]
+            detail_url = vpbx_entry["detail_url"]
+            _emit(f"site_config handle={handle} vpbx_id={vpbx_id}")
+
+            config_text = _capture_site_config(driver, detail_url)
+            _emit(f"site_config_done handle={handle} lines={len(config_text.splitlines())}")
+
+            all_records.append({
+                "vpbx_id": vpbx_id,
+                "handle": handle,
+                "detail_url": detail_url,
+                "site_config": config_text,
+                "last_seen_utc": _iso_now(),
+            })
+
+            time.sleep(0.2)
+
+    finally:
+        driver.quit()
+
+    _emit(f"complete total_handles={len(all_records)}")
     return all_records
