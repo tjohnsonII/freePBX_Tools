@@ -25,25 +25,51 @@ def _parse_vpbx_ids(page_source: str, base_url: str) -> list[dict[str, str]]:
     seen: set[str] = set()
     results: list[dict[str, str]] = []
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "command=vpbx_detail" not in href:
+    # Find the table that contains vpbx_detail links, then locate the "Handle" column index
+    target_table = None
+    handle_col_idx = 1  # fallback: column 1 is Handle in the standard vpbx.cgi layout
+    for table in soup.find_all("table"):
+        if not table.find("a", href=lambda h: h and "command=vpbx_detail" in h):
             continue
-        params = parse_qs(urlparse(href).query)
+        target_table = table
+        # Find the header row to determine which column is "Handle"
+        for row in table.find_all("tr"):
+            ths = row.find_all("th")
+            if not ths:
+                continue
+            for idx, th in enumerate(ths):
+                if "handle" in th.get_text(" ", strip=True).lower():
+                    handle_col_idx = idx
+                    break
+            break
+        break
+
+    if target_table is None:
+        return results
+
+    for tr in target_table.find_all("tr"):
+        # Find the vpbx_detail link in this row
+        detail_link = None
+        for a in tr.find_all("a", href=True):
+            if "command=vpbx_detail" in a["href"]:
+                detail_link = a
+                break
+        if not detail_link:
+            continue
+
+        params = parse_qs(urlparse(detail_link["href"]).query)
         vpbx_id = (params.get("id") or [None])[0]
         if not vpbx_id or vpbx_id in seen:
             continue
         seen.add(vpbx_id)
 
-        # Handle name is usually in the first <td> of the parent <tr>
-        handle = a.get_text(strip=True)
-        tr = a.find_parent("tr")
-        if tr:
-            cells = tr.find_all("td")
-            if cells:
-                handle = cells[0].get_text(" ", strip=True) or handle
+        cells = tr.find_all("td")
+        if handle_col_idx < len(cells):
+            handle = cells[handle_col_idx].get_text(" ", strip=True)
+        else:
+            handle = detail_link.get_text(strip=True)
 
-        full_url = urljoin(_vpbx_cgi_url(base_url), href)
+        full_url = urljoin(_vpbx_cgi_url(base_url), detail_link["href"])
         results.append({"vpbx_id": vpbx_id, "handle": handle, "detail_url": full_url})
 
     return results
@@ -305,12 +331,23 @@ def fetch_device_configs(
         driver.get(target_url)
         _emit("waiting_for_login")
 
-        # Wait until SSO is done and the vpbx.cgi table is visible
+        # Wait until SSO is done AND the real handles table is loaded.
+        # A vpbx_detail link only appears once the data table has rendered.
         WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
             lambda d: "vpbx.cgi" in (d.current_url or "")
-            and len(d.find_elements(By.TAG_NAME, "table")) > 0
+            and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
         )
         _emit("login_confirmed")
+
+        # vpbx.cgi uses DataTables — expand to show all rows before parsing
+        try:
+            driver.execute_script(
+                "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
+            )
+            time.sleep(2)
+            _emit("datatables_expanded")
+        except Exception:
+            pass
 
         # Parse the VPBX list to get all handles and their detail URLs
         vpbx_list = _parse_vpbx_ids(driver.page_source, base_url)
@@ -398,11 +435,22 @@ def fetch_site_configs(
         driver.get(target_url)
         _emit("waiting_for_login")
 
+        # Wait until SSO is done AND the real handles table is loaded.
         WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
             lambda d: "vpbx.cgi" in (d.current_url or "")
-            and len(d.find_elements(By.TAG_NAME, "table")) > 0
+            and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
         )
         _emit("login_confirmed")
+
+        # vpbx.cgi uses DataTables — expand to show all rows before parsing
+        try:
+            driver.execute_script(
+                "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
+            )
+            time.sleep(2)
+            _emit("datatables_expanded")
+        except Exception:
+            pass
 
         vpbx_list = _parse_vpbx_ids(driver.page_source, base_url)
         _emit(f"found_vpbx_entries count={len(vpbx_list)}")

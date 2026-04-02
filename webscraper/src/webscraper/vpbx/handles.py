@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -92,17 +93,26 @@ def fetch_handles_selenium(
         driver.get(target_url)
         _emit("waiting_for_login")
 
-        # Wait until we land on vpbx.cgi and the page has a table (not a login page)
+        # Wait until SSO is done AND the real data table is loaded.
+        # We check for a vpbx_detail link, which only appears once the handles
+        # table has rendered — not just any layout table on the login page.
         WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
             lambda d: "vpbx.cgi" in (d.current_url or "")
-            and len(d.find_elements(By.TAG_NAME, "table")) > 0
+            and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
         )
         _emit("login_confirmed")
 
-        # Give the page a moment to fully render
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.TAG_NAME, "table"))
-        )
+        # vpbx.cgi uses DataTables which defaults to showing a limited number of rows.
+        # Use the DataTables JS API to set page length to -1 (show all) then wait for redraw.
+        try:
+            driver.execute_script(
+                "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
+            )
+            time.sleep(2)  # wait for DataTables to re-render all rows
+            _emit("datatables_expanded")
+        except Exception:
+            pass  # non-fatal — fall through and capture whatever is visible
+
         page_source = driver.page_source
         _emit("page_source_captured")
     finally:
