@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlencode
 
 
 def _iso_now() -> str:
@@ -76,7 +76,6 @@ def fetch_handles_selenium(
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.support.ui import WebDriverWait
 
     target_url = urljoin(base_url.rstrip("/") + "/", "cgi-bin/web_interface/admin/vpbx.cgi")
@@ -102,22 +101,46 @@ def fetch_handles_selenium(
         )
         _emit("login_confirmed")
 
-        # vpbx.cgi uses DataTables which defaults to showing a limited number of rows.
-        # Use the DataTables JS API to set page length to -1 (show all) then wait for redraw.
-        try:
-            driver.execute_script(
-                "try { $('table').DataTable().page.len(-1).draw(); } catch(e) {}"
-            )
-            time.sleep(2)  # wait for DataTables to re-render all rows
-            _emit("datatables_expanded")
-        except Exception:
-            pass  # non-fatal — fall through and capture whatever is visible
+        # Paginate through all DataTables pages (100 rows each, no "Show All" option)
+        all_records: dict[str, dict[str, str]] = {}
+        page_num = 1
+        while True:
+            page_records = _parse_vpbx_page_source(driver.page_source)
+            for r in page_records:
+                all_records[r["handle"]] = r
+            _emit(f"page={page_num} this_page={len(page_records)} total={len(all_records)}")
 
-        page_source = driver.page_source
-        _emit("page_source_captured")
+            # Check for a non-disabled Next button (id="vpbx_list_next")
+            next_btns = driver.find_elements(By.ID, "vpbx_list_next")
+            if not next_btns:
+                break
+            classes = next_btns[0].get_attribute("class") or ""
+            if "disabled" in classes or "ui-state-disabled" in classes:
+                break
+
+            # Capture first row text to detect page change
+            first_row_text = ""
+            rows = driver.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")
+            if rows:
+                first_row_text = rows[0].text
+
+            next_btns[0].click()
+
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: (
+                        d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr") and
+                        d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")[0].text != first_row_text
+                    )
+                )
+            except Exception:
+                time.sleep(1.5)
+
+            page_num += 1
+
     finally:
         driver.quit()
 
-    records = _parse_vpbx_page_source(page_source)
+    records = list(all_records.values())
     _emit(f"parsed_records count={len(records)}")
     return records
