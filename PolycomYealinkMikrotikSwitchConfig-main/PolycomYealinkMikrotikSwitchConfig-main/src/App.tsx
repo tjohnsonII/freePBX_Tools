@@ -1,11 +1,6 @@
-// Re-add Mikrotik template modules and OTT template function
-import { mikrotik5009Bridge } from './mikrotik5009BridgeTemplate';
-import { mikrotik5009Passthrough } from './mikrotik5009PassthroughTemplate';
-import { onNetMikrotikConfigTemplate } from './onNetMikrotikConfigTemplate';
 import { ottMikrotikTemplate } from './ottMikrotikTemplate';
-import { mikrotikStandAloneATATemplate } from './mikrotikStandAloneATATemplate';
-import { mikrotikDhcpOptions } from './mikrotikDhcpOptionsTemplate';
-import React, { useState, useRef } from 'react';
+import MikrotikTab from './tabs/MikrotikTab';
+import React, { useState, useRef, useEffect } from 'react';
 // Import main CSS for styling
 import './App.css'
 // Import PapaParse for CSV import/export
@@ -18,6 +13,8 @@ import HostedOrderTrackerTab from './HostedOrderTrackerTab';
 import StrettoImportExportTab from './StrettoImportExportTab';
 import { FaInfoCircle } from 'react-icons/fa';
 import DiagnosticsTab from './tabs/DiagnosticsTab';
+import VpbxImportTab from './tabs/VpbxImportTab';
+import ConfigAuditTab from './tabs/ConfigAuditTab';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -39,6 +36,7 @@ const TABS = [
   { key: 'fullconfig', label: 'Full Config' },
   { key: 'fbpx', label: 'FBPX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
+  { key: 'audit', label: 'Config Audit' },
   { key: 'mikrotik', label: 'Mikrotik Templates' },
   { key: 'switch', label: 'Switch Templates' },
   { key: 'ordertracker', label: 'Order Tracker' },
@@ -52,20 +50,11 @@ const FPBX_FIELDS = [
   "voicemail_same_exten", "outboundcid", "id", "dial", "user", "max_contacts", "accountcode"
 ];
 
-// Field definitions for VPBX import/export template (adds MAC/model)
-const VPBX_FIELDS = [
-  "mac", "model", "extension",
-  ...FPBX_FIELDS.filter(f => !["extension"].includes(f)),
-];
-
-// Type definitions for FBPX and VPBX forms (for type safety)
+// Type definition for FBPX form (for type safety)
 type FpbxFormType = Record<typeof FPBX_FIELDS[number], string>;
-type VpbxFormType = Record<typeof VPBX_FIELDS[number], string>;
 
 // Helper to create an empty FBPX row
 const createEmptyFpbxRow = (): FpbxFormType => FPBX_FIELDS.reduce((acc, f) => ({ ...acc, [f]: '' }), {} as FpbxFormType);
-// Helper to create an empty VPBX row
-const createEmptyVpbxRow = (): VpbxFormType => VPBX_FIELDS.reduce((acc, f) => ({ ...acc, [f]: '' }), {} as VpbxFormType);
 
 // --- Static config blocks for Yealink/Polycom ---
 const DEFAULT_TIME_OFFSET = '-5';
@@ -123,7 +112,7 @@ function App() {
   });
 
   // --- OTT Mikrotik Template Editor State ---
-  const [ottFields] = useState({
+  const [ottFields, setOttFields] = useState({
     ip: '',
     customerName: '',
     customerAddress: '',
@@ -154,6 +143,55 @@ function App() {
   const [labelPrefix, setLabelPrefix] = useState('Park');
   // State for generated config output
   const [output, setOutput] = useState('');
+  // --- Phone Config Scraper panel state ---
+  const SCRAPER_BASE_PHONE = 'http://localhost:8788';
+  const [scraperHandles, setScraperHandles] = useState<{ handle: string; name: string; ip: string }[]>([]);
+  const [scraperHandle, setScraperHandle] = useState('');
+  const [scraperDevices, setScraperDevices] = useState<{ device_id: string; directory_name: string; extension: string; mac: string; make: string; model: string; bulk_config: string }[]>([]);
+  const [scraperDevice, setScraperDevice] = useState('');
+  const [scraperOnlinePhone, setScraperOnlinePhone] = useState<boolean | null>(null);
+  const [scraperLiveConfig, setScraperLiveConfig] = useState('');
+  const [showLiveConfig, setShowLiveConfig] = useState(false);
+
+  useEffect(() => {
+    fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/records`, { signal: AbortSignal.timeout(3000) })
+      .then(r => r.json())
+      .then(data => {
+        setScraperOnlinePhone(true);
+        const items = data?.items || [];
+        setScraperHandles(items.sort((a: { handle: string }, b: { handle: string }) => a.handle.localeCompare(b.handle)));
+      })
+      .catch(() => setScraperOnlinePhone(false));
+  }, []);
+
+  async function loadScraperDevices(handle: string) {
+    if (!handle) { setScraperDevices([]); setScraperDevice(''); setScraperLiveConfig(''); return; }
+    try {
+      const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`);
+      const data = await res.json();
+      const devs = data?.items || [];
+      setScraperDevices(devs);
+      setScraperDevice('');
+      setScraperLiveConfig('');
+      const rec = scraperHandles.find(h => h.handle === handle);
+      if (rec?.ip) setIp(rec.ip);
+    } catch { setScraperDevices([]); }
+  }
+
+  function applyScraperDevice(deviceId: string) {
+    const dev = scraperDevices.find(d => d.device_id === deviceId);
+    if (!dev) return;
+    setScraperDevice(deviceId);
+    setScraperLiveConfig(dev.bulk_config || '');
+    setShowLiveConfig(false);
+    if (dev.extension) { setStartExt(dev.extension); setEndExt(dev.extension); }
+    if (dev.model) setModel(dev.model);
+    if (dev.make?.toLowerCase().includes('yealink') || dev.model?.toLowerCase().includes('yealink') || dev.model?.toLowerCase().startsWith('sip-')) {
+      setPhoneType('Yealink');
+    } else {
+      setPhoneType('Polycom');
+    }
+  }
 
   // Yealink expansion module state
   const [yealinkSection, setYealinkSection] = useState({
@@ -549,51 +587,6 @@ function App() {
     setFpbxRows(rows => rows.length === 1 ? rows : rows.filter((_, i) => i !== idx));
   }
 
-  // State and handlers for VPBX import/export form (PBX CSV import/export)
-  const [vpbxRows, setVpbxRows] = useState<VpbxFormType[]>(Array(10).fill(0).map(createEmptyVpbxRow));
-  const vpbxDownloadRef = useRef<HTMLAnchorElement>(null);
-
-  function handleVpbxChange(rowIdx: number, e: React.ChangeEvent<HTMLInputElement>) {
-    setVpbxRows(rows => {
-      const updated = [...rows];
-      updated[rowIdx] = { ...updated[rowIdx], [e.target.name]: e.target.value };
-      return updated;
-    });
-  }
-
-  function handleVpbxExport() {
-    const csvHeader = VPBX_FIELDS.join(',') + '\n';
-    const csvRows = vpbxRows.map(row => VPBX_FIELDS.map(f => `"${(row[f] || '').replace(/"/g, '""')}"`).join(',')).join('\n') + '\n';
-    const csv = csvHeader + csvRows;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    if (vpbxDownloadRef.current) {
-      vpbxDownloadRef.current.href = url;
-      vpbxDownloadRef.current.download = 'vpbx_import.csv';
-      vpbxDownloadRef.current.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-  }
-
-  function handleVpbxImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    Papa.parse(file, {
-      header: true,
-      complete: (results: Papa.ParseResult<Record<string, string>>) => {
-        const rows = (results.data as VpbxFormType[]).filter(row => row && Object.values(row).some(Boolean));
-        setVpbxRows(rows.length ? rows : [createEmptyVpbxRow()]);
-      },
-    });
-  }
-
-  function handleVpbxAddRow(count = 1) {
-    setVpbxRows(rows => [...rows, ...Array(count).fill(0).map(createEmptyVpbxRow)]);
-  }
-  function handleVpbxDeleteRow(idx: number) {
-    setVpbxRows(rows => rows.length === 1 ? rows : rows.filter((_, i) => i !== idx));
-  }
-
   // New state for time offset and admin password
   const [timeOffset, setTimeOffset] = useState(DEFAULT_TIME_OFFSET);
   const [adminPassword, setAdminPassword] = useState(DEFAULT_ADMIN_PASSWORD);
@@ -762,28 +755,13 @@ function App() {
       </header>
 
       <main className="container">
-      <div className="tabs" style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
-        {TABS.map((tab, idx) => (
+      <div className="tabs">
+        {TABS.map((tab) => (
           <button
             key={tab.key}
             className={activeTab === tab.key ? 'active' : ''}
             onClick={() => setActiveTab(tab.key)}
-            style={{
-              border: 'none',
-              borderBottom: activeTab === tab.key ? '3px solid var(--brand-blue)' : '2px solid var(--app-border)',
-              background: activeTab === tab.key ? 'var(--app-surface-2)' : 'var(--app-surface)',
-              color: activeTab === tab.key ? 'var(--brand-blue)' : 'var(--app-fg)',
-              fontWeight: activeTab === tab.key ? 600 : 400,
-              padding: '10px 24px',
-              borderTopLeftRadius: idx === 0 ? 8 : 0,
-              borderTopRightRadius: idx === TABS.length - 1 ? 8 : 0,
-              marginRight: 2,
-              outline: 'none',
-              cursor: 'pointer',
-              transition: 'background 0.2s, color 0.2s, border-bottom 0.2s',
-              boxShadow: activeTab === tab.key ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
-              minWidth: 120,
-            }}
+
           >
             {tab.label}
           </button>
@@ -792,60 +770,35 @@ function App() {
       <hr />
       {/* Tab content rendering */}
       {activeTab === 'reference' && (
-        <div
-          style={{
-            margin: '24px 0',
-            maxWidth: 900,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center', // Center the content horizontally
-          }}
-        >
-          <h2 style={{ alignSelf: 'flex-start', textAlign: 'left', width: '100%' }}>Reference</h2>
+        <div className="ref-container">
+          <h2 className="ref-h2">Reference</h2>
           {/* Sub-navigation menu */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              marginBottom: 24,
-              alignSelf: 'center', // Center the subnav
-            }}
-          >
+          <div className="ref-subnav">
             {REFERENCE_SUBTABS.map(sub => (
               <button
                 key={sub.key}
                 className={referenceSubtab === sub.key ? 'active' : ''}
                 onClick={() => setReferenceSubtab(sub.key)}
-                style={{
-                  border: 'none',
-                  borderBottom: referenceSubtab === sub.key ? '3px solid #0078d4' : '2px solid #ccc',
-                  background: referenceSubtab === sub.key ? '#f7fbff' : '#f4f4f4',
-                  color: referenceSubtab === sub.key ? '#0078d4' : '#333',
-                  fontWeight: referenceSubtab === sub.key ? 600 : 400,
-                  padding: '8px 20px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  minWidth: 100,
-                }}
+
               >
                 {sub.label}
               </button>
             ))}
           </div>
           {/* Subtab content */}
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="ref-content">
             {referenceSubtab === 'phones' && (
-              <div style={{ width: '100%', textAlign: 'left' }}>
-                <h2 style={{ textAlign: 'left' }}>Phone Config Reference (Legend)</h2>
-                <div style={{ marginTop: 16, display: 'flex', gap: 40, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div className="ref-section">
+                <h2>Phone Config Reference (Legend)</h2>
+                <div className="ref-tables-flex">
                   {/* Polycom Reference Table */}
-                  <div style={{ flex: 1, minWidth: 350, textAlign: 'left' }}>
-                    <h3 style={{ textAlign: 'left' }}>Polycom</h3>
-                    <table className="reference-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+                  <div className="ref-brand-col">
+                    <h3>Polycom</h3>
+                    <table className="reference-table">
                       <thead>
-                        <tr style={{ background: '#f4f4f4' }}>
-                          <th style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #ccc' }}>Setting</th>
-                          <th style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #ccc' }}>Description</th>
+                        <tr>
+                          <th>Setting</th>
+                          <th>Description</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -860,8 +813,8 @@ function App() {
                         <tr><td><code>feature.EFKLineKey.enabled</code></td><td>Enable EFK line key macros</td></tr>
                       </tbody>
                     </table>
-                    <h4 style={{ marginTop: 12, textAlign: 'left' }}>Common Polycom Features</h4>
-                    <ul style={{ marginLeft: 20, textAlign: 'left' }}>
+                    <h4 className="ref-h4">Common Polycom Features</h4>
+                    <ul className="ref-ul">
                       <li><b>BLF (Busy Lamp Field):</b> Monitors extension/park status, lights up when in use.</li>
                       <li><b>Speed Dial:</b> Quick dial to a number or extension.</li>
                       <li><b>EFK (Enhanced Feature Key):</b> Macro for advanced actions (e.g. transfer, record, external call).</li>
@@ -869,13 +822,13 @@ function App() {
                     </ul>
                   </div>
                   {/* Yealink Reference Table */}
-                  <div style={{ flex: 1, minWidth: 350, textAlign: 'left' }}>
-                    <h3 style={{ textAlign: 'left' }}>Yealink</h3>
-                    <table className="reference-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+                  <div className="ref-brand-col">
+                    <h3>Yealink</h3>
+                    <table className="reference-table">
                       <thead>
-                        <tr style={{ background: '#f4f4f4' }}>
-                          <th style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #ccc' }}>Setting</th>
-                          <th style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #ccc' }}>Description</th>
+                        <tr>
+                          <th>Setting</th>
+                          <th>Description</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -890,8 +843,8 @@ function App() {
                         <tr><td><code>expansion_module.Y.key.Z.value</code></td><td>Value for expansion key (e.g. extension@ip)</td></tr>
                       </tbody>
                     </table>
-                    <h4 style={{ marginTop: 12, textAlign: 'left' }}>Common Yealink Features</h4>
-                    <ul style={{ marginLeft: 20, textAlign: 'left' }}>
+                    <h4 className="ref-h4">Common Yealink Features</h4>
+                    <ul className="ref-ul">
                       <li><b>BLF (Busy Lamp Field):</b> Monitors extension/park status, lights up when in use (type=10).</li>
                       <li><b>Speed Dial:</b> Quick dial to a number or extension (type=13).</li>
                       <li><b>Transfer to VM:</b> Direct transfer to voicemail (type=3, value=*ext@ip).</li>
@@ -903,11 +856,11 @@ function App() {
               </div>
             )}
             {referenceSubtab === 'mikrotik' && (
-              <div style={{ width: '100%', textAlign: 'left' }}>
+              <div className="ref-section">
                 <h3>Mikrotik Reference</h3>
-                <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 16, marginBottom: 32 }}>
-                  <h4 style={{ marginTop: 0 }}>What does each Mikrotik config template do?</h4>
-                  <ul style={{ marginLeft: 20 }}>
+                <div className="ref-card">
+                  <h4>What does each Mikrotik config template do?</h4>
+                  <ul>
                     <li>
                       <b>OTT Mikrotik Template (Editable):</b>
                       <br />
@@ -1011,11 +964,11 @@ function App() {
               </div>
             )}
             {referenceSubtab === 'switches' && (
-              <div style={{ width: '100%', textAlign: 'left' }}>
+              <div className="ref-section">
                 <h3>Switches Reference</h3>
-                <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 16, marginBottom: 32 }}>
-                  <h4 style={{ marginTop: 0 }}>What does each Switch config template do?</h4>
-                  <ul style={{ marginLeft: 20 }}>
+                <div className="ref-card">
+                  <h4>What does each Switch config template do?</h4>
+                  <ul>
                     <li>
                       <b>Dynamic Switch Template:</b>
                       <br />
@@ -1037,11 +990,11 @@ function App() {
               </div>
             )}
             {referenceSubtab === 'pbx' && (
-              <div style={{ width: '100%', textAlign: 'left' }}>
+              <div className="ref-section">
                 <h3>PBX Reference</h3>
-                <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 16, marginBottom: 32 }}>
-                  <h4 style={{ marginTop: 0 }}>PBX Import/Export and Config Types</h4>
-                  <ul style={{ marginLeft: 20 }}>
+                <div className="ref-card">
+                  <h4>PBX Import/Export and Config Types</h4>
+                  <ul>
                     <li>
                       <b>FreePBX:</b>
                       <br />
@@ -1075,35 +1028,100 @@ function App() {
       {/* Phone Configs Tab */}
       {activeTab === 'phone' && (
         <>
-          <h2 style={{marginTop:0}}>Phone Config Generator</h2>
-          <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 16, marginBottom: 24, maxWidth: 700, marginLeft: 'auto', marginRight: 'auto', textAlign: 'left' }}>
-            <h3 style={{ marginTop: 0 }}>What does each config generator do?</h3>
-            <ul style={{ marginLeft: 20 }}>
+          <h2 className="section-h2">Phone Config Generator</h2>
+          <div className="info-box">
+            <h3>What does each config generator do?</h3>
+            <ul>
               <li><b>Base Config Options:</b> Generates the main configuration for Polycom or Yealink phones, including park/BLF keys, static settings, and model-specific options.</li>
               <li><b>Polycom MWI (Message Waiting Indicator):</b> Generates config lines to enable voicemail message waiting light for a specific extension and PBX IP.</li>
               <li><b>Linekey/BLF/Speed/Transfer/Hotkey Generator:</b> Creates config for individual programmable keys (BLF, speed dial, transfer, macros) for Yealink or Polycom phones.</li>
               <li><b>External Number Speed Dial:</b> Generates config for a button that dials an external number directly from the phone.</li>
             </ul>
           </div>
+          {/* Load from Scraper Panel */}
+          <div className="scraper-panel">
+            <div className="scraper-header">
+              <strong className="scraper-strong">Load from Webscraper</strong>
+              <span className={scraperOnlinePhone === null ? 'scraper-status-pending' : scraperOnlinePhone ? 'scraper-status-online' : 'scraper-status-offline'}>
+                {scraperOnlinePhone === null ? '…' : scraperOnlinePhone ? '● connected' : '○ offline'}
+              </span>
+            </div>
+            <div className="scraper-select-row">
+              <label htmlFor="phone-scraper-handle" className="scraper-label">Handle:</label>
+              <select
+                id="phone-scraper-handle"
+                value={scraperHandle}
+                onChange={e => { setScraperHandle(e.target.value); loadScraperDevices(e.target.value); }}
+                disabled={!scraperOnlinePhone}
+                className="scraper-handle-select"
+                title="Select a company handle to load scraped devices"
+              >
+                <option value="">— select handle —</option>
+                {scraperHandles.map(h => (
+                  <option key={h.handle} value={h.handle}>{h.handle} — {h.name}</option>
+                ))}
+              </select>
+              {scraperDevices.length > 0 && (
+                <>
+                  <label htmlFor="phone-scraper-device" className="scraper-label">Device:</label>
+                  <select
+                    id="phone-scraper-device"
+                    value={scraperDevice}
+                    onChange={e => applyScraperDevice(e.target.value)}
+                    className="scraper-device-select"
+                    title="Select a device to pre-fill config fields"
+                  >
+                    <option value="">— select device —</option>
+                    {scraperDevices.map(d => (
+                      <option key={d.device_id} value={d.device_id}>
+                        {d.directory_name || d.device_id} · ext {d.extension || '?'} · {d.make} {d.model}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+            {scraperDevice && scraperLiveConfig && (
+              <div className="scraper-show-area">
+                <button
+                  type="button"
+                  onClick={() => setShowLiveConfig(v => !v)}
+                  className="scraper-toggle-btn"
+                >
+                  {showLiveConfig ? 'Hide live config' : 'Show live config'}
+                </button>
+                {showLiveConfig && (
+                  <pre className="scraper-pre">
+                    {scraperLiveConfig}
+                  </pre>
+                )}
+              </div>
+            )}
+            {!scraperOnlinePhone && scraperOnlinePhone !== null && (
+              <p className="scraper-offline">
+                Webscraper offline — start it at localhost:8788 to enable live load.
+              </p>
+            )}
+          </div>
           {/* Base Config Options Form */}
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>Base Config Options</h3>
             <div className="form-group">
               <label>Phone Type:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.phoneType}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.phoneType}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <select value={phoneType} onChange={e => setPhoneType(e.target.value as 'Polycom' | 'Yealink')}>
+              <select value={phoneType} title="Select phone type" onChange={e => setPhoneType(e.target.value as 'Polycom' | 'Yealink')}>
                 <option value="Polycom">Polycom</option>
                 <option value="Yealink">Yealink</option>
               </select>
-              <label style={{marginLeft:16}}>Model:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.model}>
+              <label className="label-ml">Model:
+                <span className="info-icon" title={FIELD_TOOLTIPS.model}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <select value={model} onChange={e => setModel(e.target.value)}>
+              <select value={model} title="Select phone model" onChange={e => setModel(e.target.value)}>
                 {MODEL_OPTIONS.map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
@@ -1111,314 +1129,302 @@ function App() {
             </div>
             <div className="form-group">
               <label>IP Address:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.ip}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.ip}>
                   <FaInfoCircle />
                 </span>
               </label>
               <input type="text" value={ip} onChange={e => setIp(e.target.value)} placeholder="e.g. 192.168.1.100" />
-              <label style={{marginLeft:16}}>Start Extension:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.startExt}>
+              <label className="label-ml">Start Extension:
+                <span className="info-icon" title={FIELD_TOOLTIPS.startExt}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="number" value={startExt} onChange={e => setStartExt(e.target.value)} />
-              <label style={{marginLeft:16}}>End Extension:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.endExt}>
+              <input type="number" value={startExt} title="Start extension" onChange={e => setStartExt(e.target.value)} />
+              <label className="label-ml">End Extension:
+                <span className="info-icon" title={FIELD_TOOLTIPS.endExt}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="number" value={endExt} onChange={e => setEndExt(e.target.value)} />
-              <label style={{marginLeft:16}}>Label Prefix:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.labelPrefix}>
+              <input type="number" value={endExt} title="End extension" onChange={e => setEndExt(e.target.value)} />
+              <label className="label-ml">Label Prefix:
+                <span className="info-icon" title={FIELD_TOOLTIPS.labelPrefix}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={labelPrefix} onChange={e => setLabelPrefix(e.target.value)} />
+              <input type="text" value={labelPrefix} title="Label prefix" onChange={e => setLabelPrefix(e.target.value)} />
             </div>
             <div className="form-group">
               <label>Time Offset (e.g. -5):
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.timeOffset}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.timeOffset}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="number" value={timeOffset} onChange={e => setTimeOffset(e.target.value)} />
-              <label style={{marginLeft:16}}>Admin Password:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.adminPassword}>
+              <input type="number" value={timeOffset} title="Time offset (e.g. -5)" onChange={e => setTimeOffset(e.target.value)} />
+              <label className="label-ml">Admin Password:
+                <span className="info-icon" title={FIELD_TOOLTIPS.adminPassword}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} />
+              <input type="text" value={adminPassword} title="Admin password" onChange={e => setAdminPassword(e.target.value)} />
             </div>
             <div className="form-group">
               <label><input type="checkbox" checked={yealinkLabelLength} onChange={e => setYealinkLabelLength(e.target.checked)} /> Enable long DSS key labels
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.yealinkLabelLength}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkLabelLength}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <label style={{ marginLeft: 16 }}><input type="checkbox" checked={yealinkDisableMissedCall} onChange={e => setYealinkDisableMissedCall(e.target.checked)} /> Disable missed call notification
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.yealinkDisableMissedCall}>
+              <label className="label-ml"><input type="checkbox" checked={yealinkDisableMissedCall} onChange={e => setYealinkDisableMissedCall(e.target.checked)} /> Disable missed call notification
+                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkDisableMissedCall}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <label style={{ marginLeft: 16 }}><input type="checkbox" checked={yealinkCallStealing} onChange={e => setYealinkCallStealing(e.target.checked)} /> Enable BLF call stealing
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.yealinkCallStealing}>
+              <label className="label-ml"><input type="checkbox" checked={yealinkCallStealing} onChange={e => setYealinkCallStealing(e.target.checked)} /> Enable BLF call stealing
+                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkCallStealing}>
                   <FaInfoCircle />
                 </span>
               </label>
             </div>
-            <button onClick={generateConfig} style={{marginTop:8}}>Generate Config</button>
+            <button onClick={generateConfig} className="btn-mt">Generate Config</button>
             <div className="output">
-              <textarea value={output} readOnly rows={10} style={{ width: '100%', marginTop: 16 }} />
+              <textarea title="Generated config output" value={output} readOnly rows={10} className="full-width-ta" />
             </div>
           </div>
           {/* Polycom MWI Section */}
           <hr />
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>Polycom MWI (Message Waiting Indicator)</h3>
             <div className="form-group">
               <label>Extension:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.polycomMWIExt}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIExt}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={polycomMWI.ext} onChange={e => setPolycomMWI(mwi => ({ ...mwi, ext: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>PBX IP:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.polycomMWIPbxIp}>
+              <input type="text" value={polycomMWI.ext} title="MWI extension" onChange={e => setPolycomMWI(mwi => ({ ...mwi, ext: e.target.value }))} />
+              <label className="label-ml">PBX IP:
+                <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIPbxIp}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={polycomMWI.pbxIp} onChange={e => setPolycomMWI(mwi => ({ ...mwi, pbxIp: e.target.value }))} />
+              <input type="text" value={polycomMWI.pbxIp} title="PBX IP for MWI" onChange={e => setPolycomMWI(mwi => ({ ...mwi, pbxIp: e.target.value }))} />
             </div>
-            <button onClick={generatePolycomMWI} style={{ marginTop: 8 }}>Generate Polycom MWI Config</button>
-            <div className="output" style={{ marginTop: 16 }}>
-              <textarea value={polycomMWI.output} readOnly rows={5} style={{ width: '100%' }} />
+            <button onClick={generatePolycomMWI} className="btn-mt">Generate Polycom MWI Config</button>
+            <div className="output">
+              <textarea title="Generated Polycom MWI config" value={polycomMWI.output} readOnly rows={5} className="full-width-ta" />
             </div>
           </div>
           {/* Yealink Expansion Module Section */}
           <hr />
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>Yealink Expansion Module Config</h3>
             <div className="form-group">
               <label>Template Type:</label>
-              <select value={yealinkSection.templateType} onChange={e => setYealinkSection(s => ({ ...s, templateType: e.target.value }))}>
+              <select value={yealinkSection.templateType} title="Expansion template type" onChange={e => setYealinkSection(s => ({ ...s, templateType: e.target.value }))}>
                 <option value="BLF">BLF</option>
                 <option value="SpeedDial">Speed Dial</option>
               </select>
-              <label style={{ marginLeft: 16 }}>Sidecar Page:</label>
-              <input type="text" value={yealinkSection.sidecarPage} onChange={e => setYealinkSection(s => ({ ...s, sidecarPage: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Sidecar Line:</label>
-              <input type="text" value={yealinkSection.sidecarLine} onChange={e => setYealinkSection(s => ({ ...s, sidecarLine: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Label:</label>
-              <input type="text" value={yealinkSection.label} onChange={e => setYealinkSection(s => ({ ...s, label: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Value:</label>
-              <input type="text" value={yealinkSection.value} onChange={e => setYealinkSection(s => ({ ...s, value: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>PBX IP:</label>
-              <input type="text" value={yealinkSection.pbxIp} onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
+              <label className="label-ml">Sidecar Page:</label>
+              <input type="text" value={yealinkSection.sidecarPage} title="Sidecar page number" onChange={e => setYealinkSection(s => ({ ...s, sidecarPage: e.target.value }))} />
+              <label className="label-ml">Sidecar Line:</label>
+              <input type="text" value={yealinkSection.sidecarLine} title="Sidecar button position" onChange={e => setYealinkSection(s => ({ ...s, sidecarLine: e.target.value }))} />
+              <label className="label-ml">Label:</label>
+              <input type="text" value={yealinkSection.label} title="Display label for key" onChange={e => setYealinkSection(s => ({ ...s, label: e.target.value }))} />
+              <label className="label-ml">Value:</label>
+              <input type="text" value={yealinkSection.value} title="Extension or number" onChange={e => setYealinkSection(s => ({ ...s, value: e.target.value }))} />
+              <label className="label-ml">PBX IP:</label>
+              <input type="text" value={yealinkSection.pbxIp} title="PBX IP for BLF" onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
             </div>
-            <button onClick={generateYealinkExpansion} style={{ marginTop: 8, marginRight: 8 }}>Generate Yealink Expansion Config</button>
-            <button onClick={generateYealinkExpansionAll} style={{ marginTop: 8 }}>Generate All 20 Keys</button>
-            <div className="output" style={{ marginTop: 16 }}>
-              <textarea value={yealinkOutput} readOnly rows={5} style={{ width: '100%' }} />
+            <button onClick={generateYealinkExpansion} className="btn-mt btn-mr">Generate Yealink Expansion Config</button>
+            <button onClick={generateYealinkExpansionAll} className="btn-mt">Generate All 20 Keys</button>
+            <div className="output">
+              <textarea title="Generated Yealink expansion config" value={yealinkOutput} readOnly rows={5} className="full-width-ta" />
             </div>
           </div>
           {/* Polycom Expansion Module Section */}
           <hr />
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>Polycom Expansion Module Config</h3>
             <div className="form-group">
               <label>Address:</label>
-              <input type="text" value={polycomSection.address} onChange={e => setPolycomSection(s => ({ ...s, address: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Label:</label>
-              <input type="text" value={polycomSection.label} onChange={e => setPolycomSection(s => ({ ...s, label: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Type:</label>
-              <select value={polycomSection.type} onChange={e => setPolycomSection(s => ({ ...s, type: e.target.value }))}>
+              <input type="text" value={polycomSection.address} title="Address (e.g. 100@PBX)" onChange={e => setPolycomSection(s => ({ ...s, address: e.target.value }))} />
+              <label className="label-ml">Label:</label>
+              <input type="text" value={polycomSection.label} title="Label for the key" onChange={e => setPolycomSection(s => ({ ...s, label: e.target.value }))} />
+              <label className="label-ml">Type:</label>
+              <select value={polycomSection.type} title="Key type" onChange={e => setPolycomSection(s => ({ ...s, type: e.target.value }))}>
                 <option value="automata">Automata</option>
                 <option value="normal">Normal</option>
               </select>
-              <label style={{ marginLeft: 16 }}>Linekey Category:</label>
-              <input type="text" value={polycomSection.linekeyCategory} onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Linekey Index:</label>
-              <input type="text" value={polycomSection.linekeyIndex} onChange={e => setPolycomSection(s => ({ ...s, linekeyIndex: e.target.value }))} />
+              <label className="label-ml">Linekey Category:</label>
+              <input type="text" value={polycomSection.linekeyCategory} title="Linekey category" onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
+              <label className="label-ml">Linekey Index:</label>
+              <input type="text" value={polycomSection.linekeyIndex} title="Linekey index" onChange={e => setPolycomSection(s => ({ ...s, linekeyIndex: e.target.value }))} />
             </div>
-            <button onClick={generatePolycomExpansion} style={{ marginTop: 8, marginRight: 8 }}>Generate Polycom Expansion Config</button>
-            <button onClick={generatePolycomExpansionAll} style={{ marginTop: 8 }}>Generate All 28 Keys</button>
-            <div className="output" style={{ marginTop: 16 }}>
-              <textarea value={polycomOutput} readOnly rows={5} style={{ width: '100%' }} />
+            <button onClick={generatePolycomExpansion} className="btn-mt btn-mr">Generate Polycom Expansion Config</button>
+            <button onClick={generatePolycomExpansionAll} className="btn-mt">Generate All 28 Keys</button>
+            <div className="output">
+              <textarea title="Generated Polycom expansion config" value={polycomOutput} readOnly rows={5} className="full-width-ta" />
             </div>
           </div>
           {/* Linekey Generator Section */}
           <hr />
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>Linekey/BLF/Speed Dial Generator</h3>
             <div className="form-group">
               <label>Brand:</label>
-              <select value={linekeyGen.brand} onChange={e => setLinekeyGen(lk => ({ ...lk, brand: e.target.value }))}>
+              <select value={linekeyGen.brand} title="Select phone brand" onChange={e => setLinekeyGen(lk => ({ ...lk, brand: e.target.value }))}>
                 <option value="Yealink">Yealink</option>
                 <option value="Polycom">Polycom</option>
               </select>
-              <label style={{ marginLeft: 16 }}>Line Key Number:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.linekeyNum}>
+              <label className="label-ml">Line Key Number:
+                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyNum}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={linekeyGen.lineNum} onChange={e => setLinekeyGen(lk => ({ ...lk, lineNum: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Label:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.linekeyLabel}>
+              <input type="text" value={linekeyGen.lineNum} title="Line key number" onChange={e => setLinekeyGen(lk => ({ ...lk, lineNum: e.target.value }))} />
+              <label className="label-ml">Label:
+                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyLabel}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={linekeyGen.label} onChange={e => setLinekeyGen(lk => ({ ...lk, label: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Register Line:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.linekeyRegLine}>
+              <input type="text" value={linekeyGen.label} title="Label for the key" onChange={e => setLinekeyGen(lk => ({ ...lk, label: e.target.value }))} />
+              <label className="label-ml">Register Line:
+                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyRegLine}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={linekeyGen.regLine} onChange={e => setLinekeyGen(lk => ({ ...lk, regLine: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Type:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.linekeyType}>
+              <input type="text" value={linekeyGen.regLine} title="Register line number" onChange={e => setLinekeyGen(lk => ({ ...lk, regLine: e.target.value }))} />
+              <label className="label-ml">Type:
+                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyType}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <select value={linekeyGen.type} onChange={e => setLinekeyGen(lk => ({ ...lk, type: parseInt(e.target.value) }))}>
+              <select value={linekeyGen.type} title="Linekey type" onChange={e => setLinekeyGen(lk => ({ ...lk, type: parseInt(e.target.value) }))}>
                 {YEALINK_LINEKEY_TYPES.map(t => (
                   <option key={t.code} value={t.code}>{t.code} - {t.label}</option>
                 ))}
               </select>
-              <label style={{ marginLeft: 16 }}>Value:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.linekeyValue}>
+              <label className="label-ml">Value:
+                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyValue}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={linekeyGen.value} onChange={e => setLinekeyGen(lk => ({ ...lk, value: e.target.value }))} />
+              <input type="text" value={linekeyGen.value} title="Extension or number value" onChange={e => setLinekeyGen(lk => ({ ...lk, value: e.target.value }))} />
             </div>
-            <button type="button" onClick={generateLinekey} style={{ marginLeft: 16 }}>Generate Linekey Config</button>
-            <div className="output" style={{ marginTop: 16 }}>
-              <textarea value={linekeyGen.output} readOnly rows={5} style={{ width: '100%' }} />
+            <button type="button" onClick={generateLinekey} className="label-ml">Generate Linekey Config</button>
+            <div className="output">
+              <textarea title="Generated linekey config" value={linekeyGen.output} readOnly rows={5} className="full-width-ta" />
             </div>
           </div>
           {/* External Number Speed Dial Section */}
           <hr />
-          <div className="form-section" style={{marginBottom:24}}>
+          <div className="form-section">
             <h3>External Number Speed Dial</h3>
             <div className="form-group">
               <label>Brand:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.externalBrand}>
+                <span className="info-icon" title={FIELD_TOOLTIPS.externalBrand}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <select value={externalSpeed.brand} onChange={e => setExternalSpeed(s => ({ ...s, brand: e.target.value }))}>
+              <select value={externalSpeed.brand} title="Select phone brand" onChange={e => setExternalSpeed(s => ({ ...s, brand: e.target.value }))}>
                 <option value="Yealink">Yealink</option>
                 <option value="Polycom">Polycom</option>
               </select>
-              <label style={{ marginLeft: 16 }}>Line Key Number:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.externalLineNum}>
+              <label className="label-ml">Line Key Number:
+                <span className="info-icon" title={FIELD_TOOLTIPS.externalLineNum}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={externalSpeed.lineNum} onChange={e => setExternalSpeed(s => ({ ...s, lineNum: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>Label:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.externalLabel}>
+              <input type="text" value={externalSpeed.lineNum} title="Line key number" onChange={e => setExternalSpeed(s => ({ ...s, lineNum: e.target.value }))} />
+              <label className="label-ml">Label:
+                <span className="info-icon" title={FIELD_TOOLTIPS.externalLabel}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={externalSpeed.label} onChange={e => setExternalSpeed(s => ({ ...s, label: e.target.value }))} />
-              <label style={{ marginLeft: 16 }}>External Number:
-                <span style={{ marginLeft: 4, cursor: 'pointer', color: '#0078d4' }} title={FIELD_TOOLTIPS.externalNumber}>
+              <input type="text" value={externalSpeed.label} title="Speed dial label" onChange={e => setExternalSpeed(s => ({ ...s, label: e.target.value }))} />
+              <label className="label-ml">External Number:
+                <span className="info-icon" title={FIELD_TOOLTIPS.externalNumber}>
                   <FaInfoCircle />
                 </span>
               </label>
-              <input type="text" value={externalSpeed.number} onChange={e => setExternalSpeed(s => ({ ...s, number: e.target.value }))} />
+              <input type="text" value={externalSpeed.number} title="External number to dial" onChange={e => setExternalSpeed(s => ({ ...s, number: e.target.value }))} />
               {externalSpeed.brand === 'Polycom' && (
                 <>
-                  <label style={{ marginLeft: 16 }}>EFK Index:</label>
-                  <input type="text" value={externalSpeed.efkIndex} onChange={e => setExternalSpeed(s => ({ ...s, efkIndex: e.target.value }))} />
+                  <label className="label-ml">EFK Index:</label>
+                  <input type="text" value={externalSpeed.efkIndex} title="EFK index for Polycom" onChange={e => setExternalSpeed(s => ({ ...s, efkIndex: e.target.value }))} />
                 </>
               )}
-              <button type="button" onClick={generateExternalSpeed} style={{ marginLeft: 16 }}>Generate External Speed Dial</button>
+              <button type="button" onClick={generateExternalSpeed} className="label-ml">Generate External Speed Dial</button>
             </div>
-            <div className="output" style={{ marginTop: 16 }}>
-              <textarea value={externalSpeedOutput} readOnly rows={5} style={{ width: '100%' }} />
+            <div className="output">
+              <textarea title="Generated speed dial config" value={externalSpeedOutput} readOnly rows={5} className="full-width-ta" />
             </div>
           </div>
         </>
       )}
       {activeTab === 'expansion' && (
-        <div style={{ maxWidth: 1100, margin: '0 auto', textAlign: 'center' }}>
-          <h2 style={{ marginBottom: 24 }}>Expansion Module Code Generators</h2>
-          <div style={{ display: 'flex', gap: 40, justifyContent: 'center', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div className="expansion-container">
+          <h2 className="expansion-h2">Expansion Module Code Generators</h2>
+          <div className="expansion-flex">
             {/* Yealink Section */}
-            <div style={{ flex: 1, minWidth: 350 }}>
-              <img src="/expansion/yealinkexp40.jpeg" alt="Yealink EXP40" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
-              <img src="/expansion/yealinkexp50.jpeg" alt="Yealink EXP50" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
-              <div style={{ background: '#eef6fb', border: '1px solid #cce1fa', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 }}>
+            <div className="expansion-col">
+              <img src="/expansion/yealinkexp40.jpeg" alt="Yealink EXP40" className="expansion-img" />
+              <img src="/expansion/yealinkexp50.jpeg" alt="Yealink EXP50" className="expansion-img" />
+              <div className="expansion-instructions">
                 <b>Instructions:</b> Fill out the form below to generate a config for a Yealink expansion key. Use the page &amp; line to preview the key visually. Hover over any icon for field details.
               </div>
-              <div className="form-group" style={{ textAlign: 'left', margin: '0 auto', maxWidth: 320 }}>
+              <div className="form-group expansion-form-group">
                 <label>Template Type:
-                  <span title="BLF for Busy Lamp Field, Speed Dial for quick dial keys" style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                  <span title="BLF for Busy Lamp Field, Speed Dial for quick dial keys" className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <select value={yealinkSection.templateType} onChange={e => setYealinkSection(s => ({ ...s, templateType: e.target.value }))}>
+                <select value={yealinkSection.templateType} title="Expansion template type" onChange={e => setYealinkSection(s => ({ ...s, templateType: e.target.value }))}>
                   <option value="BLF">BLF</option>
                   <option value="SpeedDial">Speed Dial</option>
                 </select>
-                <label style={{ marginLeft: 16 }}>Sidecar Page:
-                  <span title="Sidecar page number (1, 2, etc.)" style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                <label className="label-ml">Sidecar Page:
+                  <span title="Sidecar page number (1, 2, etc.)" className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <input type="number" min={1} max={3} value={yealinkSection.sidecarPage} onChange={e => setYealinkSection(s => ({ ...s, sidecarPage: e.target.value }))} style={{ width: 60 }} />
-                <label style={{ marginLeft: 16 }}>Sidecar Line:
-                  <span title="Button position on the sidecar (1-20)" style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                <input type="number" min={1} max={3} value={yealinkSection.sidecarPage} title="Sidecar page (1-3)" onChange={e => setYealinkSection(s => ({ ...s, sidecarPage: e.target.value }))} className="narrow-input" />
+                <label className="label-ml">Sidecar Line:
+                  <span title="Button position on the sidecar (1-20)" className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <input type="number" min={1} max={20} value={yealinkSection.sidecarLine} onChange={e => setYealinkSection(s => ({ ...s, sidecarLine: e.target.value }))} style={{ width: 60 }} />
-                <label style={{ marginLeft: 16 }}>Label:
-                  <span title="Text label shown on the phone's display for this key." style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                <input type="number" min={1} max={20} value={yealinkSection.sidecarLine} title="Button position (1-20)" onChange={e => setYealinkSection(s => ({ ...s, sidecarLine: e.target.value }))} className="narrow-input" />
+                <label className="label-ml">Label:
+                  <span title="Text label shown on the phone's display for this key." className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <input type="text" value={yealinkSection.label} onChange={e => setYealinkSection(s => ({ ...s, label: e.target.value }))} />
-                <label style={{ marginLeft: 16 }}>Value (Phone/ext):
-                  <span title="Extension, number, or SIP URI for this key." style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                <input type="text" value={yealinkSection.label} title="Key label text" onChange={e => setYealinkSection(s => ({ ...s, label: e.target.value }))} />
+                <label className="label-ml">Value (Phone/ext):
+                  <span title="Extension, number, or SIP URI for this key." className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <input type="text" value={yealinkSection.value} onChange={e => setYealinkSection(s => ({ ...s, value: e.target.value }))} />
-                <label style={{ marginLeft: 16 }}>PBX IP:
-                  <span title="PBX IP address for BLF keys (required for BLF type)." style={{ marginLeft: 4, color: '#0078d4', cursor: 'pointer' }}>
+                <input type="text" value={yealinkSection.value} title="Extension or SIP URI" onChange={e => setYealinkSection(s => ({ ...s, value: e.target.value }))} />
+                <label className="label-ml">PBX IP:
+                  <span title="PBX IP address for BLF keys (required for BLF type)." className="info-icon">
                     <FaInfoCircle />
                   </span>
                 </label>
-                <input type="text" value={yealinkSection.pbxIp} onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
+                <input type="text" value={yealinkSection.pbxIp} title="PBX IP for BLF" onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
               </div>
-              <button onClick={generateYealinkExpansion} style={{ marginTop: 8, marginRight: 8 }}>Generate Yealink Expansion Config</button>
-              <button onClick={generateYealinkExpansionAll} style={{ marginTop: 8 }}>Generate All 20 Keys</button>
-              <div className="output" style={{ marginTop: 12 }}>
-                <textarea value={yealinkOutput} readOnly rows={5} style={{ width: '100%' }} />
+              <button onClick={generateYealinkExpansion} className="btn-mt btn-mr">Generate Yealink Expansion Config</button>
+              <button onClick={generateYealinkExpansionAll} className="btn-mt">Generate All 20 Keys</button>
+              <div className="output">
+                <textarea title="Generated Yealink expansion config" value={yealinkOutput} readOnly rows={5} className="full-width-ta" />
               </div>
               {/* Yealink Preview Grid */}
-              <div style={{ marginTop: 16, background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 12 }}>
+              <div className="expansion-preview">
                 <b>Preview: Page {yealinkSection.sidecarPage}</b>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 40px)', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+                <div className="expansion-grid expansion-grid-2col">
                   {Array.from({ length: 20 }).map((_, idx) => (
                     <div
                       key={idx}
-                      style={{
-                        width: 38,
-                        height: 38,
-                        border: '1.5px solid #bbb',
-                        borderRadius: 6,
-                        background: (parseInt(yealinkSection.sidecarLine) === idx + 1) ? '#cce1fa' : '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: (parseInt(yealinkSection.sidecarLine) === idx + 1) ? 700 : 400,
-                        color: (parseInt(yealinkSection.sidecarLine) === idx + 1) ? '#0078d4' : '#333',
-                        boxShadow: (parseInt(yealinkSection.sidecarLine) === idx + 1) ? '0 0 6px #0078d4' : 'none'
-                      }}
+                      className={`expansion-key${parseInt(yealinkSection.sidecarLine) === idx + 1 ? ' expansion-key-selected' : ''}`}
                       title={`Key ${idx + 1}${parseInt(yealinkSection.sidecarLine) === idx + 1 ? ' (Selected)' : ''}`}
                     >
                       {idx + 1}
@@ -1428,51 +1434,39 @@ function App() {
               </div>
             </div>
             {/* Polycom Section */}
-            <div style={{ flex: 1, minWidth: 350 }}>
-              <img src="/expansion/polycomVVX_Color_Exp_Module_2201.jpeg" alt="Polycom VVX Color Expansion Module" style={{ maxWidth: 220, marginBottom: 8, borderRadius: 8 }} />
-              <div style={{ background: '#eef6fb', border: '1px solid #cce1fa', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 }}>
+            <div className="expansion-col">
+              <img src="/expansion/polycomVVX_Color_Exp_Module_2201.jpeg" alt="Polycom VVX Color Expansion Module" className="expansion-img" />
+              <div className="expansion-instructions">
                 <b>Instructions:</b> Fill out the form below to generate a config for a Polycom expansion key. The preview grid below shows the button layout. Hover over any key for details.
               </div>
-              <div className="form-group" style={{ textAlign: 'left', margin: '0 auto', maxWidth: 320 }}>
+              <div className="form-group expansion-form-group">
                 <label>Linekey Index (1-28):</label>
-                <input type="number" min={1} max={28} value={polycomSection.linekeyIndex} onChange={e => setPolycomSection(s => ({ ...s, linekeyIndex: e.target.value }))} />
-                <label style={{ marginLeft: 16 }}>Address (e.g. 100@PBX):</label>
-                <input type="text" value={polycomSection.address} onChange={e => setPolycomSection(s => ({ ...s, address: e.target.value }))} />
-                <label style={{ marginLeft: 16 }}>Label:</label>
-                <input type="text" value={polycomSection.label} onChange={e => setPolycomSection(s => ({ ...s, label: e.target.value }))} />
-                <label style={{ marginLeft: 16 }}>Type:</label>
-                <select value={polycomSection.type} onChange={e => setPolycomSection(s => ({ ...s, type: e.target.value }))}>
+                <input type="number" min={1} max={28} value={polycomSection.linekeyIndex} title="Linekey index (1-28)" onChange={e => setPolycomSection(s => ({ ...s, linekeyIndex: e.target.value }))} />
+                <label className="label-ml">Address (e.g. 100@PBX):</label>
+                <input type="text" value={polycomSection.address} title="Address (e.g. 100@PBX)" onChange={e => setPolycomSection(s => ({ ...s, address: e.target.value }))} />
+                <label className="label-ml">Label:</label>
+                <input type="text" value={polycomSection.label} title="Label for the key" onChange={e => setPolycomSection(s => ({ ...s, label: e.target.value }))} />
+                <label className="label-ml">Type:</label>
+                <select value={polycomSection.type} title="Key type" onChange={e => setPolycomSection(s => ({ ...s, type: e.target.value }))}>
                   <option value="automata">Automata</option>
                   <option value="normal">Normal</option>
                 </select>
-                <label style={{ marginLeft: 16 }}>Linekey Category:</label>
-                <input type="text" value={polycomSection.linekeyCategory} onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
+                <label className="label-ml">Linekey Category:</label>
+                <input type="text" value={polycomSection.linekeyCategory} title="Linekey category" onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
               </div>
-              <button onClick={generatePolycomExpansion} style={{ marginTop: 8, marginRight: 8 }}>Generate Polycom Expansion Config</button>
-              <button onClick={generatePolycomExpansionAll} style={{ marginTop: 8 }}>Generate All 28 Keys</button>
-              <div className="output" style={{ marginTop: 12 }}>
-                <textarea value={polycomOutput} readOnly rows={5} style={{ width: '100%' }} />
+              <button onClick={generatePolycomExpansion} className="btn-mt btn-mr">Generate Polycom Expansion Config</button>
+              <button onClick={generatePolycomExpansionAll} className="btn-mt">Generate All 28 Keys</button>
+              <div className="output">
+                <textarea title="Generated Polycom expansion config" value={polycomOutput} readOnly rows={5} className="full-width-ta" />
               </div>
               {/* Polycom Preview Grid */}
-              <div style={{ marginTop: 16, background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 12 }}>
+              <div className="expansion-preview">
                 <b>Preview: 28 keys (4 columns × 7 rows)</b>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 40px)', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+                <div className="expansion-grid expansion-grid-4col">
                   {Array.from({ length: 28 }).map((_, idx) => (
                     <div
                       key={idx}
-                      style={{
-                        width: 38,
-                        height: 38,
-                        border: '1.5px solid #bbb',
-                        borderRadius: 6,
-                        background: (parseInt(polycomSection.linekeyIndex) === idx + 1) ? '#cce1fa' : '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: (parseInt(polycomSection.linekeyIndex) === idx + 1) ? 700 : 400,
-                        color: (parseInt(polycomSection.linekeyIndex) === idx + 1) ? '#0078d4' : '#333',
-                        boxShadow: (parseInt(polycomSection.linekeyIndex) === idx + 1) ? '0 0 6px #0078d4' : 'none'
-                      }}
+                      className={`expansion-key${parseInt(polycomSection.linekeyIndex) === idx + 1 ? ' expansion-key-selected' : ''}`}
                       title={`Key ${idx + 1}${parseInt(polycomSection.linekeyIndex) === idx + 1 ? ' (Selected)' : ''}`}
                     >
                       {idx + 1}
@@ -1489,15 +1483,15 @@ function App() {
           <h2>Full Config</h2>
           <p>This tab should generate a complete phone config for all supported models. (Restore your previous UI here.)</p>
           <button onClick={generateConfig}>Generate Full Config</button>
-          <textarea value={output} readOnly rows={10} style={{ width: '100%', marginTop: 16 }} />
+          <textarea title="Generated full config output" value={output} readOnly rows={10} className="full-width-ta" />
         </div>
       )}
       {activeTab === 'fbpx' && (
         <div>
           <h2>FBPX Import</h2>
-          <input type="file" accept=".csv" onChange={handleFpbxImport} />
+          <input type="file" accept=".csv" title="Import CSV file" onChange={handleFpbxImport} />
           <button onClick={handleFpbxExport}>Export CSV</button>
-          <a ref={fpbxDownloadRef} style={{ display: 'none' }}>Download</a>
+          <a ref={fpbxDownloadRef} className="hidden-link">Download</a>
           <table>
             <thead>
               <tr>
@@ -1510,6 +1504,7 @@ function App() {
                   {FPBX_FIELDS.map(f => (
                     <td key={f}>
                       <input
+                        title={f}
                         name={f}
                         value={row[f] || ''}
                         onChange={e => handleFpbxChange(idx, e)}
@@ -1526,58 +1521,16 @@ function App() {
           <button onClick={() => handleFpbxAddRow(1)}>Add Row</button>
         </div>
       )}
-      {activeTab === 'vpbx' && (
-        <div>
-          <h2>VPBX Import</h2>
-          <input type="file" accept=".csv" onChange={handleVpbxImport} />
-          <button onClick={handleVpbxExport}>Export CSV</button>
-          <a ref={vpbxDownloadRef} style={{ display: 'none' }}>Download</a>
-          <table>
-            <thead>
-              <tr>
-                {VPBX_FIELDS.map(f => <th key={f}>{f}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {vpbxRows.map((row, idx) => (
-                <tr key={idx}>
-                  {VPBX_FIELDS.map(f => (
-                    <td key={f}>
-                      <input
-                        name={f}
-                        value={row[f] || ''}
-                        onChange={e => handleVpbxChange(idx, e)}
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    <button onClick={() => handleVpbxDeleteRow(idx)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button onClick={() => handleVpbxAddRow(1)}>Add Row</button>
-        </div>
-      )}
+      {activeTab === 'vpbx' && <VpbxImportTab />}
+      {activeTab === 'audit' && <ConfigAuditTab />}
       {activeTab === 'mikrotik' && (
-        <div>
-          <h2>Mikrotik Templates</h2>
-          <div>
-            <h3>5009 Bridge</h3>
-            <textarea value={mikrotik5009Bridge} readOnly rows={10} style={{ width: '100%' }} />
-            <h3>5009 Passthrough</h3>
-            <textarea value={mikrotik5009Passthrough} readOnly rows={10} style={{ width: '100%' }} />
-            <h3>OnNet Config</h3>
-            <textarea value={onNetMikrotikConfigTemplate} readOnly rows={10} style={{ width: '100%' }} />
-            <h3>OTT Template (Editable)</h3>
-            <textarea value={getOttTemplate(ottFields)} readOnly rows={10} style={{ width: '100%' }} />
-            <h3>Standalone ATA</h3>
-            <textarea value={mikrotikStandAloneATATemplate} readOnly rows={10} style={{ width: '100%' }} />
-            <h3>DHCP Options</h3>
-            <textarea value={mikrotikDhcpOptions} readOnly rows={10} style={{ width: '100%' }} />
-          </div>
-        </div>
+        <MikrotikTab
+          ottFields={ottFields}
+          setOttFields={setOttFields}
+          getOttTemplate={getOttTemplate}
+          scraperHandles={scraperHandles}
+          scraperOnline={scraperOnlinePhone}
+        />
       )}
       {activeTab === 'switch' && (
         <div>

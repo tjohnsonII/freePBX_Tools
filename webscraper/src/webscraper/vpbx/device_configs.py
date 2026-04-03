@@ -39,7 +39,7 @@ def _collect_all_vpbx_ids_by_paging(driver: Any, base_url: str, emit_fn: Any = N
         entries = _parse_vpbx_ids(driver.page_source, base_url)
         for e in entries:
             all_entries[e["vpbx_id"]] = e
-        _emit(f"page={page_num} entries_this_page={len(entries)} total_so_far={len(all_entries)}")
+        _emit(f"scanning page {page_num} — {len(all_entries)} handles found so far")
 
         # Check if Next button exists and is not disabled
         try:
@@ -80,7 +80,7 @@ def _collect_all_vpbx_ids_by_paging(driver: Any, base_url: str, emit_fn: Any = N
 
         page_num += 1
 
-    _emit(f"pagination_done total_pages={page_num} total_entries={len(all_entries)}")
+    _emit(f"found {len(all_entries)} handles across {page_num} page(s)")
     return list(all_entries.values())
 
 
@@ -460,25 +460,26 @@ def fetch_device_configs(
         _emit("login_confirmed")
 
         vpbx_list = _collect_all_vpbx_ids_by_paging(driver, base_url, emit_fn=_emit)
-        _emit(f"found_vpbx_entries count={len(vpbx_list)}")
+        _emit(f"found {len(vpbx_list)} handles to scrape")
 
         if handle_filter:
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
-            _emit(f"filtered_to count={len(vpbx_list)}")
+            _emit(f"filtered to {len(vpbx_list)} handle(s)")
 
         if already_done:
             skipped = [v for v in vpbx_list if v["handle"].upper() in already_done]
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() not in already_done]
-            _emit(f"resuming skipped={len(skipped)} remaining={len(vpbx_list)}")
+            _emit(f"resuming — {len(skipped)} already done, {len(vpbx_list)} remaining")
 
         if not vpbx_list:
-            _emit("complete total_devices=0")
+            _emit("complete — no new devices to scrape")
             return []
 
-        for vpbx_entry in vpbx_list:
+        total = len(vpbx_list)
+        for vpbx_idx, vpbx_entry in enumerate(vpbx_list):
             vpbx_id = vpbx_entry["vpbx_id"]
             handle = vpbx_entry["handle"]
-            _emit(f"detail handle={handle} vpbx_id={vpbx_id}")
+            _emit(f"[{vpbx_idx + 1}/{total}] {handle} — loading device list")
 
             driver.get(vpbx_entry["detail_url"])
             try:
@@ -486,30 +487,29 @@ def fetch_device_configs(
                     EC.presence_of_element_located((By.TAG_NAME, "table"))
                 )
             except Exception:
-                _emit(f"no_table handle={handle}")
+                _emit(f"[{vpbx_idx + 1}/{total}] {handle} — no device table found")
                 continue
 
             devices = _parse_device_rows(driver.page_source, base_url, vpbx_id, handle)
-            _emit(f"devices handle={handle} count={len(devices)}")
+            _emit(f"[{vpbx_idx + 1}/{total}] {handle} — {len(devices)} devices")
 
             handle_records: list[dict[str, str]] = []
-            for device in devices:
-                device_id = device["device_id"]
-                _emit(f"config handle={handle} device_id={device_id} make={device.get('make','?')}")
+            for dev_idx, device in enumerate(devices):
+                name = device.get("directory_name") or device["device_id"]
+                _emit(f"[{vpbx_idx + 1}/{total}] {handle} device {dev_idx + 1}/{len(devices)}: {name}")
                 config_text = _capture_bulk_config(driver, device["edit_url"])
                 device["bulk_config"] = config_text
-                _emit(f"config_done device_id={device_id} lines={len(config_text.splitlines())}")
                 handle_records.append(device)
 
             all_records.extend(handle_records)
             if on_handle_done and handle_records:
                 on_handle_done(handle, handle_records)
-                _emit(f"flushed handle={handle} devices={len(handle_records)}")
+                _emit(f"[{vpbx_idx + 1}/{total}] {handle} saved — {len(handle_records)} configs")
 
     finally:
         driver.quit()
 
-    _emit(f"complete total_devices={len(all_records)}")
+    _emit(f"complete — {len(all_records)} device configs saved")
     return all_records
 
 

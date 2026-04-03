@@ -1,3 +1,4 @@
+import './MikrotikDynamicTemplate.css';
 import React, { useState } from 'react';
 
 const defaultTemplate = `/interface ethernet 
@@ -39,14 +40,14 @@ add name=Phones_Options options="GMT Offset -5,NTP,prov_66,prov_160,Phone_vlan"
 /ip pool 
 add name=Phones_IP_Pool ranges=172.16.1.30-172.16.1.250 
 /ip dhcp-server 
-add address-pool=Phones_IP_Pool authoritative=after-2sec-delay dhcp-option-set=\ 
+add address-pool=Phones_IP_Pool authoritative=after-2sec-delay dhcp-option-set=\
     Phones_Options disabled=no interface=vlan202 name="Phones DHCP" 
-add address-pool="Customer Internet" disabled=no interface=vlan101 name=\ 
+add address-pool="Customer Internet" disabled=no interface=vlan101 name=\\ 
     "Customer Internet" 
 /snmp community 
 set [ find default=yes ] addresses=66.103.225.120/29,216.234.96.0/23 
 /user group 
-set full policy="local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,passw\ 
+set full policy="local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,passw\\ 
     ord,web,sniff,sensitive,api,romon,dude,tikapp" 
 /ip neighbor discovery-settings 
 set discover-interface-list=!dynamic 
@@ -56,8 +57,8 @@ add address=192.168.10.1/24 interface=vlan102 network=192.168.10.0
 add address=172.16.1.1/24 interface=vlan202 network=172.16.1.0 
 add address={WAN_IP}/29 interface=ether10 network={NETWORK_IP} 
 /ip dhcp-server network 
-add address=172.16.1.0/24 dhcp-option-set=Phones_Options dns-server=\ 
-    8.8.8.8,216.234.97.2,216.234.97.3 gateway=172.16.1.1 netmask=24 \ 
+add address=172.16.1.0/24 dhcp-option-set=Phones_Options dns-server=\\ 
+    8.8.8.8,216.234.97.2,216.234.97.3 gateway=172.16.1.1 netmask=24 \\ 
     ntp-server=184.105.182.16 
 /ip firewall address-list 
 add address=216.234.96.0/23 list=MGMT 
@@ -109,7 +110,7 @@ set api disabled=yes
 set winbox address=66.103.225.120/29,216.234.96.0/23,192.168.88.0/24 
 set api-ssl disabled=yes 
 /snmp 
-set enabled=yes location="{LOCATION}" \ 
+set enabled=yes location="{LOCATION}" \\ 
     trap-version=2 
 /system clock 
 set time-zone-name=America/Detroit 
@@ -136,19 +137,25 @@ const MikrotikDynamicTemplate: React.FC = () => {
   return (
     <div>
       <h2>Mikrotik Template</h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        <div><label>WAN IP<br /><input type="text" value={wanIp} onChange={e => setWanIp(e.target.value)} placeholder="e.g. 203.0.113.1" /></label></div>
-        <div><label>Network IP<br /><input type="text" value={networkIp} onChange={e => setNetworkIp(e.target.value)} placeholder="e.g. 203.0.113.0" /></label></div>
-        <div><label>Off-Net IP<br /><input type="text" value={offnetIp} onChange={e => setOffnetIp(e.target.value)} placeholder="e.g. 203.0.113.2" /></label></div>
-        <div style={{ minWidth: 200 }}><label>Location<br /><input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="Customer Name, Address, City MI ZIP" style={{ width: '100%' }} /></label></div>
-        <div><label>Identity<br /><input type="text" value={identity} onChange={e => setIdentity(e.target.value)} placeholder="HANDLE-CUSTOMERADDRESS" /></label></div>
-      </div>
-      <textarea
-        readOnly
-        rows={28}
-        style={{ width: '100%', fontFamily: 'monospace', fontSize: 13 }}
-        value={filled}
-      />
+      <div className="mikrotik-template-form">
+          <div><label>WAN IP<br /><input type="text" value={wanIp} onChange={e => setWanIp(e.target.value)} placeholder="e.g. 203.0.113.1" /></label></div>
+          <div><label>Network IP<br /><input type="text" value={networkIp} onChange={e => setNetworkIp(e.target.value)} placeholder="e.g. 203.0.113.0" /></label></div>
+          <div><label>Off-Net IP<br /><input type="text" value={offnetIp} onChange={e => setOffnetIp(e.target.value)} placeholder="e.g. 203.0.113.2" /></label></div>
+      <div className="mikrotik-template-location">
+          <label>Location<br /><input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="Customer Name, Address, City" /></label>
+     </div>
+          <div><label>Identity<br /><input type="text" value={identity} onChange={e => setIdentity(e.target.value)} placeholder="HANDLE-CUSTOMERADDRESS" /></label></div>
+     </div>
+
+    <label htmlFor="mikrotik-template-output">Generated MikroTik Template</label>
+          <textarea
+              id="mikrotik-template-output"
+              readOnly
+              rows={28}
+              className="mikrotik-template-output"
+              value={filled}
+       />
+
     </div>
   );
 };

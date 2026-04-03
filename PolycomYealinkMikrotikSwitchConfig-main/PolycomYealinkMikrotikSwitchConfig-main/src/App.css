@@ -95,3 +95,308 @@
   /* Style for documentation links */
   color: #888;
 }
+
+/* ─── Tabs bar ──────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+}
+
+.tabs button {
+  border: none;
+  border-bottom: 2px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  font-weight: 400;
+  padding: 10px 24px;
+  margin-right: 2px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-bottom 0.2s;
+  box-shadow: none;
+  min-width: 120px;
+}
+
+.tabs button:first-child { border-top-left-radius: 8px; }
+.tabs button:last-child  { border-top-right-radius: 8px; }
+
+.tabs button.active {
+  border-bottom: 3px solid var(--brand-blue);
+  background: var(--app-surface-2);
+  color: var(--brand-blue);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+/* ─── Reference tab ─────────────────────────── */
+.ref-container {
+  margin: 24px 0;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ref-h2 {
+  align-self: flex-start;
+  text-align: left;
+  width: 100%;
+}
+
+.ref-subnav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  align-self: center;
+}
+
+.ref-subnav button {
+  border: none;
+  border-bottom: 2px solid #ccc;
+  background: #f4f4f4;
+  color: #333;
+  font-weight: 400;
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.ref-subnav button.active {
+  border-bottom: 3px solid #0078d4;
+  background: #f7fbff;
+  color: #0078d4;
+  font-weight: 600;
+}
+
+.ref-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ref-section { width: 100%; text-align: left; }
+
+.ref-tables-flex {
+  margin-top: 16px;
+  display: flex;
+  gap: 40px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ref-brand-col {
+  flex: 1;
+  min-width: 350px;
+  text-align: left;
+}
+
+.ref-h4 { margin-top: 12px; text-align: left; }
+.ref-ul  { margin-left: 20px; text-align: left; }
+
+.reference-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.reference-table thead tr { background: #f4f4f4; }
+.reference-table th {
+  text-align: left;
+  padding: 6px 12px;
+  border-bottom: 2px solid #ccc;
+}
+
+.ref-card {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 32px;
+}
+
+.ref-card h4 { margin-top: 0; }
+.ref-card > ul { margin-left: 20px; }
+
+/* ─── Phone tab ─────────────────────────────── */
+.section-h2 { margin-top: 0; }
+
+.info-box {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.info-box h3 { margin-top: 0; }
+.info-box > ul { margin-left: 20px; }
+
+/* ─── Scraper panel ─────────────────────────── */
+.scraper-panel {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.scraper-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.scraper-strong { font-size: 14px; }
+
+.scraper-status-pending { font-size: 12px; color: #888; }
+.scraper-status-online  { font-size: 12px; color: #16794a; }
+.scraper-status-offline { font-size: 12px; color: #b42318; }
+
+.scraper-select-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.scraper-label { font-size: 13px; font-weight: 600; }
+.scraper-handle-select { min-width: 200px; padding: 4px 8px; }
+.scraper-device-select { min-width: 220px; padding: 4px 8px; }
+.scraper-show-area { margin-top: 10px; }
+
+.scraper-toggle-btn {
+  font-size: 12px;
+  padding: 2px 10px;
+  margin-bottom: 6px;
+}
+
+.scraper-pre {
+  background: #0d1117;
+  color: #3fb950;
+  font-size: 11px;
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.scraper-offline {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #b42318;
+}
+
+/* ─── Form helpers ──────────────────────────── */
+.form-section { margin-bottom: 24px; }
+
+.info-icon {
+  margin-left: 4px;
+  cursor: pointer;
+  color: #0078d4;
+}
+
+.label-ml { margin-left: 16px; }
+.btn-mt   { margin-top: 8px; }
+.btn-mr   { margin-right: 8px; }
+.btn-ml   { margin-left: 16px; }
+
+.full-width-ta { width: 100%; }
+.hidden-link   { display: none; }
+.narrow-input  { width: 60px; }
+
+/* ─── Expansion Module tab ──────────────────── */
+.expansion-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.expansion-h2  { margin-bottom: 24px; }
+
+.expansion-flex {
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.expansion-col {
+  flex: 1;
+  min-width: 350px;
+}
+
+.expansion-img {
+  max-width: 220px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+}
+
+.expansion-instructions {
+  background: #eef6fb;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.expansion-form-group {
+  text-align: left;
+  margin: 0 auto;
+  max-width: 320px;
+}
+
+.expansion-preview {
+  margin-top: 16px;
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.expansion-grid {
+  display: grid;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.expansion-grid-2col { grid-template-columns: repeat(2, 40px); }
+.expansion-grid-4col { grid-template-columns: repeat(4, 40px); }
+
+.expansion-key {
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid #bbb;
+  border-radius: 6px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 400;
+  color: #333;
+  box-shadow: none;
+}
+
+.expansion-key-selected {
+  background: #cce1fa;
+  font-weight: 700;
+  color: #0078d4;
+  box-shadow: 0 0 6px #0078d4;
+}

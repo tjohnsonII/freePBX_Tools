@@ -1,0 +1,222 @@
+.diag-root {
+  margin: 24px 0;
+  max-width: 980px;
+}
+
+.diag-root h2 {
+  margin-top: 0;
+}
+
+.diag-note {
+  background: #fff6e5;
+  border: 1px solid #ffd59a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.diag-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.diag-label {
+  display: block;
+  font-weight: 600;
+}
+
+.diag-input {
+  width: 100%;
+}
+
+.diag-hint {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.diag-actions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.diag-btn {
+  padding: 8px 14px;
+}
+
+.diag-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diag-refresh-input {
+  width: 80px;
+}
+
+.diag-muted {
+  font-size: 12px;
+  color: #666;
+}
+
+.diag-error {
+  margin-top: 16px;
+  background: #ffecec;
+  border: 1px solid #ffb3b3;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.diag-payload {
+  margin-top: 18px;
+}
+
+.diag-payload-error {
+  margin-bottom: 14px;
+  background: #ffecec;
+  border: 1px solid #ffb3b3;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.diag-hint-row {
+  margin-top: 8px;
+}
+
+.diag-stderr {
+  margin-top: 8px;
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.diag-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.diag-card {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.diag-card-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.diag-card-label-mt {
+  font-size: 12px;
+  color: #666;
+  margin-top: 6px;
+}
+
+.diag-card-value-xl {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.diag-card-value-lg {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.diag-card-value-lg-bold {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.diag-card-value-md {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.diag-card-value-sm {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.diag-mono {
+  font-family: monospace;
+}
+
+.diag-mono-sm {
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.diag-section {
+  margin-top: 18px;
+}
+
+.diag-section h3 {
+  margin-bottom: 8px;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diag-table thead tr {
+  background: #f4f4f4;
+}
+
+.diag-table th {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid #ccc;
+}
+
+.diag-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.diag-mono-box {
+  font-family: monospace;
+  font-size: 12px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.diag-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.diag-pill-ok {
+  background: #e8f7ee;
+  color: #16794a;
+  border: 1px solid #bfe9cf;
+}
+
+.diag-pill-warn {
+  background: #fff6e5;
+  color: #8a5a00;
+  border: 1px solid #ffd59a;
+}
+
+.diag-pill-bad {
+  background: #ffecec;
+  color: #b42318;
+  border: 1px solid #ffb3b3;
+}
+
+.diag-pill-neutral {
+  background: #f2f4f7;
+  color: #475467;
+  border: 1px solid #e4e7ec;
+}

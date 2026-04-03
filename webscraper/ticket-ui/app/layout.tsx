@@ -26,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <nav className={styles.nav}>
             <Link href="/" className={styles.navLink}>Dashboard</Link>
             <Link href="/vpbx" className={styles.navLink}>VPBX</Link>
+            <Link href="/phone-configs" className={styles.navLink}>Phone Configs</Link>
             <Link href="/noc-queue" className={styles.navLink}>NOC Queue</Link>
             <Link href="/logs" className={styles.navLink}>Logs</Link>
           </nav>
