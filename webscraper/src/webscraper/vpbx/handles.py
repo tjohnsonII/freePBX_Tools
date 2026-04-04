@@ -124,7 +124,13 @@ def fetch_handles_selenium(
             if rows:
                 first_row_text = rows[0].text
 
-            next_btns[0].click()
+            next_btn = next_btns[0]
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
+            time.sleep(0.3)
+            try:
+                next_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", next_btn)
 
             try:
                 WebDriverWait(driver, 10).until(

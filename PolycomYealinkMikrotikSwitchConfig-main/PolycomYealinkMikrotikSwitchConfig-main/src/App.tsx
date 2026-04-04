@@ -31,9 +31,9 @@ const MODEL_OPTIONS = [
 const TABS = [
   { key: 'phone', label: 'Phone Configs' },
   { key: 'expansion', label: 'Expansion Modules' },
+  { key: 'fullconfig', label: 'Full Config' },
   { key: 'reference', label: 'Reference' },
   { key: 'diagnostics', label: 'Diagnostics' },
-  { key: 'fullconfig', label: 'Full Config' },
   { key: 'fbpx', label: 'FBPX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
   { key: 'audit', label: 'Config Audit' },
@@ -94,7 +94,37 @@ const FIELD_TOOLTIPS: Record<string, string> = {
 // Expansion Module Preview Icons, Tooltips, and Polycom constants moved to constants/expansionModule.ts
 // Removed unused import to resolve 'All imports in import declaration are unused.' error
 
-
+// --- Phase-1 config parser: only hydrates fields the UI explicitly supports. ---
+// All other lines are counted as unparsed so the caller can warn the user.
+function parseSupportedFields(raw: string, brand: 'Polycom' | 'Yealink'): {
+  adminPassword?: string;
+  timeOffset?: string;
+  unparsedCount: number;
+} {
+  const KNOWN_KEYS = new Set([
+    'static.security.user_password',
+    'local_time.time_zone',
+    'tcpipapp.sntp.gmtoffset',
+    'reg.1.address', 'reg.1.auth.userid', 'reg.1.auth.password',
+    'reg.1.displayname', 'reg.1.label', 'reg.1.line.1.label',
+  ]);
+  const lines = raw.split('\n').map(l => l.trim()).filter(l => l && l.includes('=') && !l.startsWith('#'));
+  const result: { adminPassword?: string; timeOffset?: string; unparsedCount: number } = { unparsedCount: 0 };
+  let parsedCount = 0;
+  for (const line of lines) {
+    const eqIdx = line.indexOf('=');
+    const key = line.slice(0, eqIdx).trim();
+    const value = line.slice(eqIdx + 1).trim();
+    if (key === 'static.security.user_password') { result.adminPassword = value; parsedCount++; }
+    else if (key === 'local_time.time_zone' && brand === 'Yealink') { result.timeOffset = value; parsedCount++; }
+    else if (key === 'tcpipapp.sntp.gmtoffset' && brand === 'Polycom') {
+      const secs = parseInt(value);
+      if (!isNaN(secs)) { result.timeOffset = String(secs / 3600); parsedCount++; }
+    } else if (KNOWN_KEYS.has(key)) { parsedCount++; }
+  }
+  result.unparsedCount = Math.max(0, lines.length - parsedCount);
+  return result;
+}
 
 function App() {
   // --- Yealink/Polycom advanced options state (move to top, single source of truth) ---
@@ -152,6 +182,28 @@ function App() {
   const [scraperOnlinePhone, setScraperOnlinePhone] = useState<boolean | null>(null);
   const [scraperLiveConfig, setScraperLiveConfig] = useState('');
   const [showLiveConfig, setShowLiveConfig] = useState(false);
+  // --- Edit mode / loaded config state ---
+  const [configMode, setConfigMode] = useState<'new' | 'edit'>('new');
+  const [loadedConfigRaw, setLoadedConfigRaw] = useState('');
+  const [loadedDeviceMeta, setLoadedDeviceMeta] = useState<{
+    deviceId: string; directoryName: string; extension: string;
+    mac: string; make: string; model: string; handle: string; handleName: string;
+  } | null>(null);
+  const [scraperUnparsedCount, setScraperUnparsedCount] = useState(0);
+  const [fullConfigOutput, setFullConfigOutput] = useState('');
+  // --- Dark mode ---
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem('theme') === 'dark'; } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    try { localStorage.setItem('theme', darkMode ? 'dark' : 'light'); } catch { /* ignore */ }
+  }, [darkMode]);
+
+  // --- Advanced section collapse toggles (Phone tab) ---
+  const [showMWI, setShowMWI] = useState(false);
+  const [showLinekeyGen, setShowLinekeyGen] = useState(false);
+  const [showExternalSpeed, setShowExternalSpeed] = useState(false);
 
   useEffect(() => {
     fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/records`, { signal: AbortSignal.timeout(3000) })
@@ -165,7 +217,12 @@ function App() {
   }, []);
 
   async function loadScraperDevices(handle: string) {
-    if (!handle) { setScraperDevices([]); setScraperDevice(''); setScraperLiveConfig(''); return; }
+    if (!handle) {
+      setScraperDevices([]); setScraperDevice(''); setScraperLiveConfig('');
+      setLoadedConfigRaw(''); setLoadedDeviceMeta(null);
+      setConfigMode('new'); setScraperUnparsedCount(0);
+      return;
+    }
     try {
       const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`);
       const data = await res.json();
@@ -173,6 +230,10 @@ function App() {
       setScraperDevices(devs);
       setScraperDevice('');
       setScraperLiveConfig('');
+      setLoadedConfigRaw('');
+      setLoadedDeviceMeta(null);
+      setConfigMode('new');
+      setScraperUnparsedCount(0);
       const rec = scraperHandles.find(h => h.handle === handle);
       if (rec?.ip) setIp(rec.ip);
     } catch { setScraperDevices([]); }
@@ -181,16 +242,39 @@ function App() {
   function applyScraperDevice(deviceId: string) {
     const dev = scraperDevices.find(d => d.device_id === deviceId);
     if (!dev) return;
+    const brand: 'Polycom' | 'Yealink' =
+      dev.make?.toLowerCase().includes('yealink') ||
+      dev.model?.toLowerCase().includes('yealink') ||
+      dev.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
+
     setScraperDevice(deviceId);
-    setScraperLiveConfig(dev.bulk_config || '');
+    const raw = dev.bulk_config || '';
+    setScraperLiveConfig(raw);
+    setLoadedConfigRaw(raw);
     setShowLiveConfig(false);
+
+    // Hydrate supported form fields
     if (dev.extension) { setStartExt(dev.extension); setEndExt(dev.extension); }
     if (dev.model) setModel(dev.model);
-    if (dev.make?.toLowerCase().includes('yealink') || dev.model?.toLowerCase().includes('yealink') || dev.model?.toLowerCase().startsWith('sip-')) {
-      setPhoneType('Yealink');
-    } else {
-      setPhoneType('Polycom');
-    }
+    setPhoneType(brand);
+
+    const parsed = raw ? parseSupportedFields(raw, brand) : { unparsedCount: 0 };
+    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
+    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
+    setScraperUnparsedCount(parsed.unparsedCount);
+
+    const handleRec = scraperHandles.find(h => h.handle === scraperHandle);
+    setLoadedDeviceMeta({
+      deviceId: dev.device_id,
+      directoryName: dev.directory_name,
+      extension: dev.extension,
+      mac: dev.mac,
+      make: dev.make,
+      model: dev.model,
+      handle: scraperHandle,
+      handleName: handleRec?.name || '',
+    });
+    setConfigMode('edit');
   }
 
   // Yealink expansion module state
@@ -623,6 +707,34 @@ function App() {
     }
   }
 
+  // --- Full Config composer ---
+  function composeFullConfig() {
+    const phoneOut = output.trim();
+    const expansionOut = phoneType === 'Yealink' ? yealinkOutput.trim() : polycomOutput.trim();
+    if (!phoneOut && !expansionOut) {
+      setFullConfigOutput('');
+      return;
+    }
+    let composed = '';
+    if (phoneOut) composed += phoneOut;
+    if (phoneOut && expansionOut) composed += '\n\n';
+    if (expansionOut) composed += `# Expansion Module\n${expansionOut}`;
+    setFullConfigOutput(composed);
+  }
+
+  // --- Reset form to loaded raw values ---
+  function resetToLoaded() {
+    if (!loadedConfigRaw || !loadedDeviceMeta) return;
+    const brand = loadedDeviceMeta.make?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
+    const parsed = parseSupportedFields(loadedConfigRaw, brand);
+    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
+    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
+    setScraperLiveConfig(loadedConfigRaw);
+    setScraperUnparsedCount(parsed.unparsedCount);
+  }
+
   // Fix: Remove stray/duplicate code (no stray generateYealinkExpansion, etc.)
 
   // Fix: All <select> elements have <option> children (already present in your code)
@@ -752,6 +864,14 @@ function App() {
           <div className="brandAppName">Hosted Config Generator</div>
           <div className="brandMeta">Connected to {clientInfo.hostname}:{clientInfo.port}</div>
         </div>
+        <button
+          type="button"
+          className="dark-mode-btn"
+          onClick={() => setDarkMode(d => !d)}
+          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {darkMode ? '☀ Light' : '☾ Dark'}
+        </button>
       </header>
 
       <main className="container">
@@ -1028,7 +1148,38 @@ function App() {
       {/* Phone Configs Tab */}
       {activeTab === 'phone' && (
         <>
-          <h2 className="section-h2">Phone Config Generator</h2>
+          <h2 className="section-h2">Step 1 — Phone Config Generator</h2>
+          {/* Mode banner */}
+          {configMode === 'edit' && loadedDeviceMeta ? (
+            <div className="edit-mode-banner">
+              <span className="edit-mode-label">
+                ✎ Edit Existing — {loadedDeviceMeta.handleName || loadedDeviceMeta.handle} &nbsp;·&nbsp;
+                {loadedDeviceMeta.directoryName || loadedDeviceMeta.deviceId} &nbsp;·&nbsp;
+                ext {loadedDeviceMeta.extension} &nbsp;·&nbsp; {loadedDeviceMeta.make} {loadedDeviceMeta.model}
+              </span>
+              <button
+                type="button"
+                className="edit-mode-clear-btn"
+                onClick={() => {
+                  setConfigMode('new');
+                  setLoadedConfigRaw('');
+                  setLoadedDeviceMeta(null);
+                  setScraperHandle('');
+                  setScraperDevices([]);
+                  setScraperDevice('');
+                  setScraperLiveConfig('');
+                  setScraperUnparsedCount(0);
+                }}
+              >
+                ✕ Clear — start new config
+              </button>
+            </div>
+          ) : (
+            <div className="new-mode-banner">
+              <span className="new-mode-label">⊕ New Config mode</span>
+              <span className="new-mode-hint">Load a device from the scraper panel below to switch to Edit mode</span>
+            </div>
+          )}
           <div className="info-box">
             <h3>What does each config generator do?</h3>
             <ul>
@@ -1083,13 +1234,28 @@ function App() {
             </div>
             {scraperDevice && scraperLiveConfig && (
               <div className="scraper-show-area">
-                <button
-                  type="button"
-                  onClick={() => setShowLiveConfig(v => !v)}
-                  className="scraper-toggle-btn"
-                >
-                  {showLiveConfig ? 'Hide live config' : 'Show live config'}
-                </button>
+                <div className="scraper-edit-actions">
+                  <button
+                    type="button"
+                    onClick={() => setShowLiveConfig(v => !v)}
+                    className="scraper-toggle-btn"
+                  >
+                    {showLiveConfig ? 'Hide raw config' : 'Show raw config'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetToLoaded}
+                    className="scraper-reset-btn"
+                    title="Reset editable fields back to what was loaded from the scraper"
+                  >
+                    ↺ Reset to loaded
+                  </button>
+                  {scraperUnparsedCount > 0 && (
+                    <span className="scraper-unparsed-warning">
+                      ⚠ {scraperUnparsedCount} line{scraperUnparsedCount !== 1 ? 's' : ''} not editable in this UI — raw config preserved above
+                    </span>
+                  )}
+                </div>
                 {showLiveConfig && (
                   <pre className="scraper-pre">
                     {scraperLiveConfig}
@@ -1106,263 +1272,218 @@ function App() {
           {/* Base Config Options Form */}
           <div className="form-section">
             <h3>Base Config Options</h3>
-            <div className="form-group">
-              <label>Phone Type:
-                <span className="info-icon" title={FIELD_TOOLTIPS.phoneType}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <select value={phoneType} title="Select phone type" onChange={e => setPhoneType(e.target.value as 'Polycom' | 'Yealink')}>
-                <option value="Polycom">Polycom</option>
-                <option value="Yealink">Yealink</option>
-              </select>
-              <label className="label-ml">Model:
-                <span className="info-icon" title={FIELD_TOOLTIPS.model}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <select value={model} title="Select phone model" onChange={e => setModel(e.target.value)}>
-                {MODEL_OPTIONS.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>IP Address:
-                <span className="info-icon" title={FIELD_TOOLTIPS.ip}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={ip} onChange={e => setIp(e.target.value)} placeholder="e.g. 192.168.1.100" />
-              <label className="label-ml">Start Extension:
-                <span className="info-icon" title={FIELD_TOOLTIPS.startExt}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="number" value={startExt} title="Start extension" onChange={e => setStartExt(e.target.value)} />
-              <label className="label-ml">End Extension:
-                <span className="info-icon" title={FIELD_TOOLTIPS.endExt}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="number" value={endExt} title="End extension" onChange={e => setEndExt(e.target.value)} />
-              <label className="label-ml">Label Prefix:
-                <span className="info-icon" title={FIELD_TOOLTIPS.labelPrefix}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={labelPrefix} title="Label prefix" onChange={e => setLabelPrefix(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Time Offset (e.g. -5):
-                <span className="info-icon" title={FIELD_TOOLTIPS.timeOffset}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="number" value={timeOffset} title="Time offset (e.g. -5)" onChange={e => setTimeOffset(e.target.value)} />
-              <label className="label-ml">Admin Password:
-                <span className="info-icon" title={FIELD_TOOLTIPS.adminPassword}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={adminPassword} title="Admin password" onChange={e => setAdminPassword(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label><input type="checkbox" checked={yealinkLabelLength} onChange={e => setYealinkLabelLength(e.target.checked)} /> Enable long DSS key labels
-                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkLabelLength}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <label className="label-ml"><input type="checkbox" checked={yealinkDisableMissedCall} onChange={e => setYealinkDisableMissedCall(e.target.checked)} /> Disable missed call notification
-                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkDisableMissedCall}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <label className="label-ml"><input type="checkbox" checked={yealinkCallStealing} onChange={e => setYealinkCallStealing(e.target.checked)} /> Enable BLF call stealing
-                <span className="info-icon" title={FIELD_TOOLTIPS.yealinkCallStealing}>
-                  <FaInfoCircle />
-                </span>
-              </label>
+            <div className="config-grid">
+              <div className="config-field">
+                <label className="config-label">Phone Type <span className="info-icon" title={FIELD_TOOLTIPS.phoneType}><FaInfoCircle /></span></label>
+                <select value={phoneType} title="Select phone type" onChange={e => setPhoneType(e.target.value as 'Polycom' | 'Yealink')}>
+                  <option value="Polycom">Polycom</option>
+                  <option value="Yealink">Yealink</option>
+                </select>
+              </div>
+              <div className="config-field config-field--wide">
+                <label className="config-label">Model <span className="info-icon" title={FIELD_TOOLTIPS.model}><FaInfoCircle /></span></label>
+                <select value={model} title="Select phone model" onChange={e => setModel(e.target.value)}>
+                  {MODEL_OPTIONS.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="config-field">
+                <label className="config-label">IP Address <span className="info-icon" title={FIELD_TOOLTIPS.ip}><FaInfoCircle /></span></label>
+                <input type="text" value={ip} onChange={e => setIp(e.target.value)} placeholder="e.g. 192.168.1.100" />
+              </div>
+              <div className="config-field">
+                <label className="config-label">Start Extension <span className="info-icon" title={FIELD_TOOLTIPS.startExt}><FaInfoCircle /></span></label>
+                <input type="number" value={startExt} title="Start extension" onChange={e => setStartExt(e.target.value)} />
+              </div>
+              <div className="config-field">
+                <label className="config-label">End Extension <span className="info-icon" title={FIELD_TOOLTIPS.endExt}><FaInfoCircle /></span></label>
+                <input type="number" value={endExt} title="End extension" onChange={e => setEndExt(e.target.value)} />
+              </div>
+              <div className="config-field">
+                <label className="config-label">Label Prefix <span className="info-icon" title={FIELD_TOOLTIPS.labelPrefix}><FaInfoCircle /></span></label>
+                <input type="text" value={labelPrefix} title="Label prefix" onChange={e => setLabelPrefix(e.target.value)} />
+              </div>
+              <div className="config-field">
+                <label className="config-label">Time Offset <span className="info-icon" title={FIELD_TOOLTIPS.timeOffset}><FaInfoCircle /></span></label>
+                <input type="number" value={timeOffset} title="Time offset (e.g. -5)" onChange={e => setTimeOffset(e.target.value)} />
+              </div>
+              <div className="config-field">
+                <label className="config-label">Admin Password <span className="info-icon" title={FIELD_TOOLTIPS.adminPassword}><FaInfoCircle /></span></label>
+                <input type="text" value={adminPassword} title="Admin password" onChange={e => setAdminPassword(e.target.value)} />
+              </div>
+              <div className="config-field config-field--checkboxes">
+                <label className="config-label">Yealink Options</label>
+                <div className="config-checkboxes">
+                  <label><input type="checkbox" checked={yealinkLabelLength} onChange={e => setYealinkLabelLength(e.target.checked)} /> Long DSS key labels <span className="info-icon" title={FIELD_TOOLTIPS.yealinkLabelLength}><FaInfoCircle /></span></label>
+                  <label><input type="checkbox" checked={yealinkDisableMissedCall} onChange={e => setYealinkDisableMissedCall(e.target.checked)} /> Disable missed call alert <span className="info-icon" title={FIELD_TOOLTIPS.yealinkDisableMissedCall}><FaInfoCircle /></span></label>
+                  <label><input type="checkbox" checked={yealinkCallStealing} onChange={e => setYealinkCallStealing(e.target.checked)} /> Enable BLF call stealing <span className="info-icon" title={FIELD_TOOLTIPS.yealinkCallStealing}><FaInfoCircle /></span></label>
+                </div>
+              </div>
             </div>
             <button onClick={generateConfig} className="btn-mt">Generate Config</button>
             <div className="output">
               <textarea title="Generated config output" value={output} readOnly rows={10} className="full-width-ta" />
             </div>
           </div>
-          {/* Polycom MWI Section */}
+          {/* Polycom MWI Section — collapsible */}
           <hr />
           <div className="form-section">
-            <h3>Polycom MWI (Message Waiting Indicator)</h3>
-            <div className="form-group">
-              <label>Extension:
-                <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIExt}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={polycomMWI.ext} title="MWI extension" onChange={e => setPolycomMWI(mwi => ({ ...mwi, ext: e.target.value }))} />
-              <label className="label-ml">PBX IP:
-                <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIPbxIp}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={polycomMWI.pbxIp} title="PBX IP for MWI" onChange={e => setPolycomMWI(mwi => ({ ...mwi, pbxIp: e.target.value }))} />
-            </div>
-            <button onClick={generatePolycomMWI} className="btn-mt">Generate Polycom MWI Config</button>
-            <div className="output">
-              <textarea title="Generated Polycom MWI config" value={polycomMWI.output} readOnly rows={5} className="full-width-ta" />
-            </div>
+            <button
+              type="button"
+              className="adv-section-toggle"
+              onClick={() => setShowMWI(v => !v)}
+            >
+              <span className="adv-section-chevron">{showMWI ? '▾' : '▸'}</span>
+              Polycom MWI (Message Waiting Indicator)
+              <span className="adv-section-badge">Advanced</span>
+            </button>
+            {showMWI && (
+              <div className="adv-section-body">
+                <div className="form-group">
+                  <label>Extension:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIExt}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={polycomMWI.ext} title="MWI extension" onChange={e => setPolycomMWI(mwi => ({ ...mwi, ext: e.target.value }))} />
+                  <label className="label-ml">PBX IP:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.polycomMWIPbxIp}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={polycomMWI.pbxIp} title="PBX IP for MWI" onChange={e => setPolycomMWI(mwi => ({ ...mwi, pbxIp: e.target.value }))} />
+                </div>
+                <button onClick={generatePolycomMWI} className="btn-mt">Generate Polycom MWI Config</button>
+                <div className="output">
+                  <textarea title="Generated Polycom MWI config" value={polycomMWI.output} readOnly rows={5} className="full-width-ta" />
+                </div>
+              </div>
+            )}
           </div>
-          {/* Yealink Expansion Module Section */}
+          {/* Linekey Generator Section — collapsible */}
           <hr />
           <div className="form-section">
-            <h3>Yealink Expansion Module Config</h3>
-            <div className="form-group">
-              <label>Template Type:</label>
-              <select value={yealinkSection.templateType} title="Expansion template type" onChange={e => setYealinkSection(s => ({ ...s, templateType: e.target.value }))}>
-                <option value="BLF">BLF</option>
-                <option value="SpeedDial">Speed Dial</option>
-              </select>
-              <label className="label-ml">Sidecar Page:</label>
-              <input type="text" value={yealinkSection.sidecarPage} title="Sidecar page number" onChange={e => setYealinkSection(s => ({ ...s, sidecarPage: e.target.value }))} />
-              <label className="label-ml">Sidecar Line:</label>
-              <input type="text" value={yealinkSection.sidecarLine} title="Sidecar button position" onChange={e => setYealinkSection(s => ({ ...s, sidecarLine: e.target.value }))} />
-              <label className="label-ml">Label:</label>
-              <input type="text" value={yealinkSection.label} title="Display label for key" onChange={e => setYealinkSection(s => ({ ...s, label: e.target.value }))} />
-              <label className="label-ml">Value:</label>
-              <input type="text" value={yealinkSection.value} title="Extension or number" onChange={e => setYealinkSection(s => ({ ...s, value: e.target.value }))} />
-              <label className="label-ml">PBX IP:</label>
-              <input type="text" value={yealinkSection.pbxIp} title="PBX IP for BLF" onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
-            </div>
-            <button onClick={generateYealinkExpansion} className="btn-mt btn-mr">Generate Yealink Expansion Config</button>
-            <button onClick={generateYealinkExpansionAll} className="btn-mt">Generate All 20 Keys</button>
-            <div className="output">
-              <textarea title="Generated Yealink expansion config" value={yealinkOutput} readOnly rows={5} className="full-width-ta" />
-            </div>
+            <button
+              type="button"
+              className="adv-section-toggle"
+              onClick={() => setShowLinekeyGen(v => !v)}
+            >
+              <span className="adv-section-chevron">{showLinekeyGen ? '▾' : '▸'}</span>
+              Linekey / BLF / Speed Dial Generator
+              <span className="adv-section-badge">Advanced</span>
+            </button>
+            {showLinekeyGen && (
+              <div className="adv-section-body">
+                <div className="form-group">
+                  <label>Brand:</label>
+                  <select value={linekeyGen.brand} title="Select phone brand" onChange={e => setLinekeyGen(lk => ({ ...lk, brand: e.target.value }))}>
+                    <option value="Yealink">Yealink</option>
+                    <option value="Polycom">Polycom</option>
+                  </select>
+                  <label className="label-ml">Line Key Number:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.linekeyNum}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={linekeyGen.lineNum} title="Line key number" onChange={e => setLinekeyGen(lk => ({ ...lk, lineNum: e.target.value }))} />
+                  <label className="label-ml">Label:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.linekeyLabel}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={linekeyGen.label} title="Label for the key" onChange={e => setLinekeyGen(lk => ({ ...lk, label: e.target.value }))} />
+                  <label className="label-ml">Register Line:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.linekeyRegLine}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={linekeyGen.regLine} title="Register line number" onChange={e => setLinekeyGen(lk => ({ ...lk, regLine: e.target.value }))} />
+                  <label className="label-ml">Type:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.linekeyType}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <select value={linekeyGen.type} title="Linekey type" onChange={e => setLinekeyGen(lk => ({ ...lk, type: parseInt(e.target.value) }))}>
+                    {YEALINK_LINEKEY_TYPES.map(t => (
+                      <option key={t.code} value={t.code}>{t.code} - {t.label}</option>
+                    ))}
+                  </select>
+                  <label className="label-ml">Value:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.linekeyValue}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={linekeyGen.value} title="Extension or number value" onChange={e => setLinekeyGen(lk => ({ ...lk, value: e.target.value }))} />
+                </div>
+                <button type="button" onClick={generateLinekey} className="btn-mt">Generate Linekey Config</button>
+                <div className="output">
+                  <textarea title="Generated linekey config" value={linekeyGen.output} readOnly rows={5} className="full-width-ta" />
+                </div>
+              </div>
+            )}
           </div>
-          {/* Polycom Expansion Module Section */}
+          {/* External Number Speed Dial Section — collapsible */}
           <hr />
           <div className="form-section">
-            <h3>Polycom Expansion Module Config</h3>
-            <div className="form-group">
-              <label>Address:</label>
-              <input type="text" value={polycomSection.address} title="Address (e.g. 100@PBX)" onChange={e => setPolycomSection(s => ({ ...s, address: e.target.value }))} />
-              <label className="label-ml">Label:</label>
-              <input type="text" value={polycomSection.label} title="Label for the key" onChange={e => setPolycomSection(s => ({ ...s, label: e.target.value }))} />
-              <label className="label-ml">Type:</label>
-              <select value={polycomSection.type} title="Key type" onChange={e => setPolycomSection(s => ({ ...s, type: e.target.value }))}>
-                <option value="automata">Automata</option>
-                <option value="normal">Normal</option>
-              </select>
-              <label className="label-ml">Linekey Category:</label>
-              <input type="text" value={polycomSection.linekeyCategory} title="Linekey category" onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
-              <label className="label-ml">Linekey Index:</label>
-              <input type="text" value={polycomSection.linekeyIndex} title="Linekey index" onChange={e => setPolycomSection(s => ({ ...s, linekeyIndex: e.target.value }))} />
-            </div>
-            <button onClick={generatePolycomExpansion} className="btn-mt btn-mr">Generate Polycom Expansion Config</button>
-            <button onClick={generatePolycomExpansionAll} className="btn-mt">Generate All 28 Keys</button>
-            <div className="output">
-              <textarea title="Generated Polycom expansion config" value={polycomOutput} readOnly rows={5} className="full-width-ta" />
-            </div>
-          </div>
-          {/* Linekey Generator Section */}
-          <hr />
-          <div className="form-section">
-            <h3>Linekey/BLF/Speed Dial Generator</h3>
-            <div className="form-group">
-              <label>Brand:</label>
-              <select value={linekeyGen.brand} title="Select phone brand" onChange={e => setLinekeyGen(lk => ({ ...lk, brand: e.target.value }))}>
-                <option value="Yealink">Yealink</option>
-                <option value="Polycom">Polycom</option>
-              </select>
-              <label className="label-ml">Line Key Number:
-                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyNum}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={linekeyGen.lineNum} title="Line key number" onChange={e => setLinekeyGen(lk => ({ ...lk, lineNum: e.target.value }))} />
-              <label className="label-ml">Label:
-                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyLabel}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={linekeyGen.label} title="Label for the key" onChange={e => setLinekeyGen(lk => ({ ...lk, label: e.target.value }))} />
-              <label className="label-ml">Register Line:
-                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyRegLine}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={linekeyGen.regLine} title="Register line number" onChange={e => setLinekeyGen(lk => ({ ...lk, regLine: e.target.value }))} />
-              <label className="label-ml">Type:
-                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyType}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <select value={linekeyGen.type} title="Linekey type" onChange={e => setLinekeyGen(lk => ({ ...lk, type: parseInt(e.target.value) }))}>
-                {YEALINK_LINEKEY_TYPES.map(t => (
-                  <option key={t.code} value={t.code}>{t.code} - {t.label}</option>
-                ))}
-              </select>
-              <label className="label-ml">Value:
-                <span className="info-icon" title={FIELD_TOOLTIPS.linekeyValue}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={linekeyGen.value} title="Extension or number value" onChange={e => setLinekeyGen(lk => ({ ...lk, value: e.target.value }))} />
-            </div>
-            <button type="button" onClick={generateLinekey} className="label-ml">Generate Linekey Config</button>
-            <div className="output">
-              <textarea title="Generated linekey config" value={linekeyGen.output} readOnly rows={5} className="full-width-ta" />
-            </div>
-          </div>
-          {/* External Number Speed Dial Section */}
-          <hr />
-          <div className="form-section">
-            <h3>External Number Speed Dial</h3>
-            <div className="form-group">
-              <label>Brand:
-                <span className="info-icon" title={FIELD_TOOLTIPS.externalBrand}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <select value={externalSpeed.brand} title="Select phone brand" onChange={e => setExternalSpeed(s => ({ ...s, brand: e.target.value }))}>
-                <option value="Yealink">Yealink</option>
-                <option value="Polycom">Polycom</option>
-              </select>
-              <label className="label-ml">Line Key Number:
-                <span className="info-icon" title={FIELD_TOOLTIPS.externalLineNum}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={externalSpeed.lineNum} title="Line key number" onChange={e => setExternalSpeed(s => ({ ...s, lineNum: e.target.value }))} />
-              <label className="label-ml">Label:
-                <span className="info-icon" title={FIELD_TOOLTIPS.externalLabel}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={externalSpeed.label} title="Speed dial label" onChange={e => setExternalSpeed(s => ({ ...s, label: e.target.value }))} />
-              <label className="label-ml">External Number:
-                <span className="info-icon" title={FIELD_TOOLTIPS.externalNumber}>
-                  <FaInfoCircle />
-                </span>
-              </label>
-              <input type="text" value={externalSpeed.number} title="External number to dial" onChange={e => setExternalSpeed(s => ({ ...s, number: e.target.value }))} />
-              {externalSpeed.brand === 'Polycom' && (
-                <>
-                  <label className="label-ml">EFK Index:</label>
-                  <input type="text" value={externalSpeed.efkIndex} title="EFK index for Polycom" onChange={e => setExternalSpeed(s => ({ ...s, efkIndex: e.target.value }))} />
-                </>
-              )}
-              <button type="button" onClick={generateExternalSpeed} className="label-ml">Generate External Speed Dial</button>
-            </div>
-            <div className="output">
-              <textarea title="Generated speed dial config" value={externalSpeedOutput} readOnly rows={5} className="full-width-ta" />
-            </div>
+            <button
+              type="button"
+              className="adv-section-toggle"
+              onClick={() => setShowExternalSpeed(v => !v)}
+            >
+              <span className="adv-section-chevron">{showExternalSpeed ? '▾' : '▸'}</span>
+              External Number Speed Dial
+              <span className="adv-section-badge">Advanced</span>
+            </button>
+            {showExternalSpeed && (
+              <div className="adv-section-body">
+                <div className="form-group">
+                  <label>Brand:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.externalBrand}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <select value={externalSpeed.brand} title="Select phone brand" onChange={e => setExternalSpeed(s => ({ ...s, brand: e.target.value }))}>
+                    <option value="Yealink">Yealink</option>
+                    <option value="Polycom">Polycom</option>
+                  </select>
+                  <label className="label-ml">Line Key Number:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.externalLineNum}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={externalSpeed.lineNum} title="Line key number" onChange={e => setExternalSpeed(s => ({ ...s, lineNum: e.target.value }))} />
+                  <label className="label-ml">Label:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.externalLabel}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={externalSpeed.label} title="Speed dial label" onChange={e => setExternalSpeed(s => ({ ...s, label: e.target.value }))} />
+                  <label className="label-ml">External Number:
+                    <span className="info-icon" title={FIELD_TOOLTIPS.externalNumber}>
+                      <FaInfoCircle />
+                    </span>
+                  </label>
+                  <input type="text" value={externalSpeed.number} title="External number to dial" onChange={e => setExternalSpeed(s => ({ ...s, number: e.target.value }))} />
+                  {externalSpeed.brand === 'Polycom' && (
+                    <>
+                      <label className="label-ml">EFK Index:</label>
+                      <input type="text" value={externalSpeed.efkIndex} title="EFK index for Polycom" onChange={e => setExternalSpeed(s => ({ ...s, efkIndex: e.target.value }))} />
+                    </>
+                  )}
+                  <button type="button" onClick={generateExternalSpeed} className="label-ml">Generate External Speed Dial</button>
+                </div>
+                <div className="output">
+                  <textarea title="Generated speed dial config" value={externalSpeedOutput} readOnly rows={5} className="full-width-ta" />
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
       {activeTab === 'expansion' && (
         <div className="expansion-container">
-          <h2 className="expansion-h2">Expansion Module Code Generators</h2>
+          <h2 className="expansion-h2">Step 2 — Expansion Module Code Generators</h2>
           <div className="expansion-flex">
             {/* Yealink Section */}
             <div className="expansion-col">
@@ -1479,11 +1600,44 @@ function App() {
         </div>
       )}
       {activeTab === 'fullconfig' && (
-        <div>
-          <h2>Full Config</h2>
-          <p>This tab should generate a complete phone config for all supported models. (Restore your previous UI here.)</p>
-          <button onClick={generateConfig}>Generate Full Config</button>
-          <textarea title="Generated full config output" value={output} readOnly rows={10} className="full-width-ta" />
+        <div className="fullconfig-container">
+          <h2>Step 3 — Full Config Composer</h2>
+          <div className="fullconfig-step-info">
+            <p>
+              Compose a final config from your Phone Config (Step 1) and Expansion Module (Step 2) outputs.
+              Generate each section first, then click <strong>Compose Full Config</strong>.
+            </p>
+          </div>
+          {/* Status: what has been generated so far */}
+          <div className="fullconfig-status-row">
+            <span className={output.trim() ? 'fullconfig-status-ok' : 'fullconfig-status-empty'}>
+              {output.trim() ? '✔ Phone Config ready' : '— Phone Config not generated'}
+            </span>
+            <span className="fullconfig-status-sep">+</span>
+            <span className={(phoneType === 'Yealink' ? yealinkOutput : polycomOutput).trim() ? 'fullconfig-status-ok' : 'fullconfig-status-empty'}>
+              {(phoneType === 'Yealink' ? yealinkOutput : polycomOutput).trim()
+                ? '✔ Expansion Module ready'
+                : '— Expansion Module not generated (optional)'}
+            </span>
+          </div>
+          <button type="button" className="btn-mt" onClick={composeFullConfig}>
+            Compose Full Config
+          </button>
+          {fullConfigOutput ? (
+            <div className="output fullconfig-output">
+              <textarea
+                title="Composed full config"
+                value={fullConfigOutput}
+                readOnly
+                rows={20}
+                className="full-width-ta"
+              />
+            </div>
+          ) : (
+            <p className="fullconfig-empty-state">
+              No output yet — generate a Phone Config and/or Expansion Module config first, then click Compose.
+            </p>
+          )}
         </div>
       )}
       {activeTab === 'fbpx' && (

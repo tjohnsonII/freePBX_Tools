@@ -62,7 +62,12 @@ def _collect_all_vpbx_ids_by_paging(driver: Any, base_url: str, emit_fn: Any = N
             pass
 
         try:
-            next_btn.click()
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
+            time.sleep(0.3)
+            try:
+                next_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", next_btn)
         except Exception as exc:
             _emit(f"next_click_failed page={page_num} error={exc}")
             break
