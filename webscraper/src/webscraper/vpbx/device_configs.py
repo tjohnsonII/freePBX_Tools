@@ -10,6 +10,20 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def normalize_bulk_config(text: str) -> str:
+    """Normalize a bulk config string for equality comparison.
+
+    Strips leading/trailing whitespace, normalizes line endings to \\n,
+    and strips trailing whitespace from each line. Two configs that differ
+    only in whitespace/CRLF are considered identical.
+    """
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in text.split("\n")]
+    return "\n".join(lines).strip()
+
+
 def _vpbx_cgi_url(base_url: str) -> str:
     return base_url.rstrip("/") + "/cgi-bin/web_interface/admin/vpbx.cgi"
 
@@ -530,27 +544,30 @@ def fetch_device_configs(
     *,
     handles: list[str] | None = None,
     skip_handles: set[str] | None = None,
+    existing_configs: dict | None = None,
     on_handle_done: Any = None,
     login_timeout_seconds: int = 300,
     emit_fn: Any = None,
 ) -> list[dict[str, str]]:
     """Scrape bulk device configs from vpbx.cgi.
 
-    Strategy: use Selenium only for SSO authentication and the initial list page,
-    then switch to a requests.Session (seeded with the browser's cookies) for all
-    detail and edit-device page fetches. This is 10-50x faster than driving every
-    page through the browser.
-
-    Navigation path:
-      [Selenium] vpbx.cgi list → extract cookies → requests.Session
-      [requests] vpbx_detail&id=X  →  edit_device&device_id=Y  → parse HTML for config
-
-    Falls back to Selenium browser interaction for any device where the config is not
-    found in the page HTML (e.g. rendered entirely by JS).
+    Device-level comparison logic:
+      1. If no existing row for a device  → scrape and save.
+      2. If existing row has empty config → scrape and save.
+      3. If existing row has non-empty config AND scraped config is non-empty AND
+         normalize_bulk_config(scraped) == normalize_bulk_config(stored) → skip DB write.
+      4. If scraped config is empty and stored is non-empty → keep stored (upsert SQL
+         protects non-empty from being overwritten by empty).
 
     Args:
-        skip_handles: Set of handle strings (uppercase) to skip — already scraped.
-            Pass the set of handles already in the DB to resume an interrupted run.
+        skip_handles: Handle strings (uppercase) to skip entirely — used only for
+            targeted single-handle runs or explicit resume. Do NOT pass this for
+            all-handles refresh; use existing_configs instead so device-level
+            comparison drives the skip decision.
+        existing_configs: Dict keyed by (device_id, vpbx_id) → stored bulk_config
+            text. When provided, after scraping each device the scraped config is
+            normalized and compared to the stored value. Identical configs skip the
+            DB write; new or changed configs are included in the returned records.
         on_handle_done: Optional callback(handle, records) called immediately after
             each handle's devices are scraped. Use this to flush records to the DB
             incrementally so progress is not lost if the job is interrupted.
@@ -640,6 +657,18 @@ def fetch_device_configs(
                         f"len={len(config_text)} val={config_text!r} — discarding"
                     )
                     config_text = ""
+
+                # Device-level comparison: skip DB write if scraped == stored (normalized).
+                # This is the ONLY valid reason to skip — not handle existence.
+                _stored_raw = (existing_configs or {}).get((device_id, vpbx_id), "")
+                _scraped_norm = normalize_bulk_config(config_text)
+                _stored_norm = normalize_bulk_config(_stored_raw)
+                if _scraped_norm and _stored_norm and _scraped_norm == _stored_norm:
+                    _emit(
+                        f"bulk_config_unchanged handle={handle} device={device_id} "
+                        f"len={len(_scraped_norm)} — skipping DB write"
+                    )
+                    continue  # Identical — no DB update needed for this device
 
                 now = _iso_now()
                 device["bulk_config"] = config_text

@@ -1509,23 +1509,20 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
 
-        # Resume: skip handles where every device already has a non-empty bulk_config.
-        # A handle with even ONE blank bulk_config row must be re-scraped so the
-        # gap can be filled. Treating "any row exists" as "done" is the root cause
-        # of blank rows poisoning future refresh runs.
-        skip: set[str] | None = None
-        if not handles:
-            existing = db.list_vpbx_device_configs(db_path())
-            from collections import defaultdict
-            _handle_cfgs: dict[str, list[str]] = defaultdict(list)
-            for _r in existing:
-                _h = (_r.get("handle") or "").upper()
-                if _h:
-                    _handle_cfgs[_h].append((_r.get("bulk_config") or "").strip())
-            # Only skip handles where every row has a non-empty config
-            skip = {_h for _h, _cfgs in _handle_cfgs.items() if _cfgs and all(_cfgs)}
-            if skip:
-                _emit(f"resume skip_count={len(skip)}")
+        # Build device-level existing config dict for comparison inside fetch_device_configs.
+        # Keyed by (device_id, vpbx_id) → stored bulk_config text.
+        # The scraper will visit every handle and every device; after scraping it
+        # compares normalized configs and only writes to DB when something changed.
+        # Handle-level skip is intentionally removed — it was the root cause of blank
+        # rows being treated as "done" and never backfilled.
+        existing = db.list_vpbx_device_configs(db_path())
+        existing_configs: dict[tuple[str, str], str] = {
+            (str(_r["device_id"]), str(_r["vpbx_id"])): (_r.get("bulk_config") or "")
+            for _r in existing
+            if _r.get("device_id") and _r.get("vpbx_id")
+        }
+        if existing_configs:
+            _emit(f"loaded {len(existing_configs)} existing device configs for comparison")
 
         total_saved = 0
 
@@ -1543,7 +1540,7 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
             records = fetch_device_configs(
                 base_url,
                 handles=handles,
-                skip_handles=skip,
+                existing_configs=existing_configs,
                 on_handle_done=_on_handle_done,
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
