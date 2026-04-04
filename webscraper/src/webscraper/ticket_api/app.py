@@ -1509,11 +1509,21 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
 
-        # Resume: skip handles already in the DB (only when scraping all handles)
+        # Resume: skip handles where every device already has a non-empty bulk_config.
+        # A handle with even ONE blank bulk_config row must be re-scraped so the
+        # gap can be filled. Treating "any row exists" as "done" is the root cause
+        # of blank rows poisoning future refresh runs.
         skip: set[str] | None = None
         if not handles:
             existing = db.list_vpbx_device_configs(db_path())
-            skip = {r["handle"].upper() for r in existing if r.get("handle")}
+            from collections import defaultdict
+            _handle_cfgs: dict[str, list[str]] = defaultdict(list)
+            for _r in existing:
+                _h = (_r.get("handle") or "").upper()
+                if _h:
+                    _handle_cfgs[_h].append((_r.get("bulk_config") or "").strip())
+            # Only skip handles where every row has a non-empty config
+            skip = {_h for _h, _cfgs in _handle_cfgs.items() if _cfgs and all(_cfgs)}
             if skip:
                 _emit(f"resume skip_count={len(skip)}")
 
@@ -1538,9 +1548,10 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
-            # Final upsert for any records not already flushed (e.g. partial handle batches)
+            # All records are already flushed incrementally by _on_handle_done above.
+            # No second upsert needed — the on_handle_done callback saves every handle
+            # as it completes, so records are already in the DB.
             finished = _iso_now()
-            db.upsert_vpbx_device_configs(db_path(), records, finished)
             _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
                                finished_utc=finished,
                                result={"device_count": len(records)})

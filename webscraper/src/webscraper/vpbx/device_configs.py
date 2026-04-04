@@ -413,6 +413,29 @@ def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str
             except Exception:
                 continue
 
+    # Pass 3: Ace editor (some FreePBX pages render the config inside an Ace editor
+    #          div rather than a plain textarea — the textarea stays empty while the
+    #          visible content lives in the Ace model).
+    if not config_text:
+        try:
+            ace_value = driver.execute_script(
+                """
+                var editors = document.querySelectorAll('.ace_editor');
+                for (var i = 0; i < editors.length; i++) {
+                    try {
+                        var val = window.ace.edit(editors[i]).getValue();
+                        if (val && val.trim().length >= 10) return val.trim();
+                    } catch(e) {}
+                }
+                return '';
+                """
+            )
+            if ace_value and ace_value.strip():
+                config_text = ace_value.strip()
+                _log(f"bulk_config_pass3_ace len={len(config_text)}")
+        except Exception:
+            pass
+
     _log(
         f"bulk_config_result len={len(config_text)} "
         f"preview={config_text[:80]!r}"
