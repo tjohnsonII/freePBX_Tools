@@ -1,0 +1,36 @@
+.mikrotik-template-textarea {
+  width: 100%;
+}
+
+.mikrotik-ott-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mikrotik-ott-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.mikrotik-ott-input,
+.mikrotik-ott-select {
+  padding: 3px 6px;
+}
+
+.mikrotik-scraper-status {
+  font-size: 12px;
+  align-self: flex-end;
+  padding-bottom: 4px;
+}
+
+.mikrotik-scraper-status-online {
+  color: #16794a;
+}
+
+.mikrotik-scraper-status-offline {
+  color: #b42318;
+}
