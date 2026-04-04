@@ -32,41 +32,41 @@ export default function MikrotikTab({ ottFields, setOttFields, getOttTemplate, s
       <h2>Mikrotik Templates</h2>
       <div>
         <h3>5009 Bridge</h3>
-        <textarea value={mikrotik5009Bridge} readOnly rows={10} style={{ width: '100%' }} aria-label="5009 Bridge template" />
+        <textarea value={mikrotik5009Bridge} readOnly rows={10} className="mikrotik-textarea" aria-label="5009 Bridge template" />
         <h3>5009 Passthrough</h3>
-        <textarea value={mikrotik5009Passthrough} readOnly rows={10} style={{ width: '100%' }} aria-label="5009 Passthrough template" />
+        <textarea value={mikrotik5009Passthrough} readOnly rows={10} className="mikrotik-textarea" aria-label="5009 Passthrough template" />
         <h3>OnNet Config</h3>
-        <textarea value={onNetMikrotikConfigTemplate} readOnly rows={10} style={{ width: '100%' }} aria-label="OnNet Config template" />
+        <textarea value={onNetMikrotikConfigTemplate} readOnly rows={10} className="mikrotik-textarea" aria-label="OnNet Config template" />
         <h3>OTT Template (Editable)</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+        <div className="mikrotik-form-row">
+          <label className="mikrotik-label">
             IP
-            <input name="ip" value={ottFields.ip} onChange={handleOttField} placeholder="XXX.XXX.XXX.XXX" style={{ padding: '3px 6px' }} title="Customer IP address" />
+            <input name="ip" value={ottFields.ip} onChange={handleOttField} placeholder="XXX.XXX.XXX.XXX" className="mikrotik-input" title="Customer IP address" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+          <label className="mikrotik-label">
             Customer Name
-            <input name="customerName" value={ottFields.customerName} onChange={handleOttField} placeholder="CUSTOMER NAME" style={{ padding: '3px 6px' }} title="Customer name" />
+            <input name="customerName" value={ottFields.customerName} onChange={handleOttField} placeholder="CUSTOMER NAME" className="mikrotik-input" title="Customer name" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+          <label className="mikrotik-label">
             Customer Address
-            <input name="customerAddress" value={ottFields.customerAddress} onChange={handleOttField} placeholder="CUSTOMER ADDRESS" style={{ padding: '3px 6px' }} title="Customer address" />
+            <input name="customerAddress" value={ottFields.customerAddress} onChange={handleOttField} placeholder="CUSTOMER ADDRESS" className="mikrotik-input" title="Customer address" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+          <label className="mikrotik-label">
             City
-            <input name="city" value={ottFields.city} onChange={handleOttField} placeholder="CITY" style={{ padding: '3px 6px' }} title="City" />
+            <input name="city" value={ottFields.city} onChange={handleOttField} placeholder="CITY" className="mikrotik-input" title="City" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+          <label className="mikrotik-label">
             XIP
-            <input name="xip" value={ottFields.xip} onChange={handleOttField} placeholder="XIP" style={{ padding: '3px 6px' }} title="XIP value" />
+            <input name="xip" value={ottFields.xip} onChange={handleOttField} placeholder="XIP" className="mikrotik-input" title="XIP value" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+          <label className="mikrotik-label">
             Handle
             {scraperHandles.length > 0 ? (
               <select
                 name="handle"
                 value={ottFields.handle}
                 onChange={handleOttField}
-                style={{ padding: '3px 6px' }}
+                className="mikrotik-input"
                 title="Select handle"
                 aria-label="Select handle"
                 disabled={!scraperOnline}
@@ -77,20 +77,20 @@ export default function MikrotikTab({ ottFields, setOttFields, getOttTemplate, s
                 ))}
               </select>
             ) : (
-              <input name="handle" value={ottFields.handle} onChange={handleOttField} placeholder="HANDLE-CUSTOMERADDRESS" style={{ padding: '3px 6px' }} title="Handle" />
+              <input name="handle" value={ottFields.handle} onChange={handleOttField} placeholder="HANDLE-CUSTOMERADDRESS" className="mikrotik-input" title="Handle" />
             )}
           </label>
           {scraperOnline !== null && (
-            <span style={{ fontSize: 12, alignSelf: 'flex-end', color: scraperOnline ? '#16794a' : '#b42318', paddingBottom: 4 }}>
+            <span className={`mikrotik-status ${scraperOnline ? 'online' : 'offline'}`}>
               {scraperOnline ? '● scraper connected' : '○ scraper offline'}
             </span>
           )}
         </div>
-        <textarea value={getOttTemplate(ottFields)} readOnly rows={10} style={{ width: '100%' }} aria-label="OTT template output" />
+        <textarea value={getOttTemplate(ottFields)} readOnly rows={10} className="mikrotik-textarea" aria-label="OTT template output" />
         <h3>Standalone ATA</h3>
-        <textarea value={mikrotikStandAloneATATemplate} readOnly rows={10} style={{ width: '100%' }} aria-label="Standalone ATA template" />
+        <textarea value={mikrotikStandAloneATATemplate} readOnly rows={10} className="mikrotik-textarea" aria-label="Standalone ATA template" />
         <h3>DHCP Options</h3>
-        <textarea value={mikrotikDhcpOptions} readOnly rows={10} style={{ width: '100%' }} aria-label="DHCP Options template" />
+        <textarea value={mikrotikDhcpOptions} readOnly rows={10} className="mikrotik-textarea" aria-label="DHCP Options template" />
       </div>
     </div>
   );
