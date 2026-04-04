@@ -52,10 +52,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--status-file", default=DEFAULT_STATUS_FILE)
     parser.add_argument(
         "--extras", action="store_true",
-        help="Also start extra services: Traceroute Visualizer (3006), Polycom App (3002), FreePBX Web Manager (5000)",
+        help="Also start extra services: HomeLab Network Mapping (3011), Traceroute Visualizer (3006), Polycom App (3002), FreePBX Web Manager (5000)",
     )
     parser.add_argument(
-        "--only-extras", nargs="+", choices=["remote_traceroute", "traceroute", "polycom", "web_manager"],
+        "--only-extras", nargs="+", choices=["homelab", "remote_traceroute", "traceroute", "polycom", "web_manager"],
         metavar="SERVICE",
         help="With --extras, limit which extra services to start",
     )

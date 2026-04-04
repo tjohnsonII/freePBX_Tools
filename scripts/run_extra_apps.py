@@ -39,6 +39,16 @@ REMOTE_TRACEROUTE_DIR  = "~"          # directory containing traceroute_server_u
 REMOTE_TRACEROUTE_CTL  = "~/traceroute_server_ctl.sh"
 
 SERVICES = {
+    "homelab": {
+        "label": "HomeLab Network Mapping (CCNA Lab Tracker)",
+        "service_name": "homelab_network_mapping",
+        "rel_dir": "HomeLab_NetworkMapping/ccna-lab-tracker",
+        "port": 3011,
+        "host": "127.0.0.1",
+        "kind": "npm-next",
+        "health_paths": ["/"],
+        "success_markers": ["Ready in", "Local:"],
+    },
     "remote_traceroute": {
         "label": "Remote Traceroute Server (CAGE)",
         "service_name": "remote_traceroute",

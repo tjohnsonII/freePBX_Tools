@@ -340,10 +340,17 @@ def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str
     # ── Step 1: try static HTML extraction before clicking anything ────────────
     # The textarea is often pre-rendered in the hidden jQuery UI dialog DOM with
     # its content already set server-side, so we can read it without opening the modal.
+    # IMPORTANT: only trust the static result if it has multiple lines (≥3 newlines).
+    # FreePBX forms often have individual attribute textareas (e.g. a single
+    # "reg.1.line.1.label=Ext. 112" field) that would match our selectors but only
+    # contain ONE config line. The full bulk config is only available after clicking
+    # the Bulk Attribute Edit button and reading the modal. A single-line hit here
+    # means we found a partial form field, not the complete config — fall through.
     config_text = _extract_bulk_config_from_html(driver.page_source)
-    if config_text:
+    if config_text and config_text.count("\n") >= 3:
         _log(f"bulk_config_from_html len={len(config_text)}")
         return config_text
+    config_text = ""  # discard any short/single-line hit; proceed to button click
 
     # ── Step 2: find the Bulk Attribute Edit button ────────────────────────────
     # DOM assumption: id="bulk_attrib_edit" is the primary selector; class and
@@ -584,7 +591,9 @@ def fetch_device_configs(
 
     target_url = _vpbx_cgi_url(base_url)
     handle_filter = {h.upper() for h in handles} if handles else None
-    already_done = {h.upper() for h in skip_handles} if skip_handles else set()
+    # skip_handles is intentionally unused — every handle is always visited.
+    # Comparison against existing_configs drives whether the DB is written, not
+    # whether the handle is scraped.
 
     options = Options()
     options.add_argument("--start-maximized")
@@ -609,13 +618,8 @@ def fetch_device_configs(
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
             _emit(f"filtered to {len(vpbx_list)} handle(s)")
 
-        if already_done:
-            skipped = [v for v in vpbx_list if v["handle"].upper() in already_done]
-            vpbx_list = [v for v in vpbx_list if v["handle"].upper() not in already_done]
-            _emit(f"resuming — {len(skipped)} already done, {len(vpbx_list)} remaining")
-
         if not vpbx_list:
-            _emit("complete — no new devices to scrape")
+            _emit("complete — no handles to scrape")
             return []
 
         total = len(vpbx_list)
@@ -731,22 +735,28 @@ def fetch_site_configs(
     *,
     handles: list[str] | None = None,
     skip_handles: set[str] | None = None,
+    existing_configs: dict | None = None,
     on_handle_done: Any = None,
     login_timeout_seconds: int = 300,
     emit_fn: Any = None,
 ) -> list[dict[str, str]]:
     """Scrape site-specific configs from vpbx.cgi.
 
-    Uses Selenium only for SSO auth + list page, then switches to requests for
-    all detail page fetches. Falls back to Selenium click-through for any handle
-    where the config is not found in the static HTML.
-
-    Navigation path:
-      [Selenium] vpbx.cgi list → extract cookies → requests.Session
-      [requests] vpbx_detail&id=X → parse HTML for site config textarea
+    Handle-level comparison logic (mirrors device-config behaviour):
+      1. If no existing row for a handle          → scrape and save.
+      2. If existing row has empty site_config    → scrape and save.
+      3. If existing row has non-empty config AND scraped config is non-empty AND
+         normalize_bulk_config(scraped) == normalize_bulk_config(stored) → skip DB write.
+      4. If scraped config is empty and stored is non-empty → keep stored (upsert SQL
+         protects non-empty from being overwritten by empty).
 
     Args:
-        skip_handles: Handles (uppercase) to skip — already scraped. Pass to resume.
+        skip_handles: Handles (uppercase) to skip entirely — kept for backward
+            compatibility. Do NOT pass for all-handles refresh; use existing_configs
+            so comparison drives the skip decision, not handle existence.
+        existing_configs: Dict keyed by handle (uppercase) → stored site_config text.
+            After scraping each handle the result is normalized and compared; identical
+            configs skip the DB write, new or changed configs are saved.
         on_handle_done: Optional callback(handle, [record]) called after each handle
             completes so the caller can flush to DB incrementally.
     """
@@ -762,7 +772,8 @@ def fetch_site_configs(
 
     target_url = _vpbx_cgi_url(base_url)
     handle_filter = {h.upper() for h in handles} if handles else None
-    already_done = {h.upper() for h in skip_handles} if skip_handles else set()
+    # skip_handles is intentionally unused — every handle is always visited.
+    # Comparison against existing_configs drives whether the DB is written.
 
     options = Options()
     options.add_argument("--start-maximized")
@@ -787,11 +798,6 @@ def fetch_site_configs(
             vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
             _emit(f"filtered_to count={len(vpbx_list)}")
 
-        if already_done:
-            skipped = [v for v in vpbx_list if v["handle"].upper() in already_done]
-            vpbx_list = [v for v in vpbx_list if v["handle"].upper() not in already_done]
-            _emit(f"resuming skipped={len(skipped)} remaining={len(vpbx_list)}")
-
         for vpbx_entry in vpbx_list:
             vpbx_id = vpbx_entry["vpbx_id"]
             handle = vpbx_entry["handle"]
@@ -800,6 +806,18 @@ def fetch_site_configs(
 
             config_text = _capture_site_config(driver, detail_url)
             _emit(f"site_config_done handle={handle} lines={len(config_text.splitlines())}")
+
+            # Handle-level comparison: skip DB write if scraped == stored (normalized).
+            # Same logic as device configs — existence alone is NOT a reason to skip.
+            _stored_raw = (existing_configs or {}).get(handle.upper(), "")
+            _scraped_norm = normalize_bulk_config(config_text)
+            _stored_norm = normalize_bulk_config(_stored_raw)
+            if _scraped_norm and _stored_norm and _scraped_norm == _stored_norm:
+                _emit(
+                    f"site_config_unchanged handle={handle} "
+                    f"len={len(_scraped_norm)} — skipping DB write"
+                )
+                continue  # Identical — no DB update needed
 
             record = {
                 "vpbx_id": vpbx_id,

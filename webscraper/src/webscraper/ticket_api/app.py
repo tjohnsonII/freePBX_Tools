@@ -1618,13 +1618,18 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_site_configs:{msg}", job_id=job_id)
 
-        # Resume: skip handles already in DB when scraping all
-        skip: set[str] | None = None
-        if not handles:
-            existing = db.list_vpbx_site_configs(db_path())
-            skip = {r["handle"].upper() for r in existing if r.get("handle")}
-            if skip:
-                _emit(f"resume skip_count={len(skip)}")
+        # Build handle-level existing config dict for comparison inside fetch_site_configs.
+        # Keyed by handle (uppercase) → stored site_config text.
+        # No handle-level pre-skip — every handle is visited so blank rows can be
+        # backfilled and changed configs can be detected.
+        existing = db.list_vpbx_site_configs(db_path())
+        existing_configs: dict[str, str] = {
+            (_r["handle"] or "").upper(): (_r.get("site_config") or "")
+            for _r in existing
+            if _r.get("handle")
+        }
+        if existing_configs:
+            _emit(f"loaded {len(existing_configs)} existing site configs for comparison")
 
         total_saved = 0
 
@@ -1641,13 +1646,13 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
             records = fetch_site_configs(
                 base_url,
                 handles=handles,
-                skip_handles=skip,
+                existing_configs=existing_configs,
                 on_handle_done=_on_handle_done,
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
+            # All records already flushed incrementally by _on_handle_done.
             finished = _iso_now()
-            db.upsert_vpbx_site_configs(db_path(), records, finished)
             _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
                                finished_utc=finished,
                                result={"site_config_count": len(records)})
