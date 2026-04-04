@@ -1478,6 +1478,19 @@ def api_vpbx_device_configs(handle: str | None = Query(None)):
     return {"items": db.list_vpbx_device_configs(db_path(), handle=handle)}
 
 
+@app.get("/api/vpbx/device-config")
+def api_vpbx_device_config(device_id: str = Query(...), handle: str | None = Query(None)):
+    """Return one cached VPBX device config by device_id (+ optional handle check)."""
+    db.ensure_indexes(db_path())
+    rows = db.list_vpbx_device_configs(db_path(), handle=handle)
+    found = next((r for r in rows if str(r.get("device_id") or "") == device_id), None)
+    if not found:
+        raise HTTPException(status_code=404, detail="Device config not found")
+    found["config_length"] = len((found.get("bulk_config") or "").strip())
+    found["config_status"] = "ok" if found["config_length"] > 0 else "empty"
+    return found
+
+
 @app.post("/api/vpbx/device-configs/refresh")
 def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request: Request):
     """Start a Selenium job to scrape bulk device configs from vpbx.cgi.
@@ -1551,6 +1564,96 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
                                finished_utc=_iso_now(), error_message=str(exc))
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-devconf-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+class _VpbxSiteConfigsRefreshBody(BaseModel):
+    handles: list[str] | None = None
+
+
+@app.get("/api/vpbx/site-configs")
+def api_vpbx_site_configs(
+    handle: str | None = Query(None),
+    company_id: str | None = Query(None),
+):
+    """Return cached VPBX site configs. Filter by handle and/or company_id."""
+    db.ensure_indexes(db_path())
+    return {
+        "items": db.list_vpbx_site_configs(
+            db_path(),
+            handle=handle,
+            company_id=company_id,
+        )
+    }
+
+
+@app.post("/api/vpbx/site-configs/refresh")
+def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Request):
+    """Start a Selenium job to scrape site-specific configs from VPBX company pages."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX site config refresh is localhost-only")
+
+    handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_site_configs:{','.join(handles)}" if handles else "vpbx_site_configs"
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode=mode,
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", f"vpbx_site_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
+
+    def _run() -> None:
+        from webscraper.vpbx.device_configs import fetch_site_configs  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx_site_configs:{msg}", job_id=job_id)
+
+        skip: set[str] | None = None
+        if not handles:
+            existing = db.list_vpbx_site_configs(db_path())
+            skip = {str(r.get("handle") or "").upper() for r in existing if r.get("handle")}
+            if skip:
+                _emit(f"resume skip_count={len(skip)}")
+
+        total_saved = 0
+
+        def _on_handle_done(_handle: str, records: list) -> None:
+            nonlocal total_saved
+            now_utc = _iso_now()
+            db.upsert_vpbx_site_configs(db_path(), records, now_utc)
+            total_saved += len(records)
+            _update_scrape_job(job_id=job_id, status="running",
+                               completed=total_saved, total=total_saved + 1)
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            records = fetch_site_configs(
+                base_url,
+                handles=handles,
+                skip_handles=skip,
+                on_handle_done=_on_handle_done,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
+            finished = _iso_now()
+            db.upsert_vpbx_site_configs(db_path(), records, finished)
+            _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
+                               finished_utc=finished,
+                               result={"site_config_count": len(records)})
+            _append_event("info", f"vpbx_site_configs_done count={len(records)}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("vpbx_site_configs_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=total_saved, total=total_saved,
+                               finished_utc=_iso_now(), error_message=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-siteconf-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
 
 

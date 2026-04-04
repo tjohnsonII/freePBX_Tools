@@ -181,6 +181,12 @@ function App() {
   const [scraperDevice, setScraperDevice] = useState('');
   const [scraperOnlinePhone, setScraperOnlinePhone] = useState<boolean | null>(null);
   const [scraperLiveConfig, setScraperLiveConfig] = useState('');
+  const [siteConfigRaw, setSiteConfigRaw] = useState('');
+  const [siteConfigMeta, setSiteConfigMeta] = useState<{ company_id?: string; company_name?: string; scraped_at?: string; status?: string; config_length?: number } | null>(null);
+  const [siteConfigLoading, setSiteConfigLoading] = useState(false);
+  const [siteConfigError, setSiteConfigError] = useState<string | null>(null);
+  const [phoneConfigLoading, setPhoneConfigLoading] = useState(false);
+  const [phoneConfigError, setPhoneConfigError] = useState<string | null>(null);
   const [showLiveConfig, setShowLiveConfig] = useState(false);
   // --- Edit mode / loaded config state ---
   const [configMode, setConfigMode] = useState<'new' | 'edit'>('new');
@@ -219,10 +225,15 @@ function App() {
   async function loadScraperDevices(handle: string) {
     if (!handle) {
       setScraperDevices([]); setScraperDevice(''); setScraperLiveConfig('');
+      setSiteConfigRaw(''); setSiteConfigMeta(null); setSiteConfigError(null);
       setLoadedConfigRaw(''); setLoadedDeviceMeta(null);
       setConfigMode('new'); setScraperUnparsedCount(0);
       return;
     }
+    setSiteConfigLoading(true);
+    setSiteConfigError(null);
+    setSiteConfigRaw('');
+    setSiteConfigMeta(null);
     try {
       const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`);
       const data = await res.json();
@@ -236,32 +247,37 @@ function App() {
       setScraperUnparsedCount(0);
       const rec = scraperHandles.find(h => h.handle === handle);
       if (rec?.ip) setIp(rec.ip);
-    } catch { setScraperDevices([]); }
+    } catch {
+      setScraperDevices([]);
+    }
+
+    try {
+      const siteRes = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/site-configs?handle=${encodeURIComponent(handle)}`);
+      if (!siteRes.ok) throw new Error(`HTTP ${siteRes.status}`);
+      const siteData = await siteRes.json();
+      const siteItem = (siteData?.items || [])[0];
+      setSiteConfigRaw(siteItem?.site_config_raw || '');
+      setSiteConfigMeta(siteItem || null);
+    } catch (e) {
+      setSiteConfigError(e instanceof Error ? e.message : String(e));
+      setSiteConfigRaw('');
+      setSiteConfigMeta(null);
+    } finally {
+      setSiteConfigLoading(false);
+    }
   }
 
   function applyScraperDevice(deviceId: string) {
     const dev = scraperDevices.find(d => d.device_id === deviceId);
     if (!dev) return;
-    const brand: 'Polycom' | 'Yealink' =
-      dev.make?.toLowerCase().includes('yealink') ||
-      dev.model?.toLowerCase().includes('yealink') ||
-      dev.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
 
     setScraperDevice(deviceId);
+    setPhoneConfigLoading(true);
+    setPhoneConfigError(null);
     const raw = dev.bulk_config || '';
     setScraperLiveConfig(raw);
     setLoadedConfigRaw(raw);
     setShowLiveConfig(false);
-
-    // Hydrate supported form fields
-    if (dev.extension) { setStartExt(dev.extension); setEndExt(dev.extension); }
-    if (dev.model) setModel(dev.model);
-    setPhoneType(brand);
-
-    const parsed = raw ? parseSupportedFields(raw, brand) : { unparsedCount: 0 };
-    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
-    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
-    setScraperUnparsedCount(parsed.unparsedCount);
 
     const handleRec = scraperHandles.find(h => h.handle === scraperHandle);
     setLoadedDeviceMeta({
@@ -275,6 +291,27 @@ function App() {
       handleName: handleRec?.name || '',
     });
     setConfigMode('edit');
+    setScraperUnparsedCount(0);
+    setPhoneConfigLoading(false);
+  }
+
+  function loadCurrentPhoneConfigIntoForm() {
+    if (!loadedDeviceMeta || !loadedConfigRaw) return;
+    const brand: 'Polycom' | 'Yealink' =
+      loadedDeviceMeta.make?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
+
+    if (loadedDeviceMeta.extension) {
+      setStartExt(loadedDeviceMeta.extension);
+      setEndExt(loadedDeviceMeta.extension);
+    }
+    if (loadedDeviceMeta.model) setModel(loadedDeviceMeta.model);
+    setPhoneType(brand);
+    const parsed = parseSupportedFields(loadedConfigRaw, brand);
+    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
+    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
+    setScraperUnparsedCount(parsed.unparsedCount);
   }
 
   // Yealink expansion module state
@@ -1232,37 +1269,74 @@ function App() {
                 </>
               )}
             </div>
-            {scraperDevice && scraperLiveConfig && (
-              <div className="scraper-show-area">
-                <div className="scraper-edit-actions">
-                  <button
-                    type="button"
-                    onClick={() => setShowLiveConfig(v => !v)}
-                    className="scraper-toggle-btn"
-                  >
-                    {showLiveConfig ? 'Hide raw config' : 'Show raw config'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetToLoaded}
-                    className="scraper-reset-btn"
-                    title="Reset editable fields back to what was loaded from the scraper"
-                  >
-                    ↺ Reset to loaded
-                  </button>
-                  {scraperUnparsedCount > 0 && (
-                    <span className="scraper-unparsed-warning">
-                      ⚠ {scraperUnparsedCount} line{scraperUnparsedCount !== 1 ? 's' : ''} not editable in this UI — raw config preserved above
-                    </span>
-                  )}
-                </div>
-                {showLiveConfig && (
-                  <pre className="scraper-pre">
-                    {scraperLiveConfig}
-                  </pre>
+            <div className="scraper-show-area">
+              <div className="scraper-edit-actions">
+                <strong>Site Config</strong>
+                {siteConfigMeta?.company_id && <span> · Company ID {siteConfigMeta.company_id}</span>}
+                {siteConfigMeta?.scraped_at && <span> · Scraped {siteConfigMeta.scraped_at}</span>}
+              </div>
+              {siteConfigLoading && <div>Loading site config…</div>}
+              {siteConfigError && <div className="scraper-offline">Site config error: {siteConfigError}</div>}
+              {!siteConfigLoading && !siteConfigError && !siteConfigRaw && <div>No scraped site config available for this handle.</div>}
+              {!!siteConfigRaw && (
+                <textarea readOnly value={siteConfigRaw} style={{ width: '100%', minHeight: 160, fontFamily: 'monospace' }} />
+              )}
+            </div>
+            <div className="scraper-show-area">
+              <div className="scraper-edit-actions">
+                <strong>Current Phone Config</strong>
+                {loadedDeviceMeta && (
+                  <span>
+                    {' '}· {loadedDeviceMeta.directoryName || loadedDeviceMeta.deviceId}
+                    {' '}· ext {loadedDeviceMeta.extension || '?'}
+                    {' '}· {loadedDeviceMeta.mac || 'no-mac'}
+                    {' '}· {loadedDeviceMeta.make} {loadedDeviceMeta.model}
+                  </span>
                 )}
               </div>
-            )}
+              {phoneConfigLoading && <div>Loading phone config…</div>}
+              {phoneConfigError && <div className="scraper-offline">Phone config error: {phoneConfigError}</div>}
+              {!phoneConfigLoading && !phoneConfigError && scraperDevice && !scraperLiveConfig && (
+                <div>No scraped config available for this device.</div>
+              )}
+              {scraperDevice && !!scraperLiveConfig && (
+                <>
+                  <div className="scraper-edit-actions">
+                    <button
+                      type="button"
+                      onClick={() => setShowLiveConfig(v => !v)}
+                      className="scraper-toggle-btn"
+                    >
+                      {showLiveConfig ? 'Hide raw config' : 'Show raw config'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={loadCurrentPhoneConfigIntoForm}
+                      className="scraper-reset-btn"
+                      title="Load supported fields from current phone config into editable form"
+                    >
+                      Load Current Phone Config Into Form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetToLoaded}
+                      className="scraper-reset-btn"
+                      title="Reset editable fields back to what was loaded from the scraper"
+                    >
+                      ↺ Reset to loaded
+                    </button>
+                    {scraperUnparsedCount > 0 && (
+                      <span className="scraper-unparsed-warning">
+                        ⚠ {scraperUnparsedCount} line{scraperUnparsedCount !== 1 ? 's' : ''} not editable in this UI — raw config preserved above
+                      </span>
+                    )}
+                  </div>
+                  {showLiveConfig && (
+                    <textarea readOnly value={scraperLiveConfig} style={{ width: '100%', minHeight: 220, fontFamily: 'monospace' }} />
+                  )}
+                </>
+              )}
+            </div>
             {!scraperOnlinePhone && scraperOnlinePhone !== null && (
               <p className="scraper-offline">
                 Webscraper offline — start it at localhost:8788 to enable live load.
