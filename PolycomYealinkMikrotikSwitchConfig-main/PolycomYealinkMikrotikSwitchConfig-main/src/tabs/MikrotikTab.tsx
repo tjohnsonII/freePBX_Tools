@@ -4,7 +4,7 @@ import { mikrotik5009Passthrough } from '../mikrotik5009PassthroughTemplate';
 import { onNetMikrotikConfigTemplate } from '../onNetMikrotikConfigTemplate';
 import { mikrotikStandAloneATATemplate } from '../mikrotikStandAloneATATemplate';
 import { mikrotikDhcpOptions } from '../mikrotikDhcpOptionsTemplate';
-
+import './MikrotikTab.css';
 interface OttFields {
   ip: string;
   customerName: string;
