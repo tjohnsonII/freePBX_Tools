@@ -282,11 +282,24 @@ def ensure_indexes(db_path: str) -> None:
                     site_code TEXT,
                     bulk_config TEXT,
                     last_seen_utc TEXT,
+                    config_scraped_utc TEXT,
+                    config_status TEXT,
+                    config_length INTEGER,
                     PRIMARY KEY (device_id, vpbx_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_vpbx_device_handle ON vpbx_device_configs(handle);
                 """
             )
+
+            # Migrate existing tables that predate the config tracking columns
+            device_columns = table_columns(conn, "vpbx_device_configs")
+            for col, ddl in [
+                ("config_scraped_utc", "TEXT"),
+                ("config_status", "TEXT"),
+                ("config_length", "INTEGER"),
+            ]:
+                if col not in device_columns:
+                    conn.execute(f"ALTER TABLE vpbx_device_configs ADD COLUMN {col} {ddl}")
 
             conn.executescript(
                 """
@@ -299,6 +312,18 @@ def ensure_indexes(db_path: str) -> None:
                     deployment_id TEXT,
                     switch TEXT,
                     devices TEXT,
+                    last_seen_utc TEXT
+                );
+                """
+            )
+
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS vpbx_site_configs (
+                    handle       TEXT PRIMARY KEY,
+                    vpbx_id      TEXT,
+                    detail_url   TEXT,
+                    site_config  TEXT,
                     last_seen_utc TEXT
                 );
                 """
@@ -1084,12 +1109,19 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                 vpbx_id = (rec.get("vpbx_id") or "").strip()
                 if not device_id or not vpbx_id:
                     continue
+
+                bulk_config = rec.get("bulk_config") or ""
+                config_status = rec.get("config_status") or ("ok" if bulk_config else "empty")
+                config_length = len(bulk_config) if bulk_config else 0
+                config_scraped_utc = rec.get("config_scraped_utc") or (now_utc if bulk_config else None)
+
                 conn.execute(
                     """
                     INSERT INTO vpbx_device_configs
                         (device_id, vpbx_id, handle, directory_name, extension, mac,
-                         make, model, site_code, bulk_config, last_seen_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         make, model, site_code, bulk_config, last_seen_utc,
+                         config_scraped_utc, config_status, config_length)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(device_id, vpbx_id) DO UPDATE SET
                         handle=excluded.handle,
                         directory_name=excluded.directory_name,
@@ -1098,8 +1130,15 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         make=excluded.make,
                         model=excluded.model,
                         site_code=excluded.site_code,
-                        bulk_config=excluded.bulk_config,
-                        last_seen_utc=excluded.last_seen_utc
+                        -- Only overwrite bulk_config when the new value is non-empty;
+                        -- this preserves a previously scraped config if a re-scrape
+                        -- comes back empty (e.g. modal failed to open).
+                        bulk_config=CASE WHEN excluded.bulk_config != '' THEN excluded.bulk_config ELSE bulk_config END,
+                        last_seen_utc=excluded.last_seen_utc,
+                        -- Always update status columns so the UI reflects the latest attempt
+                        config_scraped_utc=COALESCE(excluded.config_scraped_utc, config_scraped_utc),
+                        config_status=excluded.config_status,
+                        config_length=CASE WHEN excluded.bulk_config != '' THEN excluded.config_length ELSE config_length END
                     """,
                     (
                         device_id, vpbx_id,
@@ -1110,7 +1149,52 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         rec.get("make") or "",
                         rec.get("model") or "",
                         rec.get("site_code") or "",
-                        rec.get("bulk_config") or "",
+                        bulk_config,
+                        rec.get("last_seen_utc") or now_utc,
+                        config_scraped_utc,
+                        config_status,
+                        config_length,
+                    ),
+                )
+    return len(records)
+
+
+def list_vpbx_site_configs(db_path: str, handle: str | None = None) -> list[dict[str, Any]]:
+    q = "SELECT * FROM vpbx_site_configs"
+    params: list[Any] = []
+    if handle:
+        q += " WHERE handle=?"
+        params.append(handle.upper())
+    q += " ORDER BY handle ASC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                handle = (rec.get("handle") or "").strip().upper()
+                if not handle:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO vpbx_site_configs(handle, vpbx_id, detail_url, site_config, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(handle) DO UPDATE SET
+                        vpbx_id=excluded.vpbx_id,
+                        detail_url=excluded.detail_url,
+                        site_config=CASE WHEN excluded.site_config != '' THEN excluded.site_config ELSE site_config END,
+                        last_seen_utc=excluded.last_seen_utc
+                    """,
+                    (
+                        handle,
+                        rec.get("vpbx_id") or "",
+                        rec.get("detail_url") or "",
+                        rec.get("site_config") or "",
                         rec.get("last_seen_utc") or now_utc,
                     ),
                 )

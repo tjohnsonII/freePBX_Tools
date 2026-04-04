@@ -181,7 +181,6 @@ function App() {
   const [scraperDevice, setScraperDevice] = useState('');
   const [scraperOnlinePhone, setScraperOnlinePhone] = useState<boolean | null>(null);
   const [scraperLiveConfig, setScraperLiveConfig] = useState('');
-  const [showLiveConfig, setShowLiveConfig] = useState(false);
   // --- Edit mode / loaded config state ---
   const [configMode, setConfigMode] = useState<'new' | 'edit'>('new');
   const [loadedConfigRaw, setLoadedConfigRaw] = useState('');
@@ -189,8 +188,21 @@ function App() {
     deviceId: string; directoryName: string; extension: string;
     mac: string; make: string; model: string; handle: string; handleName: string;
   } | null>(null);
-  const [scraperUnparsedCount, setScraperUnparsedCount] = useState(0);
   const [fullConfigOutput, setFullConfigOutput] = useState('');
+  // --- Current Scraped Config display state (separate from edit-mode hydration) ---
+  const [currentConfigLoading, setCurrentConfigLoading] = useState(false);
+  const [currentConfigError, setCurrentConfigError] = useState('');
+  // currentConfigParsed: fields extracted from the raw scraped config for display in metadata
+  const [currentConfigParsed, setCurrentConfigParsed] = useState<{
+    adminPassword?: string; timeOffset?: string; unparsedCount: number;
+  } | null>(null);
+  // --- Site Config display state (loaded when a handle is selected) ---
+  const [siteConfigRaw, setSiteConfigRaw] = useState('');
+  const [siteConfigLoading, setSiteConfigLoading] = useState(false);
+  const [siteConfigError, setSiteConfigError] = useState('');
+  const [siteConfigMeta, setSiteConfigMeta] = useState<{
+    handle: string; last_seen_utc: string;
+  } | null>(null);
   // --- Dark mode ---
   const [darkMode, setDarkMode] = useState(() => {
     try { return localStorage.getItem('theme') === 'dark'; } catch { return false; }
@@ -220,48 +232,74 @@ function App() {
     if (!handle) {
       setScraperDevices([]); setScraperDevice(''); setScraperLiveConfig('');
       setLoadedConfigRaw(''); setLoadedDeviceMeta(null);
-      setConfigMode('new'); setScraperUnparsedCount(0);
+      setConfigMode('new');
+      // Clear site config when handle is deselected
+      setSiteConfigRaw(''); setSiteConfigMeta(null); setSiteConfigError('');
       return;
     }
+
+    // Clear stale device + site-config state before loading new handle
+    setScraperDevice(''); setScraperLiveConfig('');
+    setLoadedConfigRaw(''); setLoadedDeviceMeta(null);
+    setConfigMode('new');
+    setSiteConfigRaw(''); setSiteConfigMeta(null); setSiteConfigError('');
+
+    // Load devices for this handle
     try {
       const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`);
       const data = await res.json();
       const devs = data?.items || [];
       setScraperDevices(devs);
-      setScraperDevice('');
-      setScraperLiveConfig('');
-      setLoadedConfigRaw('');
-      setLoadedDeviceMeta(null);
-      setConfigMode('new');
-      setScraperUnparsedCount(0);
       const rec = scraperHandles.find(h => h.handle === handle);
       if (rec?.ip) setIp(rec.ip);
     } catch { setScraperDevices([]); }
+
+    // Load site config for this handle in parallel — 404 means not yet scraped (not an error)
+    setSiteConfigLoading(true);
+    fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/site-configs/${encodeURIComponent(handle)}`)
+      .then(r => {
+        if (r.status === 404) { setSiteConfigLoading(false); return null; }
+        return r.json();
+      })
+      .then(data => {
+        if (!data) return; // 404 case — leave raw empty
+        setSiteConfigRaw(data.site_config || '');
+        setSiteConfigMeta({ handle: data.handle, last_seen_utc: data.last_seen_utc || '' });
+      })
+      .catch(() => setSiteConfigError('Failed to load site config from webscraper.'))
+      .finally(() => setSiteConfigLoading(false));
   }
 
   function applyScraperDevice(deviceId: string) {
     const dev = scraperDevices.find(d => d.device_id === deviceId);
-    if (!dev) return;
+    if (!dev) {
+      setScraperDevice('');
+      setScraperLiveConfig('');
+      setLoadedConfigRaw('');
+      setLoadedDeviceMeta(null);
+      setCurrentConfigLoading(false);
+      setCurrentConfigError('');
+      setCurrentConfigParsed(null);
+      return;
+    }
+
     const brand: 'Polycom' | 'Yealink' =
       dev.make?.toLowerCase().includes('yealink') ||
       dev.model?.toLowerCase().includes('yealink') ||
       dev.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
 
     setScraperDevice(deviceId);
+
+    // Populate currentConfig display state — raw config is already in device payload
     const raw = dev.bulk_config || '';
     setScraperLiveConfig(raw);
     setLoadedConfigRaw(raw);
-    setShowLiveConfig(false);
+    setCurrentConfigError(raw ? '' : 'Device record exists but no bulk config was captured. Run "Scrape Phone Configs" for this handle to populate it.');
+    setCurrentConfigLoading(false);
 
-    // Hydrate supported form fields
-    if (dev.extension) { setStartExt(dev.extension); setEndExt(dev.extension); }
-    if (dev.model) setModel(dev.model);
-    setPhoneType(brand);
-
+    // Parse known fields for display metadata — does NOT touch form fields
     const parsed = raw ? parseSupportedFields(raw, brand) : { unparsedCount: 0 };
-    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
-    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
-    setScraperUnparsedCount(parsed.unparsedCount);
+    setCurrentConfigParsed(parsed);
 
     const handleRec = scraperHandles.find(h => h.handle === scraperHandle);
     setLoadedDeviceMeta({
@@ -274,6 +312,26 @@ function App() {
       handle: scraperHandle,
       handleName: handleRec?.name || '',
     });
+    // Stay in 'new' mode — user must explicitly press "Load Current Config Into Form"
+    // to switch to edit mode and hydrate fields.
+  }
+
+  // Called only when user explicitly clicks "Load Current Config Into Form"
+  function loadCurrentConfigIntoForm() {
+    if (!loadedDeviceMeta || !loadedConfigRaw) return;
+    const brand: 'Polycom' | 'Yealink' =
+      loadedDeviceMeta.make?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().includes('yealink') ||
+      loadedDeviceMeta.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
+
+    if (loadedDeviceMeta.extension) { setStartExt(loadedDeviceMeta.extension); setEndExt(loadedDeviceMeta.extension); }
+    if (loadedDeviceMeta.model) setModel(loadedDeviceMeta.model);
+    setPhoneType(brand);
+
+    const parsed = parseSupportedFields(loadedConfigRaw, brand);
+    if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
+    if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
+    setCurrentConfigParsed(parsed);
     setConfigMode('edit');
   }
 
@@ -732,7 +790,6 @@ function App() {
     if (parsed.adminPassword !== undefined) setAdminPassword(parsed.adminPassword);
     if (parsed.timeOffset !== undefined) setTimeOffset(parsed.timeOffset);
     setScraperLiveConfig(loadedConfigRaw);
-    setScraperUnparsedCount(parsed.unparsedCount);
   }
 
   // Fix: Remove stray/duplicate code (no stray generateYealinkExpansion, etc.)
@@ -1168,7 +1225,6 @@ function App() {
                   setScraperDevices([]);
                   setScraperDevice('');
                   setScraperLiveConfig('');
-                  setScraperUnparsedCount(0);
                 }}
               >
                 ✕ Clear — start new config
@@ -1189,7 +1245,7 @@ function App() {
               <li><b>External Number Speed Dial:</b> Generates config for a button that dials an external number directly from the phone.</li>
             </ul>
           </div>
-          {/* Load from Scraper Panel */}
+          {/* ── Webscraper: handle + device selectors ── */}
           <div className="scraper-panel">
             <div className="scraper-header">
               <strong className="scraper-strong">Load from Webscraper</strong>
@@ -1220,7 +1276,7 @@ function App() {
                     value={scraperDevice}
                     onChange={e => applyScraperDevice(e.target.value)}
                     className="scraper-device-select"
-                    title="Select a device to pre-fill config fields"
+                    title="Select a device to view its current scraped config"
                   >
                     <option value="">— select device —</option>
                     {scraperDevices.map(d => (
@@ -1232,43 +1288,88 @@ function App() {
                 </>
               )}
             </div>
-            {scraperDevice && scraperLiveConfig && (
-              <div className="scraper-show-area">
-                <div className="scraper-edit-actions">
-                  <button
-                    type="button"
-                    onClick={() => setShowLiveConfig(v => !v)}
-                    className="scraper-toggle-btn"
-                  >
-                    {showLiveConfig ? 'Hide raw config' : 'Show raw config'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetToLoaded}
-                    className="scraper-reset-btn"
-                    title="Reset editable fields back to what was loaded from the scraper"
-                  >
-                    ↺ Reset to loaded
-                  </button>
-                  {scraperUnparsedCount > 0 && (
-                    <span className="scraper-unparsed-warning">
-                      ⚠ {scraperUnparsedCount} line{scraperUnparsedCount !== 1 ? 's' : ''} not editable in this UI — raw config preserved above
-                    </span>
-                  )}
-                </div>
-                {showLiveConfig && (
-                  <pre className="scraper-pre">
-                    {scraperLiveConfig}
-                  </pre>
-                )}
-              </div>
-            )}
             {!scraperOnlinePhone && scraperOnlinePhone !== null && (
               <p className="scraper-offline">
                 Webscraper offline — start it at localhost:8788 to enable live load.
               </p>
             )}
           </div>
+
+          {/* ── Current Scraped Config ────────────────── */}
+          {scraperDevice && (
+            <div className="current-config-panel">
+              <div className="current-config-header">
+                <span className="current-config-title">Current Scraped Config</span>
+                {loadedDeviceMeta && (
+                  <div className="current-config-meta">
+                    <span className="current-config-meta-item"><b>Device:</b> {loadedDeviceMeta.directoryName || loadedDeviceMeta.deviceId}</span>
+                    <span className="current-config-meta-sep">·</span>
+                    <span className="current-config-meta-item"><b>Ext:</b> {loadedDeviceMeta.extension || '—'}</span>
+                    <span className="current-config-meta-sep">·</span>
+                    <span className="current-config-meta-item"><b>Model:</b> {loadedDeviceMeta.make} {loadedDeviceMeta.model}</span>
+                    {loadedDeviceMeta.mac && (
+                      <>
+                        <span className="current-config-meta-sep">·</span>
+                        <span className="current-config-meta-item"><b>MAC:</b> {loadedDeviceMeta.mac}</span>
+                      </>
+                    )}
+                    {(() => {
+                      const dev = scraperDevices.find(d => d.device_id === scraperDevice);
+                      return dev && (dev as unknown as Record<string, string>)['last_seen_utc'] ? (
+                        <>
+                          <span className="current-config-meta-sep">·</span>
+                          <span className="current-config-meta-item"><b>Last scraped:</b> {(dev as unknown as Record<string, string>)['last_seen_utc'].replace('T', ' ').replace('Z', ' UTC')}</span>
+                        </>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {currentConfigLoading && (
+                <p className="current-config-loading">Loading config…</p>
+              )}
+              {currentConfigError && !currentConfigLoading && (
+                <p className="current-config-error">{currentConfigError}</p>
+              )}
+              {!currentConfigLoading && !currentConfigError && scraperLiveConfig && (
+                <>
+                  {currentConfigParsed && currentConfigParsed.unparsedCount > 0 && (
+                    <p className="current-config-warning">
+                      ⚠ {currentConfigParsed.unparsedCount} line{currentConfigParsed.unparsedCount !== 1 ? 's' : ''} in this config are not mapped to editable fields — they will be preserved as-is.
+                    </p>
+                  )}
+                  <textarea
+                    className="current-config-textarea"
+                    readOnly
+                    rows={12}
+                    value={scraperLiveConfig}
+                    title="Current scraped config for selected device"
+                  />
+                  <div className="current-config-actions">
+                    <button
+                      type="button"
+                      className="current-config-load-btn"
+                      onClick={loadCurrentConfigIntoForm}
+                      title="Map known config values into the generator form fields below"
+                    >
+                      ↓ Load Current Config Into Form
+                    </button>
+                    {configMode === 'edit' && (
+                      <button
+                        type="button"
+                        className="scraper-reset-btn"
+                        onClick={resetToLoaded}
+                        title="Reset form fields back to what was loaded from this config"
+                      >
+                        ↺ Reset to loaded
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {/* Base Config Options Form */}
           <div className="form-section">
             <h3>Base Config Options</h3>

@@ -262,15 +262,56 @@ def _extract_bulk_config_from_html(html: str) -> str:
     return ""
 
 
-def _capture_bulk_config(driver: Any, edit_url: str) -> str:
-    """Selenium fallback: navigate to edit page, click Bulk Attribute Edit, return config.
+def _read_textarea_value(driver: Any, ta: Any) -> str:
+    """Read the current value of a textarea element.
 
-    Only used when the HTTP/HTML path fails to find config text.
-    The button is: <button id="bulk_attrib_edit" class="bulk_attrib_edit">Bulk Attribute Edit</button>
+    Uses JavaScript first (bypasses Selenium's visibility/stale checks) then falls
+    back to get_attribute('value') and .text in order.
+    """
+    try:
+        val = driver.execute_script("return arguments[0].value", ta) or ""
+        if val.strip():
+            return val.strip()
+    except Exception:
+        pass
+    try:
+        val = ta.get_attribute("value") or ""
+        if val.strip():
+            return val.strip()
+    except Exception:
+        pass
+    try:
+        return (ta.text or "").strip()
+    except Exception:
+        return ""
+
+
+def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str:
+    """Navigate to the edit_device page and extract the Bulk Attribute Config text.
+
+    Strategy:
+      1. Navigate to edit_url and try static HTML extraction first (fast, no clicking).
+         The textarea is often pre-rendered in the DOM even before the modal opens.
+      2. If the HTML parse returns empty, find and click the 'Bulk Attribute Edit'
+         button to open the jQuery UI dialog.
+      3. Wait (with a separate try/except) for a textarea to become populated.
+      4. Read all textareas via JavaScript — first pass: visible textareas only;
+         second pass: any textarea with content (handles opacity-transition modals).
+
+    DOM assumption: button has id="bulk_attrib_edit" (most reliable selector).
+
+    CRITICAL BUG FIXED: previously the extraction loop was INSIDE the same try block
+    as the WebDriverWait. When the wait raised TimeoutException the extraction loop
+    was silently skipped and config_text remained "". The wait and extraction are now
+    in separate try blocks so a timeout still allows the read attempt.
     """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.support.ui import WebDriverWait
+
+    def _log(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
 
     driver.get(edit_url)
 
@@ -279,8 +320,20 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
             EC.presence_of_element_located((By.TAG_NAME, "form"))
         )
     except Exception:
+        _log(f"bulk_config_no_form url={edit_url[:80]}")
         return ""
 
+    # ── Step 1: try static HTML extraction before clicking anything ────────────
+    # The textarea is often pre-rendered in the hidden jQuery UI dialog DOM with
+    # its content already set server-side, so we can read it without opening the modal.
+    config_text = _extract_bulk_config_from_html(driver.page_source)
+    if config_text:
+        _log(f"bulk_config_from_html len={len(config_text)}")
+        return config_text
+
+    # ── Step 2: find the Bulk Attribute Edit button ────────────────────────────
+    # DOM assumption: id="bulk_attrib_edit" is the primary selector; class and
+    # name attributes are secondary fallbacks added by some FreePBX versions.
     bulk_btn = None
     for selector in ["#bulk_attrib_edit", ".bulk_attrib_edit", "button[name='bulk_attrib_edit']"]:
         els = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -296,38 +349,83 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
                 " | //input[@value='Bulk Attribute Edit']",
             )
         except Exception:
+            _log("bulk_config_btn_not_found")
             return ""
 
     try:
-        bulk_btn.click()
-    except Exception:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", bulk_btn)
+        time.sleep(0.4)
+        try:
+            bulk_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", bulk_btn)
+    except Exception as exc:
+        _log(f"bulk_config_click_failed err={exc}")
         return ""
 
-    # Wait for a visible textarea that has content — the textarea exists in the DOM
-    # before the modal opens but is empty/hidden until the button is clicked.
-    config_text = ""
+    # ── Step 3: wait for a textarea to be populated ────────────────────────────
+    # NOTE: This wait is in its OWN try block. A TimeoutException here must NOT
+    # prevent the extraction attempt in Step 4 — the modal may be fully populated
+    # even if the wait condition never returned True (e.g. due to a stale element
+    # reference mid-iteration in the lambda).
+    # We use execute_script to read .value inside the lambda to avoid StaleElement
+    # exceptions that can fire when the DOM updates during iteration.
     try:
-        WebDriverWait(driver, 8).until(
+        WebDriverWait(driver, 10).until(
             lambda d: any(
-                ta.is_displayed() and (ta.get_attribute("value") or ta.text or "").strip()
+                (d.execute_script("return arguments[0].value", ta) or "").strip()
                 for ta in d.find_elements(By.CSS_SELECTOR, "textarea")
             )
         )
-        for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
-            if ta.is_displayed():
-                config_text = (ta.get_attribute("value") or ta.text or "").strip()
-                if config_text:
-                    break
     except Exception:
-        pass
+        # Timeout or stale element — fall through and attempt extraction anyway
+        _log("bulk_config_wait_timeout — attempting read anyway")
 
+    # ── Step 4: read textarea value ────────────────────────────────────────────
+    # Two-pass approach:
+    #   Pass 1 — visible textareas only (the modal textarea should be visible now)
+    #   Pass 2 — all textareas via JS (catches opacity/transform-hidden modals where
+    #             is_displayed() returns False despite the dialog being "open")
+    config_text = ""
+
+    # Pass 1: visible textareas (most precise — excludes pre-rendered hidden fields)
+    for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
+        try:
+            if not ta.is_displayed():
+                continue
+            val = _read_textarea_value(driver, ta)
+            if val:
+                config_text = val
+                _log(f"bulk_config_pass1_visible len={len(val)}")
+                break
+        except Exception:
+            continue
+
+    # Pass 2: any textarea with content (fallback for non-standard modal display)
+    if not config_text:
+        for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
+            try:
+                val = _read_textarea_value(driver, ta)
+                if val and len(val) >= 10:
+                    config_text = val
+                    _log(f"bulk_config_pass2_any len={len(val)}")
+                    break
+            except Exception:
+                continue
+
+    _log(
+        f"bulk_config_result len={len(config_text)} "
+        f"preview={config_text[:80]!r}"
+    )
+
+    # Close the modal so the page is clean for the next device
     try:
         cancel = driver.find_element(
             By.XPATH,
             "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
         )
         cancel.click()
-        time.sleep(0.2)
+        time.sleep(0.3)
     except Exception:
         pass
 
@@ -501,9 +599,35 @@ def fetch_device_configs(
             handle_records: list[dict[str, str]] = []
             for dev_idx, device in enumerate(devices):
                 name = device.get("directory_name") or device["device_id"]
-                _emit(f"[{vpbx_idx + 1}/{total}] {handle} device {dev_idx + 1}/{len(devices)}: {name}")
-                config_text = _capture_bulk_config(driver, device["edit_url"])
+                device_id = device["device_id"]
+                _emit(
+                    f"[{vpbx_idx + 1}/{total}] {handle} "
+                    f"device {dev_idx + 1}/{len(devices)}: {name} (id={device_id})"
+                )
+
+                # Pass emit_fn so _capture_bulk_config logs each sub-step
+                config_text = _capture_bulk_config(driver, device["edit_url"], emit_fn=emit_fn)
+
+                # Validation: configs shorter than 20 chars are almost certainly noise
+                # (e.g. a stray textarea with a button label). Log and discard them so
+                # they don't overwrite a previously saved real config.
+                if config_text and len(config_text) < 20:
+                    _emit(
+                        f"bulk_config_too_short handle={handle} device={device_id} "
+                        f"len={len(config_text)} val={config_text!r} — discarding"
+                    )
+                    config_text = ""
+
+                now = _iso_now()
                 device["bulk_config"] = config_text
+                device["config_status"] = "ok" if config_text else "empty"
+                device["config_length"] = str(len(config_text))
+                device["config_scraped_utc"] = now
+
+                _emit(
+                    f"bulk_config_saved handle={handle} device={device_id} "
+                    f"status={device['config_status']} len={len(config_text)}"
+                )
                 handle_records.append(device)
 
             all_records.extend(handle_records)
