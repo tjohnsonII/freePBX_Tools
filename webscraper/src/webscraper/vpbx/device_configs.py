@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _iso_now() -> str:
@@ -282,10 +285,12 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
         return ""
 
     bulk_btn = None
+    selector_used = ""
     for selector in ["#bulk_attrib_edit", ".bulk_attrib_edit", "button[name='bulk_attrib_edit']"]:
         els = driver.find_elements(By.CSS_SELECTOR, selector)
         if els:
             bulk_btn = els[0]
+            selector_used = selector
             break
 
     if not bulk_btn:
@@ -295,6 +300,7 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
                 "//button[contains(normalize-space(),'Bulk Attribute Edit')]"
                 " | //input[@value='Bulk Attribute Edit']",
             )
+            selector_used = "xpath:Bulk Attribute Edit"
         except Exception:
             return ""
 
@@ -303,11 +309,13 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     except Exception:
         return ""
 
-    # Wait for a visible textarea that has content — the textarea exists in the DOM
-    # before the modal opens but is empty/hidden until the button is clicked.
+    LOGGER.info("bulk_config_opened edit_url=%s selector=%s", edit_url, selector_used or "unknown")
+
+    # Wait for a visible textarea that has content — the textarea may exist in the DOM
+    # before the modal opens but can be empty/hidden until the button is clicked.
     config_text = ""
     try:
-        WebDriverWait(driver, 8).until(
+        WebDriverWait(driver, 12).until(
             lambda d: any(
                 ta.is_displayed() and (ta.get_attribute("value") or ta.text or "").strip()
                 for ta in d.find_elements(By.CSS_SELECTOR, "textarea")
@@ -321,6 +329,34 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     except Exception:
         pass
 
+    # Some deployments render in an iframe-backed editor; probe frames as fallback.
+    if not config_text:
+        try:
+            frames = driver.find_elements(By.CSS_SELECTOR, "iframe")
+            for idx, _frame in enumerate(frames):
+                driver.switch_to.frame(idx)
+                try:
+                    for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
+                        text = (ta.get_attribute("value") or ta.text or "").strip()
+                        if text:
+                            config_text = text
+                            selector_used = f"{selector_used}|iframe[{idx}] textarea"
+                            break
+                    if config_text:
+                        break
+                    for pre in driver.find_elements(By.CSS_SELECTOR, "pre, code"):
+                        text = (pre.text or "").strip()
+                        if text and "=" in text:
+                            config_text = text
+                            selector_used = f"{selector_used}|iframe[{idx}] pre/code"
+                            break
+                    if config_text:
+                        break
+                finally:
+                    driver.switch_to.default_content()
+        except Exception:
+            driver.switch_to.default_content()
+
     try:
         cancel = driver.find_element(
             By.XPATH,
@@ -331,6 +367,13 @@ def _capture_bulk_config(driver: Any, edit_url: str) -> str:
     except Exception:
         pass
 
+    LOGGER.info(
+        "bulk_config_capture_done edit_url=%s selector=%s length=%s sample=%r",
+        edit_url,
+        selector_used or "unknown",
+        len(config_text.strip()),
+        config_text.strip().replace("\n", "\\n")[:120],
+    )
     return config_text.strip()
 
 
@@ -504,6 +547,15 @@ def fetch_device_configs(
                 _emit(f"[{vpbx_idx + 1}/{total}] {handle} device {dev_idx + 1}/{len(devices)}: {name}")
                 config_text = _capture_bulk_config(driver, device["edit_url"])
                 device["bulk_config"] = config_text
+                LOGGER.info(
+                    "device_config_scraped handle=%s device_id=%s extension=%s mac=%s length=%s sample=%r",
+                    handle,
+                    device.get("device_id", ""),
+                    device.get("extension", ""),
+                    device.get("mac", ""),
+                    len((config_text or "").strip()),
+                    (config_text or "").strip().replace("\n", "\\n")[:120],
+                )
                 handle_records.append(device)
 
             all_records.extend(handle_records)
@@ -624,12 +676,21 @@ def fetch_site_configs(
 
             config_text = _capture_site_config(driver, detail_url)
             _emit(f"site_config_done handle={handle} lines={len(config_text.splitlines())}")
+            LOGGER.info(
+                "site_config_scraped handle=%s vpbx_id=%s length=%s sample=%r",
+                handle,
+                vpbx_id,
+                len((config_text or "").strip()),
+                (config_text or "").strip().replace("\n", "\\n")[:120],
+            )
 
             record = {
                 "vpbx_id": vpbx_id,
                 "handle": handle,
                 "detail_url": detail_url,
                 "site_config": config_text,
+                "site_config_raw": config_text,
+                "company_id": vpbx_id,
                 "last_seen_utc": _iso_now(),
             }
             all_records.append(record)

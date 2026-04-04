@@ -304,6 +304,24 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS vpbx_site_configs (
+                    company_id TEXT NOT NULL,
+                    handle TEXT,
+                    company_name TEXT,
+                    detail_url TEXT,
+                    site_config_raw TEXT,
+                    scraped_at TEXT,
+                    config_length INTEGER,
+                    status TEXT,
+                    error TEXT,
+                    PRIMARY KEY (company_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_vpbx_site_handle ON vpbx_site_configs(handle);
+                """
+            )
+
             auth_cookie_columns = table_columns(conn, "auth_cookies")
             if "expires" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN expires INTEGER")
@@ -1098,7 +1116,10 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         make=excluded.make,
                         model=excluded.model,
                         site_code=excluded.site_code,
-                        bulk_config=excluded.bulk_config,
+                        bulk_config=CASE
+                            WHEN LENGTH(TRIM(excluded.bulk_config)) > 0 THEN excluded.bulk_config
+                            ELSE vpbx_device_configs.bulk_config
+                        END,
                         last_seen_utc=excluded.last_seen_utc
                     """,
                     (
@@ -1112,6 +1133,78 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         rec.get("site_code") or "",
                         rec.get("bulk_config") or "",
                         rec.get("last_seen_utc") or now_utc,
+                    ),
+                )
+    return len(records)
+
+
+def list_vpbx_site_configs(
+    db_path: str,
+    *,
+    handle: str | None = None,
+    company_id: str | None = None,
+) -> list[dict[str, Any]]:
+    q = "SELECT * FROM vpbx_site_configs"
+    params: list[Any] = []
+    conditions: list[str] = []
+    if company_id:
+        conditions.append("company_id=?")
+        params.append(company_id)
+    if handle:
+        conditions.append("handle=?")
+        params.append(handle.upper())
+    if conditions:
+        q += " WHERE " + " AND ".join(conditions)
+    q += " ORDER BY handle ASC, company_id ASC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                company_id = (rec.get("company_id") or rec.get("vpbx_id") or "").strip()
+                if not company_id:
+                    continue
+                site_config_raw = (rec.get("site_config_raw") or rec.get("site_config") or "").strip()
+                config_length = len(site_config_raw)
+                status = (rec.get("status") or ("ok" if site_config_raw else "empty")).strip()
+                conn.execute(
+                    """
+                    INSERT INTO vpbx_site_configs
+                        (company_id, handle, company_name, detail_url, site_config_raw,
+                         scraped_at, config_length, status, error)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(company_id) DO UPDATE SET
+                        handle=excluded.handle,
+                        company_name=excluded.company_name,
+                        detail_url=excluded.detail_url,
+                        site_config_raw=CASE
+                            WHEN LENGTH(TRIM(excluded.site_config_raw)) > 0 THEN excluded.site_config_raw
+                            ELSE vpbx_site_configs.site_config_raw
+                        END,
+                        scraped_at=excluded.scraped_at,
+                        config_length=CASE
+                            WHEN LENGTH(TRIM(excluded.site_config_raw)) > 0 THEN excluded.config_length
+                            ELSE vpbx_site_configs.config_length
+                        END,
+                        status=excluded.status,
+                        error=excluded.error
+                    """,
+                    (
+                        company_id,
+                        (rec.get("handle") or "").upper(),
+                        rec.get("company_name") or "",
+                        rec.get("detail_url") or "",
+                        site_config_raw,
+                        rec.get("scraped_at") or rec.get("last_seen_utc") or now_utc,
+                        config_length,
+                        status,
+                        rec.get("error") or "",
                     ),
                 )
     return len(records)
