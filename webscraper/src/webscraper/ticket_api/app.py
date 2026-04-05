@@ -1510,14 +1510,17 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
             _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
 
         # Build device-level existing config dict for comparison inside fetch_device_configs.
-        # Keyed by (device_id, vpbx_id) → stored bulk_config text.
-        # The scraper will visit every handle and every device; after scraping it
-        # compares normalized configs and only writes to DB when something changed.
-        # Handle-level skip is intentionally removed — it was the root cause of blank
-        # rows being treated as "done" and never backfilled.
+        # Keyed by (device_id, vpbx_id) → concatenation of all four stored config fields.
+        # The scraper concatenates scraped fields in the same order and compares normalized
+        # text; any change in any field triggers a DB write.
         existing = db.list_vpbx_device_configs(db_path())
         existing_configs: dict[tuple[str, str], str] = {
-            (str(_r["device_id"]), str(_r["vpbx_id"])): (_r.get("bulk_config") or "")
+            (str(_r["device_id"]), str(_r["vpbx_id"])): "\n".join([
+                _r.get("device_properties") or "",
+                _r.get("arbitrary_attributes") or "",
+                _r.get("bulk_config") or "",
+                _r.get("view_config") or "",
+            ])
             for _r in existing
             if _r.get("device_id") and _r.get("vpbx_id")
         }

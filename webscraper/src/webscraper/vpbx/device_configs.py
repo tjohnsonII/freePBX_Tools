@@ -241,83 +241,294 @@ def _parse_device_rows(page_source: str, base_url: str, vpbx_id: str, handle: st
     return devices
 
 
-def _extract_bulk_config_from_html(html: str) -> str:
-    """Parse the bulk attribute config out of an edit_device page without browser interaction.
+def _js_extract_device_properties(driver: Any) -> str:
+    """Use JavaScript on the live Selenium DOM to extract Device Properties.
 
-    The edit_device form contains a hidden/visible textarea whose value is what the
-    Bulk Attribute Edit modal shows. We try the most common names/ids first, then fall
-    back to any textarea whose content looks like key=value config lines.
+    Reads directly from the rendered page — no BeautifulSoup, no timing issues.
+    Detection: find the first table whose header th contains "device" but NOT
+    "arbitrary". Within that table each data row has <th>Label</th><td>value</td>.
+    Returns key=value lines prefixed "device.", empty string if not found.
     """
-    from bs4 import BeautifulSoup
+    return driver.execute_script(
+        r"""
+        var lines = [];
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var tbl = tables[t];
+            var ths = tbl.querySelectorAll('th');
+            var hdrText = '';
+            for (var i = 0; i < ths.length; i++) {
+                hdrText += ' ' + ths[i].textContent.toLowerCase();
+            }
+            // Must mention "device" (Device Properties heading) but not "arbitrary"
+            if (hdrText.indexOf('arbitrary') >= 0) continue;
+            if (hdrText.indexOf('device') < 0) continue;
 
-    soup = BeautifulSoup(html, "lxml")
+            var rows = tbl.querySelectorAll('tr');
+            for (var r = 0; r < rows.length; r++) {
+                var th = rows[r].querySelector('th');
+                var td = rows[r].querySelector('td');
+                if (!th || !td) continue;
+                var label = th.textContent.trim();
+                if (!label) continue;
+                var key = 'device.' + label.toLowerCase().replace(/\s+/g, '_');
 
-    # Try known textarea ids/names for the options field
-    for sel in [
-        "textarea[name='options']",
-        "textarea#options",
-        "textarea[name='bulk_options']",
-        "textarea#bulk_options",
-        "textarea[name='attrib']",
-        "textarea[name='bulk_attrib']",
-    ]:
-        el = soup.select_one(sel)
-        if el:
-            text = (el.get("value") or el.get_text() or "").strip()
-            if text:
-                return text
+                // Checkboxes — one line per checkbox
+                var cbs = td.querySelectorAll('input[type="checkbox"]');
+                if (cbs.length > 0) {
+                    for (var c = 0; c < cbs.length; c++) {
+                        var cbLabel = '';
+                        var n = cbs[c].nextSibling;
+                        while (n) {
+                            var txt = n.textContent ? n.textContent.trim() : '';
+                            if (txt) { cbLabel = txt; break; }
+                            n = n.nextSibling;
+                        }
+                        if (!cbLabel) cbLabel = cbs[c].name || 'option';
+                        var cbKey = key + '.' + cbLabel.toLowerCase().replace(/\s+/g, '_').replace(/:$/, '');
+                        lines.push(cbKey + '=' + (cbs[c].checked ? 'true' : 'false'));
+                    }
+                    continue;
+                }
 
-    # Fallback: any textarea whose content looks like key=value config lines
-    for ta in soup.find_all("textarea"):
-        text = (ta.get("value") or ta.get_text() or "").strip()
-        if text and "=" in text and "\n" in text:
-            return text
+                // Select dropdowns
+                var sel = td.querySelector('select');
+                if (sel) {
+                    var opt = sel.options[sel.selectedIndex];
+                    lines.push(key + '=' + (opt ? opt.text.trim() : ''));
+                    continue;
+                }
 
-    return ""
+                // Text/number inputs (skip hidden/submit/button/checkbox)
+                var inp = td.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"])');
+                if (inp) {
+                    lines.push(key + '=' + inp.value.trim());
+                    continue;
+                }
+
+                // Static text (read-only cells: Device ID, Make, Model)
+                var val = td.textContent.trim();
+                if (val) lines.push(key + '=' + val);
+            }
+            break;  // only first matching table
+        }
+        return lines.join('\n');
+        """
+    ) or ""
 
 
-def _read_textarea_value(driver: Any, ta: Any) -> str:
-    """Read the current value of a textarea element.
+def _js_extract_arbitrary_attributes(driver: Any) -> str:
+    """Use JavaScript on the live Selenium DOM to extract Arbitrary Attributes.
 
-    Uses JavaScript first (bypasses Selenium's visibility/stale checks) then falls
-    back to get_attribute('value') and .text in order.
+    Strategy 1 — named inputs whose name contains 'attrib_key'/'attrib_val'.
+    Strategy 2 — table whose header contains 'arbitrary', read key/value column pairs.
+    Returns key=value lines, empty string if none configured.
     """
+    return driver.execute_script(
+        r"""
+        var lines = [];
+
+        // Strategy 1: inputs named attrib_key*/attrib_val*
+        var kEls = document.querySelectorAll('input[name*="attrib_key"], textarea[name*="attrib_key"]');
+        var vEls = document.querySelectorAll('input[name*="attrib_val"], textarea[name*="attrib_val"]');
+        if (kEls.length > 0) {
+            var n = Math.min(kEls.length, vEls.length);
+            for (var i = 0; i < n; i++) {
+                var k = kEls[i].value.trim();
+                var v = vEls[i] ? vEls[i].value.trim() : '';
+                if (k) lines.push(k + '=' + v);
+            }
+            if (lines.length > 0) return lines.join('\n');
+        }
+
+        // Strategy 2: table with "arbitrary" in header
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var tbl = tables[t];
+            var ths = tbl.querySelectorAll('th');
+            var hasArb = false;
+            for (var i = 0; i < ths.length; i++) {
+                if (ths[i].textContent.toLowerCase().indexOf('arbitrary') >= 0) {
+                    hasArb = true; break;
+                }
+            }
+            if (!hasArb) continue;
+
+            // Find key/value column indices from first row with 2+ ths
+            var keyIdx = 0, valIdx = 1;
+            var headerRows = tbl.querySelectorAll('tr');
+            for (var r = 0; r < headerRows.length; r++) {
+                var hths = headerRows[r].querySelectorAll('th');
+                if (hths.length >= 2) {
+                    for (var h = 0; h < hths.length; h++) {
+                        var ht = hths[h].textContent.toLowerCase();
+                        if (ht.indexOf('key') >= 0) keyIdx = h;
+                        else if (ht.indexOf('value') >= 0) valIdx = h;
+                    }
+                    break;
+                }
+            }
+
+            var rows = tbl.querySelectorAll('tr');
+            for (var r = 0; r < rows.length; r++) {
+                var cells = rows[r].querySelectorAll('td');
+                if (cells.length <= Math.max(keyIdx, valIdx)) continue;
+                var kInp = cells[keyIdx].querySelector('input, textarea');
+                var vInp = cells[valIdx] ? cells[valIdx].querySelector('input, textarea') : null;
+                if (!kInp) continue;
+                var k = kInp.value.trim();
+                var v = vInp ? vInp.value.trim() : '';
+                if (k) lines.push(k + '=' + v);
+            }
+            break;
+        }
+        return lines.join('\n');
+        """
+    ) or ""
+
+
+def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
+    """Read textarea/Ace/pre content from an open modal dialog.
+
+    Looks specifically inside jQuery UI dialog containers (.ui-dialog-content,
+    .ui-dialog) and Bootstrap modal containers (.modal.show, .modal-body) first,
+    then falls back to any visible textarea on the page. This prevents stray
+    form textareas on the main page from being mistaken for modal content.
+    """
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    def _log(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
+
+    # Wait for a modal dialog to appear with content in a textarea or pre
     try:
-        val = driver.execute_script("return arguments[0].value", ta) or ""
-        if val.strip():
-            return val.strip()
+        WebDriverWait(driver, 10).until(lambda d: d.execute_script(
+            r"""
+            // jQuery UI dialog
+            var dlg = document.querySelector('.ui-dialog-content, .ui-dialog');
+            if (dlg) {
+                var ta = dlg.querySelector('textarea');
+                if (ta && ta.value && ta.value.trim().length > 0) return true;
+                var pre = dlg.querySelector('pre');
+                if (pre && pre.textContent && pre.textContent.trim().length > 5) return true;
+            }
+            // Bootstrap modal
+            var modal = document.querySelector('.modal.show .modal-body, .modal.in .modal-body');
+            if (modal) {
+                var ta = modal.querySelector('textarea');
+                if (ta && ta.value && ta.value.trim().length > 0) return true;
+            }
+            // Ace editors visible inside any dialog-like container
+            var aces = document.querySelectorAll('.ui-dialog .ace_editor, .modal .ace_editor');
+            for (var i = 0; i < aces.length; i++) {
+                try {
+                    var v = window.ace.edit(aces[i]).getValue();
+                    if (v && v.trim().length > 0) return true;
+                } catch(e) {}
+            }
+            return false;
+            """
+        ))
+    except Exception:
+        _log(f"{label}_modal_wait_timeout")
+
+    text = driver.execute_script(
+        r"""
+        // Priority 1: jQuery UI dialog textarea
+        var dlg = document.querySelector('.ui-dialog-content, .ui-dialog');
+        if (dlg) {
+            var ta = dlg.querySelector('textarea');
+            if (ta && ta.value && ta.value.trim()) return ta.value.trim();
+            var pre = dlg.querySelector('pre');
+            if (pre && pre.textContent && pre.textContent.trim().length > 5)
+                return pre.textContent.trim();
+        }
+
+        // Priority 2: Bootstrap modal body textarea
+        var modal = document.querySelector('.modal.show .modal-body, .modal.in .modal-body');
+        if (modal) {
+            var ta = modal.querySelector('textarea');
+            if (ta && ta.value && ta.value.trim()) return ta.value.trim();
+            var pre = modal.querySelector('pre');
+            if (pre && pre.textContent && pre.textContent.trim().length > 5)
+                return pre.textContent.trim();
+        }
+
+        // Priority 3: Ace editor inside any dialog-like container
+        var aces = document.querySelectorAll('.ui-dialog .ace_editor, .modal .ace_editor');
+        for (var i = 0; i < aces.length; i++) {
+            try {
+                var v = window.ace.edit(aces[i]).getValue();
+                if (v && v.trim()) return v.trim();
+            } catch(e) {}
+        }
+
+        // Priority 4: Any visible textarea that is NOT inside the main form's
+        // static field group (heuristic: skip textareas with short content <50 chars
+        // unless there's really nothing else, to avoid capturing stray form fields)
+        var textareas = document.querySelectorAll('textarea');
+        var best = '';
+        for (var i = 0; i < textareas.length; i++) {
+            var v = textareas[i].value ? textareas[i].value.trim() : '';
+            if (!v) continue;
+            var rect = textareas[i].getBoundingClientRect();
+            var visible = rect.width > 0 && rect.height > 0;
+            if (visible && v.length > best.length) best = v;
+        }
+        return best || '';
+        """
+    ) or ""
+
+    if text:
+        _log(f"{label}_captured len={len(text)}")
+    else:
+        _log(f"{label}_empty")
+    return text.strip()
+
+
+def _close_modal(driver: Any) -> None:
+    """Click Cancel/Close to dismiss the open modal."""
+    from selenium.webdriver.common.by import By
+    try:
+        driver.execute_script(
+            r"""
+            // Try jQuery UI dialog close button first
+            var closeBtn = document.querySelector('.ui-dialog-titlebar-close, .ui-dialog .ui-button');
+            if (closeBtn) { closeBtn.click(); return; }
+            // Bootstrap modal dismiss
+            var dismiss = document.querySelector('[data-dismiss="modal"], .modal .close');
+            if (dismiss) { dismiss.click(); return; }
+            """
+        )
+        time.sleep(0.2)
     except Exception:
         pass
     try:
-        val = ta.get_attribute("value") or ""
-        if val.strip():
-            return val.strip()
+        from selenium.webdriver.common.by import By
+        cancel = driver.find_element(
+            By.XPATH,
+            "//button[normalize-space()='Cancel'] | //button[normalize-space()='Close']"
+            " | //input[@value='Cancel'] | //input[@value='Close']",
+        )
+        cancel.click()
+        time.sleep(0.2)
     except Exception:
         pass
-    try:
-        return (ta.text or "").strip()
-    except Exception:
-        return ""
 
 
-def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str:
-    """Navigate to the edit_device page and extract the Bulk Attribute Config text.
+def _capture_device_page_data(driver: Any, edit_url: str, emit_fn: Any = None) -> dict:
+    """Navigate to the edit_device page and capture all four config fields.
 
-    Strategy:
-      1. Navigate to edit_url and try static HTML extraction first (fast, no clicking).
-         The textarea is often pre-rendered in the DOM even before the modal opens.
-      2. If the HTML parse returns empty, find and click the 'Bulk Attribute Edit'
-         button to open the jQuery UI dialog.
-      3. Wait (with a separate try/except) for a textarea to become populated.
-      4. Read all textareas via JavaScript — first pass: visible textareas only;
-         second pass: any textarea with content (handles opacity-transition modals).
+    Returns dict with keys:
+        device_properties    — key=value lines from Device Properties table
+        arbitrary_attributes — key=value lines from Arbitrary Attributes table
+        bulk_config          — text from Bulk Attribute Edit modal
+        view_config          — text/XML from View Config modal (empty if absent)
 
-    DOM assumption: button has id="bulk_attrib_edit" (most reliable selector).
-
-    CRITICAL BUG FIXED: previously the extraction loop was INSIDE the same try block
-    as the WebDriverWait. When the wait raised TimeoutException the extraction loop
-    was silently skipped and config_text remained "". The wait and extraction are now
-    in separate try blocks so a timeout still allows the read attempt.
+    All DOM reads use JavaScript on the live Selenium-rendered page so JS-rendered
+    content (attribute inputs, modal dialogs) is always visible.
     """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support import expected_conditions as EC
@@ -327,41 +538,43 @@ def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str
         if emit_fn:
             emit_fn(msg)
 
-    driver.get(edit_url)
+    result = {
+        "device_properties": "",
+        "arbitrary_attributes": "",
+        "bulk_config": "",
+        "view_config": "",
+    }
 
+    driver.get(edit_url)
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "form"))
         )
+        # Extra pause for JS to finish rendering attribute inputs
+        time.sleep(0.5)
     except Exception:
-        _log(f"bulk_config_no_form url={edit_url[:80]}")
-        return ""
+        _log(f"edit_page_no_form url={edit_url[:80]}")
+        return result
 
-    # ── Step 1: try static HTML extraction before clicking anything ────────────
-    # The textarea is often pre-rendered in the hidden jQuery UI dialog DOM with
-    # its content already set server-side, so we can read it without opening the modal.
-    # IMPORTANT: only trust the static result if it has multiple lines (≥3 newlines).
-    # FreePBX forms often have individual attribute textareas (e.g. a single
-    # "reg.1.line.1.label=Ext. 112" field) that would match our selectors but only
-    # contain ONE config line. The full bulk config is only available after clicking
-    # the Bulk Attribute Edit button and reading the modal. A single-line hit here
-    # means we found a partial form field, not the complete config — fall through.
-    config_text = _extract_bulk_config_from_html(driver.page_source)
-    if config_text and config_text.count("\n") >= 3:
-        _log(f"bulk_config_from_html len={len(config_text)}")
-        return config_text
-    config_text = ""  # discard any short/single-line hit; proceed to button click
+    # ── Step 1: Device Properties (JS live DOM) ───────────────────────────────
+    dp = _js_extract_device_properties(driver)
+    result["device_properties"] = dp
+    dp_lines = dp.count("\n") + 1 if dp else 0
 
-    # ── Step 2: find the Bulk Attribute Edit button ────────────────────────────
-    # DOM assumption: id="bulk_attrib_edit" is the primary selector; class and
-    # name attributes are secondary fallbacks added by some FreePBX versions.
+    # ── Step 2: Arbitrary Attributes (JS live DOM) ────────────────────────────
+    aa = _js_extract_arbitrary_attributes(driver)
+    result["arbitrary_attributes"] = aa
+    aa_lines = aa.count("\n") + 1 if aa else 0
+
+    _log(f"edit_page_parsed dp_lines={dp_lines} aa_lines={aa_lines}")
+
+    # ── Step 3: Bulk Attribute Edit modal ─────────────────────────────────────
     bulk_btn = None
-    for selector in ["#bulk_attrib_edit", ".bulk_attrib_edit", "button[name='bulk_attrib_edit']"]:
-        els = driver.find_elements(By.CSS_SELECTOR, selector)
+    for sel in ["#bulk_attrib_edit", ".bulk_attrib_edit", "button[name='bulk_attrib_edit']"]:
+        els = driver.find_elements(By.CSS_SELECTOR, sel)
         if els:
             bulk_btn = els[0]
             break
-
     if not bulk_btn:
         try:
             bulk_btn = driver.find_element(
@@ -370,110 +583,61 @@ def _capture_bulk_config(driver: Any, edit_url: str, emit_fn: Any = None) -> str
                 " | //input[@value='Bulk Attribute Edit']",
             )
         except Exception:
-            _log("bulk_config_btn_not_found")
-            return ""
+            pass
 
-    try:
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", bulk_btn)
-        time.sleep(0.4)
+    if bulk_btn:
         try:
-            bulk_btn.click()
-        except Exception:
-            driver.execute_script("arguments[0].click();", bulk_btn)
-    except Exception as exc:
-        _log(f"bulk_config_click_failed err={exc}")
-        return ""
-
-    # ── Step 3: wait for a textarea to be populated ────────────────────────────
-    # NOTE: This wait is in its OWN try block. A TimeoutException here must NOT
-    # prevent the extraction attempt in Step 4 — the modal may be fully populated
-    # even if the wait condition never returned True (e.g. due to a stale element
-    # reference mid-iteration in the lambda).
-    # We use execute_script to read .value inside the lambda to avoid StaleElement
-    # exceptions that can fire when the DOM updates during iteration.
-    try:
-        WebDriverWait(driver, 10).until(
-            lambda d: any(
-                (d.execute_script("return arguments[0].value", ta) or "").strip()
-                for ta in d.find_elements(By.CSS_SELECTOR, "textarea")
-            )
-        )
-    except Exception:
-        # Timeout or stale element — fall through and attempt extraction anyway
-        _log("bulk_config_wait_timeout — attempting read anyway")
-
-    # ── Step 4: read textarea value ────────────────────────────────────────────
-    # Two-pass approach:
-    #   Pass 1 — visible textareas only (the modal textarea should be visible now)
-    #   Pass 2 — all textareas via JS (catches opacity/transform-hidden modals where
-    #             is_displayed() returns False despite the dialog being "open")
-    config_text = ""
-
-    # Pass 1: visible textareas (most precise — excludes pre-rendered hidden fields)
-    for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
-        try:
-            if not ta.is_displayed():
-                continue
-            val = _read_textarea_value(driver, ta)
-            if val:
-                config_text = val
-                _log(f"bulk_config_pass1_visible len={len(val)}")
-                break
-        except Exception:
-            continue
-
-    # Pass 2: any textarea with content (fallback for non-standard modal display)
-    if not config_text:
-        for ta in driver.find_elements(By.CSS_SELECTOR, "textarea"):
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", bulk_btn)
+            time.sleep(0.3)
             try:
-                val = _read_textarea_value(driver, ta)
-                if val and len(val) >= 10:
-                    config_text = val
-                    _log(f"bulk_config_pass2_any len={len(val)}")
-                    break
+                bulk_btn.click()
             except Exception:
-                continue
+                driver.execute_script("arguments[0].click();", bulk_btn)
+            bulk_text = _read_modal_textarea(driver, emit_fn, "bulk_config")
+            result["bulk_config"] = bulk_text
+            _close_modal(driver)
+            time.sleep(0.3)
+        except Exception as exc:
+            _log(f"bulk_config_click_failed err={exc}")
+    else:
+        _log("bulk_config_btn_not_found")
 
-    # Pass 3: Ace editor (some FreePBX pages render the config inside an Ace editor
-    #          div rather than a plain textarea — the textarea stays empty while the
-    #          visible content lives in the Ace model).
-    if not config_text:
+    # ── Step 4: View Config modal (best-effort) ───────────────────────────────
+    view_btn = None
+    for sel in ["#view_config", ".view_config", "#view_config_button", ".view_config_button"]:
+        els = driver.find_elements(By.CSS_SELECTOR, sel)
+        if els:
+            view_btn = els[0]
+            break
+    if not view_btn:
         try:
-            ace_value = driver.execute_script(
-                """
-                var editors = document.querySelectorAll('.ace_editor');
-                for (var i = 0; i < editors.length; i++) {
-                    try {
-                        var val = window.ace.edit(editors[i]).getValue();
-                        if (val && val.trim().length >= 10) return val.trim();
-                    } catch(e) {}
-                }
-                return '';
-                """
+            view_btn = driver.find_element(
+                By.XPATH,
+                "//button[contains(normalize-space(),'View Config')]"
+                " | //input[@value='View Config']"
+                " | //a[contains(normalize-space(),'View Config')]",
             )
-            if ace_value and ace_value.strip():
-                config_text = ace_value.strip()
-                _log(f"bulk_config_pass3_ace len={len(config_text)}")
         except Exception:
             pass
 
-    _log(
-        f"bulk_config_result len={len(config_text)} "
-        f"preview={config_text[:80]!r}"
-    )
+    if view_btn:
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", view_btn)
+            time.sleep(0.3)
+            try:
+                view_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", view_btn)
+            view_text = _read_modal_textarea(driver, emit_fn, "view_config")
+            result["view_config"] = view_text
+            _close_modal(driver)
+            time.sleep(0.3)
+        except Exception as exc:
+            _log(f"view_config_click_failed err={exc}")
+    else:
+        _log("view_config_btn_not_found")
 
-    # Close the modal so the page is clean for the next device
-    try:
-        cancel = driver.find_element(
-            By.XPATH,
-            "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
-        )
-        cancel.click()
-        time.sleep(0.3)
-    except Exception:
-        pass
-
-    return config_text.strip()
+    return result
 
 
 def _capture_site_config(driver: Any, detail_url: str) -> str:
@@ -649,40 +813,42 @@ def fetch_device_configs(
                     f"device {dev_idx + 1}/{len(devices)}: {name} (id={device_id})"
                 )
 
-                # Pass emit_fn so _capture_bulk_config logs each sub-step
-                config_text = _capture_bulk_config(driver, device["edit_url"], emit_fn=emit_fn)
+                # Capture all four config fields in a single page visit
+                data = _capture_device_page_data(driver, device["edit_url"], emit_fn=emit_fn)
 
-                # Validation: configs shorter than 20 chars are almost certainly noise
-                # (e.g. a stray textarea with a button label). Log and discard them so
-                # they don't overwrite a previously saved real config.
-                if config_text and len(config_text) < 20:
-                    _emit(
-                        f"bulk_config_too_short handle={handle} device={device_id} "
-                        f"len={len(config_text)} val={config_text!r} — discarding"
-                    )
-                    config_text = ""
+                dp = data["device_properties"]
+                aa = data["arbitrary_attributes"]
+                bulk = data["bulk_config"]
+                view = data["view_config"]
 
-                # Device-level comparison: skip DB write if scraped == stored (normalized).
-                # This is the ONLY valid reason to skip — not handle existence.
-                _stored_raw = (existing_configs or {}).get((device_id, vpbx_id), "")
-                _scraped_norm = normalize_bulk_config(config_text)
-                _stored_norm = normalize_bulk_config(_stored_raw)
-                if _scraped_norm and _stored_norm and _scraped_norm == _stored_norm:
+                # Device-level comparison: combine all four fields so any change
+                # in any field triggers a DB write.
+                # existing_configs values are pre-concatenated in the same order.
+                _scraped_combined = normalize_bulk_config(f"{dp}\n{aa}\n{bulk}\n{view}")
+                _stored_combined = normalize_bulk_config(
+                    (existing_configs or {}).get((device_id, vpbx_id), "")
+                )
+                if _scraped_combined and _stored_combined and _scraped_combined == _stored_combined:
                     _emit(
-                        f"bulk_config_unchanged handle={handle} device={device_id} "
-                        f"len={len(_scraped_norm)} — skipping DB write"
+                        f"device_config_unchanged handle={handle} device={device_id} "
+                        f"len={len(_scraped_combined)} — skipping DB write"
                     )
-                    continue  # Identical — no DB update needed for this device
+                    continue
 
                 now = _iso_now()
-                device["bulk_config"] = config_text
-                device["config_status"] = "ok" if config_text else "empty"
-                device["config_length"] = str(len(config_text))
+                device["device_properties"] = dp
+                device["arbitrary_attributes"] = aa
+                device["bulk_config"] = bulk
+                device["view_config"] = view
+                # config_status reflects whether we got any useful data at all
+                has_data = bool(dp or aa or bulk)
+                device["config_status"] = "ok" if has_data else "empty"
+                device["config_length"] = str(len(dp) + len(aa) + len(bulk))
                 device["config_scraped_utc"] = now
 
                 _emit(
-                    f"bulk_config_saved handle={handle} device={device_id} "
-                    f"status={device['config_status']} len={len(config_text)}"
+                    f"device_config_saved handle={handle} device={device_id} "
+                    f"dp={len(dp)} aa={len(aa)} bulk={len(bulk)} view={len(view)}"
                 )
                 handle_records.append(device)
 

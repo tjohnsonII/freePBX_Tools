@@ -280,7 +280,10 @@ def ensure_indexes(db_path: str) -> None:
                     make      TEXT,
                     model     TEXT,
                     site_code TEXT,
+                    device_properties TEXT,
+                    arbitrary_attributes TEXT,
                     bulk_config TEXT,
+                    view_config TEXT,
                     last_seen_utc TEXT,
                     config_scraped_utc TEXT,
                     config_status TEXT,
@@ -297,6 +300,9 @@ def ensure_indexes(db_path: str) -> None:
                 ("config_scraped_utc", "TEXT"),
                 ("config_status", "TEXT"),
                 ("config_length", "INTEGER"),
+                ("device_properties", "TEXT"),
+                ("arbitrary_attributes", "TEXT"),
+                ("view_config", "TEXT"),
             ]:
                 if col not in device_columns:
                     conn.execute(f"ALTER TABLE vpbx_device_configs ADD COLUMN {col} {ddl}")
@@ -1110,18 +1116,23 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                 if not device_id or not vpbx_id:
                     continue
 
+                dp = rec.get("device_properties") or ""
+                aa = rec.get("arbitrary_attributes") or ""
                 bulk_config = rec.get("bulk_config") or ""
-                config_status = rec.get("config_status") or ("ok" if bulk_config else "empty")
-                config_length = len(bulk_config) if bulk_config else 0
-                config_scraped_utc = rec.get("config_scraped_utc") or (now_utc if bulk_config else None)
+                view_config = rec.get("view_config") or ""
+                has_data = bool(dp or aa or bulk_config)
+                config_status = rec.get("config_status") or ("ok" if has_data else "empty")
+                config_length = len(dp) + len(aa) + len(bulk_config)
+                config_scraped_utc = rec.get("config_scraped_utc") or (now_utc if has_data else None)
 
                 conn.execute(
                     """
                     INSERT INTO vpbx_device_configs
                         (device_id, vpbx_id, handle, directory_name, extension, mac,
-                         make, model, site_code, bulk_config, last_seen_utc,
-                         config_scraped_utc, config_status, config_length)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         make, model, site_code,
+                         device_properties, arbitrary_attributes, bulk_config, view_config,
+                         last_seen_utc, config_scraped_utc, config_status, config_length)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(device_id, vpbx_id) DO UPDATE SET
                         handle=excluded.handle,
                         directory_name=excluded.directory_name,
@@ -1130,15 +1141,16 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         make=excluded.make,
                         model=excluded.model,
                         site_code=excluded.site_code,
-                        -- Only overwrite bulk_config when the new value is non-empty;
-                        -- this preserves a previously scraped config if a re-scrape
-                        -- comes back empty (e.g. modal failed to open).
+                        -- Only overwrite each config field when the new value is non-empty;
+                        -- this preserves previously scraped data if a re-scrape fails.
+                        device_properties=CASE WHEN excluded.device_properties != '' THEN excluded.device_properties ELSE device_properties END,
+                        arbitrary_attributes=CASE WHEN excluded.arbitrary_attributes != '' THEN excluded.arbitrary_attributes ELSE arbitrary_attributes END,
                         bulk_config=CASE WHEN excluded.bulk_config != '' THEN excluded.bulk_config ELSE bulk_config END,
+                        view_config=CASE WHEN excluded.view_config != '' THEN excluded.view_config ELSE view_config END,
                         last_seen_utc=excluded.last_seen_utc,
-                        -- Always update status columns so the UI reflects the latest attempt
                         config_scraped_utc=COALESCE(excluded.config_scraped_utc, config_scraped_utc),
                         config_status=excluded.config_status,
-                        config_length=CASE WHEN excluded.bulk_config != '' THEN excluded.config_length ELSE config_length END
+                        config_length=CASE WHEN (excluded.device_properties != '' OR excluded.arbitrary_attributes != '' OR excluded.bulk_config != '') THEN excluded.config_length ELSE config_length END
                     """,
                     (
                         device_id, vpbx_id,
@@ -1149,7 +1161,7 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                         rec.get("make") or "",
                         rec.get("model") or "",
                         rec.get("site_code") or "",
-                        bulk_config,
+                        dp, aa, bulk_config, view_config,
                         rec.get("last_seen_utc") or now_utc,
                         config_scraped_utc,
                         config_status,
