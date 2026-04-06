@@ -1,0 +1,165 @@
+.container {
+  max-width: 1200px;
+}
+
+.loadPanel {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.loadPanelHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.loadPanelTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.scraperBadge {
+  font-size: 12px;
+}
+
+.scraperChecking {
+  font-size: 12px;
+  color: #888;
+}
+
+.scraperOnline {
+  font-size: 12px;
+  color: #16794a;
+}
+
+.scraperOffline {
+  font-size: 12px;
+  color: #b42318;
+}
+
+.loadControls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.handleLabel {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.handleSelect {
+  min-width: 200px;
+  padding: 4px 8px;
+}
+
+.loadBtn {
+  padding: 4px 14px;
+}
+
+.statusOk {
+  font-size: 13px;
+  color: #16794a;
+}
+
+.statusErr {
+  font-size: 13px;
+  color: #b42318;
+}
+
+.loadHint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #555;
+}
+
+.csvControls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.csvLabel {
+  font-size: 13px;
+}
+
+.downloadLink {
+  display: none;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 900px;
+}
+
+.thead {
+  background: #f4f4f4;
+}
+
+.th {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.rowEven {
+  background: #fff;
+}
+
+.rowOdd {
+  background: #fafafa;
+}
+
+.tdCell {
+  padding: 2px;
+  border: 1px solid #eee;
+}
+
+.tdCenter {
+  padding: 2px;
+  border: 1px solid #eee;
+  text-align: center;
+}
+
+.cellInput {
+  padding: 2px 4px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+.cellInputWide {
+  width: 120px;
+  padding: 2px 4px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+.cellInputNarrow {
+  width: 80px;
+  padding: 2px 4px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+.deleteBtn {
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+}

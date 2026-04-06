@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Papa from 'papaparse';
+import styles from './VpbxImportTab.module.css';
 
 const SCRAPER_BASE = 'http://localhost:8788';
 
@@ -17,6 +18,7 @@ type VpbxRecord = { handle: string; name: string; account_status: string; ip: st
 type DeviceConfig = {
   device_id: string; handle: string; directory_name: string; extension: string;
   mac: string; make: string; model: string; site_code: string; bulk_config: string;
+  view_config: string; arbitrary_attributes: string;
 };
 
 const createEmpty = (): VpbxRow =>
@@ -31,8 +33,12 @@ function parseBulkConfig(raw: string): Record<string, string> {
   return out;
 }
 
+function bestConfig(d: DeviceConfig): string {
+  return d.view_config || d.arbitrary_attributes || d.bulk_config || '';
+}
+
 function deviceToRow(d: DeviceConfig): VpbxRow {
-  const cfg = parseBulkConfig(d.bulk_config || '');
+  const cfg = parseBulkConfig(bestConfig(d));
   const row = createEmpty();
   row.mac = d.mac || '';
   row.model = d.model || '';
@@ -53,7 +59,6 @@ export default function VpbxImportTab() {
   const [scraperOnline, setScraperOnline] = useState<boolean | null>(null);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
-  // Check scraper connectivity + load handles
   useEffect(() => {
     fetch(`${SCRAPER_BASE}/api/vpbx/records`, { signal: AbortSignal.timeout(3000) })
       .then(r => r.json())
@@ -125,30 +130,33 @@ export default function VpbxImportTab() {
     }
   }
 
-  const scraperBadge = scraperOnline === null
-    ? { text: 'checking…', color: '#888' }
+  const scraperBadgeClass = scraperOnline === null
+    ? styles.scraperChecking
+    : scraperOnline ? styles.scraperOnline : styles.scraperOffline;
+  const scraperText = scraperOnline === null
+    ? 'checking…'
     : scraperOnline
-      ? { text: '● Webscraper connected', color: '#16794a' }
-      : { text: '○ Webscraper offline (localhost:8788)', color: '#b42318' };
+      ? '● Webscraper connected'
+      : '○ Webscraper offline (localhost:8788)';
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div className={styles.container}>
       <h2>VPBX Import</h2>
 
       {/* Live Load Panel */}
-      <div style={{ background: '#f7fbff', border: '1px solid #cce1fa', borderRadius: 8, padding: 16, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: 14 }}>Load from 123NET Webscraper</strong>
-          <span style={{ fontSize: 12, color: scraperBadge.color }}>{scraperBadge.text}</span>
+      <div className={styles.loadPanel}>
+        <div className={styles.loadPanelHeader}>
+          <strong className={styles.loadPanelTitle}>Load from 123NET Webscraper</strong>
+          <span className={scraperBadgeClass}>{scraperText}</span>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label htmlFor="vpbx-handle-select" style={{ fontSize: 13, fontWeight: 600 }}>Handle:</label>
+        <div className={styles.loadControls}>
+          <label htmlFor="vpbx-handle-select" className={styles.handleLabel}>Handle:</label>
           <select
             id="vpbx-handle-select"
+            className={styles.handleSelect}
             value={selectedHandle}
             onChange={e => setSelectedHandle(e.target.value)}
             disabled={!scraperOnline || handles.length === 0}
-            style={{ minWidth: 200, padding: '4px 8px' }}
             title="Select a company handle to load device configs"
           >
             <option value="">— select handle —</option>
@@ -159,64 +167,64 @@ export default function VpbxImportTab() {
             ))}
           </select>
           <button
+            type="button"
+            className={styles.loadBtn}
             onClick={loadFromScraper}
             disabled={!scraperOnline || !selectedHandle}
-            style={{ padding: '4px 14px' }}
           >
             Load Devices
           </button>
-          {loadStatus && <span style={{ fontSize: 13, color: '#16794a' }}>✓ {loadStatus}</span>}
-          {loadError && <span style={{ fontSize: 13, color: '#b42318' }}>✗ {loadError}</span>}
+          {loadStatus && <span className={styles.statusOk}>✓ {loadStatus}</span>}
+          {loadError && <span className={styles.statusErr}>✗ {loadError}</span>}
         </div>
         {scraperOnline && (
-          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#555' }}>
-            Loads MAC, model, extension, name, and auth credentials extracted from scraped bulk configs.
+          <p className={styles.loadHint}>
+            Loads MAC, model, extension, name, and auth credentials extracted from scraped device configs.
             Fields not in the scraped data (voicemail, outbound CID, etc.) remain blank for manual entry.
           </p>
         )}
       </div>
 
       {/* CSV import/export */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label htmlFor="vpbx-csv-import" style={{ fontSize: 13 }}>Import CSV:</label>
+      <div className={styles.csvControls}>
+        <label htmlFor="vpbx-csv-import" className={styles.csvLabel}>Import CSV:</label>
         <input id="vpbx-csv-import" type="file" accept=".csv" onChange={handleImport} title="Import VPBX CSV" />
-        <button onClick={handleExport}>Export CSV</button>
-        <button onClick={() => setRows(prev => [...prev, createEmpty()])}>+ Add Row</button>
-        <a ref={downloadRef} style={{ display: 'none' }}>Download</a>
+        <button type="button" onClick={handleExport}>Export CSV</button>
+        <button type="button" onClick={() => setRows(prev => [...prev, createEmpty()])}>+ Add Row</button>
+        <a ref={downloadRef} className={styles.downloadLink}>Download</a>
       </div>
 
       {/* Table */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
-          <thead>
-            <tr style={{ background: '#f4f4f4' }}>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead className={styles.thead}>
+            <tr>
               {VPBX_FIELDS.map(f => (
-                <th key={f} style={{ padding: '6px 8px', border: '1px solid #ddd', whiteSpace: 'nowrap', textAlign: 'left' }}>
-                  {f}
-                </th>
+                <th key={f} className={styles.th}>{f}</th>
               ))}
-              <th style={{ padding: '6px 8px', border: '1px solid #ddd' }}>Del</th>
+              <th className={styles.th}>Del</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+              <tr key={idx} className={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>
                 {VPBX_FIELDS.map(f => (
-                  <td key={f} style={{ padding: 2, border: '1px solid #eee' }}>
+                  <td key={f} className={styles.tdCell}>
                     <input
                       aria-label={f}
                       title={f}
                       name={f}
                       value={row[f] || ''}
                       onChange={e => handleChange(idx, f, e.target.value)}
-                      style={{ width: f === 'name' || f === 'description' ? 120 : 80, padding: '2px 4px', fontSize: 12, border: 'none', background: 'transparent' }}
+                      className={f === 'name' || f === 'description' ? styles.cellInputWide : styles.cellInputNarrow}
                     />
                   </td>
                 ))}
-                <td style={{ padding: 2, border: '1px solid #eee', textAlign: 'center' }}>
+                <td className={styles.tdCenter}>
                   <button
+                    type="button"
+                    className={styles.deleteBtn}
                     onClick={() => setRows(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx))}
-                    style={{ fontSize: 11, padding: '1px 6px', cursor: 'pointer' }}
                     title="Delete row"
                   >✕</button>
                 </td>

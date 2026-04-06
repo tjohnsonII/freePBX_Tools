@@ -15,6 +15,7 @@ import { FaInfoCircle } from 'react-icons/fa';
 import DiagnosticsTab from './tabs/DiagnosticsTab';
 import VpbxImportTab from './tabs/VpbxImportTab';
 import ConfigAuditTab from './tabs/ConfigAuditTab';
+import PhoneConfigGeneratorTab from './tabs/PhoneConfigGeneratorTab';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -36,6 +37,7 @@ const TABS = [
   { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'fbpx', label: 'FBPX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
+  { key: 'phonegen', label: 'Phone Config Generator' },
   { key: 'audit', label: 'Config Audit' },
   { key: 'mikrotik', label: 'Mikrotik Templates' },
   { key: 'switch', label: 'Switch Templates' },
@@ -1777,6 +1779,7 @@ function App() {
         </div>
       )}
       {activeTab === 'vpbx' && <VpbxImportTab />}
+      {activeTab === 'phonegen' && <PhoneConfigGeneratorTab />}
       {activeTab === 'audit' && <ConfigAuditTab />}
       {activeTab === 'mikrotik' && (
         <MikrotikTab
