@@ -1469,6 +1469,7 @@ def api_vpbx_refresh(request: Request):
 
 class _VpbxDeviceConfigsRefreshBody(BaseModel):
     handles: list[str] | None = None  # limit to specific handles; omit for all
+    force: bool = False               # True → ignore existing data, re-scrape everything
 
 
 @app.get("/api/vpbx/device-configs")
@@ -1511,21 +1512,24 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
 
         # Build device-level existing config dict for comparison inside fetch_device_configs.
         # Keyed by (device_id, vpbx_id) → concatenation of all four stored config fields.
-        # The scraper concatenates scraped fields in the same order and compares normalized
-        # text; any change in any field triggers a DB write.
-        existing = db.list_vpbx_device_configs(db_path())
-        existing_configs: dict[tuple[str, str], str] = {
-            (str(_r["device_id"]), str(_r["vpbx_id"])): "\n".join([
-                _r.get("device_properties") or "",
-                _r.get("arbitrary_attributes") or "",
-                _r.get("bulk_config") or "",
-                _r.get("view_config") or "",
-            ])
-            for _r in existing
-            if _r.get("device_id") and _r.get("vpbx_id")
-        }
-        if existing_configs:
-            _emit(f"loaded {len(existing_configs)} existing device configs for comparison")
+        # force=True: pass empty dict so every device is treated as new — no skipping.
+        if body.force:
+            existing_configs: dict[tuple[str, str], str] = {}
+            _emit("force=True — skipping comparison, all devices will be re-scraped")
+        else:
+            existing = db.list_vpbx_device_configs(db_path())
+            existing_configs = {
+                (str(_r["device_id"]), str(_r["vpbx_id"])): "\n".join([
+                    _r.get("device_properties") or "",
+                    _r.get("arbitrary_attributes") or "",
+                    _r.get("bulk_config") or "",
+                    _r.get("view_config") or "",
+                ])
+                for _r in existing
+                if _r.get("device_id") and _r.get("vpbx_id")
+            }
+            if existing_configs:
+                _emit(f"loaded {len(existing_configs)} existing device configs for comparison")
 
         total_saved = 0
 

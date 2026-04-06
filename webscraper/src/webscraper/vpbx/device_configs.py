@@ -244,75 +244,113 @@ def _parse_device_rows(page_source: str, base_url: str, vpbx_id: str, handle: st
 def _js_extract_device_properties(driver: Any) -> str:
     """Use JavaScript on the live Selenium DOM to extract Device Properties.
 
-    Reads directly from the rendered page — no BeautifulSoup, no timing issues.
-    Detection: find the first table whose header th contains "device" but NOT
-    "arbitrary". Within that table each data row has <th>Label</th><td>value</td>.
-    Returns key=value lines prefixed "device.", empty string if not found.
+    Table detection strategy (most-reliable first):
+      1. Find a known form input (mac, dir_name, etc.) and walk up to its <table>.
+      2. Fall back to: first table in the form that does NOT contain "arbitrary"
+         in any cell text and DOES contain at least one form element.
+
+    Row parsing handles both common FreePBX layouts:
+      Layout A: <tr><th>Label</th><td>input/static</td></tr>
+      Layout B: <tr><td>Label</td><td>input/static</td></tr>
+    Rows with zero <td> elements (pure header rows) are skipped.
     """
     return driver.execute_script(
         r"""
-        var lines = [];
-        var tables = document.querySelectorAll('table');
-        for (var t = 0; t < tables.length; t++) {
-            var tbl = tables[t];
-            var ths = tbl.querySelectorAll('th');
-            var hdrText = '';
-            for (var i = 0; i < ths.length; i++) {
-                hdrText += ' ' + ths[i].textContent.toLowerCase();
-            }
-            // Must mention "device" (Device Properties heading) but not "arbitrary"
-            if (hdrText.indexOf('arbitrary') >= 0) continue;
-            if (hdrText.indexOf('device') < 0) continue;
-
+        function readRows(tbl) {
+            var lines = [];
             var rows = tbl.querySelectorAll('tr');
             for (var r = 0; r < rows.length; r++) {
-                var th = rows[r].querySelector('th');
-                var td = rows[r].querySelector('td');
-                if (!th || !td) continue;
-                var label = th.textContent.trim();
+                var tds = rows[r].querySelectorAll('td');
+                if (tds.length === 0) continue;  // pure <th> header row
+
+                var labelEl, valCell;
+                var thEl = rows[r].querySelector('th');
+                if (thEl) {
+                    // Layout A: <th>Label</th><td>value</td>
+                    labelEl = thEl;
+                    valCell = tds[0];
+                } else if (tds.length >= 2) {
+                    // Layout B: <td>Label</td><td>value</td>
+                    labelEl = tds[0];
+                    valCell = tds[1];
+                } else {
+                    continue;
+                }
+
+                var label = labelEl.textContent.trim();
                 if (!label) continue;
                 var key = 'device.' + label.toLowerCase().replace(/\s+/g, '_');
 
-                // Checkboxes — one line per checkbox
-                var cbs = td.querySelectorAll('input[type="checkbox"]');
+                // Checkboxes (OPTIONS row) — one line per checkbox
+                var cbs = valCell.querySelectorAll('input[type="checkbox"]');
                 if (cbs.length > 0) {
                     for (var c = 0; c < cbs.length; c++) {
                         var cbLabel = '';
                         var n = cbs[c].nextSibling;
                         while (n) {
-                            var txt = n.textContent ? n.textContent.trim() : '';
-                            if (txt) { cbLabel = txt; break; }
+                            var t = n.textContent ? n.textContent.trim() : '';
+                            if (t) { cbLabel = t; break; }
                             n = n.nextSibling;
                         }
                         if (!cbLabel) cbLabel = cbs[c].name || 'option';
-                        var cbKey = key + '.' + cbLabel.toLowerCase().replace(/\s+/g, '_').replace(/:$/, '');
+                        var cbKey = (key + '.' + cbLabel.toLowerCase().replace(/\s+/g, '_').replace(/:$/, '')).replace(/\.+$/, '');
                         lines.push(cbKey + '=' + (cbs[c].checked ? 'true' : 'false'));
                     }
                     continue;
                 }
 
                 // Select dropdowns
-                var sel = td.querySelector('select');
+                var sel = valCell.querySelector('select');
                 if (sel) {
                     var opt = sel.options[sel.selectedIndex];
                     lines.push(key + '=' + (opt ? opt.text.trim() : ''));
                     continue;
                 }
 
-                // Text/number inputs (skip hidden/submit/button/checkbox)
-                var inp = td.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"])');
+                // Text/number inputs
+                var inp = valCell.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"])');
                 if (inp) {
                     lines.push(key + '=' + inp.value.trim());
                     continue;
                 }
 
-                // Static text (read-only cells: Device ID, Make, Model)
-                var val = td.textContent.trim();
+                // Static text (Device ID, Make, Model)
+                var val = valCell.textContent.trim();
                 if (val) lines.push(key + '=' + val);
             }
-            break;  // only first matching table
+            return lines;
         }
-        return lines.join('\n');
+
+        // Strategy 1: find a known device form input and walk up to its table
+        var anchors = ['input[name*="mac"]', 'input[name*="dir_name"]', 'input[name*="directory"]',
+                        'input[name*="extension"]', 'select[name*="template"]'];
+        for (var a = 0; a < anchors.length; a++) {
+            var el = document.querySelector(anchors[a]);
+            if (el) {
+                var tbl = el.closest('table');
+                if (tbl) return readRows(tbl).join('\n');
+            }
+        }
+
+        // Strategy 2: first table in the form with form elements that isn't arbitrary
+        var tables = document.querySelectorAll('form table, table');
+        for (var t = 0; t < tables.length; t++) {
+            var tbl = tables[t];
+            // skip if it contains "arbitrary" in any header text
+            var hasArb = false;
+            var hdrEls = tbl.querySelectorAll('th');
+            for (var h = 0; h < hdrEls.length; h++) {
+                if (hdrEls[h].textContent.toLowerCase().indexOf('arbitrary') >= 0) {
+                    hasArb = true; break;
+                }
+            }
+            if (hasArb) continue;
+            // must have at least one form element
+            if (!tbl.querySelector('input, select, textarea')) continue;
+            var result = readRows(tbl);
+            if (result.length > 0) return result.join('\n');
+        }
+        return '';
         """
     ) or ""
 
