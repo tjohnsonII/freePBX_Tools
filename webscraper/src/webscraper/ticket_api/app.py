@@ -1470,6 +1470,7 @@ def api_vpbx_refresh(request: Request):
 class _VpbxDeviceConfigsRefreshBody(BaseModel):
     handles: list[str] | None = None  # limit to specific handles; omit for all
     force: bool = False               # True → ignore existing data, re-scrape everything
+    incomplete_only: bool = False     # True → re-scrape devices with blank/single-line view_config
 
 
 @app.get("/api/vpbx/device-configs")
@@ -1513,22 +1514,48 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         # Build device-level existing config dict for comparison inside fetch_device_configs.
         # Keyed by (device_id, vpbx_id) → concatenation of all four stored config fields.
         # force=True: pass empty dict so every device is treated as new — no skipping.
+        # incomplete_only=True: only treat devices with good multi-line configs as "existing";
+        #   devices with blank or single-line view_config are treated as new (forced re-scrape).
+        def _is_incomplete(r: dict) -> bool:
+            """Return True if this stored device has no usable config data."""
+            vc = (r.get("view_config") or "").strip()
+            bc = (r.get("bulk_config") or "").strip()
+            aa = (r.get("arbitrary_attributes") or "").strip()
+            # Incomplete if view_config is empty OR single-line (no \n),
+            # AND bulk_config is also empty or single-line,
+            # AND arbitrary_attributes is empty.
+            vc_ok = bool(vc and "\n" in vc)
+            bc_ok = bool(bc and "\n" in bc)
+            aa_ok = bool(aa)
+            return not (vc_ok or bc_ok or aa_ok)
+
         if body.force:
             existing_configs: dict[tuple[str, str], str] = {}
             _emit("force=True — skipping comparison, all devices will be re-scraped")
         else:
             existing = db.list_vpbx_device_configs(db_path())
-            existing_configs = {
-                (str(_r["device_id"]), str(_r["vpbx_id"])): "\n".join([
+            incomplete_count = 0
+            existing_configs = {}
+            for _r in existing:
+                if not (_r.get("device_id") and _r.get("vpbx_id")):
+                    continue
+                key = (str(_r["device_id"]), str(_r["vpbx_id"]))
+                if body.incomplete_only and _is_incomplete(_r):
+                    # Treat as missing — will be re-scraped
+                    incomplete_count += 1
+                    continue
+                existing_configs[key] = "\n".join([
                     _r.get("device_properties") or "",
                     _r.get("arbitrary_attributes") or "",
                     _r.get("bulk_config") or "",
                     _r.get("view_config") or "",
                 ])
-                for _r in existing
-                if _r.get("device_id") and _r.get("vpbx_id")
-            }
-            if existing_configs:
+            if body.incomplete_only:
+                _emit(
+                    f"incomplete_only=True — {incomplete_count} incomplete devices will be "
+                    f"re-scraped, {len(existing_configs)} complete devices skipped"
+                )
+            elif existing_configs:
                 _emit(f"loaded {len(existing_configs)} existing device configs for comparison")
 
         total_saved = 0

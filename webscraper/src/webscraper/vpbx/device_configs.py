@@ -358,71 +358,142 @@ def _js_extract_device_properties(driver: Any) -> str:
 def _js_extract_arbitrary_attributes(driver: Any) -> str:
     """Use JavaScript on the live Selenium DOM to extract Arbitrary Attributes.
 
-    Strategy 1 — named inputs whose name contains 'attrib_key'/'attrib_val'.
-    Strategy 2 — table whose header contains 'arbitrary', read key/value column pairs.
+    Strategy 1 — named inputs matching several common FreePBX naming patterns.
+    Strategy 2 — find "arbitrary" text in ANY element (th, td, caption, h*, div, span),
+                 locate the nearest table, then read key/value input pairs from data rows.
+                 Also checks key/value column headers using both <th> and <td>.
     Returns key=value lines, empty string if none configured.
     """
     return driver.execute_script(
         r"""
         var lines = [];
 
-        // Strategy 1: inputs named attrib_key*/attrib_val*
-        var kEls = document.querySelectorAll('input[name*="attrib_key"], textarea[name*="attrib_key"]');
-        var vEls = document.querySelectorAll('input[name*="attrib_val"], textarea[name*="attrib_val"]');
-        if (kEls.length > 0) {
-            var n = Math.min(kEls.length, vEls.length);
-            for (var i = 0; i < n; i++) {
-                var k = kEls[i].value.trim();
-                var v = vEls[i] ? vEls[i].value.trim() : '';
-                if (k) lines.push(k + '=' + v);
+        // Strategy 1: try several common FreePBX naming patterns for attrib inputs
+        var namePairs = [
+            ['input[name*="attrib_key"]', 'input[name*="attrib_val"]'],
+            ['textarea[name*="attrib_key"]', 'textarea[name*="attrib_val"]'],
+            ['input[name="key[]"]', 'input[name="val[]"]'],
+            ['input[name*="_key[]"]', 'input[name*="_val[]"]'],
+            ['input[name*="[key]"]', 'input[name*="[val]"]'],
+            ['input[name*="attrib["][name*="[key]"]', 'input[name*="attrib["][name*="[val]"]'],
+        ];
+        for (var p = 0; p < namePairs.length; p++) {
+            var ks = document.querySelectorAll(namePairs[p][0]);
+            var vs = document.querySelectorAll(namePairs[p][1]);
+            if (ks.length > 0 && vs.length > 0) {
+                var n = Math.min(ks.length, vs.length);
+                for (var i = 0; i < n; i++) {
+                    var k = ks[i].value.trim();
+                    var v = vs[i] ? vs[i].value.trim() : '';
+                    if (k) lines.push(k + '=' + v);
+                }
+                if (lines.length > 0) return lines.join('\n');
             }
-            if (lines.length > 0) return lines.join('\n');
         }
 
-        // Strategy 2: table with "arbitrary" in header
-        var tables = document.querySelectorAll('table');
-        for (var t = 0; t < tables.length; t++) {
-            var tbl = tables[t];
-            var ths = tbl.querySelectorAll('th');
-            var hasArb = false;
-            for (var i = 0; i < ths.length; i++) {
-                if (ths[i].textContent.toLowerCase().indexOf('arbitrary') >= 0) {
-                    hasArb = true; break;
-                }
-            }
-            if (!hasArb) continue;
-
-            // Find key/value column indices from first row with 2+ ths
-            var keyIdx = 0, valIdx = 1;
-            var headerRows = tbl.querySelectorAll('tr');
-            for (var r = 0; r < headerRows.length; r++) {
-                var hths = headerRows[r].querySelectorAll('th');
-                if (hths.length >= 2) {
-                    for (var h = 0; h < hths.length; h++) {
-                        var ht = hths[h].textContent.toLowerCase();
-                        if (ht.indexOf('key') >= 0) keyIdx = h;
-                        else if (ht.indexOf('value') >= 0) valIdx = h;
+        // Strategy 2: find "Arbitrary Attributes" text in ANY element, then find its table
+        // Search th, td, caption, h2-h4, legend, label, span, div (in that order of likelihood)
+        var searchTags = ['caption', 'legend', 'th', 'td', 'h2', 'h3', 'h4', 'label', 'span', 'div'];
+        var arbTable = null;
+        for (var s = 0; s < searchTags.length && !arbTable; s++) {
+            var candidates = document.querySelectorAll(searchTags[s]);
+            for (var c = 0; c < candidates.length; c++) {
+                var txt = candidates[c].textContent.trim().toLowerCase();
+                if (txt.indexOf('arbitrary') >= 0 && txt.length < 60) {
+                    // Found the "Arbitrary Attributes" label — find its table
+                    // 1. Ancestor table
+                    var tbl = candidates[c].closest('table');
+                    if (tbl) { arbTable = tbl; break; }
+                    // 2. Next sibling or cousin table
+                    var el = candidates[c];
+                    for (var up = 0; up < 4 && !arbTable; up++) {
+                        var sib = el.nextElementSibling;
+                        while (sib && !arbTable) {
+                            if (sib.tagName === 'TABLE') { arbTable = sib; }
+                            else {
+                                var inner = sib.querySelector('table');
+                                if (inner) arbTable = inner;
+                            }
+                            sib = sib.nextElementSibling;
+                        }
+                        if (!arbTable) el = el.parentElement;
                     }
-                    break;
+                    if (arbTable) break;
                 }
             }
+        }
 
-            var rows = tbl.querySelectorAll('tr');
-            for (var r = 0; r < rows.length; r++) {
-                var cells = rows[r].querySelectorAll('td');
+        if (arbTable) {
+            // Find key/value column indices — check BOTH <th> and <td> header cells
+            var keyIdx = 0, valIdx = 1;
+            var allRows = arbTable.querySelectorAll('tr');
+            for (var r = 0; r < allRows.length; r++) {
+                var hcells = allRows[r].querySelectorAll('th, td');
+                var foundKey = false, foundVal = false;
+                for (var h = 0; h < hcells.length; h++) {
+                    var ht = hcells[h].textContent.trim().toLowerCase();
+                    // Only treat as header if cell has no inputs (pure label cell)
+                    if (hcells[h].querySelector('input, textarea')) continue;
+                    if (ht === 'key' || ht === 'key:') { keyIdx = h; foundKey = true; }
+                    else if (ht === 'value' || ht === 'value:') { valIdx = h; foundVal = true; }
+                }
+                if (foundKey || foundVal) break;
+            }
+
+            // Read data rows: rows that have inputs in the key column
+            for (var r = 0; r < allRows.length; r++) {
+                var cells = allRows[r].querySelectorAll('td');
                 if (cells.length <= Math.max(keyIdx, valIdx)) continue;
-                var kInp = cells[keyIdx].querySelector('input, textarea');
-                var vInp = cells[valIdx] ? cells[valIdx].querySelector('input, textarea') : null;
+                var kInp = cells[keyIdx].querySelector('input:not([type="hidden"]), textarea');
+                var vInp = cells[valIdx] ? cells[valIdx].querySelector('input:not([type="hidden"]), textarea') : null;
                 if (!kInp) continue;
                 var k = kInp.value.trim();
                 var v = vInp ? vInp.value.trim() : '';
                 if (k) lines.push(k + '=' + v);
             }
-            break;
         }
+
         return lines.join('\n');
         """
     ) or ""
+
+
+def _js_debug_arbitrary_table(driver: Any) -> str:
+    """Return a short diagnostic string about the Arbitrary Attributes table on the page.
+
+    Used for logging only — not part of normal extraction.
+    """
+    return driver.execute_script(
+        r"""
+        // Find the arbitrary attributes section and return its outer HTML (truncated)
+        var searchTags = ['caption', 'legend', 'th', 'td', 'h2', 'h3', 'h4', 'label', 'span'];
+        for (var s = 0; s < searchTags.length; s++) {
+            var candidates = document.querySelectorAll(searchTags[s]);
+            for (var c = 0; c < candidates.length; c++) {
+                var txt = candidates[c].textContent.trim().toLowerCase();
+                if (txt.indexOf('arbitrary') >= 0 && txt.length < 60) {
+                    var tbl = candidates[c].closest('table');
+                    if (!tbl) {
+                        var el = candidates[c].parentElement;
+                        if (el) {
+                            var sib = el.nextElementSibling;
+                            while (sib) {
+                                if (sib.tagName === 'TABLE') { tbl = sib; break; }
+                                var inner = sib.querySelector('table');
+                                if (inner) { tbl = inner; break; }
+                                sib = sib.nextElementSibling;
+                            }
+                        }
+                    }
+                    var html = tbl ? tbl.outerHTML : candidates[c].parentElement.outerHTML;
+                    return 'found_via:' + searchTags[s] + ' html_len=' + html.length
+                        + ' preview=' + html.slice(0, 300);
+                }
+            }
+        }
+        return 'not_found';
+        """
+    ) or "js_error"
 
 
 def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
@@ -474,55 +545,70 @@ def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
 
     text = driver.execute_script(
         r"""
-        // Priority 1: jQuery UI dialog textarea
-        var dlg = document.querySelector('.ui-dialog-content, .ui-dialog');
-        if (dlg) {
-            var ta = dlg.querySelector('textarea');
+        // Only read from an actually-open dialog container.
+        // If no dialog is visible, return null so the caller knows nothing opened.
+
+        // Check whether any dialog-like container is present and visible
+        function isVisible(el) {
+            if (!el) return false;
+            var r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+        }
+
+        // jQuery UI dialog
+        var dlg = document.querySelector('.ui-dialog');
+        if (isVisible(dlg)) {
+            var content = dlg.querySelector('.ui-dialog-content') || dlg;
+            var ta = content.querySelector('textarea');
             if (ta && ta.value && ta.value.trim()) return ta.value.trim();
-            var pre = dlg.querySelector('pre');
+            var pre = content.querySelector('pre');
             if (pre && pre.textContent && pre.textContent.trim().length > 5)
                 return pre.textContent.trim();
+            // Ace editor inside this dialog
+            var aces = content.querySelectorAll('.ace_editor');
+            for (var i = 0; i < aces.length; i++) {
+                try {
+                    var v = window.ace.edit(aces[i]).getValue();
+                    if (v && v.trim()) return v.trim();
+                } catch(e) {}
+            }
+            // Dialog is open but textarea is empty — return empty string (not null)
+            // so caller knows the dialog opened, just had no content
+            return '';
         }
 
-        // Priority 2: Bootstrap modal body textarea
-        var modal = document.querySelector('.modal.show .modal-body, .modal.in .modal-body');
-        if (modal) {
-            var ta = modal.querySelector('textarea');
+        // Bootstrap modal (show class means it's open)
+        var modal = document.querySelector('.modal.show');
+        if (!modal) modal = document.querySelector('.modal.in');
+        if (isVisible(modal)) {
+            var body = modal.querySelector('.modal-body') || modal;
+            var ta = body.querySelector('textarea');
             if (ta && ta.value && ta.value.trim()) return ta.value.trim();
-            var pre = modal.querySelector('pre');
+            var pre = body.querySelector('pre');
             if (pre && pre.textContent && pre.textContent.trim().length > 5)
                 return pre.textContent.trim();
+            var aces = body.querySelectorAll('.ace_editor');
+            for (var i = 0; i < aces.length; i++) {
+                try {
+                    var v = window.ace.edit(aces[i]).getValue();
+                    if (v && v.trim()) return v.trim();
+                } catch(e) {}
+            }
+            return '';
         }
 
-        // Priority 3: Ace editor inside any dialog-like container
-        var aces = document.querySelectorAll('.ui-dialog .ace_editor, .modal .ace_editor');
-        for (var i = 0; i < aces.length; i++) {
-            try {
-                var v = window.ace.edit(aces[i]).getValue();
-                if (v && v.trim()) return v.trim();
-            } catch(e) {}
-        }
-
-        // Priority 4: Any visible textarea that is NOT inside the main form's
-        // static field group (heuristic: skip textareas with short content <50 chars
-        // unless there's really nothing else, to avoid capturing stray form fields)
-        var textareas = document.querySelectorAll('textarea');
-        var best = '';
-        for (var i = 0; i < textareas.length; i++) {
-            var v = textareas[i].value ? textareas[i].value.trim() : '';
-            if (!v) continue;
-            var rect = textareas[i].getBoundingClientRect();
-            var visible = rect.width > 0 && rect.height > 0;
-            if (visible && v.length > best.length) best = v;
-        }
-        return best || '';
+        // No dialog open — signal caller to skip
+        return null;
         """
-    ) or ""
+    )
 
+    if text is None:
+        _log(f"{label}_no_dialog_opened")
+        return ""
     if text:
         _log(f"{label}_captured len={len(text)}")
     else:
-        _log(f"{label}_empty")
+        _log(f"{label}_dialog_opened_empty")
     return text.strip()
 
 
@@ -604,7 +690,9 @@ def _capture_device_page_data(driver: Any, edit_url: str, emit_fn: Any = None) -
     result["arbitrary_attributes"] = aa
     aa_lines = aa.count("\n") + 1 if aa else 0
 
-    _log(f"edit_page_parsed dp_lines={dp_lines} aa_lines={aa_lines}")
+    # Always log the diagnostic so we can see what the page structure looks like
+    aa_debug = _js_debug_arbitrary_table(driver)
+    _log(f"edit_page_parsed dp_lines={dp_lines} aa_lines={aa_lines} aa_debug={aa_debug[:200]}")
 
     # ── Step 3: Bulk Attribute Edit modal ─────────────────────────────────────
     bulk_btn = None
