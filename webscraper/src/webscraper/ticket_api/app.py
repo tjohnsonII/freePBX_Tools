@@ -1516,16 +1516,22 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         # force=True: pass empty dict so every device is treated as new — no skipping.
         # incomplete_only=True: only treat devices with good multi-line configs as "existing";
         #   devices with blank or single-line view_config are treated as new (forced re-scrape).
+        _KNOWN_PLACEHOLDERS = {"place holder text", "placeholder text", "placeholder"}
+
         def _is_incomplete(r: dict) -> bool:
-            """Return True if this stored device has no usable config data."""
+            """Return True if this stored device has no usable config data.
+
+            Considers a device incomplete if:
+            - view_config is empty or a single line (no newline), AND
+            - bulk_config is empty, a single line, or a known FreePBX placeholder, AND
+            - arbitrary_attributes is empty.
+            """
             vc = (r.get("view_config") or "").strip()
             bc = (r.get("bulk_config") or "").strip()
             aa = (r.get("arbitrary_attributes") or "").strip()
-            # Incomplete if view_config is empty OR single-line (no \n),
-            # AND bulk_config is also empty or single-line,
-            # AND arbitrary_attributes is empty.
             vc_ok = bool(vc and "\n" in vc)
-            bc_ok = bool(bc and "\n" in bc)
+            bc_placeholder = bc.lower() in _KNOWN_PLACEHOLDERS
+            bc_ok = bool(bc and "\n" in bc and not bc_placeholder)
             aa_ok = bool(aa)
             return not (vc_ok or bc_ok or aa_ok)
 

@@ -511,31 +511,97 @@ def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
         if emit_fn:
             emit_fn(msg)
 
-    # Wait for a modal dialog to appear with content in a textarea or pre
+    # Known FreePBX placeholder strings that should never be stored as real config data
+    _PLACEHOLDERS = {"place holder text", "placeholder text", "placeholder", "enter config here"}
+
+    def _is_placeholder(t: str) -> bool:
+        return t.strip().lower() in _PLACEHOLDERS
+
+    # JS snippet to read the current dialog textarea/pre/ace content (returns None if no dialog)
+    _READ_JS = r"""
+        function isVisible(el) {
+            if (!el) return false;
+            var r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+        }
+        function readDialog() {
+            var dlg = document.querySelector('.ui-dialog');
+            if (isVisible(dlg)) {
+                var content = dlg.querySelector('.ui-dialog-content') || dlg;
+                var ta = content.querySelector('textarea');
+                if (ta && ta.value && ta.value.trim()) return ta.value.trim();
+                var pre = content.querySelector('pre');
+                if (pre && pre.textContent && pre.textContent.trim().length > 5)
+                    return pre.textContent.trim();
+                var aces = content.querySelectorAll('.ace_editor');
+                for (var i = 0; i < aces.length; i++) {
+                    try { var v = window.ace.edit(aces[i]).getValue();
+                          if (v && v.trim()) return v.trim(); } catch(e) {}
+                }
+                return '';
+            }
+            var modal = document.querySelector('.modal.show') || document.querySelector('.modal.in');
+            if (isVisible(modal)) {
+                var body = modal.querySelector('.modal-body') || modal;
+                var ta = body.querySelector('textarea');
+                if (ta && ta.value && ta.value.trim()) return ta.value.trim();
+                var pre = body.querySelector('pre');
+                if (pre && pre.textContent && pre.textContent.trim().length > 5)
+                    return pre.textContent.trim();
+                var aces = body.querySelectorAll('.ace_editor');
+                for (var i = 0; i < aces.length; i++) {
+                    try { var v = window.ace.edit(aces[i]).getValue();
+                          if (v && v.trim()) return v.trim(); } catch(e) {}
+                }
+                return '';
+            }
+            return null;
+        }
+        return readDialog();
+    """
+
+    # Wait for a modal dialog to appear with REAL content (ignore placeholders, require > 1 line
+    # OR length > 40 chars so a single meaningful line still counts)
     try:
-        WebDriverWait(driver, 10).until(lambda d: d.execute_script(
+        WebDriverWait(driver, 12).until(lambda d: d.execute_script(
             r"""
+            function isVisible(el) {
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+            }
+            var placeholders = ["place holder text", "placeholder text", "placeholder"];
+            function isPlaceholder(t) { return placeholders.indexOf(t.trim().toLowerCase()) >= 0; }
             // jQuery UI dialog
-            var dlg = document.querySelector('.ui-dialog-content, .ui-dialog');
-            if (dlg) {
-                var ta = dlg.querySelector('textarea');
-                if (ta && ta.value && ta.value.trim().length > 0) return true;
-                var pre = dlg.querySelector('pre');
+            var dlg = document.querySelector('.ui-dialog');
+            if (isVisible(dlg)) {
+                var content = dlg.querySelector('.ui-dialog-content') || dlg;
+                var ta = content.querySelector('textarea');
+                if (ta && ta.value) {
+                    var v = ta.value.trim();
+                    if (v.length > 0 && !isPlaceholder(v)) return true;
+                }
+                var pre = content.querySelector('pre');
                 if (pre && pre.textContent && pre.textContent.trim().length > 5) return true;
+                var aces = content.querySelectorAll('.ace_editor');
+                for (var i = 0; i < aces.length; i++) {
+                    try { var v = window.ace.edit(aces[i]).getValue();
+                          if (v && v.trim().length > 0) return true; } catch(e) {}
+                }
+                // Dialog is open but has only placeholder/empty — signal "opened" so we don't
+                // time out, but return false to keep waiting (handled below with fallback)
+                return 'open_empty';
             }
-            // Bootstrap modal
-            var modal = document.querySelector('.modal.show .modal-body, .modal.in .modal-body');
-            if (modal) {
-                var ta = modal.querySelector('textarea');
-                if (ta && ta.value && ta.value.trim().length > 0) return true;
+            var modal = document.querySelector('.modal.show') || document.querySelector('.modal.in');
+            if (isVisible(modal)) {
+                var body = modal.querySelector('.modal-body') || modal;
+                var ta = body.querySelector('textarea');
+                if (ta && ta.value && ta.value.trim().length > 0 && !isPlaceholder(ta.value)) return true;
             }
-            // Ace editors visible inside any dialog-like container
             var aces = document.querySelectorAll('.ui-dialog .ace_editor, .modal .ace_editor');
             for (var i = 0; i < aces.length; i++) {
-                try {
-                    var v = window.ace.edit(aces[i]).getValue();
-                    if (v && v.trim().length > 0) return true;
-                } catch(e) {}
+                try { var v = window.ace.edit(aces[i]).getValue();
+                      if (v && v.trim().length > 0) return true; } catch(e) {}
             }
             return false;
             """
@@ -543,70 +609,37 @@ def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
     except Exception:
         _log(f"{label}_modal_wait_timeout")
 
-    text = driver.execute_script(
-        r"""
-        // Only read from an actually-open dialog container.
-        // If no dialog is visible, return null so the caller knows nothing opened.
+    # Wait for content to STABILIZE — poll until two consecutive reads match.
+    # This ensures we don't grab partial content when FreePBX loads async.
+    prev_text = None
+    stable_count = 0
+    for _attempt in range(20):  # up to 4 seconds
+        current = driver.execute_script(_READ_JS)
+        if current is None:
+            break  # dialog closed or never opened
+        if current == prev_text:
+            stable_count += 1
+            if stable_count >= 2:
+                break  # stable for 0.4s — good enough
+        else:
+            stable_count = 0
+        prev_text = current
+        time.sleep(0.2)
 
-        // Check whether any dialog-like container is present and visible
-        function isVisible(el) {
-            if (!el) return false;
-            var r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-        }
-
-        // jQuery UI dialog
-        var dlg = document.querySelector('.ui-dialog');
-        if (isVisible(dlg)) {
-            var content = dlg.querySelector('.ui-dialog-content') || dlg;
-            var ta = content.querySelector('textarea');
-            if (ta && ta.value && ta.value.trim()) return ta.value.trim();
-            var pre = content.querySelector('pre');
-            if (pre && pre.textContent && pre.textContent.trim().length > 5)
-                return pre.textContent.trim();
-            // Ace editor inside this dialog
-            var aces = content.querySelectorAll('.ace_editor');
-            for (var i = 0; i < aces.length; i++) {
-                try {
-                    var v = window.ace.edit(aces[i]).getValue();
-                    if (v && v.trim()) return v.trim();
-                } catch(e) {}
-            }
-            // Dialog is open but textarea is empty — return empty string (not null)
-            // so caller knows the dialog opened, just had no content
-            return '';
-        }
-
-        // Bootstrap modal (show class means it's open)
-        var modal = document.querySelector('.modal.show');
-        if (!modal) modal = document.querySelector('.modal.in');
-        if (isVisible(modal)) {
-            var body = modal.querySelector('.modal-body') || modal;
-            var ta = body.querySelector('textarea');
-            if (ta && ta.value && ta.value.trim()) return ta.value.trim();
-            var pre = body.querySelector('pre');
-            if (pre && pre.textContent && pre.textContent.trim().length > 5)
-                return pre.textContent.trim();
-            var aces = body.querySelectorAll('.ace_editor');
-            for (var i = 0; i < aces.length; i++) {
-                try {
-                    var v = window.ace.edit(aces[i]).getValue();
-                    if (v && v.trim()) return v.trim();
-                } catch(e) {}
-            }
-            return '';
-        }
-
-        // No dialog open — signal caller to skip
-        return null;
-        """
-    )
+    # Use the stabilized value from the poll loop above
+    text = prev_text  # None if dialog never opened; '' if opened but empty; str if content found
 
     if text is None:
         _log(f"{label}_no_dialog_opened")
         return ""
+
+    # Filter out known FreePBX placeholder strings
+    if _is_placeholder(text):
+        _log(f"{label}_placeholder_discarded val={text!r}")
+        return ""
+
     if text:
-        _log(f"{label}_captured len={len(text)}")
+        _log(f"{label}_captured len={len(text)} lines={text.count(chr(10)) + 1}")
     else:
         _log(f"{label}_dialog_opened_empty")
     return text.strip()

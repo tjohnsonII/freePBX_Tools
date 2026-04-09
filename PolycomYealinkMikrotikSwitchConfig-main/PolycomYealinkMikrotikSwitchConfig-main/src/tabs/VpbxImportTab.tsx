@@ -33,8 +33,13 @@ function parseBulkConfig(raw: string): Record<string, string> {
   return out;
 }
 
+const PLACEHOLDER_STRINGS = new Set(['place holder text', 'placeholder text', 'placeholder']);
 function bestConfig(d: DeviceConfig): string {
-  return d.view_config || d.arbitrary_attributes || d.bulk_config || '';
+  const candidates = [d.view_config, d.arbitrary_attributes, d.bulk_config];
+  for (const c of candidates) {
+    if (c && !PLACEHOLDER_STRINGS.has(c.trim().toLowerCase())) return c;
+  }
+  return '';
 }
 
 function deviceToRow(d: DeviceConfig): VpbxRow {

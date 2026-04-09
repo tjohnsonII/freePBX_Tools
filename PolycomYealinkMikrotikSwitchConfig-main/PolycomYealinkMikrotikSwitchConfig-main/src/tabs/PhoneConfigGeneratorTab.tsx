@@ -25,8 +25,17 @@ type SiteConfig = {
   last_seen_utc: string;
 };
 
+const PLACEHOLDER_STRINGS = new Set(['place holder text', 'placeholder text', 'placeholder']);
+function isPlaceholder(s: string): boolean {
+  return PLACEHOLDER_STRINGS.has(s.trim().toLowerCase());
+}
+
 function bestConfig(d: DeviceConfig): string {
-  return d.view_config || d.arbitrary_attributes || d.bulk_config || '';
+  const candidates = [d.view_config, d.arbitrary_attributes, d.bulk_config];
+  for (const c of candidates) {
+    if (c && !isPlaceholder(c)) return c;
+  }
+  return '';
 }
 
 export default function PhoneConfigGeneratorTab() {
