@@ -1480,6 +1480,28 @@ def api_vpbx_device_configs(handle: str | None = Query(None)):
     return {"items": db.list_vpbx_device_configs(db_path(), handle=handle)}
 
 
+class _SidecarSaveBody(BaseModel):
+    vpbx_id: str
+    sidecar_config: str  # full sidecar config text; pass "" to clear
+
+
+@app.put("/api/vpbx/device-configs/{device_id}/sidecar")
+def api_vpbx_save_sidecar(device_id: str, body: _SidecarSaveBody, request: Request):
+    """Save or update the sidecar_config for a specific device.
+
+    Only touches the sidecar_config column — never overwrites scraped data.
+    Returns 404 if the device_id + vpbx_id combination doesn't exist yet.
+    """
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Sidecar save is localhost-only")
+    db.ensure_indexes(db_path())
+    updated = db.save_sidecar_config(db_path(), device_id, body.vpbx_id, body.sidecar_config)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Device {device_id}/{body.vpbx_id} not found")
+    return {"status": "saved", "device_id": device_id, "vpbx_id": body.vpbx_id,
+            "sidecar_length": len(body.sidecar_config)}
+
+
 @app.post("/api/vpbx/device-configs/refresh")
 def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request: Request):
     """Start a Selenium job to scrape bulk device configs from vpbx.cgi.

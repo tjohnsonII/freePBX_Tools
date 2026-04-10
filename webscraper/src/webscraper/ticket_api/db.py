@@ -284,6 +284,7 @@ def ensure_indexes(db_path: str) -> None:
                     arbitrary_attributes TEXT,
                     bulk_config TEXT,
                     view_config TEXT,
+                    sidecar_config TEXT,
                     last_seen_utc TEXT,
                     config_scraped_utc TEXT,
                     config_status TEXT,
@@ -303,6 +304,7 @@ def ensure_indexes(db_path: str) -> None:
                 ("device_properties", "TEXT"),
                 ("arbitrary_attributes", "TEXT"),
                 ("view_config", "TEXT"),
+                ("sidecar_config", "TEXT"),
             ]:
                 if col not in device_columns:
                     conn.execute(f"ALTER TABLE vpbx_device_configs ADD COLUMN {col} {ddl}")
@@ -1169,6 +1171,20 @@ def upsert_vpbx_device_configs(db_path: str, records: list[dict[str, Any]], now_
                     ),
                 )
     return len(records)
+
+
+def save_sidecar_config(db_path: str, device_id: str, vpbx_id: str, sidecar_config: str) -> bool:
+    """Save (or clear) the sidecar_config for a specific device.
+
+    Returns True if a row was updated, False if the device was not found.
+    Does NOT overwrite the scrape-sourced columns — only touches sidecar_config.
+    """
+    with get_conn(db_path) as conn:
+        result = conn.execute(
+            "UPDATE vpbx_device_configs SET sidecar_config=? WHERE device_id=? AND vpbx_id=?",
+            (sidecar_config, device_id, vpbx_id),
+        )
+        return result.rowcount > 0
 
 
 def list_vpbx_site_configs(db_path: str, handle: str | None = None) -> list[dict[str, Any]]:

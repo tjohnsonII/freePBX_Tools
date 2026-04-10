@@ -38,6 +38,18 @@ function bestConfig(d: DeviceConfig): string {
   return '';
 }
 
+/** Build a labeled combined config string showing all scraped data for a device. */
+function fullConfig(d: DeviceConfig): string {
+  const parts: string[] = [];
+  if (d.device_properties) parts.push(`# Device Properties\n${d.device_properties}`);
+  if (d.arbitrary_attributes) parts.push(`# Arbitrary Attributes\n${d.arbitrary_attributes}`);
+  const vc = d.view_config && !isPlaceholder(d.view_config) ? d.view_config : '';
+  const bc = d.bulk_config && !isPlaceholder(d.bulk_config) ? d.bulk_config : '';
+  if (vc) parts.push(`# View Config\n${vc}`);
+  else if (bc) parts.push(`# Bulk Config\n${bc}`);
+  return parts.join('\n\n');
+}
+
 export default function PhoneConfigGeneratorTab() {
   const [scraperOnline, setScraperOnline] = useState<boolean | null>(null);
   const [handles, setHandles] = useState<VpbxRecord[]>([]);
@@ -48,6 +60,8 @@ export default function PhoneConfigGeneratorTab() {
   const [siteLoading, setSiteLoading] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${SCRAPER_BASE}/api/vpbx/records`, { signal: AbortSignal.timeout(4000) })
@@ -60,27 +74,18 @@ export default function PhoneConfigGeneratorTab() {
       .catch(() => setScraperOnline(false));
   }, []);
 
-  async function handleSelectHandle(handle: string) {
-    setSelectedHandle(handle);
-    setSelectedDeviceId('');
-    setDevices([]);
-    setSiteConfig(null);
-    setError(null);
-    if (!handle) return;
-
-    setSiteLoading(true);
+  async function loadDevices(handle: string) {
     setDevicesLoading(true);
-
+    setSiteLoading(true);
+    setError(null);
     const [siteRes, devRes] = await Promise.allSettled([
       fetch(`${SCRAPER_BASE}/api/vpbx/site-configs/${encodeURIComponent(handle)}`),
       fetch(`${SCRAPER_BASE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`),
     ]);
-
     if (siteRes.status === 'fulfilled' && siteRes.value.ok) {
       try { setSiteConfig(await siteRes.value.json()); } catch { /* ignore */ }
     }
     setSiteLoading(false);
-
     if (devRes.status === 'fulfilled' && devRes.value.ok) {
       try {
         const data = await devRes.value.json();
@@ -94,8 +99,54 @@ export default function PhoneConfigGeneratorTab() {
     setDevicesLoading(false);
   }
 
+  async function handleSelectHandle(handle: string) {
+    setSelectedHandle(handle);
+    setSelectedDeviceId('');
+    setDevices([]);
+    setSiteConfig(null);
+    setScrapeStatus(null);
+    if (!handle) return;
+    await loadDevices(handle);
+  }
+
+  async function handleScrapeHandle() {
+    if (!selectedHandle || scraping) return;
+    setScraping(true);
+    setScrapeStatus(`Scraping ${selectedHandle}…`);
+    try {
+      const res = await fetch(`${SCRAPER_BASE}/api/vpbx/device-configs/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handles: [selectedHandle] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { job_id } = await res.json();
+
+      // Poll for completion
+      let failures = 0;
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const jobRes = await fetch(`${SCRAPER_BASE}/api/jobs/${job_id}`);
+          if (!jobRes.ok) { failures++; if (failures > 5) break; continue; }
+          failures = 0;
+          const job = await jobRes.json();
+          const last = job?.events?.slice(-1)[0]?.message || '';
+          setScrapeStatus(`Scraping ${selectedHandle}… ${last}`);
+          if (job.status === 'complete' || job.status === 'error') break;
+        } catch { failures++; if (failures > 5) break; }
+      }
+      setScrapeStatus(`Done — reloading ${selectedHandle} devices…`);
+      await loadDevices(selectedHandle);
+      setScrapeStatus(`✓ ${selectedHandle} scrape complete`);
+    } catch (e) {
+      setScrapeStatus(`✗ Scrape failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setScraping(false);
+    }
+  }
+
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId) || null;
-  const deviceConfig = selectedDevice ? bestConfig(selectedDevice) : null;
 
   const badgeClass = scraperOnline === null
     ? styles.badgeChecking
@@ -163,6 +214,24 @@ export default function PhoneConfigGeneratorTab() {
             </select>
           </div>
         )}
+
+        {selectedHandle && (
+          <div className={styles.selectorGroup}>
+            <label className={styles.selectorLabel}>Scrape</label>
+            <button
+              type="button"
+              className={styles.scrapeHandleBtn}
+              onClick={handleScrapeHandle}
+              disabled={scraping || !scraperOnline}
+              title={`Re-scrape all devices for ${selectedHandle}`}
+            >
+              {scraping ? 'Scraping…' : `Scrape ${selectedHandle}`}
+            </button>
+            {scrapeStatus && (
+              <span className={styles.scrapeStatus}>{scrapeStatus}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <p className={styles.error}>✗ {error}</p>}
@@ -200,10 +269,10 @@ export default function PhoneConfigGeneratorTab() {
             )}
           </div>
 
-          {/* Device Phone Config */}
+          {/* Device Phone Config — shows ALL scraped fields combined */}
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
-              <span className={styles.panelTitle}>Phone Config</span>
+              <span className={styles.panelTitle}>Full Device Config</span>
               {selectedDevice && (
                 <span className={styles.panelMeta}>
                   {selectedDevice.directory_name || selectedDevice.device_id}
@@ -214,44 +283,24 @@ export default function PhoneConfigGeneratorTab() {
               )}
             </div>
             {!selectedDeviceId && (
-              <p className={styles.panelEmpty}>Select a device above to view its phone config.</p>
+              <p className={styles.panelEmpty}>Select a device above to view its config.</p>
             )}
-            {selectedDeviceId && deviceConfig === '' && (
+            {selectedDeviceId && !fullConfig(selectedDevice!) && (
               <p className={styles.panelEmpty}>
-                No config captured for this device yet. Run "Force Re-scrape All" from the Phone Config Scraper.
+                No config captured yet. Click <strong>Scrape {selectedHandle}</strong> above.
               </p>
             )}
-            {selectedDeviceId && deviceConfig !== null && deviceConfig !== '' && (
+            {selectedDeviceId && selectedDevice && fullConfig(selectedDevice) && (
               <textarea
                 className={styles.panelTextarea}
                 readOnly
-                value={deviceConfig}
+                value={fullConfig(selectedDevice)}
                 rows={30}
                 spellCheck={false}
-                aria-label="Phone Config"
+                aria-label="Full Device Config"
               />
             )}
           </div>
-        </div>
-      )}
-
-      {/* Device Properties panel */}
-      {selectedDevice?.device_properties && (
-        <div className={styles.dpPanel}>
-          <div className={styles.panelHeader}>
-            <span className={styles.panelTitle}>
-              Device Properties
-              <span className={styles.dpHeaderNote}>(from FreePBX edit_device page)</span>
-            </span>
-          </div>
-          <textarea
-            className={styles.panelTextarea}
-            readOnly
-            value={selectedDevice.device_properties}
-            rows={12}
-            spellCheck={false}
-            aria-label="Device Properties"
-          />
         </div>
       )}
     </div>
