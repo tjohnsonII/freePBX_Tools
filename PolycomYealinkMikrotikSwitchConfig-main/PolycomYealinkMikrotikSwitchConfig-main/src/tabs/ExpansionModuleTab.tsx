@@ -33,6 +33,8 @@ const ExpansionModuleTab: React.FC = () => {
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [savedSidecar, setSavedSidecar] = useState('');    // what's stored in DB
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${SCRAPER_BASE}/api/vpbx/records`, { signal: AbortSignal.timeout(4000) })
@@ -73,6 +75,52 @@ const ExpansionModuleTab: React.FC = () => {
       const ipMatch = dev.device_properties.match(/device\.ip[_\s]*address[^\n]*=\s*(\S+)/i)
         || dev.device_properties.match(/device\.[^\n]*=\s*([\d.]+)\s*$/m);
       if (ipMatch) setYealinkSection(s => ({ ...s, pbxIp: ipMatch[1] }));
+    }
+  }
+
+  async function scrapeCurrentHandle() {
+    if (!selectedHandle || scraping) return;
+    setScraping(true);
+    setScrapeStatus(`Scraping ${selectedHandle}…`);
+    try {
+      const res = await fetch(`${SCRAPER_BASE}/api/vpbx/device-configs/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handles: [selectedHandle] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { job_id } = await res.json();
+      let failures = 0;
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const jr = await fetch(`${SCRAPER_BASE}/api/jobs/${job_id}`);
+          if (!jr.ok) { failures++; if (failures > 5) break; continue; }
+          failures = 0;
+          const job = await jr.json();
+          const last = job?.events?.slice(-1)[0]?.message || '';
+          setScrapeStatus(`Scraping ${selectedHandle}… ${last}`);
+          if (job.status === 'complete' || job.status === 'error') break;
+        } catch { failures++; if (failures > 5) break; }
+      }
+      setScrapeStatus(`Done — reloading ${selectedHandle}…`);
+      // Reload devices WITHOUT clearing current selection
+      const res2 = await fetch(`${SCRAPER_BASE}/api/vpbx/device-configs?handle=${encodeURIComponent(selectedHandle)}`);
+      const data = await res2.json();
+      const refreshed = (data?.items || []).sort((a: DeviceConfig, b: DeviceConfig) =>
+        (a.directory_name || a.device_id).localeCompare(b.directory_name || b.device_id)
+      );
+      setDevices(refreshed);
+      // Re-apply selected device so the "Current Scraped Config" panel updates
+      if (selectedDeviceId) {
+        const dev = refreshed.find((d: DeviceConfig) => d.device_id === selectedDeviceId);
+        if (dev) setSavedSidecar(dev.sidecar_config || '');
+      }
+      setScrapeStatus(`✓ ${selectedHandle} scrape complete`);
+    } catch (e) {
+      setScrapeStatus(`✗ Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setScraping(false);
     }
   }
 
@@ -199,6 +247,51 @@ const ExpansionModuleTab: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* ── Scrape button + status ─────────────────────────────────────── */}
+        {selectedHandle && (
+          <div className={`${styles.scraperSelectors} ${styles.scrapeRow}`}>
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={scrapeCurrentHandle}
+              disabled={scraping || !scraperOnline}
+              title={`Re-scrape all devices for ${selectedHandle}`}
+            >
+              {scraping ? 'Scraping…' : `Scrape ${selectedHandle}`}
+            </button>
+            {scrapeStatus && <span className={styles.saveStatus}>{scrapeStatus}</span>}
+          </div>
+        )}
+
+        {/* ── Current scraped config (read-only) ────────────────────────── */}
+        {selectedDeviceId && (() => {
+          const dev = devices.find(d => d.device_id === selectedDeviceId);
+          const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
+          const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
+          const cfg = dev ? (_pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '') : '';
+          const isIncomplete = !cfg || cfg.split('\n').filter(l => l.trim()).length <= 1;
+          return (
+            <div className={styles.sidecarSection}>
+              <div className={styles.sidecarRow}>
+                <span className={styles.sidecarSectionTitle}>
+                  Current Scraped Config
+                  {isIncomplete && <span className={styles.incompleteNote}>
+                    — incomplete · click Scrape {selectedHandle} above to refresh
+                  </span>}
+                </span>
+              </div>
+              <textarea
+                className={styles.sidecarTextarea}
+                readOnly
+                rows={8}
+                value={cfg || '(no config captured yet — scrape this handle to populate)'}
+                spellCheck={false}
+                aria-label="Current scraped phone config"
+              />
+            </div>
+          );
+        })()}
 
         {selectedDeviceId && (
           <div className={styles.sidecarSection}>

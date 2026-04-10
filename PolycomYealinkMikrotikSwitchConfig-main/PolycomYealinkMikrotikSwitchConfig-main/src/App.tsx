@@ -179,7 +179,9 @@ function App() {
   const SCRAPER_BASE_PHONE = 'http://localhost:8788';
   const [scraperHandles, setScraperHandles] = useState<{ handle: string; name: string; ip: string }[]>([]);
   const [scraperHandle, setScraperHandle] = useState('');
-  const [scraperDevices, setScraperDevices] = useState<{ device_id: string; directory_name: string; extension: string; mac: string; make: string; model: string; bulk_config: string }[]>([]);
+  const [scraperDevices, setScraperDevices] = useState<{ device_id: string; directory_name: string; extension: string; mac: string; make: string; model: string; bulk_config: string; view_config: string; arbitrary_attributes: string; device_properties: string; last_seen_utc: string }[]>([]);
+  const [scraperScraping, setScraperScraping] = useState(false);
+  const [scraperScrapeStatus, setScraperScrapeStatus] = useState<string | null>(null);
   const [scraperDevice, setScraperDevice] = useState('');
   const [scraperOnlinePhone, setScraperOnlinePhone] = useState<boolean | null>(null);
   const [scraperLiveConfig, setScraperLiveConfig] = useState('');
@@ -199,10 +201,10 @@ function App() {
     adminPassword?: string; timeOffset?: string; unparsedCount: number;
   } | null>(null);
   // --- Site Config display state (loaded when a handle is selected) ---
-  const [siteConfigRaw, setSiteConfigRaw] = useState('');
-  const [siteConfigLoading, setSiteConfigLoading] = useState(false);
-  const [siteConfigError, setSiteConfigError] = useState('');
-  const [siteConfigMeta, setSiteConfigMeta] = useState<{
+  const [, setSiteConfigRaw] = useState('');
+  const [, setSiteConfigLoading] = useState(false);
+  const [, setSiteConfigError] = useState('');
+  const [, setSiteConfigMeta] = useState<{
     handle: string; last_seen_utc: string;
   } | null>(null);
   // --- Dark mode ---
@@ -292,11 +294,15 @@ function App() {
 
     setScraperDevice(deviceId);
 
-    // Populate currentConfig display state — raw config is already in device payload
-    const raw = dev.bulk_config || '';
+    // Populate currentConfig display state — raw config is already in device payload.
+    // Priority: view_config → arbitrary_attributes → device_properties → bulk_config
+    // Filter known FreePBX placeholder strings.
+    const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
+    const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
+    const raw = _pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '';
     setScraperLiveConfig(raw);
     setLoadedConfigRaw(raw);
-    setCurrentConfigError(raw ? '' : 'Device record exists but no bulk config was captured. Run "Scrape Phone Configs" for this handle to populate it.');
+    setCurrentConfigError(raw ? '' : 'No config captured for this device yet. Click "Scrape this handle" above to re-scrape it.');
     setCurrentConfigLoading(false);
 
     // Parse known fields for display metadata — does NOT touch form fields
@@ -316,6 +322,62 @@ function App() {
     });
     // Stay in 'new' mode — user must explicitly press "Load Current Config Into Form"
     // to switch to edit mode and hydrate fields.
+  }
+
+  async function scrapeCurrentHandle() {
+    if (!scraperHandle || scraperScraping) return;
+    setScraperScraping(true);
+    setScraperScrapeStatus(`Scraping ${scraperHandle}…`);
+    try {
+      const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handles: [scraperHandle] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { job_id } = await res.json();
+      let failures = 0;
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const jr = await fetch(`${SCRAPER_BASE_PHONE}/api/jobs/${job_id}`);
+          if (!jr.ok) { failures++; if (failures > 5) break; continue; }
+          failures = 0;
+          const job = await jr.json();
+          const last = job?.events?.slice(-1)[0]?.message || '';
+          setScraperScrapeStatus(`Scraping ${scraperHandle}… ${last}`);
+          if (job.status === 'complete' || job.status === 'error') break;
+        } catch { failures++; if (failures > 5) break; }
+      }
+      setScraperScrapeStatus(`Done — reloading ${scraperHandle}…`);
+      // Reload devices WITHOUT clearing the current device selection
+      const reloadRes = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(scraperHandle)}`);
+      const reloadData = await reloadRes.json();
+      const freshDevs = reloadData?.items || [];
+      setScraperDevices(freshDevs);
+      // Re-apply the selected device with fresh data so the config display updates
+      if (scraperDevice) {
+        const freshDev = freshDevs.find((d: typeof freshDevs[0]) => d.device_id === scraperDevice);
+        if (freshDev) {
+          const _ph2 = new Set(['place holder text', 'placeholder text', 'placeholder']);
+          const _pick2 = (s: string) => s && !_ph2.has(s.trim().toLowerCase()) ? s : '';
+          const freshRaw = _pick2(freshDev.view_config) || _pick2(freshDev.arbitrary_attributes) || _pick2(freshDev.device_properties) || _pick2(freshDev.bulk_config) || '';
+          setScraperLiveConfig(freshRaw);
+          setLoadedConfigRaw(freshRaw);
+          setCurrentConfigError(freshRaw ? '' : 'No config captured for this device yet. Try scraping again.');
+          const brand: 'Polycom' | 'Yealink' =
+            freshDev.make?.toLowerCase().includes('yealink') ||
+            freshDev.model?.toLowerCase().includes('yealink') ||
+            freshDev.model?.toLowerCase().startsWith('sip-') ? 'Yealink' : 'Polycom';
+          setCurrentConfigParsed(freshRaw ? parseSupportedFields(freshRaw, brand) : { unparsedCount: 0 });
+        }
+      }
+      setScraperScrapeStatus(`✓ ${scraperHandle} scrape complete`);
+    } catch (e) {
+      setScraperScrapeStatus(`✗ Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setScraperScraping(false);
+    }
   }
 
   // Called only when user explicitly clicks "Load Current Config Into Form"
@@ -1290,6 +1352,22 @@ function App() {
                 </>
               )}
             </div>
+            {scraperHandle && (
+              <div className="scraper-select-row">
+                <button
+                  type="button"
+                  className="scraper-scrape-btn"
+                  onClick={scrapeCurrentHandle}
+                  disabled={scraperScraping || !scraperOnlinePhone}
+                  title={`Re-scrape all devices for ${scraperHandle}`}
+                >
+                  {scraperScraping ? 'Scraping…' : `Scrape ${scraperHandle}`}
+                </button>
+                {scraperScrapeStatus && (
+                  <span className="scraper-scrape-status">{scraperScrapeStatus}</span>
+                )}
+              </div>
+            )}
             {!scraperOnlinePhone && scraperOnlinePhone !== null && (
               <p className="scraper-offline">
                 Webscraper offline — start it at localhost:8788 to enable live load.
@@ -1317,10 +1395,10 @@ function App() {
                     )}
                     {(() => {
                       const dev = scraperDevices.find(d => d.device_id === scraperDevice);
-                      return dev && (dev as unknown as Record<string, string>)['last_seen_utc'] ? (
+                      return dev?.last_seen_utc ? (
                         <>
                           <span className="current-config-meta-sep">·</span>
-                          <span className="current-config-meta-item"><b>Last scraped:</b> {(dev as unknown as Record<string, string>)['last_seen_utc'].replace('T', ' ').replace('Z', ' UTC')}</span>
+                          <span className="current-config-meta-item"><b>Last scraped:</b> {dev.last_seen_utc.replace('T', ' ').replace('Z', ' UTC')}</span>
                         </>
                       ) : null;
                     })()}

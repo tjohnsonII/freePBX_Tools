@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import styles from './PhoneConfigGeneratorTab.module.css';
 
 const SCRAPER_BASE = 'http://localhost:8788';
@@ -28,14 +28,6 @@ type SiteConfig = {
 const PLACEHOLDER_STRINGS = new Set(['place holder text', 'placeholder text', 'placeholder']);
 function isPlaceholder(s: string): boolean {
   return PLACEHOLDER_STRINGS.has(s.trim().toLowerCase());
-}
-
-function bestConfig(d: DeviceConfig): string {
-  const candidates = [d.view_config, d.arbitrary_attributes, d.bulk_config];
-  for (const c of candidates) {
-    if (c && !isPlaceholder(c)) return c;
-  }
-  return '';
 }
 
 /** Build a labeled combined config string showing all scraped data for a device. */
