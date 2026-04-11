@@ -399,7 +399,104 @@ function App() {
     setConfigMode('edit');
   }
 
-  // Yealink expansion module state
+  // ── Expansion tab webscraper state ─────────────────────────────────────────
+  const [expHandle, setExpHandle] = useState('');
+  const [expDevices, setExpDevices] = useState<{ device_id: string; vpbx_id: string; directory_name: string; extension: string; mac: string; make: string; model: string; view_config: string; arbitrary_attributes: string; device_properties: string; bulk_config: string; sidecar_config: string; last_seen_utc: string }[]>([]);
+  const [expDevice, setExpDevice] = useState('');
+  const [expVpbxId, setExpVpbxId] = useState('');
+  const [expDevicesLoading, setExpDevicesLoading] = useState(false);
+  const [expSidecarConfig, setExpSidecarConfig] = useState('');
+  const [expSavedSidecar, setExpSavedSidecar] = useState('');
+  const [expSaveStatus, setExpSaveStatus] = useState<string | null>(null);
+  const [expScraping, setExpScraping] = useState(false);
+  const [expScrapeStatus, setExpScrapeStatus] = useState<string | null>(null);
+
+  async function loadExpDevices(handle: string) {
+    if (!handle) { setExpDevices([]); setExpDevice(''); return; }
+    setExpDevicesLoading(true);
+    try {
+      const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(handle)}`);
+      const data = await res.json();
+      setExpDevices((data?.items || []).sort((a: { directory_name: string; device_id: string }, b: { directory_name: string; device_id: string }) =>
+        (a.directory_name || a.device_id).localeCompare(b.directory_name || b.device_id)
+      ));
+    } catch { setExpDevices([]); }
+    setExpDevicesLoading(false);
+  }
+
+  function applyExpDevice(deviceId: string) {
+    setExpDevice(deviceId);
+    const dev = expDevices.find(d => d.device_id === deviceId);
+    setExpVpbxId(dev?.vpbx_id || '');
+    setExpSavedSidecar(dev?.sidecar_config || '');
+    setExpSaveStatus(null);
+    if (dev?.device_properties) {
+      const ipMatch = dev.device_properties.match(/device\.ip[_\s]*address[^\n]*=\s*(\S+)/i)
+        || dev.device_properties.match(/ip[^\n]*=\s*([\d.]+)/i);
+      if (ipMatch) setYealinkSection(s => ({ ...s, pbxIp: ipMatch[1] }));
+    }
+  }
+
+  async function scrapeExpHandle() {
+    if (!expHandle || expScraping) return;
+    setExpScraping(true);
+    setExpScrapeStatus(`Scraping ${expHandle}…`);
+    try {
+      const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handles: [expHandle] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { job_id } = await res.json();
+      let failures = 0;
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const jr = await fetch(`${SCRAPER_BASE_PHONE}/api/jobs/${job_id}`);
+          if (!jr.ok) { failures++; if (failures > 5) break; continue; }
+          failures = 0;
+          const job = await jr.json();
+          const last = job?.events?.slice(-1)[0]?.message || '';
+          setExpScrapeStatus(`Scraping ${expHandle}… ${last}`);
+          if (job.status === 'complete' || job.status === 'error') break;
+        } catch { failures++; if (failures > 5) break; }
+      }
+      setExpScrapeStatus(`Done — reloading…`);
+      const res2 = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs?handle=${encodeURIComponent(expHandle)}`);
+      const data = await res2.json();
+      const fresh = (data?.items || []).sort((a: { directory_name: string; device_id: string }, b: { directory_name: string; device_id: string }) =>
+        (a.directory_name || a.device_id).localeCompare(b.directory_name || b.device_id)
+      );
+      setExpDevices(fresh);
+      if (expDevice) {
+        const dev = fresh.find((d: { device_id: string; sidecar_config: string }) => d.device_id === expDevice);
+        if (dev) setExpSavedSidecar(dev.sidecar_config || '');
+      }
+      setExpScrapeStatus(`✓ ${expHandle} scrape complete`);
+    } catch (e) {
+      setExpScrapeStatus(`✗ Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setExpScraping(false);
+    }
+  }
+
+  async function saveExpSidecarConfig() {
+    if (!expDevice || !expVpbxId) return;
+    setExpSaveStatus('Saving…');
+    try {
+      const res = await fetch(`${SCRAPER_BASE_PHONE}/api/vpbx/device-configs/${encodeURIComponent(expDevice)}/sidecar`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vpbx_id: expVpbxId, sidecar_config: expSidecarConfig }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setExpSavedSidecar(expSidecarConfig);
+      setExpSaveStatus('✓ Saved');
+    } catch (e) {
+      setExpSaveStatus(`✗ ${e instanceof Error ? e.message : 'Save failed'}`);
+    }
+  }
+
+  // ── Yealink expansion module state ─────────────────────────────────────────
   const [yealinkSection, setYealinkSection] = useState({
     templateType: 'BLF',
     sidecarPage: '1',
@@ -431,6 +528,14 @@ function App() {
       config += `expansion_module.${sidecarPage}.key.${sidecarLine}.line=1\n`;
     }
     setYealinkOutput(config);
+    // Append to sidecar config, replacing any existing entry for the same page.key
+    if (expDevice) {
+      const keyPrefix = `expansion_module.${yealinkSection.sidecarPage}.key.${yealinkSection.sidecarLine}.`;
+      setExpSidecarConfig(prev => {
+        const lines = prev ? prev.split('\n').filter(l => !l.startsWith(keyPrefix)) : [];
+        return [...lines, ...config.trimEnd().split('\n')].join('\n');
+      });
+    }
   };
 
   // Generate all 20 Yealink expansion keys for the selected page
@@ -1665,6 +1770,109 @@ function App() {
       {activeTab === 'expansion' && (
         <div className="expansion-container">
           <h2 className="expansion-h2">Step 2 — Expansion Module Code Generators</h2>
+
+          {/* ── Load from Webscraper panel ── */}
+          <div className="scraper-panel">
+            <div className="scraper-header">
+              <strong className="scraper-strong">Load from Webscraper</strong>
+              <span className={scraperOnlinePhone === null ? 'scraper-status-pending' : scraperOnlinePhone ? 'scraper-status-online' : 'scraper-status-offline'}>
+                {scraperOnlinePhone === null ? '…' : scraperOnlinePhone ? '● connected' : '○ offline'}
+              </span>
+            </div>
+            <div className="scraper-select-row">
+              <label htmlFor="exp-scraper-handle" className="scraper-label">Handle:</label>
+              <select id="exp-scraper-handle" value={expHandle} title="Select a company handle"
+                onChange={e => { setExpHandle(e.target.value); setExpDevice(''); loadExpDevices(e.target.value); }}
+                disabled={!scraperOnlinePhone} className="scraper-handle-select">
+                <option value="">— select handle —</option>
+                {scraperHandles.map(h => (
+                  <option key={h.handle} value={h.handle}>{h.handle} — {h.name}</option>
+                ))}
+              </select>
+              {expDevices.length > 0 && (
+                <>
+                  <label htmlFor="exp-scraper-device" className="scraper-label">
+                    Device{expDevicesLoading ? ' (loading…)' : ''}:
+                  </label>
+                  <select id="exp-scraper-device" value={expDevice} title="Select a device"
+                    onChange={e => applyExpDevice(e.target.value)}
+                    disabled={expDevicesLoading} className="scraper-device-select">
+                    <option value="">— select device —</option>
+                    {expDevices.map(d => (
+                      <option key={d.device_id} value={d.device_id}>
+                        {d.directory_name || d.device_id} · ext {d.extension || '?'} · {d.make} {d.model}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+            {expHandle && (
+              <div className="scraper-select-row">
+                <button type="button" className="scraper-scrape-btn"
+                  onClick={scrapeExpHandle} disabled={expScraping || !scraperOnlinePhone}
+                  title={`Re-scrape all devices for ${expHandle}`}>
+                  {expScraping ? 'Scraping…' : `Scrape ${expHandle}`}
+                </button>
+                {expScrapeStatus && <span className="scraper-scrape-status">{expScrapeStatus}</span>}
+              </div>
+            )}
+            {!scraperOnlinePhone && scraperOnlinePhone !== null && (
+              <p className="scraper-offline">Webscraper offline — start it at localhost:8788 to enable live load.</p>
+            )}
+
+            {/* Current scraped config */}
+            {expDevice && (() => {
+              const dev = expDevices.find(d => d.device_id === expDevice);
+              const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
+              const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
+              const cfg = dev ? (_pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '') : '';
+              const isIncomplete = !cfg || cfg.split('\n').filter((l: string) => l.trim()).length <= 1;
+              return (
+                <div className="exp-config-section">
+                  <div className="exp-config-header">
+                    <span className="exp-config-title">
+                      Current Scraped Config
+                      {isIncomplete && <span className="exp-incomplete-note"> — incomplete · click Scrape {expHandle} above</span>}
+                    </span>
+                    {dev?.last_seen_utc && <span className="exp-config-meta">scraped {dev.last_seen_utc.slice(0, 10)}</span>}
+                  </div>
+                  <textarea className="current-config-textarea" readOnly rows={8}
+                    value={cfg || '(no config captured yet — scrape this handle to populate)'}
+                    spellCheck={false} title="Current scraped phone config for this device" />
+                </div>
+              );
+            })()}
+
+            {/* Sidecar config editor */}
+            {expDevice && (
+              <div className="exp-config-section">
+                <div className="exp-config-header">
+                  <span className="exp-config-title">Sidecar Config</span>
+                  <div className="current-config-actions">
+                    {expSavedSidecar && (
+                      <button type="button" className="current-config-load-btn"
+                        onClick={() => setExpSidecarConfig(expSavedSidecar)}
+                        title="Load saved sidecar config">↓ Load Saved</button>
+                    )}
+                    <button type="button" className="scraper-scrape-btn"
+                      onClick={saveExpSidecarConfig} disabled={!expSidecarConfig}
+                      title="Save sidecar config to database">Save to DB</button>
+                    {expSaveStatus && <span className="scraper-scrape-status">{expSaveStatus}</span>}
+                  </div>
+                </div>
+                {expSavedSidecar && expSavedSidecar !== expSidecarConfig && (
+                  <p className="exp-diff-note">Saved version differs — click "Load Saved" to restore or "Save to DB" to overwrite.</p>
+                )}
+                <textarea className="current-config-textarea" rows={10}
+                  value={expSidecarConfig}
+                  onChange={e => setExpSidecarConfig(e.target.value)}
+                  placeholder="Generate keys below and they'll appear here — or paste a full sidecar config to edit."
+                  spellCheck={false} title="Editable sidecar config for this device" />
+              </div>
+            )}
+          </div>
+
           <div className="expansion-flex">
             {/* Yealink Section */}
             <div className="expansion-col">
