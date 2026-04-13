@@ -69,15 +69,6 @@
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
 
-@keyframes logo-spin {
-  /* Spin animation for the logo */
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 @media (prefers-reduced-motion: no-preference) {
   /* Only spin logo if user does not prefer reduced motion */
@@ -435,6 +426,134 @@
   font-weight: 400;
   font-size: 12px;
   margin-left: 6px;
+}
+
+/* ─── Full 3-Page Layout Editor ─────────── */
+.full-layout-editor {
+  margin-top: 28px;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  background: #f7fbff;
+  padding: 16px;
+}
+
+.full-layout-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.full-layout-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.full-layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.full-layout-ip-input {
+  width: 160px;
+  padding: 4px 8px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.full-layout-page-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.full-layout-tab {
+  padding: 5px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  cursor: pointer;
+}
+
+.full-layout-tab:hover { background: #e0e0e0; }
+
+.full-layout-tab-active {
+  padding: 5px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #0078d4;
+  background: #0078d4;
+  color: #fff;
+  cursor: pointer;
+}
+
+.full-layout-tab-dot { color: #7ecbff; }
+.full-layout-tab-active .full-layout-tab-dot { color: #cce8ff; }
+
+.full-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.full-layout-col-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  padding: 2px 4px;
+  background: #e8f0fb;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.full-layout-key {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #d0e4f7;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.full-layout-key-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0078d4;
+  min-width: 18px;
+  text-align: center;
+}
+
+.full-layout-label-input {
+  flex: 2;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+.full-layout-ext-input {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+.full-layout-type-select {
+  padding: 3px 4px;
+  font-size: 11px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
 }
 
 .exp-diff-note {

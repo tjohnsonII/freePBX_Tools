@@ -592,6 +592,42 @@ function App() {
     setPolycomOutput(config);
   }
 
+  // ── Yealink Full 3-Page Layout Editor ──────────────────────────────────────
+  type FullLayoutKey = { label: string; value: string; type: 'BLF' | 'SpeedDial' };
+  const [fullLayout, setFullLayout] = useState<FullLayoutKey[][]>(
+    [0, 1, 2].map(() => Array.from({ length: 20 }, () => ({ label: '', value: '', type: 'BLF' as const })))
+  );
+  const [fullLayoutPage, setFullLayoutPage] = useState(0);
+  const [fullLayoutPbxIp, setFullLayoutPbxIp] = useState('');
+
+  function updateFullLayoutKey(page: number, keyIdx: number, field: keyof FullLayoutKey, val: string) {
+    setFullLayout(prev => prev.map((pg, pi) =>
+      pi !== page ? pg : pg.map((k, ki) => ki !== keyIdx ? k : { ...k, [field]: val })
+    ));
+  }
+
+  function generateFullLayoutConfig() {
+    const lines: string[] = [];
+    fullLayout.forEach((page, pi) => {
+      page.forEach((key, ki) => {
+        if (!key.value && !key.label) return; // skip empty keys
+        const prefix = `expansion_module.${pi + 1}.key.${ki + 1}`;
+        if (key.type === 'SpeedDial') {
+          lines.push(`${prefix}.type=13`);
+          lines.push(`${prefix}.value=${key.value}`);
+        } else {
+          lines.push(`${prefix}.type=16`);
+          lines.push(`${prefix}.value=${key.value}${fullLayoutPbxIp ? '@' + fullLayoutPbxIp : ''}`);
+        }
+        lines.push(`${prefix}.line=1`);
+        if (key.label) lines.push(`${prefix}.label=${key.label}`);
+      });
+    });
+    const config = lines.join('\n');
+    setExpSidecarConfig(config);
+    setYealinkOutput(config);
+  }
+
   // Polycom MWI (Message Waiting Indicator) state and generator
   const [polycomMWI, setPolycomMWI] = useState({
     ext: '',
@@ -1104,10 +1140,10 @@ function App() {
       <div className="tabs">
         {TABS.map((tab) => (
           <button
+            type="button"
             key={tab.key}
             className={activeTab === tab.key ? 'active' : ''}
             onClick={() => setActiveTab(tab.key)}
-
           >
             {tab.label}
           </button>
@@ -1122,10 +1158,10 @@ function App() {
           <div className="ref-subnav">
             {REFERENCE_SUBTABS.map(sub => (
               <button
+                type="button"
                 key={sub.key}
                 className={referenceSubtab === sub.key ? 'active' : ''}
                 onClick={() => setReferenceSubtab(sub.key)}
-
               >
                 {sub.label}
               </button>
@@ -1607,7 +1643,7 @@ function App() {
                 </div>
               </div>
             </div>
-            <button onClick={generateConfig} className="btn-mt">Generate Config</button>
+            <button type="button" onClick={generateConfig} className="btn-mt">Generate Config</button>
             <div className="output">
               <textarea title="Generated config output" value={output} readOnly rows={10} className="full-width-ta" />
             </div>
@@ -1640,7 +1676,7 @@ function App() {
                   </label>
                   <input type="text" value={polycomMWI.pbxIp} title="PBX IP for MWI" onChange={e => setPolycomMWI(mwi => ({ ...mwi, pbxIp: e.target.value }))} />
                 </div>
-                <button onClick={generatePolycomMWI} className="btn-mt">Generate Polycom MWI Config</button>
+                <button type="button" onClick={generatePolycomMWI} className="btn-mt">Generate Polycom MWI Config</button>
                 <div className="output">
                   <textarea title="Generated Polycom MWI config" value={polycomMWI.output} readOnly rows={5} className="full-width-ta" />
                 </div>
@@ -1922,8 +1958,8 @@ function App() {
                 </label>
                 <input type="text" value={yealinkSection.pbxIp} title="PBX IP for BLF" onChange={e => setYealinkSection(s => ({ ...s, pbxIp: e.target.value }))} />
               </div>
-              <button onClick={generateYealinkExpansion} className="btn-mt btn-mr">Generate Yealink Expansion Config</button>
-              <button onClick={generateYealinkExpansionAll} className="btn-mt">Generate All 20 Keys</button>
+              <button type="button" onClick={generateYealinkExpansion} className="btn-mt btn-mr">Generate Yealink Expansion Config</button>
+              <button type="button" onClick={generateYealinkExpansionAll} className="btn-mt">Generate All 20 Keys</button>
               <div className="output">
                 <textarea title="Generated Yealink expansion config" value={yealinkOutput} readOnly rows={5} className="full-width-ta" />
               </div>
@@ -1964,8 +2000,8 @@ function App() {
                 <label className="label-ml">Linekey Category:</label>
                 <input type="text" value={polycomSection.linekeyCategory} title="Linekey category" onChange={e => setPolycomSection(s => ({ ...s, linekeyCategory: e.target.value }))} />
               </div>
-              <button onClick={generatePolycomExpansion} className="btn-mt btn-mr">Generate Polycom Expansion Config</button>
-              <button onClick={generatePolycomExpansionAll} className="btn-mt">Generate All 28 Keys</button>
+              <button type="button" onClick={generatePolycomExpansion} className="btn-mt btn-mr">Generate Polycom Expansion Config</button>
+              <button type="button" onClick={generatePolycomExpansionAll} className="btn-mt">Generate All 28 Keys</button>
               <div className="output">
                 <textarea title="Generated Polycom expansion config" value={polycomOutput} readOnly rows={5} className="full-width-ta" />
               </div>
@@ -1986,6 +2022,125 @@ function App() {
               </div>
             </div>
           </div>
+
+          {/* ── Yealink Full 3-Page Layout Editor ── */}
+          <div className="full-layout-editor">
+            <div className="full-layout-header">
+              <h3 className="full-layout-title">Yealink EXP40 / EXP50 — Full 3-Page Layout</h3>
+              <div className="full-layout-actions">
+                <label className="scraper-label" htmlFor="full-layout-pbx-ip">PBX IP (for BLF keys):</label>
+                <input
+                  id="full-layout-pbx-ip"
+                  type="text"
+                  className="full-layout-ip-input"
+                  value={fullLayoutPbxIp}
+                  onChange={e => setFullLayoutPbxIp(e.target.value)}
+                  placeholder="e.g. 192.168.1.100"
+                  title="PBX IP address used for all BLF keys"
+                />
+                <button
+                  type="button"
+                  className="scraper-scrape-btn"
+                  onClick={generateFullLayoutConfig}
+                  title="Generate config for all 3 pages and load into Sidecar Config"
+                >
+                  Generate All 3 Pages → Sidecar
+                </button>
+              </div>
+            </div>
+
+            {/* Page tabs */}
+            <div className="full-layout-page-tabs">
+              {[0, 1, 2].map(pi => (
+                <button
+                  key={pi}
+                  type="button"
+                  className={fullLayoutPage === pi ? 'full-layout-tab-active' : 'full-layout-tab'}
+                  onClick={() => setFullLayoutPage(pi)}
+                >
+                  Page {pi + 1}
+                  {fullLayout[pi].some(k => k.value || k.label) && (
+                    <span className="full-layout-tab-dot"> ●</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* 2-column × 10-row key grid for current page */}
+            <div className="full-layout-grid">
+              <div className="full-layout-col-header">Left column (keys 1, 3, 5 … 19)</div>
+              <div className="full-layout-col-header">Right column (keys 2, 4, 6 … 20)</div>
+              {Array.from({ length: 10 }).map((_, row) => {
+                const leftIdx = row * 2;      // keys 1,3,5...19  (0-indexed: 0,2,4...18)
+                const rightIdx = row * 2 + 1; // keys 2,4,6...20  (0-indexed: 1,3,5...19)
+                const leftKey = fullLayout[fullLayoutPage][leftIdx];
+                const rightKey = fullLayout[fullLayoutPage][rightIdx];
+                return (
+                  <>
+                    {/* Left key */}
+                    <div key={`l${row}`} className="full-layout-key">
+                      <span className="full-layout-key-num">{leftIdx + 1}</span>
+                      <input
+                        type="text"
+                        className="full-layout-label-input"
+                        placeholder="Label"
+                        value={leftKey.label}
+                        title={`Key ${leftIdx + 1} label`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'label', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="full-layout-ext-input"
+                        placeholder="Ext / Number"
+                        value={leftKey.value}
+                        title={`Key ${leftIdx + 1} extension or number`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'value', e.target.value)}
+                      />
+                      <select
+                        className="full-layout-type-select"
+                        value={leftKey.type}
+                        title={`Key ${leftIdx + 1} type`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'type', e.target.value as 'BLF' | 'SpeedDial')}
+                      >
+                        <option value="BLF">BLF</option>
+                        <option value="SpeedDial">SD</option>
+                      </select>
+                    </div>
+                    {/* Right key */}
+                    <div key={`r${row}`} className="full-layout-key">
+                      <span className="full-layout-key-num">{rightIdx + 1}</span>
+                      <input
+                        type="text"
+                        className="full-layout-label-input"
+                        placeholder="Label"
+                        value={rightKey.label}
+                        title={`Key ${rightIdx + 1} label`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'label', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="full-layout-ext-input"
+                        placeholder="Ext / Number"
+                        value={rightKey.value}
+                        title={`Key ${rightIdx + 1} extension or number`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'value', e.target.value)}
+                      />
+                      <select
+                        className="full-layout-type-select"
+                        value={rightKey.type}
+                        title={`Key ${rightIdx + 1} type`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'type', e.target.value as 'BLF' | 'SpeedDial')}
+                      >
+                        <option value="BLF">BLF</option>
+                        <option value="SpeedDial">SD</option>
+                      </select>
+                    </div>
+                  </>
+                );
+              })}
+            </div>
+          </div>
+
         </div>
       )}
       {activeTab === 'fullconfig' && (
