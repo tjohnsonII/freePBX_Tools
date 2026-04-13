@@ -295,11 +295,12 @@ function App() {
     setScraperDevice(deviceId);
 
     // Populate currentConfig display state — raw config is already in device payload.
-    // Priority: view_config → arbitrary_attributes → device_properties → bulk_config
+    // Priority: arbitrary_attributes (real phone settings) → view_config → bulk_config
+    // device_properties is metadata only, never shown as phone config.
     // Filter known FreePBX placeholder strings.
     const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
     const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
-    const raw = _pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '';
+    const raw = _pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '';
     setScraperLiveConfig(raw);
     setLoadedConfigRaw(raw);
     setCurrentConfigError(raw ? '' : 'No config captured for this device yet. Click "Scrape this handle" above to re-scrape it.');
@@ -346,7 +347,7 @@ function App() {
           const job = await jr.json();
           const last = job?.events?.slice(-1)[0]?.message || '';
           setScraperScrapeStatus(`Scraping ${scraperHandle}… ${last}`);
-          if (job.status === 'complete' || job.status === 'error') break;
+          if (job.status === 'done' || job.status === 'complete' || job.status === 'error' || job.status === 'failed') break;
         } catch { failures++; if (failures > 5) break; }
       }
       setScraperScrapeStatus(`Done — reloading ${scraperHandle}…`);
@@ -361,7 +362,7 @@ function App() {
         if (freshDev) {
           const _ph2 = new Set(['place holder text', 'placeholder text', 'placeholder']);
           const _pick2 = (s: string) => s && !_ph2.has(s.trim().toLowerCase()) ? s : '';
-          const freshRaw = _pick2(freshDev.view_config) || _pick2(freshDev.arbitrary_attributes) || _pick2(freshDev.device_properties) || _pick2(freshDev.bulk_config) || '';
+          const freshRaw = _pick2(freshDev.arbitrary_attributes) || _pick2(freshDev.view_config) || _pick2(freshDev.bulk_config) || '';
           setScraperLiveConfig(freshRaw);
           setLoadedConfigRaw(freshRaw);
           setCurrentConfigError(freshRaw ? '' : 'No config captured for this device yet. Try scraping again.');
@@ -458,7 +459,7 @@ function App() {
           const job = await jr.json();
           const last = job?.events?.slice(-1)[0]?.message || '';
           setExpScrapeStatus(`Scraping ${expHandle}… ${last}`);
-          if (job.status === 'complete' || job.status === 'error') break;
+          if (job.status === 'done' || job.status === 'complete' || job.status === 'error' || job.status === 'failed') break;
         } catch { failures++; if (failures > 5) break; }
       }
       setExpScrapeStatus(`Done — reloading…`);
@@ -1862,7 +1863,7 @@ function App() {
               const dev = expDevices.find(d => d.device_id === expDevice);
               const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
               const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
-              const cfg = dev ? (_pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '') : '';
+              const cfg = dev ? (_pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '') : '';
               const isIncomplete = !cfg || cfg.split('\n').filter((l: string) => l.trim()).length <= 1;
               return (
                 <div className="exp-config-section">

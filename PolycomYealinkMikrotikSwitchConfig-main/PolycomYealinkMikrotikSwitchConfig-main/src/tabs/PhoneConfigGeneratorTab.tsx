@@ -125,7 +125,7 @@ export default function PhoneConfigGeneratorTab() {
           const job = await jobRes.json();
           const last = job?.events?.slice(-1)[0]?.message || '';
           setScrapeStatus(`Scraping ${selectedHandle}… ${last}`);
-          if (job.status === 'complete' || job.status === 'error') break;
+          if (job.status === 'done' || job.status === 'complete' || job.status === 'error' || job.status === 'failed') break;
         } catch { failures++; if (failures > 5) break; }
       }
       setScrapeStatus(`Done — reloading ${selectedHandle} devices…`);

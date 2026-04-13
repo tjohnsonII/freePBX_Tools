@@ -269,7 +269,7 @@ const ExpansionModuleTab: React.FC = () => {
           const dev = devices.find(d => d.device_id === selectedDeviceId);
           const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
           const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
-          const cfg = dev ? (_pick(dev.view_config) || _pick(dev.arbitrary_attributes) || _pick(dev.device_properties) || _pick(dev.bulk_config) || '') : '';
+          const cfg = dev ? (_pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '') : '';
           const isIncomplete = !cfg || cfg.split('\n').filter(l => l.trim()).length <= 1;
           return (
             <div className={styles.sidecarSection}>

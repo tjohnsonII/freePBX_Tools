@@ -440,9 +440,11 @@ def _js_extract_arbitrary_attributes(driver: Any) -> str:
                 if (foundKey || foundVal) break;
             }
 
-            // Read data rows: rows that have inputs in the key column
+            // Read data rows: rows that have inputs in the key column.
+            // FreePBX renders data rows with <th> cells (not <td>), so we must
+            // query both to avoid missing every data row.
             for (var r = 0; r < allRows.length; r++) {
-                var cells = allRows[r].querySelectorAll('td');
+                var cells = allRows[r].querySelectorAll('td, th');
                 if (cells.length <= Math.max(keyIdx, valIdx)) continue;
                 var kInp = cells[keyIdx].querySelector('input:not([type="hidden"]), textarea');
                 var vInp = cells[valIdx] ? cells[valIdx].querySelector('input:not([type="hidden"]), textarea') : null;
