@@ -176,7 +176,7 @@ def _ssh_sftp_put_and_chmod(host: str, username: str, password: str, local_path:
 # Initialize Flask app and SocketIO for real-time communication
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)  # Secure session key
-socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins for dev
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
 # Dictionaries to track active deployments and their logs

@@ -89,6 +89,17 @@ SERVICES = {
         "health_paths": ["/"],
         "success_markers": ["Running on"],
     },
+    "deploy_backend": {
+        "label": "FreePBX Deploy Backend (FastAPI)",
+        "service_name": "freepbx_deploy_backend",
+        "rel_dir": "freepbx-deploy-backend",
+        "venv": "freepbx-deploy-backend/.venv",
+        "app": "freepbx_deploy_backend.main:app",
+        "port": 8002,
+        "host": "127.0.0.1",
+        "kind": "uvicorn",
+        "health_paths": ["/api/health", "/docs"],
+    },
 }
 
 
@@ -207,6 +218,44 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
     }
 
 
+def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:
+    """Start a FastAPI app via uvicorn using its own venv."""
+    venv_python = (root / svc["venv"] / "Scripts" / "python.exe").resolve()
+    if not venv_python.exists():
+        return _unavailable(svc, f"venv not found: {venv_python}. Run bootstrap first.")
+
+    host = svc["host"]
+    port = svc["port"]
+    name = svc["service_name"]
+    app_dir = (root / svc["rel_dir"]).resolve()
+
+    cmd = [
+        str(venv_python), "-m", "uvicorn",
+        svc["app"],
+        "--host", host,
+        "--port", str(port),
+        "--reload",
+    ]
+
+    stop_service(root, name)
+
+    if dry_run:
+        return _dry_run_result(svc, cmd)
+
+    entry = start_detached(root=root, service_name=name, cmd=cmd, cwd=app_dir)
+    save_service_state(root, entry)
+
+    wait_for_process_stable(int(entry["pid"]), timeout_s=10, section="ready", min_alive_s=2.0)
+    health_paths = svc.get("health_paths", ["/"])
+    health_url = f"http://{host}:{port}{health_paths[0]}"
+    ok = wait_for_http(health_url, timeout_s=readiness_timeout, section="ready")
+    reason = f"HTTP probe passed at {health_url}" if ok else f"HTTP probe timed out at {health_url}"
+    url = f"http://{host}:{port}"
+    update_service_state(root, name, readiness_status="ready" if ok else "degraded",
+                         readiness_reason=reason, mode="backend", degraded=not ok, url=url)
+    return _ok_result(svc, entry, reason, url)
+
+
 def _start_flask(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:
     """Start the Flask web manager (web_manager.py)."""
     import shutil
@@ -321,6 +370,8 @@ def start_extras(
                 result = _start_npm(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
             elif svc["kind"] == "flask":
                 result = _start_flask(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
+            elif svc["kind"] == "uvicorn":
+                result = _start_uvicorn(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
             elif svc["kind"] == "ssh-remote":
                 result = _start_ssh_remote(root, svc, dry_run=dry_run, readiness_timeout=readiness_timeout)
             else:
@@ -342,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only", nargs="+", choices=list(SERVICES.keys()),
         metavar="SERVICE",
-        help=f"Start only these services. Choices: {list(SERVICES.keys())}",  # noqa: E501
+        help=f"Start only these services. Choices: {list(SERVICES.keys())}",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
