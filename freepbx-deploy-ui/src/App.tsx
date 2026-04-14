@@ -73,13 +73,6 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  useEffect(() => {
-    // auto scroll
-    const el = logRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [logLines])
-
   function disconnectWs() {
     try {
       wsRef.current?.close()
