@@ -92,7 +92,7 @@ SERVICES = {
     "deploy_backend": {
         "label": "FreePBX Deploy Backend (FastAPI)",
         "service_name": "freepbx_deploy_backend",
-        "rel_dir": "freepbx-deploy-backend",
+        "rel_dir": "freepbx-deploy-backend/src",
         "venv": "freepbx-deploy-backend/.venv",
         "app": "freepbx_deploy_backend.main:app",
         "port": 8002,

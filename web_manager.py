@@ -179,6 +179,7 @@ app.config['SECRET_KEY'] = secrets.token_hex(16)  # Secure session key
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
+
 # Dictionaries to track active deployments and their logs
 active_deployments = {}  # deployment_id -> status
 deployment_logs = {}     # deployment_id -> list of log lines
@@ -627,4 +628,4 @@ def webserver_check_one_vhost():
 if __name__ == '__main__':
     print("🌐 Starting FreePBX Tools Manager Web Interface...")
     print("📱 Access at: http://localhost:5000")
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, debug=True, use_reloader=False, host='0.0.0.0', port=5000)
