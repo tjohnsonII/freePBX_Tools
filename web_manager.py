@@ -270,20 +270,22 @@ FREEPBX_ROOT_PASSWORD = "***REMOVED***"
             process = subprocess.Popen(
                 ['python', script, '--servers', servers],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # merge stderr into stdout
                 text=True,
                 bufsize=1,
                 env={**os.environ, 'PYTHONUNBUFFERED': '1'},
             )
+
+            def _emit_line(line: str) -> None:
+                line = line.rstrip()
+                if line:
+                    deployment_logs[deployment_id].append(line)
+                    socketio.emit('log', {'deployment_id': deployment_id, 'message': line})
+
             # Stream output lines to web UI in real time
             if process.stdout:
                 for line in iter(process.stdout.readline, ''):
-                    if line:
-                        deployment_logs[deployment_id].append(line.strip())
-                        socketio.emit('log', {
-                            'deployment_id': deployment_id,
-                            'message': line.strip()
-                        })
+                    _emit_line(line)
             process.wait()  # Wait for process to finish
             # Mark deployment as completed or failed
             if process.returncode == 0:
@@ -306,10 +308,9 @@ FREEPBX_ROOT_PASSWORD = "***REMOVED***"
                 'status': 'error',
                 'error': str(e)
             })
-    # Start the deployment thread
-    thread = threading.Thread(target=run_deployment)
-    thread.daemon = True
-    thread.start()
+    # Use socketio.start_background_task — the correct Flask-SocketIO pattern
+    # for emitting from background work (plain threading.Thread is unreliable)
+    socketio.start_background_task(run_deployment)
     # Return deployment ID to client
     return jsonify({
         'deployment_id': deployment_id,
