@@ -272,7 +272,8 @@ FREEPBX_ROOT_PASSWORD = "***REMOVED***"
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1
+                bufsize=1,
+                env={**os.environ, 'PYTHONUNBUFFERED': '1'},
             )
             # Stream output lines to web UI in real time
             if process.stdout:
