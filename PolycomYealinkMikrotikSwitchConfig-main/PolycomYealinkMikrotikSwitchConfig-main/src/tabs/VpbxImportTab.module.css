@@ -1,13 +1,14 @@
 .container {
-  max-width: 1200px;
+  max-width: 1400px;
 }
 
+/* ── Scraper load panel ─────────────────────────────────────────── */
 .loadPanel {
-  background: #f7fbff;
-  border: 1px solid #cce1fa;
+  background: var(--app-surface-2);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .loadPanelHeader {
@@ -20,26 +21,12 @@
 .loadPanelTitle {
   font-size: 14px;
   font-weight: 700;
+  color: var(--app-fg);
 }
 
-.scraperBadge {
-  font-size: 12px;
-}
-
-.scraperChecking {
-  font-size: 12px;
-  color: #888;
-}
-
-.scraperOnline {
-  font-size: 12px;
-  color: #16794a;
-}
-
-.scraperOffline {
-  font-size: 12px;
-  color: #b42318;
-}
+.scraperChecking { font-size: 12px; color: var(--app-muted); }
+.scraperOnline   { font-size: 12px; color: #16794a; }
+.scraperOffline  { font-size: 12px; color: #b42318; }
 
 .loadControls {
   display: flex;
@@ -52,114 +39,45 @@
 .handleLabel {
   font-size: 13px;
   font-weight: 600;
+  color: var(--app-fg);
 }
 
 .handleSelect {
   min-width: 200px;
   padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-surface);
+  color: var(--app-fg);
 }
 
 .loadBtn {
   padding: 4px 14px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--brand-blue);
+  background: var(--brand-blue);
+  color: #fff;
+  cursor: pointer;
+}
+.loadBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.statusOk {
-  font-size: 13px;
-  color: #16794a;
-}
-
-.statusErr {
-  font-size: 13px;
-  color: #b42318;
-}
+.statusOk  { font-size: 12px; color: #16794a; }
+.statusErr { font-size: 12px; color: #b42318; }
 
 .loadHint {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #555;
+  color: var(--app-muted);
 }
 
-.csvControls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
+/* ── Download anchor (hidden) ──────────────────────────────────── */
+.downloadLink { display: none; }
 
-.csvLabel {
-  font-size: 13px;
-}
-
-.downloadLink {
-  display: none;
-}
-
-.tableWrap {
-  overflow-x: auto;
-}
-
-.table {
-  border-collapse: collapse;
-  font-size: 12px;
-  min-width: 900px;
-}
-
-.thead {
-  background: #f4f4f4;
-}
-
-.th {
-  padding: 6px 8px;
-  border: 1px solid #ddd;
-  white-space: nowrap;
-  text-align: left;
-}
-
-.rowEven {
-  background: #fff;
-}
-
-.rowOdd {
-  background: #fafafa;
-}
-
-.tdCell {
-  padding: 2px;
-  border: 1px solid #eee;
-}
-
-.tdCenter {
-  padding: 2px;
-  border: 1px solid #eee;
-  text-align: center;
-}
-
-.cellInput {
-  padding: 2px 4px;
-  font-size: 12px;
-  border: none;
-  background: transparent;
-}
-
-.cellInputWide {
-  width: 120px;
-  padding: 2px 4px;
-  font-size: 12px;
-  border: none;
-  background: transparent;
-}
-
-.cellInputNarrow {
-  width: 80px;
-  padding: 2px 4px;
-  font-size: 12px;
-  border: none;
-  background: transparent;
-}
-
-.deleteBtn {
-  font-size: 11px;
-  padding: 1px 6px;
-  cursor: pointer;
-}
+/* ── Toolbar file-input label / hidden input ───────────────────── */
+.fileLabel   { cursor: pointer; }
+.fileInput   { display: none; }

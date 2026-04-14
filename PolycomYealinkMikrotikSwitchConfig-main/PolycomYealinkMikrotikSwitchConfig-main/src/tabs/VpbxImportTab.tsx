@@ -1,18 +1,38 @@
+/**
+ * VpbxImportTab.tsx
+ * VPBX extension + phone provisioning import table — step 3 of the workflow.
+ *
+ * Sources:
+ *  • Loaded from FPBX (localStorage) via "← Load from FPBX" button
+ *  • Loaded live from 123NET webscraper
+ *  • Imported from CSV
+ *
+ * Toolbar actions:
+ *   Clear | Import CSV | Export CSV
+ *   Clean MACs | Generate MACs | Generate Secrets
+ *   ← Load from FPBX
+ */
 import React, { useEffect, useRef, useState } from 'react';
-import Papa from 'papaparse';
-import styles from './VpbxImportTab.module.css';
+import * as Papa from 'papaparse';
+import panelStyles from './VpbxImportTab.module.css';
+import tableStyles from './ImportTable.module.css';
+import ImportTable from './ImportTable';
+import {
+  VPBX_FIELDS,
+  cleanVpbxMacs,
+  emptyVpbxRow,
+  exportCsv,
+  generateVpbxMacs,
+  generateVpbxSecrets,
+  loadStore,
+  populateVpbxFromFpbx,
+  saveStore,
+  type AnyRow,
+  type FpbxRow,
+  type VpbxRow,
+} from '../data/importStore';
 
 const SCRAPER_BASE = 'http://localhost:8788';
-
-const VPBX_FIELDS = [
-  'mac', 'model', 'extension', 'name', 'description', 'tech', 'secret',
-  'callwaiting_enable', 'voicemail', 'voicemail_enable', 'voicemail_vmpwd',
-  'voicemail_email', 'voicemail_pager', 'voicemail_options', 'voicemail_same_exten',
-  'outboundcid', 'id', 'dial', 'user', 'max_contacts', 'accountcode',
-] as const;
-
-type VpbxField = typeof VPBX_FIELDS[number];
-type VpbxRow = Record<VpbxField, string>;
 
 type VpbxRecord = { handle: string; name: string; account_status: string; ip: string };
 type DeviceConfig = {
@@ -20,9 +40,6 @@ type DeviceConfig = {
   mac: string; make: string; model: string; site_code: string; bulk_config: string;
   view_config: string; arbitrary_attributes: string;
 };
-
-const createEmpty = (): VpbxRow =>
-  VPBX_FIELDS.reduce((a, f) => ({ ...a, [f]: '' }), {} as VpbxRow);
 
 function parseBulkConfig(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -44,7 +61,7 @@ function bestConfig(d: DeviceConfig): string {
 
 function deviceToRow(d: DeviceConfig): VpbxRow {
   const cfg = parseBulkConfig(bestConfig(d));
-  const row = createEmpty();
+  const row = emptyVpbxRow();
   row.mac = d.mac || '';
   row.model = d.model || '';
   row.extension = d.extension || cfg['reg.1.address'] || cfg['account.1.label'] || '';
@@ -55,15 +72,28 @@ function deviceToRow(d: DeviceConfig): VpbxRow {
   return row;
 }
 
+const WIDE_FIELDS = ['name', 'description', 'voicemail_email', 'voicemail_options', 'dial'] as const;
+
 export default function VpbxImportTab() {
-  const [rows, setRows] = useState<VpbxRow[]>(Array(5).fill(null).map(createEmpty));
+  const [rows, setRows] = useState<VpbxRow[]>(() => {
+    const saved = loadStore('vpbx') as VpbxRow[] | null;
+    return saved?.length ? saved : Array(5).fill(null).map(emptyVpbxRow);
+  });
   const [handles, setHandles] = useState<VpbxRecord[]>([]);
   const [selectedHandle, setSelectedHandle] = useState('');
-  const [loadStatus, setLoadStatus] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [scraperStatus, setScraperStatus] = useState<string | null>(null);
+  const [scraperError, setScraperError] = useState<string | null>(null);
   const [scraperOnline, setScraperOnline] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
+  // Persist on change
+  useEffect(() => {
+    saveStore('vpbx', rows as AnyRow[]);
+  }, [rows]);
+
+  // Check scraper connectivity
   useEffect(() => {
     fetch(`${SCRAPER_BASE}/api/vpbx/records`, { signal: AbortSignal.timeout(3000) })
       .then(r => r.json())
@@ -77,8 +107,8 @@ export default function VpbxImportTab() {
 
   async function loadFromScraper() {
     if (!selectedHandle) return;
-    setLoadStatus('Loading…');
-    setLoadError(null);
+    setScraperStatus('Loading…');
+    setScraperError(null);
     try {
       const res = await fetch(
         `${SCRAPER_BASE}/api/vpbx/device-configs?handle=${encodeURIComponent(selectedHandle)}`
@@ -87,78 +117,111 @@ export default function VpbxImportTab() {
       const data = await res.json();
       const devices: DeviceConfig[] = data?.items || [];
       if (devices.length === 0) {
-        setLoadError(`No device configs found for ${selectedHandle}. Scrape it first in the webscraper.`);
-        setLoadStatus(null);
+        setScraperError(`No device configs found for ${selectedHandle}. Scrape it first.`);
+        setScraperStatus(null);
         return;
       }
       setRows(devices.map(deviceToRow));
-      setLoadStatus(`Loaded ${devices.length} device(s) from ${selectedHandle}`);
+      setScraperStatus(`Loaded ${devices.length} device(s) from ${selectedHandle}`);
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : String(e));
-      setLoadStatus(null);
+      setScraperError(e instanceof Error ? e.message : String(e));
+      setScraperStatus(null);
     }
   }
 
-  function handleChange(rowIdx: number, field: VpbxField, value: string) {
+  function handleChange(i: number, field: string, value: string) {
     setRows(prev => {
       const next = [...prev];
-      next[rowIdx] = { ...next[rowIdx], [field]: value };
+      next[i] = { ...next[i], [field]: value };
       return next;
     });
+  }
+
+  function handleDeleteRow(i: number) {
+    setRows(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  function handleAddRow() {
+    setRows(prev => [...prev, emptyVpbxRow()]);
+  }
+
+  function handleClear() {
+    if (!confirm('Clear all VPBX rows?')) return;
+    setRows(Array(5).fill(null).map(emptyVpbxRow));
+    setStatus({ msg: 'Cleared.', ok: true });
   }
 
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    Papa.parse(file, {
+    Papa.parse<Record<string, string>>(file, {
       header: true,
-      complete: (results: Papa.ParseResult<Record<string, string>>) => {
-        const parsed = (results.data as VpbxRow[]).filter(r => r && Object.values(r).some(Boolean));
-        setRows(parsed.length ? parsed : [createEmpty()]);
-        setLoadStatus(`Imported ${parsed.length} rows from CSV`);
+      skipEmptyLines: true,
+      complete(results) {
+        const imported = results.data.map(r => {
+          const row = emptyVpbxRow();
+          VPBX_FIELDS.forEach(f => { row[f] = r[f] ?? ''; });
+          return row;
+        });
+        setRows(imported);
+        setStatus({ msg: `Imported ${imported.length} row(s).`, ok: true });
+        if (fileRef.current) fileRef.current.value = '';
       },
+      error() { setStatus({ msg: 'CSV parse error.', ok: false }); },
     });
   }
 
   function handleExport() {
-    const header = VPBX_FIELDS.join(',') + '\n';
-    const body = rows.map(r =>
-      VPBX_FIELDS.map(f => `"${(r[f] || '').replace(/"/g, '""')}"`).join(',')
-    ).join('\n') + '\n';
-    const blob = new Blob([header + body], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    if (downloadRef.current) {
-      downloadRef.current.href = url;
-      downloadRef.current.download = 'vpbx_import.csv';
-      downloadRef.current.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    exportCsv('vpbx_import.csv', VPBX_FIELDS, rows as AnyRow[]);
+  }
+
+  function handleCleanMacs() {
+    setRows(cleanVpbxMacs(rows));
+    setStatus({ msg: 'MACs cleaned.', ok: true });
+  }
+
+  function handleGenerateMacs() {
+    setRows(generateVpbxMacs(rows));
+    setStatus({ msg: 'MACs generated for rows with a model but no MAC.', ok: true });
+  }
+
+  function handleGenerateSecrets() {
+    setRows(generateVpbxSecrets(rows));
+    setStatus({ msg: 'Secrets generated.', ok: true });
+  }
+
+  function handleLoadFromFpbx() {
+    const fpbxRows = loadStore('fpbx') as FpbxRow[] | null;
+    if (!fpbxRows?.length) {
+      setStatus({ msg: 'No FPBX data found. Populate the FBPX Import tab first.', ok: false });
+      return;
     }
+    const vpbxRows = populateVpbxFromFpbx(fpbxRows, rows);
+    setRows(vpbxRows);
+    setStatus({ msg: `Loaded ${vpbxRows.length} row(s) from FPBX.`, ok: true });
   }
 
   const scraperBadgeClass = scraperOnline === null
-    ? styles.scraperChecking
-    : scraperOnline ? styles.scraperOnline : styles.scraperOffline;
+    ? panelStyles.scraperChecking
+    : scraperOnline ? panelStyles.scraperOnline : panelStyles.scraperOffline;
   const scraperText = scraperOnline === null
     ? 'checking…'
-    : scraperOnline
-      ? '● Webscraper connected'
-      : '○ Webscraper offline (localhost:8788)';
+    : scraperOnline ? '● Webscraper connected' : '○ Webscraper offline (localhost:8788)';
 
   return (
-    <div className={styles.container}>
-      <h2>VPBX Import</h2>
+    <div className={panelStyles.container}>
 
-      {/* Live Load Panel */}
-      <div className={styles.loadPanel}>
-        <div className={styles.loadPanelHeader}>
-          <strong className={styles.loadPanelTitle}>Load from 123NET Webscraper</strong>
+      {/* Scraper panel */}
+      <div className={panelStyles.loadPanel}>
+        <div className={panelStyles.loadPanelHeader}>
+          <strong className={panelStyles.loadPanelTitle}>Load from 123NET Webscraper</strong>
           <span className={scraperBadgeClass}>{scraperText}</span>
         </div>
-        <div className={styles.loadControls}>
-          <label htmlFor="vpbx-handle-select" className={styles.handleLabel}>Handle:</label>
+        <div className={panelStyles.loadControls}>
+          <label htmlFor="vpbx-handle-select" className={panelStyles.handleLabel}>Handle:</label>
           <select
             id="vpbx-handle-select"
-            className={styles.handleSelect}
+            className={panelStyles.handleSelect}
             value={selectedHandle}
             onChange={e => setSelectedHandle(e.target.value)}
             disabled={!scraperOnline || handles.length === 0}
@@ -173,71 +236,68 @@ export default function VpbxImportTab() {
           </select>
           <button
             type="button"
-            className={styles.loadBtn}
+            className={panelStyles.loadBtn}
             onClick={loadFromScraper}
             disabled={!scraperOnline || !selectedHandle}
           >
             Load Devices
           </button>
-          {loadStatus && <span className={styles.statusOk}>✓ {loadStatus}</span>}
-          {loadError && <span className={styles.statusErr}>✗ {loadError}</span>}
+          {scraperStatus && <span className={panelStyles.statusOk}>✓ {scraperStatus}</span>}
+          {scraperError  && <span className={panelStyles.statusErr}>✗ {scraperError}</span>}
         </div>
         {scraperOnline && (
-          <p className={styles.loadHint}>
-            Loads MAC, model, extension, name, and auth credentials extracted from scraped device configs.
-            Fields not in the scraped data (voicemail, outbound CID, etc.) remain blank for manual entry.
+          <p className={panelStyles.loadHint}>
+            Loads MAC, model, extension, name, and auth credentials from scraped device configs.
+            Fields not scraped (voicemail, outbound CID, etc.) remain blank for manual entry or FPBX mirror.
           </p>
         )}
       </div>
+      <a ref={downloadRef} className={panelStyles.downloadLink}>Download</a>
 
-      {/* CSV import/export */}
-      <div className={styles.csvControls}>
-        <label htmlFor="vpbx-csv-import" className={styles.csvLabel}>Import CSV:</label>
-        <input id="vpbx-csv-import" type="file" accept=".csv" onChange={handleImport} title="Import VPBX CSV" />
-        <button type="button" onClick={handleExport}>Export CSV</button>
-        <button type="button" onClick={() => setRows(prev => [...prev, createEmpty()])}>+ Add Row</button>
-        <a ref={downloadRef} className={styles.downloadLink}>Download</a>
+      {/* Toolbar */}
+      <div className={tableStyles.toolbar}>
+        <div className={tableStyles.toolbarGroup}>
+          <button type="button" className={tableStyles.btnDanger} onClick={handleClear}>Clear</button>
+          <div className={tableStyles.toolbarDivider} />
+          <label className={`${tableStyles.btn} ${panelStyles.fileLabel}`}>
+            Import CSV
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv"
+              className={panelStyles.fileInput}
+              onChange={handleImport}
+            />
+          </label>
+          <button type="button" className={tableStyles.btnSuccess} onClick={handleExport}>Export CSV</button>
+        </div>
+        <div className={tableStyles.toolbarDivider} />
+        <div className={tableStyles.toolbarGroup}>
+          <button type="button" className={tableStyles.btn} onClick={handleCleanMacs}>Clean MACs</button>
+          <button type="button" className={tableStyles.btn} onClick={handleGenerateMacs}>Generate MACs</button>
+          <button type="button" className={tableStyles.btn} onClick={handleGenerateSecrets}>Generate Secrets</button>
+        </div>
+        <div className={tableStyles.toolbarDivider} />
+        <div className={tableStyles.toolbarGroup}>
+          <button type="button" className={tableStyles.btnPrimary} onClick={handleLoadFromFpbx}>
+            ← Load from FPBX
+          </button>
+        </div>
+        {status && (
+          <span className={status.ok ? tableStyles.statusOk : tableStyles.statusErr}>
+            {status.msg}
+          </span>
+        )}
       </div>
 
-      {/* Table */}
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead className={styles.thead}>
-            <tr>
-              {VPBX_FIELDS.map(f => (
-                <th key={f} className={styles.th}>{f}</th>
-              ))}
-              <th className={styles.th}>Del</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <tr key={idx} className={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>
-                {VPBX_FIELDS.map(f => (
-                  <td key={f} className={styles.tdCell}>
-                    <input
-                      aria-label={f}
-                      title={f}
-                      name={f}
-                      value={row[f] || ''}
-                      onChange={e => handleChange(idx, f, e.target.value)}
-                      className={f === 'name' || f === 'description' ? styles.cellInputWide : styles.cellInputNarrow}
-                    />
-                  </td>
-                ))}
-                <td className={styles.tdCenter}>
-                  <button
-                    type="button"
-                    className={styles.deleteBtn}
-                    onClick={() => setRows(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx))}
-                    title="Delete row"
-                  >✕</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ImportTable
+        fields={VPBX_FIELDS}
+        rows={rows as AnyRow[]}
+        onChange={handleChange}
+        onDeleteRow={handleDeleteRow}
+        onAddRow={handleAddRow}
+        wideFields={WIDE_FIELDS}
+      />
     </div>
   );
 }

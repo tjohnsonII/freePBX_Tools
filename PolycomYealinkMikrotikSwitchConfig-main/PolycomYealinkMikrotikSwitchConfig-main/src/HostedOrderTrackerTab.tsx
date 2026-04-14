@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import * as Papa from 'papaparse';
+import styles from './HostedOrderTrackerTab.module.css';
 
 // All fields as rows, columns are customers
 const DEFAULT_FIELDS = [
@@ -21,9 +22,7 @@ const DEFAULT_FIELDS = [
   'UPDATE HOSTED JOB TRACKER',
 ];
 
-const DEFAULT_CUSTOMERS: string[] = [
-  'CUST1', 'CUST2', 'CUST3', 'CUST4', 'CUST5'
-];
+const DEFAULT_CUSTOMERS: string[] = ['CUST1', 'CUST2', 'CUST3', 'CUST4', 'CUST5'];
 
 const CHECKBOX_FIELDS = new Set([
   'HOSTED JOBVIEWER', 'CONFIRM INVENTORY', 'CHANGE VPBX PAGE TO PROVISIONING',
@@ -47,7 +46,6 @@ const HostedOrderTrackerTab: React.FC = () => {
   );
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
-  // CSV Import
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -57,15 +55,12 @@ const HostedOrderTrackerTab: React.FC = () => {
       complete: (results: Papa.ParseResult<Record<string, string>>) => {
         const csvData = results.data as Record<string, string>[];
         if (!csvData.length) return;
-        // First column is field, rest are customers
         const csvFields = csvData.map(row => row['Field'] || row['field'] || Object.values(row)[0]);
         const csvCustomers = Object.keys(csvData[0]).filter(k => k !== 'Field' && k !== 'field');
         const newData: { [field: string]: { [customer: string]: string } } = {};
         csvFields.forEach((f, i) => {
           newData[f] = {};
-          csvCustomers.forEach(c => {
-            newData[f][c] = csvData[i][c] || '';
-          });
+          csvCustomers.forEach(c => { newData[f][c] = csvData[i][c] || ''; });
         });
         setFields(csvFields);
         setCustomers(csvCustomers);
@@ -74,10 +69,13 @@ const HostedOrderTrackerTab: React.FC = () => {
     });
   }
 
-  // CSV Export
   function handleExport() {
     const csvHeader = ['Field', ...customers].join(',') + '\n';
-    const csvRows = fields.map(f => [f, ...customers.map(c => data[f]?.[c] || '')].map(v => `"${(v || '').replace(/"/g, '""')}"`).join(',')).join('\n') + '\n';
+    const csvRows = fields.map(f =>
+      [f, ...customers.map(c => data[f]?.[c] || '')]
+        .map(v => `"${(v || '').replace(/"/g, '""')}"`)
+        .join(',')
+    ).join('\n') + '\n';
     const csv = csvHeader + csvRows;
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -92,19 +90,21 @@ const HostedOrderTrackerTab: React.FC = () => {
   function handleCellChange(field: string, customer: string, value: string) {
     setData(d => ({ ...d, [field]: { ...d[field], [customer]: value } }));
   }
+
   function handleCheckboxChange(field: string, customer: string, checked: boolean) {
     setData(d => ({ ...d, [field]: { ...d[field], [customer]: checked ? 'TRUE' : 'FALSE' } }));
   }
-  // ...existing code...
+
   function handleDeleteField(idx: number) {
     const field = fields[idx];
     setFields(f => f.filter((_, i) => i !== idx));
     setData(d => {
-      const { [field]: _removed, ...rest } = d;
-      return rest;
+      const next = { ...d };
+      delete next[field];
+      return next;
     });
   }
-  // Add a new blank customer column (handle is editable in header)
+
   function handleAddCustomer() {
     setCustomers(custs => [...custs, '']);
     setData(d => {
@@ -113,13 +113,12 @@ const HostedOrderTrackerTab: React.FC = () => {
       return newData;
     });
   }
-  // Update customer handle (header cell input)
+
   function handleCustomerHandleChange(idx: number, value: string) {
     setCustomers(custs => {
       const newCusts = [...custs];
       const old = newCusts[idx];
       newCusts[idx] = value;
-      // Update data keys for all fields
       setData(d => {
         const newData = { ...d };
         for (const f of fields) {
@@ -133,49 +132,63 @@ const HostedOrderTrackerTab: React.FC = () => {
       return newCusts;
     });
   }
+
   function handleDeleteCustomer(idx: number) {
     const name = customers[idx];
     setCustomers(custs => custs.filter((_, i) => i !== idx));
     setData(d => {
       const newData = { ...d };
       for (const f of fields) {
-        const { [name]: _removed, ...rest } = newData[f];
-        newData[f] = rest;
+        const fieldData = { ...newData[f] };
+        delete fieldData[name];
+        newData[f] = fieldData;
       }
       return newData;
     });
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+    <div className={styles.container}>
       <h2>Hosted Order Tracker</h2>
-      <div style={{ marginBottom: 12 }}>
-        <input type="file" accept=".csv" onChange={handleImport} />
-        <button type="button" onClick={handleExport} style={{ marginLeft: 8 }}>Export as CSV</button>
-        <button type="button" onClick={handleAddCustomer} style={{ marginLeft: 8 }}>Add Column</button>
-        <a ref={downloadRef} style={{ display: 'none' }}>Download</a>
+
+      <div className={styles.toolbar}>
+        <label className={`${styles.btn} ${styles.fileLabel}`}>
+          Import CSV
+          <input
+            type="file"
+            accept=".csv"
+            title="Import order tracker CSV"
+            onChange={handleImport}
+            className={styles.downloadLink}
+          />
+        </label>
+        <button type="button" className={styles.btn} onClick={handleExport}>Export CSV</button>
+        <button type="button" className={styles.btn} onClick={handleAddCustomer}>+ Add Column</button>
+        <a ref={downloadRef} className={styles.downloadLink}>Download</a>
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+
+      <div className={styles.tableScroll}>
+        <table className={styles.table}>
           <thead>
             <tr>
-              <th style={{ border: '1px solid #ccc', padding: 4, background: '#f4f4f4' }}>Field</th>
+              <th className={styles.thField}>Field</th>
               {customers.map((c, i) => (
-                <th key={i} style={{ border: '1px solid #ccc', padding: 4, background: '#f4f4f4', position: 'relative', minWidth: 120 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <th key={i} className={styles.thCustomer}>
+                  <div className={styles.thCustomerInner}>
                     <input
                       type="text"
+                      className={styles.handleInput}
                       value={c}
                       onChange={e => handleCustomerHandleChange(i, e.target.value)}
                       placeholder="Handle (e.g. WS7)"
-                      style={{ width: 70, fontWeight: 'bold', border: '1px solid #bbb', borderRadius: 4, padding: 2 }}
+                      title={`Customer ${i + 1} handle`}
                     />
                     {customers.length > 1 && (
                       <button
                         type="button"
+                        className={styles.deleteColBtn}
                         onClick={() => handleDeleteCustomer(i)}
-                        style={{ background: 'none', border: 'none', color: 'red', fontWeight: 'bold', cursor: 'pointer', marginLeft: 4 }}
-                        title={`Delete customer column`}
+                        title={`Delete customer column ${c || i + 1}`}
                       >
                         ×
                       </button>
@@ -188,33 +201,35 @@ const HostedOrderTrackerTab: React.FC = () => {
           <tbody>
             {fields.map((field, i) => (
               <tr key={field}>
-                <td style={{ border: '1px solid #ccc', padding: 4, background: '#f4f4f4', position: 'relative' }}>
+                <td className={styles.tdField}>
                   {field}
                   {fields.length > 1 && (
                     <button
                       type="button"
+                      className={styles.deleteFieldBtn}
                       onClick={() => handleDeleteField(i)}
-                      style={{ position: 'absolute', top: 2, right: 2, background: 'none', border: 'none', color: 'red', fontWeight: 'bold', cursor: 'pointer' }}
-                      title={`Delete field ${field}`}
+                      title={`Delete field: ${field}`}
                     >
                       ×
                     </button>
                   )}
                 </td>
                 {customers.map(cust => (
-                  <td key={cust} style={{ border: '1px solid #ccc', padding: 4 }}>
+                  <td key={cust} className={styles.tdCell}>
                     {CHECKBOX_FIELDS.has(field) ? (
                       <input
                         type="checkbox"
+                        title={`${field} — ${cust || `column ${customers.indexOf(cust) + 1}`}`}
                         checked={data[field]?.[cust] === 'TRUE'}
                         onChange={e => handleCheckboxChange(field, cust, e.target.checked)}
                       />
                     ) : (
                       <input
                         type="text"
+                        className={styles.cellInput}
+                        title={`${field} — ${cust || `column ${customers.indexOf(cust) + 1}`}`}
                         value={data[field]?.[cust] || ''}
                         onChange={e => handleCellChange(field, cust, e.target.value)}
-                        style={{ width: '100%', border: '1px solid #ccc', borderRadius: 4, padding: 4 }}
                       />
                     )}
                   </td>

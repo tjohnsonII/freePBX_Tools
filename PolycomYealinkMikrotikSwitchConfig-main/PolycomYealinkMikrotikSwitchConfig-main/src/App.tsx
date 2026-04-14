@@ -16,6 +16,9 @@ import DiagnosticsTab from './tabs/DiagnosticsTab';
 import VpbxImportTab from './tabs/VpbxImportTab';
 import ConfigAuditTab from './tabs/ConfigAuditTab';
 import PhoneConfigGeneratorTab from './tabs/PhoneConfigGeneratorTab';
+import FbpxImportTab from './tabs/FbpxImportTab';
+import CopyUserExtensionsTab from './tabs/CopyUserExtensionsTab';
+import DidsTab from './tabs/DidsTab';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -35,28 +38,17 @@ const TABS = [
   { key: 'fullconfig', label: 'Full Config' },
   { key: 'reference', label: 'Reference' },
   { key: 'diagnostics', label: 'Diagnostics' },
+  { key: 'copyusers', label: 'copyUserExtensions' },
   { key: 'fbpx', label: 'FBPX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
+  { key: 'streeto', label: 'Stretto Import' },
+  { key: 'dids', label: 'DIDs' },
   { key: 'phonegen', label: 'Phone Config Generator' },
   { key: 'audit', label: 'Config Audit' },
   { key: 'mikrotik', label: 'Mikrotik Templates' },
   { key: 'switch', label: 'Switch Templates' },
   { key: 'ordertracker', label: 'Order Tracker' },
-  { key: 'streeto', label: 'Stretto Import' },
 ];
-
-// Field definitions for FBPX import/export template (PBX user fields)
-const FPBX_FIELDS = [
-  "extension", "name", "description", "tech", "secret", "callwaiting_enable", "voicemail",
-  "voicemail_enable", "voicemail_vmpwd", "voicemail_email", "voicemail_pager", "voicemail_options",
-  "voicemail_same_exten", "outboundcid", "id", "dial", "user", "max_contacts", "accountcode"
-];
-
-// Type definition for FBPX form (for type safety)
-type FpbxFormType = Record<typeof FPBX_FIELDS[number], string>;
-
-// Helper to create an empty FBPX row
-const createEmptyFpbxRow = (): FpbxFormType => FPBX_FIELDS.reduce((acc, f) => ({ ...acc, [f]: '' }), {} as FpbxFormType);
 
 // --- Static config blocks for Yealink/Polycom ---
 const DEFAULT_TIME_OFFSET = '-5';
@@ -894,51 +886,6 @@ function App() {
     }
     setOutput(config);
   };
-
-  // State and handlers for FBPX import/export form (PBX CSV import/export)
-  const [fpbxRows, setFpbxRows] = useState<FpbxFormType[]>(Array(10).fill(0).map(createEmptyFpbxRow));
-  const fpbxDownloadRef = useRef<HTMLAnchorElement>(null);
-
-  function handleFpbxChange(rowIdx: number, e: React.ChangeEvent<HTMLInputElement>) {
-    setFpbxRows(rows => {
-      const updated = [...rows];
-      updated[rowIdx] = { ...updated[rowIdx], [e.target.name]: e.target.value };
-      return updated;
-    });
-  }
-
-  function handleFpbxExport() {
-    const csvHeader = FPBX_FIELDS.join(',') + '\n';
-    const csvRows = fpbxRows.map(row => FPBX_FIELDS.map(f => `"${(row[f] || '').replace(/"/g, '""')}"`).join(',')).join('\n') + '\n';
-    const csv = csvHeader + csvRows;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    if (fpbxDownloadRef.current) {
-      fpbxDownloadRef.current.href = url;
-      fpbxDownloadRef.current.download = 'fpbx_import.csv';
-      fpbxDownloadRef.current.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-  }
-
-  function handleFpbxImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    Papa.parse(file, {
-      header: true,
-      complete: (results: Papa.ParseResult<Record<string, string>>) => {
-        const rows = (results.data as FpbxFormType[]).filter(row => row && Object.values(row).some(Boolean));
-        setFpbxRows(rows.length ? rows : [createEmptyFpbxRow()]);
-      },
-    });
-  }
-
-  function handleFpbxAddRow(count = 1) {
-    setFpbxRows(rows => [...rows, ...Array(count).fill(0).map(createEmptyFpbxRow)]);
-  }
-  function handleFpbxDeleteRow(idx: number) {
-    setFpbxRows(rows => rows.length === 1 ? rows : rows.filter((_, i) => i !== idx));
-  }
 
   // New state for time offset and admin password
   const [timeOffset, setTimeOffset] = useState(DEFAULT_TIME_OFFSET);
@@ -2192,42 +2139,10 @@ function App() {
           )}
         </div>
       )}
-      {activeTab === 'fbpx' && (
-        <div>
-          <h2>FBPX Import</h2>
-          <input type="file" accept=".csv" title="Import CSV file" onChange={handleFpbxImport} />
-          <button onClick={handleFpbxExport}>Export CSV</button>
-          <a ref={fpbxDownloadRef} className="hidden-link">Download</a>
-          <table>
-            <thead>
-              <tr>
-                {FPBX_FIELDS.map(f => <th key={f}>{f}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {fpbxRows.map((row, idx) => (
-                <tr key={idx}>
-                  {FPBX_FIELDS.map(f => (
-                    <td key={f}>
-                      <input
-                        title={f}
-                        name={f}
-                        value={row[f] || ''}
-                        onChange={e => handleFpbxChange(idx, e)}
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    <button onClick={() => handleFpbxDeleteRow(idx)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button onClick={() => handleFpbxAddRow(1)}>Add Row</button>
-        </div>
-      )}
+      {activeTab === 'copyusers' && <CopyUserExtensionsTab />}
+      {activeTab === 'fbpx' && <FbpxImportTab />}
       {activeTab === 'vpbx' && <VpbxImportTab />}
+      {activeTab === 'dids' && <DidsTab />}
       {activeTab === 'phonegen' && <PhoneConfigGeneratorTab />}
       {activeTab === 'audit' && <ConfigAuditTab />}
       {activeTab === 'mikrotik' && (
@@ -2253,12 +2168,7 @@ function App() {
           <HostedOrderTrackerTab />
         </div>
       )}
-      {activeTab === 'streeto' && (
-        <div>
-          <h2>Stretto Import</h2>
-          <StrettoImportExportTab />
-        </div>
-      )}
+      {activeTab === 'streeto' && <StrettoImportExportTab />}
       {activeTab === 'diagnostics' && (
         <DiagnosticsTab />
       )}

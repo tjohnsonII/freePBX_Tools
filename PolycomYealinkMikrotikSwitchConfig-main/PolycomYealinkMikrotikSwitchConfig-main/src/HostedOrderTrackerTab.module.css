@@ -1,0 +1,147 @@
+/* HostedOrderTrackerTab.module.css */
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.downloadLink { display: none; }
+
+.fileLabel { cursor: pointer; }
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1000px;
+  font-size: 12px;
+  background: var(--app-surface);
+}
+
+.thField {
+  border: 1px solid var(--app-border);
+  padding: 4px 8px;
+  background: var(--app-surface-2);
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.thCustomer {
+  border: 1px solid var(--app-border);
+  padding: 4px 6px;
+  background: var(--app-surface-2);
+  position: relative;
+  min-width: 120px;
+}
+
+.thCustomerInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.handleInput {
+  width: 80px;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+}
+.handleInput:focus {
+  outline: 2px solid var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+
+.deleteColBtn {
+  background: none;
+  border: none;
+  color: var(--app-muted);
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.deleteColBtn:hover { color: #b42318; }
+
+.tdField {
+  border: 1px solid var(--app-border);
+  padding: 4px 6px;
+  background: var(--app-surface-2);
+  color: var(--app-fg);
+  font-size: 11px;
+  font-weight: 600;
+  position: relative;
+  white-space: nowrap;
+}
+
+.deleteFieldBtn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: none;
+  border: none;
+  color: var(--app-muted);
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.deleteFieldBtn:hover { color: #b42318; }
+
+.tdCell {
+  border: 1px solid var(--app-border);
+  padding: 2px 4px;
+}
+
+.cellInput {
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--app-fg);
+  box-sizing: border-box;
+}
+.cellInput:focus {
+  outline: 2px solid var(--brand-blue);
+  background: var(--app-surface);
+  border-radius: 2px;
+}

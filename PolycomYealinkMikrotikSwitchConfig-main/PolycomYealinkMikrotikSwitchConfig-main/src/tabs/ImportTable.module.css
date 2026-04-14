@@ -1,0 +1,181 @@
+/* ImportTable.module.css — shared table styles for all import tabs */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.toolbarGroup {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 24px;
+  background: var(--app-border);
+  margin: 0 4px;
+}
+
+/* Buttons */
+.btn {
+  padding: 5px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  composes: btn;
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: #fff;
+}
+.btnPrimary:hover:not(:disabled) {
+  background: #005a94;
+  border-color: #005a94;
+  color: #fff;
+}
+
+.btnDanger {
+  composes: btn;
+  border-color: var(--app-border);
+  color: var(--app-muted);
+}
+.btnDanger:hover:not(:disabled) {
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.btnSuccess {
+  composes: btn;
+  border-color: #16794a;
+  color: #16794a;
+}
+.btnSuccess:hover:not(:disabled) {
+  background: #16794a;
+  color: #fff;
+}
+
+.fileInput {
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.statusOk  { font-size: 12px; color: #16794a; }
+.statusErr { font-size: 12px; color: #b42318; }
+.statusInfo { font-size: 12px; color: var(--app-muted); }
+
+/* Table wrapper */
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+}
+
+.table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 600px;
+  width: 100%;
+  background: var(--app-surface);
+}
+
+.thead {
+  background: var(--app-surface-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.th {
+  padding: 7px 8px;
+  border-bottom: 2px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+  white-space: nowrap;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.th:last-child { border-right: none; }
+
+.rowEven { background: var(--app-surface); }
+.rowOdd  { background: var(--app-surface-2); }
+
+.tdCell {
+  padding: 1px 2px;
+  border-bottom: 1px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+}
+.tdCell:last-child { border-right: none; }
+
+.tdActions {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--app-border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cellInput {
+  width: 100%;
+  min-width: 60px;
+  padding: 3px 5px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border: none;
+  background: transparent;
+  color: var(--app-fg);
+  box-sizing: border-box;
+}
+.cellInput:focus {
+  outline: 2px solid var(--brand-blue);
+  border-radius: 2px;
+  background: var(--app-surface);
+}
+
+.cellInputWide  { composes: cellInput; min-width: 130px; }
+.cellInputNarrow { composes: cellInput; min-width: 60px; }
+
+.deleteBtn {
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+}
+.deleteBtn:hover {
+  border-color: #b42318;
+  color: #b42318;
+  background: var(--app-surface);
+}
+
+.emptyMsg {
+  padding: 16px;
+  text-align: center;
+  color: var(--app-muted);
+  font-size: 13px;
+}
