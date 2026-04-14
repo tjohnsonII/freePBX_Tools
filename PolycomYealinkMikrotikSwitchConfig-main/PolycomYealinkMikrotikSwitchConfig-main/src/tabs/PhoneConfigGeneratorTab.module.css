@@ -1,173 +1,506 @@
+/*
+  PhoneConfigGeneratorTab.module.css
+  All colors use global CSS custom properties (--app-*) so dark mode is
+  inherited automatically from the [data-theme="dark"] root selector in index.css.
+*/
+
 .container {
-  max-width: 1400px;
+  max-width: 1200px;
 }
 
 .heading {
   margin-top: 0;
+  color: var(--app-fg);
 }
 
 .subtitle {
-  color: #555;
+  color: var(--app-muted);
   font-size: 13px;
+  margin-bottom: 20px;
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────── */
+
+.section {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.sectionTitle {
+  background: var(--app-surface-2);
+  border-bottom: 1px solid var(--app-border);
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.sectionBody {
+  padding: 16px;
+  background: var(--app-surface);
+}
+
+/* ── Build Mode grid ───────────────────────────────────────────────────── */
+
+.buildGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+/* ── Source data grid ──────────────────────────────────────────────────── */
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
   margin-bottom: 16px;
 }
 
-.badgeChecking {
-  margin-bottom: 16px;
+/* ── Field group (label + control) ────────────────────────────────────── */
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 160px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-muted);
+}
+
+.fieldNote {
+  font-size: 11px;
+  color: var(--app-muted);
+  line-height: 1.4;
+}
+
+.labelNote {
+  font-weight: 400;
+  color: var(--app-muted);
+}
+
+/* ── Inputs & selects ──────────────────────────────────────────────────── */
+
+.input,
+.select {
+  padding: 6px 10px;
   font-size: 13px;
-  color: #888;
+  font-family: inherit;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  min-width: 0;
+}
+
+.input:focus,
+.select:focus {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+/* ── Pill toggle group ─────────────────────────────────────────────────── */
+
+.pillGroup {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+
+.pill:hover:not(.pillActive) {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.pillActive {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: #ffffff;
+}
+
+/* ── Connection badges ─────────────────────────────────────────────────── */
+
+.badgeChecking {
+  font-size: 12px;
+  color: var(--app-muted);
 }
 
 .badgeOnline {
-  margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 12px;
   color: #16794a;
 }
 
 .badgeOffline {
-  margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 12px;
   color: #b42318;
 }
 
-.selectors {
+/* ── Scraper panel ─────────────────────────────────────────────────────── */
+
+.scraperPanel {
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--app-surface-2);
+}
+
+.scraperPanelHeader {
   display: flex;
+  align-items: center;
   gap: 16px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+}
+
+.scraperNote {
+  font-size: 12px;
+  color: var(--app-muted);
+  font-style: italic;
+}
+
+.scraperControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
   align-items: flex-end;
 }
 
-.selectorGroup {
+.scrapeRow {
   display: flex;
-  flex-direction: column;
-}
-
-.selectorLabel {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: #444;
-}
-
-.selectorLabelNote {
-  font-weight: 400;
-  color: #888;
-}
-
-.handleSelect {
-  min-width: 260px;
-  padding: 6px 10px;
-  font-size: 13px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-}
-
-.deviceSelect {
-  min-width: 320px;
-  padding: 6px 10px;
-  font-size: 13px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-}
-
-.error {
-  color: #b42318;
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-
-.panels {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-.panel {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.panelHeader {
-  background: #f4f6fa;
-  padding: 10px 14px;
-  border-bottom: 1px solid #ddd;
-  display: flex;
-  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   align-items: center;
 }
 
-.panelTitle {
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.panelMeta {
-  font-size: 11px;
-  color: #666;
-}
-
-.panelEmpty {
-  padding: 16px;
-  color: #999;
-  font-size: 13px;
-}
-
-.panelTextarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  padding: 12px 14px;
-  font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 12px;
-  resize: vertical;
-  background: #fafafa;
-  color: #1a1a1a;
-}
-
-.dpPanel {
-  margin-top: 20px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.dpHeaderNote {
-  font-size: 11px;
-  color: #888;
-  margin-left: 8px;
-  font-weight: 400;
-}
-
-.scrapeHandleBtn {
+.scrapeBtn {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
   border-radius: 4px;
-  border: 1px solid #0078d4;
-  background: #0078d4;
-  color: #fff;
+  border: 1px solid var(--brand-blue);
+  background: var(--brand-blue);
+  color: #ffffff;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.scrapeHandleBtn:hover:not(:disabled) {
-  background: #005fa3;
-  border-color: #005fa3;
+.scrapeBtn:hover:not(:disabled) {
+  background: #005a94;
+  border-color: #005a94;
 }
 
-.scrapeHandleBtn:disabled {
-  opacity: 0.55;
+.scrapeBtn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.scrapeStatus {
+.loadBtn {
+  padding: 6px 12px;
   font-size: 12px;
-  color: #555;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+}
+
+.loadBtn:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.scrapeStatus {
+  font-size: 11px;
+  color: var(--app-muted);
   margin-top: 4px;
-  max-width: 340px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: block;
+}
+
+.error {
+  font-size: 12px;
+  color: #b42318;
+  margin-top: 6px;
+}
+
+/* ── Info note ─────────────────────────────────────────────────────────── */
+
+.infoNote {
+  font-size: 12px;
+  color: var(--app-muted);
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--app-surface-2);
+  border-left: 3px solid var(--brand-blue);
+  border-radius: 0 4px 4px 0;
+}
+
+/* ── Template options ──────────────────────────────────────────────────── */
+
+.templateOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.parkLineRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.parkCountLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--app-muted);
+  font-weight: 600;
+}
+
+.parkCountInput {
+  width: 56px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  text-align: center;
+}
+
+/* ── Checkbox row ──────────────────────────────────────────────────────── */
+
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--app-fg);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.checkRow input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--brand-blue);
+}
+
+.checkSub {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+/* ── Add-on blocks ─────────────────────────────────────────────────────── */
+
+.addons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.addonBlock {
+  border-bottom: 1px solid var(--app-border);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+.addonBlock:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* ── Key row table (BLF / transfer / speed dial) ───────────────────────── */
+
+.keyTable {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.keyTableHeader {
+  display: grid;
+  grid-template-columns: 80px 1fr 1fr 32px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 0 2px;
+}
+
+.keyTableRow {
+  display: grid;
+  grid-template-columns: 80px 1fr 1fr 32px;
+  gap: 6px;
+  align-items: center;
+}
+
+.keyInput {
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  min-width: 0;
+}
+
+.keyInput:focus {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.keyRemoveBtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.keyRemoveBtn:hover {
+  border-color: #b42318;
+  color: #b42318;
+  background: var(--app-surface);
+}
+
+.addRowBtn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px dashed var(--app-border);
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.addRowBtn:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+/* ── EFK grid ──────────────────────────────────────────────────────────── */
+
+.efkGrid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 8px 12px;
+  margin-top: 10px;
+  align-items: center;
+  max-width: 480px;
+}
+
+.efkGrid .fieldLabel {
+  text-align: right;
+}
+
+/* ── Output section ────────────────────────────────────────────────────── */
+
+.outputActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.generateBtn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 5px;
+  border: none;
+  background: var(--brand-blue);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.generateBtn:hover {
+  background: #005a94;
+}
+
+.copyBtn {
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 5px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+}
+
+.copyBtn:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.outputMeta {
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.outputTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+  background: var(--app-surface-2);
+  color: var(--app-fg);
+}
+
+.outputTextarea:focus {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.outputEmpty {
+  font-size: 13px;
+  color: var(--app-muted);
+  padding: 12px 0;
+  margin: 0;
 }
