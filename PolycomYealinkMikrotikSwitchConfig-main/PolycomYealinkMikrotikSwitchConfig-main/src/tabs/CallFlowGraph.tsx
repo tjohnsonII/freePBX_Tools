@@ -9,6 +9,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import Dagre from '@dagrejs/dagre'
+import styles from './CallFlowGraph.module.css'
 
 import {
   buildCallFlow,
@@ -39,6 +40,24 @@ const NODE_COLORS: Record<CFNodeType, { bg: string; border: string; text: string
 const NODE_W = 220
 const NODE_H = 76
 
+// Maps each node type to its CSS module class (which defines --cfg-node-color / --cfg-swatch-* vars)
+const NODE_TYPE_CLASSES: Record<CFNodeType, string> = {
+  did:        styles.nodeType_did,
+  tc:         styles.nodeType_tc,
+  ivr:        styles.nodeType_ivr,
+  ringgroup:  styles.nodeType_ringgroup,
+  queue:      styles.nodeType_queue,
+  ext:        styles.nodeType_ext,
+  voicemail:  styles.nodeType_voicemail,
+  announce:   styles.nodeType_announce,
+  conference: styles.nodeType_conference,
+  recording:  styles.nodeType_recording,
+  directory:  styles.nodeType_directory,
+  terminate:  styles.nodeType_terminate,
+  loop:       styles.nodeType_loop,
+  unknown:    styles.nodeType_unknown,
+}
+
 // ── Converters ────────────────────────────────────────────────────────────────
 
 function cfNodeToRf(n: CFNode): Node {
@@ -49,20 +68,12 @@ function cfNodeToRf(n: CFNode): Node {
     data: {
       nodeType: n.nodeType,
       label: (
-        <div style={{ lineHeight: 1.35 }}>
-          <div style={{ fontWeight: 600, color: col.text, fontSize: 12 }}>
+        <div className={`${styles.nodeLabel} ${NODE_TYPE_CLASSES[n.nodeType]}`}>
+          <div className={styles.nodeLabelTitle}>
             {n.label}
           </div>
           {n.detail && (
-            <div
-              style={{
-                fontSize: 10,
-                color: col.text,
-                opacity: 0.7,
-                marginTop: 3,
-                whiteSpace: 'pre-line',
-              }}
-            >
+            <div className={styles.nodeLabelDetail}>
               {n.detail}
             </div>
           )}
@@ -119,60 +130,45 @@ function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
 // ── Legend ────────────────────────────────────────────────────────────────────
 
 const LEGEND_ITEMS: Array<{ type: CFNodeType; label: string }> = [
-  { type: 'did',       label: 'DID / Inbound' },
-  { type: 'tc',        label: 'Time Condition' },
-  { type: 'ivr',       label: 'IVR' },
-  { type: 'ringgroup', label: 'Ring Group' },
-  { type: 'queue',     label: 'Queue' },
-  { type: 'ext',       label: 'Extension' },
-  { type: 'voicemail', label: 'Voicemail' },
-  { type: 'announce',  label: 'Announcement' },
-  { type: 'terminate', label: 'Hang Up' },
+  { type: 'did',        label: 'DID / Inbound' },
+  { type: 'tc',         label: 'Time Condition' },
+  { type: 'ivr',        label: 'IVR' },
+  { type: 'ringgroup',  label: 'Ring Group' },
+  { type: 'queue',      label: 'Queue' },
+  { type: 'ext',        label: 'Extension' },
+  { type: 'voicemail',  label: 'Voicemail' },
+  { type: 'announce',   label: 'Announcement' },
+  { type: 'conference', label: 'Conference' },
+  { type: 'recording',  label: 'Recording' },
+  { type: 'directory',  label: 'Directory' },
+  { type: 'terminate',  label: 'Hang Up' },
+  { type: 'loop',       label: 'Loop detected' },
+  { type: 'unknown',    label: 'Unknown dest' },
 ]
 
 function Legend() {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '8px 14px',
-        padding: '8px 12px',
-        background: 'rgba(15,23,42,0.85)',
-        borderRadius: 10,
-        border: '1px solid rgba(148,163,184,0.15)',
-        fontSize: 11,
-      }}
-    >
+    <div className={styles.legend}>
       {LEGEND_ITEMS.map(({ type, label }) => {
-        const col = NODE_COLORS[type]
         return (
           <span
             key={type}
-            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            className={`${styles.legendItem} ${NODE_TYPE_CLASSES[type]}`}
           >
             <span
-              style={{
-                display: 'inline-block',
-                width: 12,
-                height: 12,
-                borderRadius: type === 'tc' ? 2 : 4,
-                background: col.bg,
-                border: `1.5px solid ${col.border}`,
-                flexShrink: 0,
-              }}
+              className={`${styles.legendSwatch}${type === 'tc' ? ` ${styles.legendSwatchTc}` : ''}`}
             />
-            <span style={{ color: '#94a3b8' }}>{label}</span>
+            <span className={styles.legendLabel}>{label}</span>
           </span>
         )
       })}
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ color: '#22c55e', fontSize: 14, lineHeight: 1 }}>─</span>
-        <span style={{ color: '#94a3b8' }}>TRUE</span>
+      <span className={styles.legendItem}>
+        <span className={styles.legendEdgeTrue}>─</span>
+        <span className={styles.legendLabel}>TRUE</span>
       </span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ color: '#ef4444', fontSize: 14, lineHeight: 1 }}>─</span>
-        <span style={{ color: '#94a3b8' }}>FALSE</span>
+      <span className={styles.legendItem}>
+        <span className={styles.legendEdgeFalse}>─</span>
+        <span className={styles.legendLabel}>FALSE</span>
       </span>
     </div>
   )
@@ -199,7 +195,7 @@ export default function CallFlowGraph({ dump }: { dump: FreePBXDump }) {
 
   if (!dids.length) {
     return (
-      <div style={{ color: '#94a3b8', padding: 12, fontSize: 13 }}>
+      <div className={styles.noRoutes}>
         No inbound routes found in the dump.
       </div>
     )

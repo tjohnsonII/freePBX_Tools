@@ -1,0 +1,89 @@
+/* ── Node label JSX (rendered inside ReactFlow nodes) ── */
+.nodeLabel {
+  line-height: 1.35;
+}
+
+.nodeLabelTitle {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--cfg-node-color);
+}
+
+.nodeLabelDetail {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-top: 3px;
+  white-space: pre-line;
+  color: var(--cfg-node-color);
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  font-size: 11px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--cfg-swatch-bg);
+  border: 1.5px solid var(--cfg-swatch-border);
+  flex-shrink: 0;
+}
+
+.legendSwatchTc {
+  border-radius: 2px;
+}
+
+.legendLabel {
+  color: #94a3b8;
+}
+
+.legendEdgeTrue {
+  color: #22c55e;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.legendEdgeFalse {
+  color: #ef4444;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ── No routes message ── */
+.noRoutes {
+  color: #94a3b8;
+  padding: 12px;
+  font-size: 13px;
+}
+
+/* ── Per-node-type CSS custom properties (mirrors NODE_COLORS in CallFlowGraph.tsx) ── */
+.nodeType_did        { --cfg-node-color: #93c5fd; --cfg-swatch-bg: #1e3a5f; --cfg-swatch-border: #3b82f6; }
+.nodeType_tc         { --cfg-node-color: #fed7aa; --cfg-swatch-bg: #431407; --cfg-swatch-border: #f97316; }
+.nodeType_ivr        { --cfg-node-color: #d8b4fe; --cfg-swatch-bg: #2e1065; --cfg-swatch-border: #a855f7; }
+.nodeType_ringgroup  { --cfg-node-color: #86efac; --cfg-swatch-bg: #052e16; --cfg-swatch-border: #22c55e; }
+.nodeType_queue      { --cfg-node-color: #a5f3fc; --cfg-swatch-bg: #083344; --cfg-swatch-border: #06b6d4; }
+.nodeType_ext        { --cfg-node-color: #cbd5e1; --cfg-swatch-bg: #1e293b; --cfg-swatch-border: #64748b; }
+.nodeType_voicemail  { --cfg-node-color: #c7d2fe; --cfg-swatch-bg: #1e1b4b; --cfg-swatch-border: #818cf8; }
+.nodeType_announce   { --cfg-node-color: #bae6fd; --cfg-swatch-bg: #082f49; --cfg-swatch-border: #38bdf8; }
+.nodeType_conference { --cfg-node-color: #fed7aa; --cfg-swatch-bg: #431407; --cfg-swatch-border: #fb923c; }
+.nodeType_recording  { --cfg-node-color: #d6d3d1; --cfg-swatch-bg: #1c1917; --cfg-swatch-border: #78716c; }
+.nodeType_directory  { --cfg-node-color: #d6d3d1; --cfg-swatch-bg: #1c1917; --cfg-swatch-border: #78716c; }
+.nodeType_terminate  { --cfg-node-color: #fca5a5; --cfg-swatch-bg: #450a0a; --cfg-swatch-border: #ef4444; }
+.nodeType_loop       { --cfg-node-color: #fde68a; --cfg-swatch-bg: #422006; --cfg-swatch-border: #f59e0b; }
+.nodeType_unknown    { --cfg-node-color: #9ca3af; --cfg-swatch-bg: #111827; --cfg-swatch-border: #374151; }
