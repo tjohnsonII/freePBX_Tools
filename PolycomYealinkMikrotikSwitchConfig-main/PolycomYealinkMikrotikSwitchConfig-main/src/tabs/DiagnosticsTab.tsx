@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './DiagnosticsTab.css';
+import CallFlowGraph from './CallFlowGraph';
+import type { FreePBXDump } from './callflowTransform';
 
 // ── Diagnostics payload types ────────────────────────────────────────────
 
@@ -43,15 +45,21 @@ type ServiceEntry =
 const DUMP_JSON_MARKER = '__FREEPBX_DUMP_JSON__:';
 
 const TOOL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'freepbx-tc-status', label: 'TC Status — time condition states' },
-  { value: 'freepbx-module-status', label: 'Module Status' },
-  { value: 'freepbx-module-analyzer', label: 'Module Analyzer' },
-  { value: 'freepbx-comprehensive-analyzer', label: 'Comprehensive Analyzer' },
-  { value: 'freepbx-ascii-callflow', label: 'ASCII Call Flow' },
-  { value: 'freepbx-paging-fax-analyzer', label: 'Paging / Fax Analyzer' },
-  { value: 'freepbx-version-check', label: 'Version Check' },
-  { value: 'freepbx-dump', label: 'FreePBX Dump (writes JSON snapshot)' },
-  { value: 'asterisk-full-diagnostic.sh', label: 'Asterisk Full Diagnostic' },
+  { value: '1',  label: '1 — Refresh DB snapshot' },
+  { value: '2',  label: '2 — Show inventory + list DIDs' },
+  { value: '4',  label: '4 — Generate call-flows for ALL DIDs' },
+  { value: '6',  label: '6 — Time-Condition status' },
+  { value: '7',  label: '7 — Module analysis' },
+  { value: '8',  label: '8 — Paging / overhead / fax analysis' },
+  { value: '9',  label: '9 — Comprehensive component analysis' },
+  { value: '10', label: '10 — ASCII art call-flows' },
+  { value: '12', label: '12 — Full Asterisk diagnostic' },
+  { value: '13', label: '13 — Automated log analysis' },
+  { value: '14', label: '14 — Error map & quick reference' },
+  { value: '15', label: '15 — Network diagnostics' },
+  { value: '16', label: '16 — Enhanced log analysis (dmesg/journal)' },
+  { value: '17', label: '17 — CDR/CEL call log analysis' },
+  { value: '18', label: '18 — Phone/endpoint analysis' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -146,7 +154,7 @@ export default function DiagnosticsTab() {
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Tools panel state ──────────────────────────────────────────────────
-  const [toolCmd, setToolCmd] = useState('freepbx-tc-status');
+  const [toolCmd, setToolCmd] = useState('6');
   const [logLines, setLogLines] = useState<string[]>([]);
   const [toolStatus, setToolStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [toolBusy, setToolBusy] = useState(false);
@@ -344,7 +352,7 @@ export default function DiagnosticsTab() {
           username,
           password,
           root_password: rootPassword || password,
-          command: toolCmd,
+          menu_choice: toolCmd,
         }),
       });
       if (!res.ok) {
@@ -372,7 +380,8 @@ export default function DiagnosticsTab() {
           username,
           password,
           root_password: rootPassword || password,
-          command: 'freepbx-dump',
+          menu_choice: '1',
+          grab_dump: true,
         }),
       });
       if (!res.ok) {
@@ -669,6 +678,11 @@ export default function DiagnosticsTab() {
               </pre>
             )}
           </div>
+        )}
+
+        {/* Call Flow Graph — rendered from dump JSON */}
+        {dumpData && (
+          <CallFlowGraph dump={dumpData as FreePBXDump} />
         )}
       </div>
     </div>

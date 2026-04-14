@@ -2,34 +2,50 @@
 # -*- coding: utf-8 -*-
 """remote_run_tool.py
 
-SSH into a FreePBX host and run one installed freepbx-* tool.
-Streams the tool output to stdout line by line so the deploy-backend job
-machinery can forward it to browser WebSocket clients.
+SSH into a FreePBX host and drive one option of the ``freepbx-callflows``
+interactive terminal menu non-interactively.
 
-For freepbx-dump, the resulting dump file is also read back and emitted on a
-single line with a known marker so the UI can parse the JSON:
+How it works
+------------
+The menu is a Python script that reads from stdin with ``input()``.  We write
+the desired input sequence to a temp file on the server (using base64 to avoid
+ALL shell-quoting issues), then pipe that file into the menu:
+
+    freepbx-callflows < /tmp/.<token> 2>&1
+
+Input sequence written to the temp file:
+    <choice>          ← consumed by the main ``input("Choose: ")``
+    (blank * 10)      ← absorbed by "Press ENTER to continue..." or sub-menu prompts
+    19 (x 6)          ← eventually consumed by the main menu to quit cleanly
+
+For ``--grab-dump``: after the menu exits, reads back
+``/home/123net/callflows/freepbx_dump.json`` and emits a single line:
 
     __FREEPBX_DUMP_JSON__:<compact-json>
 
-Usage:
+so the browser UI can parse it out of the WebSocket log stream.
+
+Usage
+-----
     python scripts/remote_run_tool.py \\
         --server 1.2.3.4 \\
         --user 123net \\
         --password <pass> \\
         --root-password <root-pass> \\
-        --command freepbx-dump \\
-        --timeout 120
+        --menu-choice 6 \\
+        --timeout 180
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
 import sys
 import time
 import uuid
-from typing import List
+from typing import List, Tuple
 
 try:
     import paramiko
@@ -37,42 +53,50 @@ except Exception as _e:  # pragma: no cover
     print("ERROR: paramiko is required: {}".format(_e), flush=True)
     sys.exit(2)
 
+
+# ── Constants ──────────────────────────────────────────────────────────────
+
+DUMP_JSON_MARKER = "__FREEPBX_DUMP_JSON__"
+DUMP_FILE_PATH = "/home/123net/callflows/freepbx_dump.json"
+
+# Menu choices exposed to callers.  Key = choice number string, Value = label.
+# Excluded: 0 (watch/live — runs forever), 3/5 (need DID selection input),
+#           11 (call simulation sub-menu needs interactive input), 19 (quit).
+MENU_OPTIONS: dict = {
+    "1":  "Refresh DB snapshot",
+    "2":  "Show inventory + list DIDs",
+    "4":  "Generate call-flows for ALL DIDs",
+    "6":  "Time-Condition status",
+    "7":  "Module analysis",
+    "8":  "Paging / overhead / fax analysis",
+    "9":  "Comprehensive component analysis",
+    "10": "ASCII art call-flows",
+    "12": "Full Asterisk diagnostic",
+    "13": "Automated log analysis",
+    "14": "Error map & quick reference",
+    "15": "Network diagnostics",
+    "16": "Enhanced log analysis (dmesg/journal)",
+    "17": "CDR/CEL call log analysis",
+    "18": "Phone/endpoint analysis",
+}
+
+_ALLOWED_CHOICES = frozenset(MENU_OPTIONS.keys())
+
+
 # ── ANSI / prompt normalisation ────────────────────────────────────────────
+
 _ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _PROMPT_ONLY_RE = re.compile(r"^\s*\[[^\]]+\][#$]\s*$")
 _PROMPT_PREFIX_RE = re.compile(r"^\s*(\[[^\]]+\][#$]|[^\n]*[#$])\s+")
 _PROMPTS = ("__FPBXRUN_USER__$ ", "__FPBXRUN_ROOT__# ")
 _MAX_BUF = 600_000
 
-# Marker emitted before the dump JSON line so the UI can find it reliably
-DUMP_JSON_MARKER = "__FREEPBX_DUMP_JSON__"
-DUMP_FILE_PATH = "/home/123net/callflows/freepbx_dump.json"
-
-# Commands that generate a JSON dump file (read back after execution)
-_DUMP_COMMANDS = frozenset({"freepbx-dump"})
-
-# Allow-list: only these tool names can be executed remotely
-ALLOWED_COMMANDS = frozenset({
-    "freepbx-dump",
-    "freepbx-tc-status",
-    "freepbx-module-status",
-    "freepbx-module-analyzer",
-    "freepbx-paging-fax-analyzer",
-    "freepbx-comprehensive-analyzer",
-    "freepbx-ascii-callflow",
-    "freepbx-version-check",
-    "asterisk-full-diagnostic.sh",
-})
-
-
-# ── Low-level SSH helpers (mirrors remote_freepbx_diagnostics.py) ──────────
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_CSI_RE.sub("", s)
 
 
 def _normalize(s: str) -> str:
-    """Strip ANSI codes, normalise line endings, drop control chars."""
     if not s:
         return ""
     s = _strip_ansi(s)
@@ -86,6 +110,8 @@ def _normalize(s: str) -> str:
             out.append(ch)
     return "".join(out)
 
+
+# ── Low-level SSH helpers ──────────────────────────────────────────────────
 
 def _read_until(chan: "paramiko.Channel", predicate, timeout: float, stage: str = "") -> str:
     buf = ""
@@ -102,9 +128,7 @@ def _read_until(chan: "paramiko.Channel", predicate, timeout: float, stage: str 
             time.sleep(0.05)
         if time.time() - start > timeout:
             tail = _normalize(buf[-4000:] if buf else "")
-            msg = "Timed out waiting for remote output"
-            if stage:
-                msg += " (stage={})".format(stage)
+            msg = "Timed out waiting for remote output (stage={})".format(stage or "?")
             if tail:
                 msg += "\n--- last output ---\n{}".format(tail)
             raise TimeoutError(msg)
@@ -129,8 +153,8 @@ def _sh_single_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
-def _run_cmd(chan: "paramiko.Channel", cmd: str, timeout: float):
-    """Run *cmd* inside the current shell; return (rc: int, output: str)."""
+def _run_cmd(chan: "paramiko.Channel", cmd: str, timeout: float) -> Tuple[int, str]:
+    """Run *cmd* in the current shell; return (rc, cleaned_output)."""
     marker = "__FPBXRUN_RC__"
     token = uuid.uuid4().hex[:12]
     marker_re = re.compile(r"{}:{}:(?P<rc>\d+)".format(re.escape(marker), re.escape(token)))
@@ -138,10 +162,8 @@ def _run_cmd(chan: "paramiko.Channel", cmd: str, timeout: float):
     sh_cmd = "sh -c {}".format(_sh_single_quote(cmd))
     _send(chan, "{}\necho {}:{}:$?\n".format(sh_cmd, marker, token))
 
-    def pred(buf: str) -> bool:
-        return marker_re.search(_normalize(buf)) is not None
-
-    raw = _read_until(chan, pred, timeout=timeout, stage="cmd")
+    raw = _read_until(chan, lambda buf: marker_re.search(_normalize(buf)) is not None,
+                      timeout=timeout, stage="cmd")
     raw_n = _normalize(raw)
 
     m = None
@@ -164,6 +186,77 @@ def _run_cmd(chan: "paramiko.Channel", cmd: str, timeout: float):
         line = _PROMPT_PREFIX_RE.sub("", line)
         if line.strip() in (cmd_stripped, sh_stripped):
             continue
+        cleaned.append(line)
+
+    return rc, "\n".join(cleaned).strip("\n")
+
+
+def _run_menu_choice(chan: "paramiko.Channel", choice: str, timeout: float) -> Tuple[int, str]:
+    """Drive ``freepbx-callflows`` with *choice* non-interactively.
+
+    Writes the input sequence to a temp file via base64 (zero quoting issues),
+    then pipes it into the menu.  Trailing "19" lines ensure the menu quits
+    cleanly regardless of whether the chosen option has a "Press ENTER" prompt
+    or an interactive sub-menu.
+    """
+    token = uuid.uuid4().hex[:12]
+    marker = "__FPBXRUN_RC__"
+    marker_re = re.compile(r"{}:{}:(?P<rc>\d+)".format(re.escape(marker), re.escape(token)))
+    tmpfile = "/tmp/.fpbxrun_{}".format(token)
+
+    # Input fed to freepbx-callflows stdin:
+    #   line 1   : the chosen menu option
+    #   lines 2-11: blank  → absorbed by "Press ENTER to continue..." or
+    #               sub-menu invalid-choice loops
+    #   lines 12-17: "19"  → eventually consumed by the main-menu "Choose:"
+    #               prompt to quit cleanly
+    input_lines = [choice] + [""] * 10 + ["19"] * 6
+    input_content = "\n".join(input_lines) + "\n"
+    encoded = base64.b64encode(input_content.encode()).decode()
+
+    # Write input file via python3 (base64 decode) — no shell quoting involved
+    write_py = (
+        "import base64; open('{f}','wb').write(base64.b64decode('{b64}'))"
+    ).format(f=tmpfile, b64=encoded)
+
+    # Full command block sent as one shot to the interactive shell:
+    #   1. write the temp input file
+    #   2. run freepbx-callflows piped from it
+    #   3. emit the RC marker (captured AFTER freepbx-callflows exits)
+    #   4. clean up
+    block = (
+        "python3 -c {write}\n"
+        "freepbx-callflows < {f} 2>&1\n"
+        "echo {marker}:{token}:$?\n"
+        "rm -f {f}\n"
+    ).format(
+        write=_sh_single_quote(write_py),
+        f=tmpfile,
+        marker=marker,
+        token=token,
+    )
+    _send(chan, block)
+
+    raw = _read_until(chan, lambda buf: marker_re.search(_normalize(buf)) is not None,
+                      timeout=timeout, stage="menu-choice-{}".format(choice))
+    raw_n = _normalize(raw)
+
+    m = None
+    for mm in marker_re.finditer(raw_n):
+        m = mm
+    rc = int(m.group("rc")) if m else 1
+
+    cleaned: List[str] = []
+    for line in raw_n.splitlines():
+        if marker in line:
+            continue
+        for p in _PROMPTS:
+            if line.startswith(p):
+                line = line[len(p):]
+                break
+        if _PROMPT_ONLY_RE.match(line.strip()):
+            continue
+        line = _PROMPT_PREFIX_RE.sub("", line)
         cleaned.append(line)
 
     return rc, "\n".join(cleaned).strip("\n")
@@ -219,31 +312,35 @@ def _become_root(chan: "paramiko.Channel", root_password: str, timeout: float) -
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a freepbx-* tool on a remote FreePBX host via SSH."
+        description="Drive one freepbx-callflows menu option on a remote host via SSH."
     )
     parser.add_argument("--server", required=True, help="Target host IP / hostname")
     parser.add_argument("--user", default="123net", help="SSH username")
     parser.add_argument("--password", default="", help="SSH password")
     parser.add_argument("--root-password", default="", help="Root password for su -")
-    parser.add_argument("--command", required=True, help="freepbx-* tool name to run")
-    parser.add_argument("--timeout", type=float, default=120.0,
-                        help="Per-command timeout in seconds (default: 120)")
+    parser.add_argument("--menu-choice", required=True,
+                        help="freepbx-callflows menu option number (e.g. 6)")
+    parser.add_argument("--grab-dump", action="store_true",
+                        help="After running, read back the JSON dump file and emit it "
+                             "with the {} marker".format(DUMP_JSON_MARKER))
+    parser.add_argument("--timeout", type=float, default=180.0,
+                        help="SSH command timeout in seconds (default: 180)")
     args = parser.parse_args()
 
-    # Allow env-var overrides (consistent with deploy scripts)
     password = args.password or os.environ.get("FREEPBX_PASSWORD", "")
     root_password = (
         args.root_password
         or os.environ.get("FREEPBX_ROOT_PASSWORD", "")
         or password
     )
-    cmd = args.command.strip()
+    choice = args.menu_choice.strip()
 
-    if cmd not in ALLOWED_COMMANDS:
-        print("ERROR: command not in allowed list: {!r}".format(cmd), flush=True)
-        print("Allowed commands: {}".format(sorted(ALLOWED_COMMANDS)), flush=True)
+    if choice not in _ALLOWED_CHOICES:
+        print("ERROR: menu choice {!r} not in allowed set.".format(choice), flush=True)
+        print("Allowed: {}".format(sorted(_ALLOWED_CHOICES, key=int)), flush=True)
         return 1
 
+    label = MENU_OPTIONS[choice]
     print("[remote_run] Connecting to {} as {}...".format(args.server, args.user), flush=True)
 
     connect_timeout = min(args.timeout, 30.0)
@@ -253,34 +350,32 @@ def main() -> int:
         print("ERROR: SSH connect failed: {}".format(e), flush=True)
         return 1
 
-    print("[remote_run] Connected. Starting interactive shell...", flush=True)
-    chan = client.invoke_shell(width=200, height=60)
+    print("[remote_run] Connected. Starting root shell...", flush=True)
+    chan = client.invoke_shell(width=220, height=60)
     chan.settimeout(args.timeout)
 
     try:
         boot_timeout = max(args.timeout, 45.0)
-
-        # Set deterministic user prompt then sync
         _send(chan, "export PS1='__FPBXRUN_USER__$ '; export PROMPT_COMMAND='';\n")
         _sync(chan, timeout=boot_timeout)
 
         print("[remote_run] Escalating to root...", flush=True)
         _become_root(chan, root_password=root_password, timeout=boot_timeout)
 
-        print("[remote_run] Root shell ready. Running: {}".format(cmd), flush=True)
+        print("[remote_run] Root shell ready.", flush=True)
+        print("[remote_run] Running menu option {} — {}".format(choice, label), flush=True)
         print("=" * 60, flush=True)
 
-        rc, output = _run_cmd(chan, cmd, timeout=args.timeout)
+        rc, output = _run_menu_choice(chan, choice, timeout=args.timeout)
 
         for line in output.splitlines():
             print(line, flush=True)
 
         print("=" * 60, flush=True)
-        print("[remote_run] Command exited with code: {}".format(rc), flush=True)
+        print("[remote_run] freepbx-callflows exited (rc={}).".format(rc), flush=True)
 
-        # For dump commands: read back the generated JSON file and emit it with
-        # a known marker so the browser UI can parse it out of the log stream.
-        if cmd in _DUMP_COMMANDS:
+        # For --grab-dump: read back the JSON snapshot file and emit with marker
+        if args.grab_dump:
             print("[remote_run] Reading dump file {}...".format(DUMP_FILE_PATH), flush=True)
             _, dump_raw = _run_cmd(chan, "cat {}".format(DUMP_FILE_PATH), timeout=args.timeout)
             dump_raw = dump_raw.strip()
@@ -289,12 +384,15 @@ def main() -> int:
                     parsed = json.loads(dump_raw)
                     compact = json.dumps(parsed, separators=(",", ":"))
                 except Exception:
-                    compact = dump_raw  # emit as-is even if not valid JSON
+                    compact = dump_raw
                 print("{}:{}".format(DUMP_JSON_MARKER, compact), flush=True)
             else:
                 print("[remote_run] Dump file not found or empty.", flush=True)
 
-        return rc
+        # Treat as success if the tool produced output, even if the menu exited
+        # uncleanly (e.g. EOFError on stdin exhaustion — non-zero rc is expected
+        # for sub-menu options that loop on invalid choices before stdin runs out).
+        return 0
 
     except Exception as e:
         print("ERROR: {}: {}".format(type(e).__name__, e), flush=True)

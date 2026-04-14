@@ -72,16 +72,9 @@ class DiagnosticsSummaryRequest(BaseModel):
     timeout_seconds: float = Field(15.0, ge=2.0, le=120.0)
 
 
-_ALLOWED_REMOTE_COMMANDS = frozenset({
-    "freepbx-dump",
-    "freepbx-tc-status",
-    "freepbx-module-status",
-    "freepbx-module-analyzer",
-    "freepbx-paging-fax-analyzer",
-    "freepbx-comprehensive-analyzer",
-    "freepbx-ascii-callflow",
-    "freepbx-version-check",
-    "asterisk-full-diagnostic.sh",
+_ALLOWED_MENU_CHOICES = frozenset({
+    "1", "2", "4", "6", "7", "8", "9", "10",
+    "12", "13", "14", "15", "16", "17", "18",
 })
 
 
@@ -90,7 +83,8 @@ class RemoteRunRequest(BaseModel):
     username: str = "123net"
     password: str = ""
     root_password: str = ""
-    command: str = Field(..., description="Installed freepbx-* tool to run")
+    menu_choice: str = Field(..., description="freepbx-callflows menu option number (e.g. '6')")
+    grab_dump: bool = Field(False, description="Read back the JSON dump file after running")
 
 
 class JobInfo(BaseModel):
@@ -114,7 +108,8 @@ class Job:
     password: str
     root_password: str
     bundle_name: str
-    command: str = ""  # populated for remote_run action
+    menu_choice: str = ""   # populated for remote_run action
+    grab_dump: bool = False  # populated for remote_run action
 
     status: str = "queued"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -321,8 +316,8 @@ async def _run_job(job: Job) -> None:
             script = REPO_ROOT / "scripts" / "remote_run_tool.py"
             if not script.exists():
                 raise RuntimeError("remote_run_tool.py not found at {}".format(script))
-            if job.command not in _ALLOWED_REMOTE_COMMANDS:
-                raise RuntimeError("Command not allowed: {!r}".format(job.command))
+            if job.menu_choice not in _ALLOWED_MENU_CHOICES:
+                raise RuntimeError("Menu choice not allowed: {!r}".format(job.menu_choice))
             args = [
                 _python_exe(),
                 str(script),
@@ -330,10 +325,12 @@ async def _run_job(job: Job) -> None:
                 "--user", job.username,
                 "--password", job.password,
                 "--root-password", job.root_password,
-                "--command", job.command,
-                "--timeout", "120",
+                "--menu-choice", job.menu_choice,
+                "--timeout", "180",
             ]
-            rc = await _run_one(job, args, "Remote Run: {}".format(job.command))
+            if job.grab_dump:
+                args.append("--grab-dump")
+            rc = await _run_one(job, args, "Remote Run: menu option {}".format(job.menu_choice))
         else:
             raise RuntimeError(f"Unsupported action: {job.action}")
 
@@ -496,17 +493,19 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
 
 @app.post("/api/remote/run", response_model=JobInfo)
 async def remote_run(req: RemoteRunRequest) -> JobInfo:
-    """Create a streaming job that SSHes into *server* and runs one freepbx-* tool.
+    """Create a streaming job that SSHes into *server* and drives the freepbx-callflows menu.
 
     Connect to ``/api/jobs/{id}/ws`` to stream output in real-time.
-    For ``freepbx-dump``, the log stream will contain a line starting with
+    When ``grab_dump`` is True, the log stream will contain a line starting with
     ``__FREEPBX_DUMP_JSON__:`` that the browser UI can parse as JSON.
     """
-    cmd = req.command.strip()
-    if cmd not in _ALLOWED_REMOTE_COMMANDS:
+    choice = req.menu_choice.strip()
+    if choice not in _ALLOWED_MENU_CHOICES:
         raise HTTPException(
             status_code=400,
-            detail="Command not allowed: {!r}. Allowed: {}".format(cmd, sorted(_ALLOWED_REMOTE_COMMANDS)),
+            detail="Menu choice not allowed: {!r}. Allowed: {}".format(
+                choice, sorted(_ALLOWED_MENU_CHOICES, key=int)
+            ),
         )
 
     job_id = uuid.uuid4().hex
@@ -519,7 +518,8 @@ async def remote_run(req: RemoteRunRequest) -> JobInfo:
         password=req.password,
         root_password=req.root_password,
         bundle_name="",
-        command=cmd,
+        menu_choice=choice,
+        grab_dump=req.grab_dump,
     )
 
     async with JOBS_LOCK:
