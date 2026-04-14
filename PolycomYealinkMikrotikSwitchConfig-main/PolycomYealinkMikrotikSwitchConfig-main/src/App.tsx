@@ -294,13 +294,15 @@ function App() {
 
     setScraperDevice(deviceId);
 
-    // Populate currentConfig display state — raw config is already in device payload.
-    // Priority: arbitrary_attributes (real phone settings) → view_config → bulk_config
-    // device_properties is metadata only, never shown as phone config.
-    // Filter known FreePBX placeholder strings.
+    // Populate currentConfig display state.
+    // arbitrary_attributes = real phone config — always preferred when populated.
+    // Fallback: pick whichever of the remaining fields has the most lines.
     const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
     const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
-    const raw = _pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '';
+    const _lc = (s: string) => s ? s.split('\n').filter(l => l.trim()).length : 0;
+    const raw = _pick(dev.arbitrary_attributes) ||
+      [dev.view_config, dev.bulk_config, dev.device_properties]
+        .map(_pick).filter(Boolean).sort((a, b) => _lc(b) - _lc(a))[0] || '';
     setScraperLiveConfig(raw);
     setLoadedConfigRaw(raw);
     setCurrentConfigError(raw ? '' : 'No config captured for this device yet. Click "Scrape this handle" above to re-scrape it.');
@@ -362,7 +364,10 @@ function App() {
         if (freshDev) {
           const _ph2 = new Set(['place holder text', 'placeholder text', 'placeholder']);
           const _pick2 = (s: string) => s && !_ph2.has(s.trim().toLowerCase()) ? s : '';
-          const freshRaw = _pick2(freshDev.arbitrary_attributes) || _pick2(freshDev.view_config) || _pick2(freshDev.bulk_config) || '';
+          const _lc2 = (s: string) => s ? s.split('\n').filter((l: string) => l.trim()).length : 0;
+          const freshRaw = _pick2(freshDev.arbitrary_attributes) ||
+            [freshDev.view_config, freshDev.bulk_config, freshDev.device_properties]
+              .map(_pick2).filter(Boolean).sort((a: string, b: string) => _lc2(b) - _lc2(a))[0] || '';
           setScraperLiveConfig(freshRaw);
           setLoadedConfigRaw(freshRaw);
           setCurrentConfigError(freshRaw ? '' : 'No config captured for this device yet. Try scraping again.');
@@ -1863,7 +1868,9 @@ function App() {
               const dev = expDevices.find(d => d.device_id === expDevice);
               const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
               const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
-              const cfg = dev ? (_pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '') : '';
+              const _lc = (s: string) => s ? s.split('\n').filter((l: string) => l.trim()).length : 0;
+              const cfg = dev ? (_pick(dev.arbitrary_attributes) ||
+                [dev.view_config, dev.bulk_config, dev.device_properties].map(_pick).filter(Boolean).sort((a, b) => _lc(b) - _lc(a))[0] || '') : '';
               const isIncomplete = !cfg || cfg.split('\n').filter((l: string) => l.trim()).length <= 1;
               return (
                 <div className="exp-config-section">

@@ -9,6 +9,9 @@ export default defineConfig({
     strictPort: true,
     open: true,
     allowedHosts:['timsablab.com','timsablab.ddn.net'],
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8002',

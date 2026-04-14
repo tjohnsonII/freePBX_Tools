@@ -368,6 +368,17 @@ def _js_extract_arbitrary_attributes(driver: Any) -> str:
         r"""
         var lines = [];
 
+        // Strategy 0: FreePBX stores arbitrary attributes as
+        //   <td>key_name</td><td><input name="attrib-key_name" value="val"></td>
+        // The value inputs have name="attrib-{key}" so we read key from the name attribute.
+        var attribInputs = document.querySelectorAll('input[name^="attrib-"]');
+        for (var i = 0; i < attribInputs.length; i++) {
+            var k = attribInputs[i].getAttribute('name').slice('attrib-'.length);
+            var v = attribInputs[i].value.trim();
+            if (k) lines.push(k + '=' + v);
+        }
+        if (lines.length > 0) return lines.join('\n');
+
         // Strategy 1: try several common FreePBX naming patterns for attrib inputs
         var namePairs = [
             ['input[name*="attrib_key"]', 'input[name*="attrib_val"]'],
@@ -375,7 +386,6 @@ def _js_extract_arbitrary_attributes(driver: Any) -> str:
             ['input[name="key[]"]', 'input[name="val[]"]'],
             ['input[name*="_key[]"]', 'input[name*="_val[]"]'],
             ['input[name*="[key]"]', 'input[name*="[val]"]'],
-            ['input[name*="attrib["][name*="[key]"]', 'input[name*="attrib["][name*="[val]"]'],
         ];
         for (var p = 0; p < namePairs.length; p++) {
             var ks = document.querySelectorAll(namePairs[p][0]);
@@ -489,7 +499,7 @@ def _js_debug_arbitrary_table(driver: Any) -> str:
                     }
                     var html = tbl ? tbl.outerHTML : candidates[c].parentElement.outerHTML;
                     return 'found_via:' + searchTags[s] + ' html_len=' + html.length
-                        + ' preview=' + html.slice(0, 300);
+                        + ' full=' + html;
                 }
             }
         }
@@ -727,7 +737,7 @@ def _capture_device_page_data(driver: Any, edit_url: str, emit_fn: Any = None) -
 
     # Always log the diagnostic so we can see what the page structure looks like
     aa_debug = _js_debug_arbitrary_table(driver)
-    _log(f"edit_page_parsed dp_lines={dp_lines} aa_lines={aa_lines} aa_debug={aa_debug[:200]}")
+    _log(f"edit_page_parsed dp_lines={dp_lines} aa_lines={aa_lines} aa_debug={aa_debug}")
 
     # ── Step 3: Bulk Attribute Edit modal ─────────────────────────────────────
     bulk_btn = None
