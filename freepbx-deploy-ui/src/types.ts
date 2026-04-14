@@ -5,6 +5,7 @@ export type Action =
   | 'connect_only'
   | 'upload_only'
   | 'bundle'
+  | 'remote_run'
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 

@@ -5,52 +5,37 @@ import { FaServer, FaPlay, FaStop, FaBroom, FaCloudUploadAlt, FaLink, FaTrash, F
 import { cancelJob, createJob, getJob, listJobs } from './api'
 import type { Action, JobInfo } from './types'
 
-function statusColor(status: JobInfo['status']): string {
+function statusDotClass(status: JobInfo['status']): string {
   switch (status) {
-    case 'succeeded':
-      return 'var(--ok)'
-    case 'failed':
-      return 'var(--bad)'
-    case 'cancelled':
-      return 'var(--warn)'
-    case 'running':
-      return 'var(--accent)'
-    default:
-      return 'var(--muted)'
+    case 'succeeded': return 'statusOk'
+    case 'failed':    return 'statusBad'
+    case 'cancelled': return 'statusWarn'
+    case 'running':   return 'statusAccent'
+    default:          return 'statusMuted'
   }
 }
 
 function actionLabel(a: Action): string {
   switch (a) {
-    case 'deploy':
-      return 'Deploy'
-    case 'uninstall':
-      return 'Uninstall'
-    case 'clean_deploy':
-      return 'Clean Deploy'
-    case 'connect_only':
-      return 'Connect-only'
-    case 'upload_only':
-      return 'Upload-only'
-    case 'bundle':
-      return 'Build Bundle'
+    case 'deploy':       return 'Deploy'
+    case 'uninstall':    return 'Uninstall'
+    case 'clean_deploy': return 'Clean Deploy'
+    case 'connect_only': return 'Connect-only'
+    case 'upload_only':  return 'Upload-only'
+    case 'bundle':       return 'Build Bundle'
+    case 'remote_run':   return 'Remote Run'
   }
 }
 
 function iconForAction(a: Action) {
   switch (a) {
-    case 'deploy':
-      return <FaCloudUploadAlt />
-    case 'uninstall':
-      return <FaTrash />
-    case 'clean_deploy':
-      return <FaBroom />
-    case 'connect_only':
-      return <FaLink />
-    case 'upload_only':
-      return <FaCloudUploadAlt />
-    case 'bundle':
-      return <FaBox />
+    case 'deploy':       return <FaCloudUploadAlt />
+    case 'uninstall':    return <FaTrash />
+    case 'clean_deploy': return <FaBroom />
+    case 'connect_only': return <FaLink />
+    case 'upload_only':  return <FaCloudUploadAlt />
+    case 'bundle':       return <FaBox />
+    case 'remote_run':   return <FaServer />
   }
 }
 
@@ -123,11 +108,9 @@ export default function App() {
     }
 
     ws.onclose = () => {
-      // keep UI stable
       wsRef.current = null
     }
 
-    // heartbeat so backend can detect disconnects
     const hb = setInterval(() => {
       try {
         ws.send('ping')
@@ -184,7 +167,7 @@ export default function App() {
           </div>
         </div>
         <div className="badge">
-          <span style={{ color: statusColor(status) }}>●</span>
+          <span className={statusDotClass(status)}>●</span>
           <strong>{activeJob ? `Job ${activeJob.id.slice(0, 8)}` : 'No active job'}</strong>
           <span>{activeJob ? actionLabel(activeJob.action) : ''}</span>
         </div>
@@ -195,8 +178,14 @@ export default function App() {
           <h2>Run</h2>
 
           <div className="field">
-            <label>Action</label>
-            <select value={action} onChange={(e: ChangeEvent<HTMLSelectElement>) => setAction(e.target.value as Action)}>
+            <label htmlFor="deploy-action">Action</label>
+            <select
+              id="deploy-action"
+              value={action}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => setAction(e.target.value as Action)}
+              title="Select deploy action"
+              aria-label="Select deploy action"
+            >
               <option value="deploy">Deploy</option>
               <option value="uninstall">Uninstall</option>
               <option value="clean_deploy">Clean Deploy (uninstall + install)</option>
@@ -208,92 +197,106 @@ export default function App() {
 
           {needsServers && (
             <div className="field">
-              <label>
-                Servers (newline / comma / space separated) <FaServer style={{ marginLeft: 6 }} />
+              <label htmlFor="deploy-servers">
+                Servers (newline / comma / space separated) <FaServer className="labelIcon" />
               </label>
               <textarea
+                id="deploy-servers"
                 value={servers}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setServers(e.target.value)}
                 spellCheck={false}
+                title="Server addresses, one per line or comma-separated"
               />
             </div>
           )}
 
           <div className="row">
             <div className="field">
-              <label>Workers</label>
+              <label htmlFor="deploy-workers">Workers</label>
               <input
+                id="deploy-workers"
                 type="number"
                 min={1}
                 max={50}
                 value={workers}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkers(Number(e.target.value))}
+                title="Number of parallel workers"
               />
             </div>
             <div className="field">
-              <label>SSH Username</label>
-              <input value={username} onChange={(e: ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)} />
+              <label htmlFor="deploy-username">SSH Username</label>
+              <input
+                id="deploy-username"
+                value={username}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+                title="SSH username"
+              />
             </div>
           </div>
 
           <div className="row">
             <div className="field">
-              <label>SSH Password (optional)</label>
+              <label htmlFor="deploy-password">SSH Password (optional)</label>
               <input
+                id="deploy-password"
                 type="password"
                 value={password}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                 autoComplete="off"
+                title="SSH password (optional)"
               />
             </div>
             <div className="field">
-              <label>Root Password (for su root)</label>
+              <label htmlFor="deploy-root-password">Root Password (for su root)</label>
               <input
+                id="deploy-root-password"
                 type="password"
                 value={rootPassword}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setRootPassword(e.target.value)}
                 autoComplete="off"
+                title="Root password for su root"
               />
             </div>
           </div>
 
           {!needsServers && (
             <div className="field">
-              <label>Bundle name</label>
-              <input value={bundleName} onChange={(e: ChangeEvent<HTMLInputElement>) => setBundleName(e.target.value)} />
+              <label htmlFor="deploy-bundle-name">Bundle name</label>
+              <input
+                id="deploy-bundle-name"
+                value={bundleName}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setBundleName(e.target.value)}
+                title="Bundle archive file name"
+              />
             </div>
           )}
 
           <div className="btnRow">
-            <button className="primary" onClick={start} disabled={busy}>
-              <FaPlay style={{ marginRight: 8 }} /> Start
+            <button type="button" className="primary" onClick={start} disabled={busy}>
+              <FaPlay className="btnIcon" /> Start
             </button>
-            <button className="danger" onClick={cancelActive} disabled={busy || !activeJob}>
-              <FaStop style={{ marginRight: 8 }} /> Cancel
+            <button type="button" className="danger" onClick={cancelActive} disabled={busy || !activeJob}>
+              <FaStop className="btnIcon" /> Cancel
             </button>
           </div>
 
-          <div style={{ marginTop: 14 }}>
+          <div className="recentJobs">
             <h2>Recent Jobs</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="recentJobsList">
               {jobs.slice(0, 8).map((j) => (
                 <button
                   key={j.id}
+                  type="button"
+                  className="jobBtn"
                   onClick={() => attachToJob(j.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    background: 'rgba(15,23,42,0.6)',
-                  }}
+                  title={`${actionLabel(j.action)} — ${j.id.slice(0, 8)}`}
                 >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ color: statusColor(j.status) }}>●</span>
-                    <span style={{ opacity: 0.9 }}>{iconForAction(j.action)}</span>
+                  <span className="jobBtnLeft">
+                    <span className={statusDotClass(j.status)}>●</span>
+                    <span className="jobBtnIcon">{iconForAction(j.action)}</span>
                     <span>{actionLabel(j.action)}</span>
                   </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>{j.id.slice(0, 8)}</span>
+                  <span className="jobBtnId">{j.id.slice(0, 8)}</span>
                 </button>
               ))}
             </div>
@@ -304,7 +307,7 @@ export default function App() {
           <h2>Live Output</h2>
           <div ref={logRef} className="log">
             {logLines.length === 0 ? (
-              <span style={{ color: 'var(--muted)' }}>No output yet. Start a job to see logs.</span>
+              <span className="logEmpty">No output yet. Start a job to see logs.</span>
             ) : (
               logLines.map((l, idx) => {
                 const s = l.toLowerCase()
@@ -327,7 +330,7 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ marginTop: 18, color: 'var(--muted)', fontSize: 12 }}>
+      <div className="tip">
         Tip: Keep the backend bound to <code>127.0.0.1</code> unless you add authentication.
       </div>
     </div>

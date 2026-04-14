@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 
-Action = Literal["deploy", "uninstall", "clean_deploy", "connect_only", "upload_only", "bundle"]
+Action = Literal["deploy", "uninstall", "clean_deploy", "connect_only", "upload_only", "bundle", "remote_run"]
 
 
 def _find_repo_root() -> Path:
@@ -72,6 +72,27 @@ class DiagnosticsSummaryRequest(BaseModel):
     timeout_seconds: float = Field(15.0, ge=2.0, le=120.0)
 
 
+_ALLOWED_REMOTE_COMMANDS = frozenset({
+    "freepbx-dump",
+    "freepbx-tc-status",
+    "freepbx-module-status",
+    "freepbx-module-analyzer",
+    "freepbx-paging-fax-analyzer",
+    "freepbx-comprehensive-analyzer",
+    "freepbx-ascii-callflow",
+    "freepbx-version-check",
+    "asterisk-full-diagnostic.sh",
+})
+
+
+class RemoteRunRequest(BaseModel):
+    server: str = Field(..., description="Target FreePBX host")
+    username: str = "123net"
+    password: str = ""
+    root_password: str = ""
+    command: str = Field(..., description="Installed freepbx-* tool to run")
+
+
 class JobInfo(BaseModel):
     id: str
     action: Action
@@ -93,6 +114,7 @@ class Job:
     password: str
     root_password: str
     bundle_name: str
+    command: str = ""  # populated for remote_run action
 
     status: str = "queued"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -293,6 +315,25 @@ async def _run_job(job: Job) -> None:
                 "Step 2/2: Install",
             )
             rc = 0 if (rc1 == 0 and rc2 == 0) else (rc2 or rc1)
+        elif job.action == "remote_run":
+            if not job.servers:
+                raise RuntimeError("No server provided for remote_run")
+            script = REPO_ROOT / "scripts" / "remote_run_tool.py"
+            if not script.exists():
+                raise RuntimeError("remote_run_tool.py not found at {}".format(script))
+            if job.command not in _ALLOWED_REMOTE_COMMANDS:
+                raise RuntimeError("Command not allowed: {!r}".format(job.command))
+            args = [
+                _python_exe(),
+                str(script),
+                "--server", job.servers[0],
+                "--user", job.username,
+                "--password", job.password,
+                "--root-password", job.root_password,
+                "--command", job.command,
+                "--timeout", "120",
+            ]
+            rc = await _run_one(job, args, "Remote Run: {}".format(job.command))
         else:
             raise RuntimeError(f"Unsupported action: {job.action}")
 
@@ -451,6 +492,41 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
             status_code=500,
             content={"ok": False, "server": req.server, "error": msg, "_hint": _diagnostics_hint(msg)},
         )
+
+
+@app.post("/api/remote/run", response_model=JobInfo)
+async def remote_run(req: RemoteRunRequest) -> JobInfo:
+    """Create a streaming job that SSHes into *server* and runs one freepbx-* tool.
+
+    Connect to ``/api/jobs/{id}/ws`` to stream output in real-time.
+    For ``freepbx-dump``, the log stream will contain a line starting with
+    ``__FREEPBX_DUMP_JSON__:`` that the browser UI can parse as JSON.
+    """
+    cmd = req.command.strip()
+    if cmd not in _ALLOWED_REMOTE_COMMANDS:
+        raise HTTPException(
+            status_code=400,
+            detail="Command not allowed: {!r}. Allowed: {}".format(cmd, sorted(_ALLOWED_REMOTE_COMMANDS)),
+        )
+
+    job_id = uuid.uuid4().hex
+    job = Job(
+        id=job_id,
+        action="remote_run",
+        servers=[req.server],
+        workers=1,
+        username=req.username,
+        password=req.password,
+        root_password=req.root_password,
+        bundle_name="",
+        command=cmd,
+    )
+
+    async with JOBS_LOCK:
+        JOBS[job_id] = job
+
+    asyncio.create_task(_run_job(job))
+    return _job_info(job)
 
 
 @app.get("/api/jobs", response_model=List[JobInfo])

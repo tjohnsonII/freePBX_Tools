@@ -220,3 +220,154 @@
   color: #475467;
   border: 1px solid #e4e7ec;
 }
+
+/* ── Tools Panel ─────────────────────────────────────────────────────────── */
+
+.diag-tools-section {
+  margin-top: 28px;
+  border-top: 2px solid #e4e7ec;
+  padding-top: 18px;
+}
+
+.diag-tools-heading {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+}
+
+.diag-tools-hint {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  color: #555;
+}
+
+.diag-tools-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.diag-btn-install {
+  background: #e8f7ee;
+  border: 1px solid #bfe9cf;
+  color: #16794a;
+  font-weight: 700;
+}
+
+.diag-btn-run {
+  background: #e8f0fb;
+  border: 1px solid #b0c8f7;
+  color: #1a4fa0;
+  font-weight: 700;
+}
+
+.diag-btn-dump {
+  background: #fff6e5;
+  border: 1px solid #ffd59a;
+  color: #8a5a00;
+  font-weight: 700;
+}
+
+.diag-tool-select {
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 240px;
+  background: #fff;
+}
+
+.diag-tool-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.diag-tool-status-running {
+  background: #e8f0fb;
+  color: #1a4fa0;
+  border: 1px solid #b0c8f7;
+}
+
+.diag-tool-status-done {
+  background: #e8f7ee;
+  color: #16794a;
+  border: 1px solid #bfe9cf;
+}
+
+.diag-tool-status-error {
+  background: #ffecec;
+  color: #b42318;
+  border: 1px solid #ffb3b3;
+}
+
+/* Log panel — monospace output, scrollable */
+.diag-log {
+  height: 340px;
+  overflow-y: auto;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #0f1929;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.diag-log span {
+  display: block;
+}
+
+.diag-log-ok   { color: #4ade80; }
+.diag-log-warn { color: #fbbf24; }
+.diag-log-err  { color: #f87171; }
+
+/* Dump JSON panel */
+.diag-dump-panel {
+  margin-top: 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diag-dump-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f4f7fb;
+  border-bottom: 1px solid #d0d5dd;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.diag-dump-header:hover {
+  background: #e8f0fb;
+}
+
+.diag-dump-toggle {
+  font-size: 12px;
+  color: #555;
+}
+
+.diag-dump-pre {
+  margin: 0;
+  padding: 14px;
+  background: #fafafa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 420px;
+  overflow-y: auto;
+}

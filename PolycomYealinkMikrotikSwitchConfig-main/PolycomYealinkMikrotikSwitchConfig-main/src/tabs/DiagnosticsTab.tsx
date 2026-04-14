@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './DiagnosticsTab.css';
 
+// ── Diagnostics payload types ────────────────────────────────────────────
+
 type DiagnosticsPayload = {
   ok?: boolean;
   generated_at_utc?: string;
@@ -35,6 +37,24 @@ type ServiceRow = {
 type ServiceEntry =
   | { name?: string; state?: string; enabled?: string }
   | Record<string, unknown>;
+
+// ── Constants ─────────────────────────────────────────────────────────────
+
+const DUMP_JSON_MARKER = '__FREEPBX_DUMP_JSON__:';
+
+const TOOL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'freepbx-tc-status', label: 'TC Status — time condition states' },
+  { value: 'freepbx-module-status', label: 'Module Status' },
+  { value: 'freepbx-module-analyzer', label: 'Module Analyzer' },
+  { value: 'freepbx-comprehensive-analyzer', label: 'Comprehensive Analyzer' },
+  { value: 'freepbx-ascii-callflow', label: 'ASCII Call Flow' },
+  { value: 'freepbx-paging-fax-analyzer', label: 'Paging / Fax Analyzer' },
+  { value: 'freepbx-version-check', label: 'Version Check' },
+  { value: 'freepbx-dump', label: 'FreePBX Dump (writes JSON snapshot)' },
+  { value: 'asterisk-full-diagnostic.sh', label: 'Asterisk Full Diagnostic' },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -89,7 +109,26 @@ function svcEnabledKind(enabled?: string): 'ok' | 'warn' | 'bad' | 'neutral' {
   return 'neutral';
 }
 
+function logLineClass(line: string): string {
+  const s = line.toLowerCase();
+  if (s.includes('[ok]') || s.includes('successful') || s.includes('exit code: 0'))
+    return 'diag-log-ok';
+  if (s.includes('[warning]') || s.includes('warning') || s.includes('warn:'))
+    return 'diag-log-warn';
+  if (
+    s.includes('[error]') ||
+    s.includes('[failed]') ||
+    s.includes('fatal error') ||
+    s.startsWith('error:')
+  )
+    return 'diag-log-err';
+  return '';
+}
+
+// ── Component ─────────────────────────────────────────────────────────────
+
 export default function DiagnosticsTab() {
+  // ── Diagnostics form state ─────────────────────────────────────────────
   const [server, setServer] = useState('69.39.69.102');
   const [username, setUsername] = useState('123net');
   const [password, setPassword] = useState('');
@@ -106,6 +145,20 @@ export default function DiagnosticsTab() {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  // ── Tools panel state ──────────────────────────────────────────────────
+  const [toolCmd, setToolCmd] = useState('freepbx-tc-status');
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [toolStatus, setToolStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [toolBusy, setToolBusy] = useState(false);
+  const [dumpData, setDumpData] = useState<Record<string, unknown> | null>(null);
+  const [dumpExpanded, setDumpExpanded] = useState(false);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const logLinesRef = useRef<string[]>([]);
+  const isGrabDumpRef = useRef(false);
+  const logRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Diagnostics request body ───────────────────────────────────────────
   const requestBody = useMemo(() => {
     return {
       server,
@@ -116,6 +169,14 @@ export default function DiagnosticsTab() {
     };
   }, [server, username, password, rootPassword, timeoutSec]);
 
+  // ── Auto-scroll log panel ──────────────────────────────────────────────
+  useEffect(() => {
+    const el = logRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [logLines]);
+
+  // ── Diagnostics fetch ──────────────────────────────────────────────────
   async function fetchDiagnostics(): Promise<void> {
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -166,6 +227,175 @@ export default function DiagnosticsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, refreshEverySec, requestBody]);
 
+  // ── Tools helpers ──────────────────────────────────────────────────────
+
+  function disconnectWs(): void {
+    try {
+      wsRef.current?.close();
+    } catch {
+      // ignore
+    }
+    wsRef.current = null;
+  }
+
+  function parseDumpFromLines(lines: string[]): void {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.startsWith(DUMP_JSON_MARKER)) {
+        const jsonStr = line.slice(DUMP_JSON_MARKER.length);
+        try {
+          const data = JSON.parse(jsonStr) as Record<string, unknown>;
+          setDumpData(data);
+          setDumpExpanded(true);
+          return;
+        } catch {
+          // not valid JSON — keep scanning
+        }
+      }
+    }
+  }
+
+  function attachToJob(jobId: string): void {
+    disconnectWs();
+    setLogLines([]);
+    logLinesRef.current = [];
+    setToolStatus('running');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/api/jobs/${jobId}/ws`);
+    wsRef.current = ws;
+
+    ws.onmessage = (ev: MessageEvent) => {
+      const text = String(ev.data);
+      setLogLines((prev) => {
+        const next = [...prev, text];
+        const trimmed = next.length > 3000 ? next.slice(-3000) : next;
+        logLinesRef.current = trimmed;
+        return trimmed;
+      });
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      setToolStatus('done');
+      setToolBusy(false);
+      if (isGrabDumpRef.current) {
+        parseDumpFromLines(logLinesRef.current);
+        isGrabDumpRef.current = false;
+      }
+    };
+
+    ws.onerror = () => {
+      setToolStatus('error');
+      setToolBusy(false);
+    };
+
+    // heartbeat
+    const hb = setInterval(() => {
+      try {
+        ws.send('ping');
+      } catch {
+        // ignore
+      }
+    }, 15000);
+    ws.addEventListener('close', () => clearInterval(hb));
+  }
+
+  async function installTools(): Promise<void> {
+    setToolBusy(true);
+    setDumpData(null);
+    isGrabDumpRef.current = false;
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deploy',
+          servers: server,
+          workers: 1,
+          username,
+          password,
+          root_password: rootPassword || password,
+          bundle_name: '',
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Deploy failed (${res.status}): ${t.slice(0, 200)}`);
+      }
+      const job = (await res.json()) as { id: string };
+      attachToJob(job.id);
+    } catch (e) {
+      setLastError(toErrorMessage(e));
+      setToolBusy(false);
+    }
+  }
+
+  async function runTool(): Promise<void> {
+    setToolBusy(true);
+    setDumpData(null);
+    isGrabDumpRef.current = false;
+    try {
+      const res = await fetch('/api/remote/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server,
+          username,
+          password,
+          root_password: rootPassword || password,
+          command: toolCmd,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Run tool failed (${res.status}): ${t.slice(0, 200)}`);
+      }
+      const job = (await res.json()) as { id: string };
+      attachToJob(job.id);
+    } catch (e) {
+      setLastError(toErrorMessage(e));
+      setToolBusy(false);
+    }
+  }
+
+  async function grabDump(): Promise<void> {
+    setToolBusy(true);
+    setDumpData(null);
+    isGrabDumpRef.current = true;
+    try {
+      const res = await fetch('/api/remote/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server,
+          username,
+          password,
+          root_password: rootPassword || password,
+          command: 'freepbx-dump',
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Grab dump failed (${res.status}): ${t.slice(0, 200)}`);
+      }
+      const job = (await res.json()) as { id: string };
+      attachToJob(job.id);
+    } catch (e) {
+      setLastError(toErrorMessage(e));
+      setToolBusy(false);
+      isGrabDumpRef.current = false;
+    }
+  }
+
+  const toolStatusLabel: Record<typeof toolStatus, string> = {
+    idle: 'Idle',
+    running: 'Running\u2026',
+    done: 'Done',
+    error: 'Error',
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="diag-root">
       <h2>Remote FreePBX Diagnostics</h2>
@@ -174,6 +404,7 @@ export default function DiagnosticsTab() {
         Credentials are sent per-request and are not stored.
       </div>
 
+      {/* ── Credentials form ── */}
       <div className="diag-form-grid">
         <div>
           <label className="diag-label" htmlFor="diag-server">Server</label>
@@ -239,6 +470,7 @@ export default function DiagnosticsTab() {
         </div>
       )}
 
+      {/* ── Diagnostics payload ── */}
       {payload && (
         <div className="diag-payload">
           {(payload.error || payload.stderr || payload._stderr || payload.ok === false) && (
@@ -340,6 +572,105 @@ export default function DiagnosticsTab() {
           )}
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          Tools Panel — install, run, and grab data from installed tools
+          ══════════════════════════════════════════════════════════════════ */}
+      <div className="diag-tools-section">
+        <h3 className="diag-tools-heading">FreePBX Tools</h3>
+        <p className="diag-tools-hint">
+          Tools must be installed on the remote server first (use <b>Install Tools</b>).
+          Credentials above are reused for SSH.
+        </p>
+
+        <div className="diag-tools-bar">
+          {/* Install */}
+          <button
+            type="button"
+            className="diag-btn diag-btn-install"
+            onClick={() => void installTools()}
+            disabled={toolBusy}
+            title="Deploy freepbx-tools to the server via SSH"
+          >
+            Install Tools
+          </button>
+
+          {/* Run Tool */}
+          <select
+            className="diag-tool-select"
+            value={toolCmd}
+            onChange={(e) => setToolCmd(e.target.value)}
+            disabled={toolBusy}
+            aria-label="Select tool to run"
+            title="Select tool to run"
+          >
+            {TOOL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="diag-btn diag-btn-run"
+            onClick={() => void runTool()}
+            disabled={toolBusy}
+            title="SSH in and run the selected tool"
+          >
+            Run Tool
+          </button>
+
+          {/* Grab Dump */}
+          <button
+            type="button"
+            className="diag-btn diag-btn-dump"
+            onClick={() => void grabDump()}
+            disabled={toolBusy}
+            title="Run freepbx-dump and parse the resulting JSON snapshot"
+          >
+            Grab Dump
+          </button>
+
+          {/* Status badge */}
+          {toolStatus !== 'idle' && (
+            <span className={`diag-tool-status diag-tool-status-${toolStatus}`}>
+              {toolStatusLabel[toolStatus]}
+            </span>
+          )}
+        </div>
+
+        {/* Log panel */}
+        {logLines.length > 0 && (
+          <div ref={logRef} className="diag-log">
+            {logLines.map((line, idx) => (
+              <span key={idx} className={logLineClass(line)}>
+                {line}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Dump data panel */}
+        {dumpData && (
+          <div className="diag-dump-panel">
+            <div
+              className="diag-dump-header"
+              onClick={() => setDumpExpanded((v) => !v)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && setDumpExpanded((v) => !v)}
+            >
+              <strong>FreePBX Dump JSON</strong>
+              <span className="diag-dump-toggle">{dumpExpanded ? '\u25b2 Collapse' : '\u25bc Expand'}</span>
+            </div>
+            {dumpExpanded && (
+              <pre className="diag-dump-pre">
+                {JSON.stringify(dumpData, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

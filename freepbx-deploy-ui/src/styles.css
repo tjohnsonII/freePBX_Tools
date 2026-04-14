@@ -190,3 +190,53 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .logLineOk { color: rgba(34, 197, 94, 0.95); }
 .logLineWarn { color: rgba(245, 158, 11, 0.95); }
 .logLineErr { color: rgba(239, 68, 68, 0.95); }
+
+/* ── Status dot colours ──────────────────────────────────────────────────── */
+.statusOk     { color: var(--ok); }
+.statusBad    { color: var(--bad); }
+.statusWarn   { color: var(--warn); }
+.statusAccent { color: var(--accent); }
+.statusMuted  { color: var(--muted); }
+
+/* ── Recent jobs list ────────────────────────────────────────────────────── */
+.recentJobs { margin-top: 14px; }
+
+.recentJobsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jobBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.jobBtnLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jobBtnIcon { opacity: 0.9; }
+
+.jobBtnId {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.logEmpty { color: var(--muted); }
+
+.tip {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.labelIcon { margin-left: 6px; }
+.btnIcon   { margin-right: 8px; }

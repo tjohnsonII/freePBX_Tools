@@ -16,7 +16,8 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8002',
         changeOrigin: true,
-        // Remote diagnostics can take a while (SSH + multiple commands). Avoid proxy-level 504s.
+        ws: true,  // required for /api/jobs/{id}/ws WebSocket streaming
+        // Remote diagnostics + tool runs can take a while. Avoid proxy-level 504s.
         timeout: 5 * 60 * 1000,
         proxyTimeout: 5 * 60 * 1000,
       }
