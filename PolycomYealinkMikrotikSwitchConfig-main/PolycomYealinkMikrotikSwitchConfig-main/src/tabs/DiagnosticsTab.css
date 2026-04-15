@@ -305,10 +305,10 @@
   border: 1px solid #ffb3b3;
 }
 
-/* Log panel — monospace output, scrollable */
+/* Log panel — plain text output (Install Tools, Grab Dump) */
 .diag-log {
-  height: 340px;
-  overflow-y: auto;
+  height: 480px;
+  overflow: auto;
   border: 1px solid #d0d5dd;
   border-radius: 8px;
   background: #0f1929;
@@ -316,7 +316,8 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-wrap;
+  /* pre: never wrap — long lines scroll horizontally instead of breaking boxes */
+  white-space: pre;
   color: #e2e8f0;
   display: flex;
   flex-direction: column;
@@ -330,6 +331,29 @@
 .diag-log-ok   { color: #4ade80; }
 .diag-log-warn { color: #fbbf24; }
 .diag-log-err  { color: #f87171; }
+
+/* Terminal panel (xterm.js) — used for Run Tool / freepbx-callflows output.
+   cols=222 ≈ 1596px; the outer div scrolls horizontally so the 220-char
+   ASCII box-drawing art is never line-wrapped. */
+.diag-terminal-outer {
+  margin-top: 12px;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #0f1929;
+}
+
+.diag-terminal-inner {
+  /* Give xterm.js a concrete height to render into. */
+  height: 660px;
+  padding: 8px;
+}
+
+/* Ensure xterm's canvas/viewport respect our container */
+.diag-terminal-inner .xterm {
+  height: 100%;
+}
 
 /* Dump JSON panel */
 .diag-dump-panel {

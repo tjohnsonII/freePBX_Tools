@@ -283,17 +283,21 @@ def _parse_active_calls(text: str) -> Optional[int]:
 
 
 def _parse_pjsip_contacts(text: str) -> List[str]:
-    # Count unique endpoint IDs from lines like:
-    # Contact: 100/sip:100@1.2.3.4:5060;...
+    # Extract unique AOR names from lines like:
+    # Contact:  100/sip:100@1.2.3.4:5060;...  <hash>  Avail  5.431
+    # Skip the header row which looks like:
+    # Contact:  <Aor/ContactUri...>  <Hash....>  <Status>  <RTT(ms)..>
     endpoints = set()
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith("Contact:"):
             continue
-        rest = line[len("Contact:") :].strip()
+        rest = line[len("Contact:"):].strip()
         endpoint = rest.split("/", 1)[0].strip()
-        if endpoint:
-            endpoints.add(endpoint)
+        # Skip header rows (e.g. "<Aor") and empty values
+        if not endpoint or endpoint.startswith("<"):
+            continue
+        endpoints.add(endpoint)
     return sorted(endpoints)
 
 

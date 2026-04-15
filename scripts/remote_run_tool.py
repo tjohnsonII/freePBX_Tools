@@ -84,6 +84,23 @@ MENU_OPTIONS: dict = {
 
 _ALLOWED_CHOICES = frozenset(MENU_OPTIONS.keys())
 
+# ── Per-option input sequences ─────────────────────────────────────────────
+# Most options work with [choice] + ["19"] * 12 because:
+#   - "19" quits the main menu when it lands on "Choose:"
+#   - "Press ENTER to continue..." consumes one input() and ignores the value
+#
+# Options with nested sub-menus need custom sequences so the sub-menu
+# gets a valid choice instead of "19" (which prints "Invalid choice." in a loop
+# until stdin is exhausted, crashing with EOFError).
+#
+# Option 10 sub-menu choices: 1=specific DID, 2=summary, 3=config data,
+#                             4=export JSON, 5=all DIDs, 6=return to main
+# Sequence: pick 5 (generate all, no further input) → absorb up to 8
+# "Press ENTER" prompts → pick 6 (return to main) → 19s quit main menu.
+_SPECIAL_INPUT_SEQUENCES: dict = {
+    "10": ["10", "5"] + [""] * 8 + ["6"] + ["19"] * 5,
+}
+
 
 # ── ANSI / prompt normalisation ────────────────────────────────────────────
 
@@ -96,6 +113,40 @@ _MAX_BUF = 600_000
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_CSI_RE.sub("", s)
+
+
+def _normalize_keep_ansi(s: str) -> str:
+    """Like _normalize but preserves ANSI CSI escape sequences.
+
+    Used for freepbx-callflows output so that xterm.js on the browser can
+    render colors.  The SSH shell is started with invoke_shell() which
+    allocates a PTY, so the tool's sys.stdout.isatty() returns True and it
+    emits ANSI color codes.  We must not strip them here.
+    """
+    if not s:
+        return ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    out: List[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\x1b" and i + 1 < len(s):
+            if s[i + 1] == "[":
+                # CSI sequence: ESC [ <params> <final-byte in 0x40-0x7E>
+                j = i + 2
+                while j < len(s) and not ("@" <= s[j] <= "~"):
+                    j += 1
+                end = j + 1
+                out.append(s[i:end])
+                i = end
+                continue
+            # Other escape (e.g. OSC, SS3) — pass the ESC through as-is
+        if ch in ("\n", "\t"):
+            out.append(ch)
+        elif ord(ch) >= 32 and ord(ch) != 127:
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _normalize(s: str) -> str:
@@ -206,13 +257,14 @@ def _run_menu_choice(chan: "paramiko.Channel", choice: str, timeout: float) -> T
     marker_re = re.compile(r"{}:{}:(?P<rc>\d+)".format(re.escape(marker), re.escape(token)))
     tmpfile = "/tmp/.fpbxrun_{}".format(token)
 
-    # Input fed to freepbx-callflows stdin:
-    #   line 1      : the chosen menu option
-    #   lines 2-13  : "19" — consumed by any "Press ENTER to continue..." or
-    #                 sub-prompt (input() ignores the value), and the first
-    #                 "19" that reaches the main "Choose:" prompt quits cleanly
-    #                 with "Bye." — no "Invalid choice." noise.
-    input_lines = [choice] + ["19"] * 12
+    # Input fed to freepbx-callflows stdin.
+    # Options with nested sub-menus use a custom sequence; all others use the
+    # standard [choice] + ["19"] * 12 where "19" quits the main menu and
+    # "Press ENTER to continue..." consumes one input() (ignoring the value).
+    if choice in _SPECIAL_INPUT_SEQUENCES:
+        input_lines = _SPECIAL_INPUT_SEQUENCES[choice]
+    else:
+        input_lines = [choice] + ["19"] * 12
     input_content = "\n".join(input_lines) + "\n"
     encoded = base64.b64encode(input_content.encode()).decode()
 
@@ -248,17 +300,26 @@ def _run_menu_choice(chan: "paramiko.Channel", choice: str, timeout: float) -> T
         m = mm
     rc = int(m.group("rc")) if m else 1
 
+    # Build output preserving ANSI codes (the SSH shell has a PTY, so the tool
+    # emits color sequences; xterm.js on the browser will render them correctly).
+    raw_ansi = _normalize_keep_ansi(raw)
     cleaned: List[str] = []
-    for line in raw_n.splitlines():
-        if marker in line:
+    for line in raw_ansi.splitlines():
+        stripped = _strip_ansi(line)  # stripped copy for comparisons only
+        if marker in stripped:
             continue
         for p in _PROMPTS:
-            if line.startswith(p):
+            if stripped.startswith(p):
+                # Trim the prompt prefix from the ANSI-preserved line.
+                # Prompts are plain ASCII so len(p) is safe as a char offset.
                 line = line[len(p):]
+                stripped = stripped[len(p):]
                 break
-        if _PROMPT_ONLY_RE.match(line.strip()):
+        if _PROMPT_ONLY_RE.match(stripped.strip()):
             continue
-        line = _PROMPT_PREFIX_RE.sub("", line)
+        m2 = _PROMPT_PREFIX_RE.match(stripped)
+        if m2:
+            line = line[m2.end():]  # trim prompt chars from ANSI-preserved line
         cleaned.append(line)
 
     return rc, "\n".join(cleaned).strip("\n")

@@ -250,9 +250,9 @@ async def _run_one(job: Job, args: List[str], title: str) -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             errors="replace",
             bufsize=1,
-            universal_newlines=True,
         )
         job.proc = proc
 
@@ -318,13 +318,13 @@ async def _run_job(job: Job) -> None:
                 raise RuntimeError("remote_run_tool.py not found at {}".format(script))
             if job.menu_choice not in _ALLOWED_MENU_CHOICES:
                 raise RuntimeError("Menu choice not allowed: {!r}".format(job.menu_choice))
+            # Credentials are passed via env (_build_env sets FREEPBX_PASSWORD /
+            # FREEPBX_ROOT_PASSWORD) so they never appear in the logged CMD line.
             args = [
                 _python_exe(),
                 str(script),
                 "--server", job.servers[0],
                 "--user", job.username,
-                "--password", job.password,
-                "--root-password", job.root_password,
                 "--menu-choice", job.menu_choice,
                 "--timeout", "180",
             ]
@@ -370,19 +370,13 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
     if not script.exists():
         raise HTTPException(status_code=500, detail="Diagnostics script not found")
 
+    # Credentials go via env so they don't appear in the process argument list.
     args = [
         _python_exe(),
         str(script),
-        "--server",
-        req.server,
-        "--user",
-        req.username,
-        "--password",
-        req.password,
-        "--root-password",
-        req.root_password,
-        "--timeout",
-        str(req.timeout_seconds),
+        "--server", req.server,
+        "--user", req.username,
+        "--timeout", str(req.timeout_seconds),
     ]
 
     def _diagnostics_hint(msg: str) -> str | None:
@@ -425,12 +419,14 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
                 **os.environ,
                 "PYTHONIOENCODING": "utf-8",
                 "PYTHONUTF8": "1",
+                "FREEPBX_PASSWORD": req.password,
+                "FREEPBX_ROOT_PASSWORD": req.root_password or req.password,
             },
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             errors="replace",
-            universal_newlines=True,
             # req.timeout_seconds is the SSH/connect + per-command read timeout used by the
             # diagnostics helper. The helper runs multiple remote commands, so total runtime
             # can exceed timeout_seconds + 5.

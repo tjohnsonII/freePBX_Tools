@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './DiagnosticsTab.css';
 import CallFlowGraph from './CallFlowGraph';
+import TerminalPanel from './TerminalPanel';
+import type { TerminalHandle } from './TerminalPanel';
 import type { FreePBXDump } from './callflowTransform';
 
 // ── Diagnostics payload types ────────────────────────────────────────────
@@ -166,6 +168,11 @@ export default function DiagnosticsTab() {
   const isGrabDumpRef = useRef(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
+  // ── Terminal mode (xterm.js) — used when Run Tool streams raw terminal output ──
+  const [terminalMode, setTerminalMode] = useState(false);
+  const isTerminalModeRef = useRef(false);
+  const xtermRef = useRef<TerminalHandle | null>(null);
+
   // ── Diagnostics request body ───────────────────────────────────────────
   const requestBody = useMemo(() => {
     return {
@@ -265,8 +272,11 @@ export default function DiagnosticsTab() {
 
   function attachToJob(jobId: string): void {
     disconnectWs();
-    setLogLines([]);
-    logLinesRef.current = [];
+    // In terminal mode the xterm buffer IS the log; don't reset logLines here.
+    if (!isTerminalModeRef.current) {
+      setLogLines([]);
+      logLinesRef.current = [];
+    }
     setToolStatus('running');
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -275,12 +285,19 @@ export default function DiagnosticsTab() {
 
     ws.onmessage = (ev: MessageEvent) => {
       const text = String(ev.data);
-      setLogLines((prev) => {
-        const next = [...prev, text];
-        const trimmed = next.length > 3000 ? next.slice(-3000) : next;
-        logLinesRef.current = trimmed;
-        return trimmed;
-      });
+      if (isTerminalModeRef.current) {
+        // Route raw output (including ANSI codes) directly into xterm.js.
+        // Append \n so each WS message starts on its own line; xterm's
+        // convertEol:true converts \n → \r\n for correct rendering.
+        xtermRef.current?.write(text + '\n');
+      } else {
+        setLogLines((prev) => {
+          const next = [...prev, text];
+          const trimmed = next.length > 3000 ? next.slice(-3000) : next;
+          logLinesRef.current = trimmed;
+          return trimmed;
+        });
+      }
     };
 
     ws.onclose = () => {
@@ -313,6 +330,10 @@ export default function DiagnosticsTab() {
     setToolBusy(true);
     setDumpData(null);
     isGrabDumpRef.current = false;
+    isTerminalModeRef.current = false;
+    setTerminalMode(false);
+    setLogLines([]);
+    logLinesRef.current = [];
     try {
       const res = await fetch('/api/jobs', {
         method: 'POST',
@@ -343,6 +364,11 @@ export default function DiagnosticsTab() {
     setToolBusy(true);
     setDumpData(null);
     isGrabDumpRef.current = false;
+    // Switch to xterm.js terminal mode for raw freepbx-callflows output.
+    isTerminalModeRef.current = true;
+    setTerminalMode(true);
+    // Clear previous run; safe even if xtermRef is null (first call before mount).
+    xtermRef.current?.clear();
     try {
       const res = await fetch('/api/remote/run', {
         method: 'POST',
@@ -371,6 +397,10 @@ export default function DiagnosticsTab() {
     setToolBusy(true);
     setDumpData(null);
     isGrabDumpRef.current = true;
+    isTerminalModeRef.current = false;
+    setTerminalMode(false);
+    setLogLines([]);
+    logLinesRef.current = [];
     try {
       const res = await fetch('/api/remote/run', {
         method: 'POST',
@@ -648,8 +678,13 @@ export default function DiagnosticsTab() {
           )}
         </div>
 
-        {/* Log panel */}
-        {logLines.length > 0 && (
+        {/* Terminal panel (xterm.js) — shown when Run Tool is active */}
+        {terminalMode && (
+          <TerminalPanel ref={xtermRef} />
+        )}
+
+        {/* Plain log panel — shown for Install Tools and Grab Dump */}
+        {!terminalMode && logLines.length > 0 && (
           <div ref={logRef} className="diag-log">
             {logLines.map((line, idx) => (
               <span key={idx} className={logLineClass(line)}>

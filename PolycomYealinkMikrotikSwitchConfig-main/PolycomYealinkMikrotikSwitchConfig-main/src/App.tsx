@@ -1568,12 +1568,12 @@ function App() {
                 <input type="text" value={ip} onChange={e => setIp(e.target.value)} placeholder="e.g. 192.168.1.100" />
               </div>
               <div className="config-field">
-                <label className="config-label">Start Extension <span className="info-icon" title={FIELD_TOOLTIPS.startExt}><FaInfoCircle /></span></label>
-                <input type="number" value={startExt} title="Start extension" onChange={e => setStartExt(e.target.value)} />
+                <label className="config-label">Start Park Line <span className="info-icon" title={FIELD_TOOLTIPS.startExt}><FaInfoCircle /></span></label>
+                <input type="number" value={startExt} title="Start park line" onChange={e => setStartExt(e.target.value)} />
               </div>
               <div className="config-field">
-                <label className="config-label">End Extension <span className="info-icon" title={FIELD_TOOLTIPS.endExt}><FaInfoCircle /></span></label>
-                <input type="number" value={endExt} title="End extension" onChange={e => setEndExt(e.target.value)} />
+                <label className="config-label">End Park Line <span className="info-icon" title={FIELD_TOOLTIPS.endExt}><FaInfoCircle /></span></label>
+                <input type="number" value={endExt} title="End park line" onChange={e => setEndExt(e.target.value)} />
               </div>
               <div className="config-field">
                 <label className="config-label">Label Prefix <span className="info-icon" title={FIELD_TOOLTIPS.labelPrefix}><FaInfoCircle /></span></label>
