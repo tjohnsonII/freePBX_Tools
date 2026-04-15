@@ -152,7 +152,7 @@ export default function App() {
       <div className="header">
         <div className="title">
           <div className="brandRow">
-            <img className="brandLogo" src="/123net-logo.png" alt="123NET" />
+            <img className="brandLogo" src="/123net-logo.svg" alt="123NET" />
             <div className="brandText">
               <h1>FreePBX Tools Deploy UI</h1>
               <p>React/Vite frontend + FastAPI backend; wraps existing deploy scripts.</p>

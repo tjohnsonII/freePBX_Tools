@@ -52,7 +52,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .brandLogo {
-  width: 150px;
+  width: 200px;
   height: auto;
   display: block;
 }

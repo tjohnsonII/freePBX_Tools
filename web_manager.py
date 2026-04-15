@@ -235,8 +235,8 @@ def deploy():
     # Create temporary config.py with credentials for deployment scripts
     config_content = f"""# Temporary credentials
 FREEPBX_USER = "{username}"
-FREEPBX_PASSWORD = "***REMOVED***"
-FREEPBX_ROOT_PASSWORD = "***REMOVED***"
+FREEPBX_PASSWORD = "{password}"
+FREEPBX_ROOT_PASSWORD = "{root_password}"
 """
     with open('config.py', 'w') as f:
         f.write(config_content)

@@ -15,8 +15,10 @@ ALL shell-quoting issues), then pipe that file into the menu:
 
 Input sequence written to the temp file:
     <choice>          ← consumed by the main ``input("Choose: ")``
-    (blank * 10)      ← absorbed by "Press ENTER to continue..." or sub-menu prompts
-    19 (x 6)          ← eventually consumed by the main menu to quit cleanly
+    19 (x 12)         ← each "Press ENTER to continue..." or sub-prompt
+                        consumes one entry (input() ignores the value); the
+                        first "19" that reaches the main "Choose:" prompt
+                        quits cleanly with "Bye." — no "Invalid choice." noise.
 
 For ``--grab-dump``: after the menu exits, reads back
 ``/home/123net/callflows/freepbx_dump.json`` and emits a single line:
@@ -205,12 +207,12 @@ def _run_menu_choice(chan: "paramiko.Channel", choice: str, timeout: float) -> T
     tmpfile = "/tmp/.fpbxrun_{}".format(token)
 
     # Input fed to freepbx-callflows stdin:
-    #   line 1   : the chosen menu option
-    #   lines 2-11: blank  → absorbed by "Press ENTER to continue..." or
-    #               sub-menu invalid-choice loops
-    #   lines 12-17: "19"  → eventually consumed by the main-menu "Choose:"
-    #               prompt to quit cleanly
-    input_lines = [choice] + [""] * 10 + ["19"] * 6
+    #   line 1      : the chosen menu option
+    #   lines 2-13  : "19" — consumed by any "Press ENTER to continue..." or
+    #                 sub-prompt (input() ignores the value), and the first
+    #                 "19" that reaches the main "Choose:" prompt quits cleanly
+    #                 with "Bye." — no "Invalid choice." noise.
+    input_lines = [choice] + ["19"] * 12
     input_content = "\n".join(input_lines) + "\n"
     encoded = base64.b64encode(input_content.encode()).decode()
 
