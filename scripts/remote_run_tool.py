@@ -47,7 +47,7 @@ import re
 import sys
 import time
 import uuid
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 try:
     import paramiko
@@ -62,12 +62,15 @@ DUMP_JSON_MARKER = "__FREEPBX_DUMP_JSON__"
 DUMP_FILE_PATH = "/home/123net/callflows/freepbx_dump.json"
 
 # Menu choices exposed to callers.  Key = choice number string, Value = label.
-# Excluded: 0 (watch/live — runs forever), 3/5 (need DID selection input),
-#           11 (call simulation sub-menu needs interactive input), 19 (quit).
+# Excluded: 0 (watch/live — runs forever), 11 (call simulation makes real calls
+#   and needs deep interactive input), 19 (quit).
+# Options 3 and 5 are now supported with extra_params / sub_choice.
 MENU_OPTIONS: dict = {
     "1":  "Refresh DB snapshot",
     "2":  "Show inventory + list DIDs",
+    "3":  "Generate call-flow for selected DID(s)",
     "4":  "Generate call-flows for ALL DIDs",
+    "5":  "Generate call-flows ALL DIDs (skip OPEN label)",
     "6":  "Time-Condition status",
     "7":  "Module analysis",
     "8":  "Paging / overhead / fax analysis",
@@ -84,22 +87,143 @@ MENU_OPTIONS: dict = {
 
 _ALLOWED_CHOICES = frozenset(MENU_OPTIONS.keys())
 
-# ── Per-option input sequences ─────────────────────────────────────────────
-# Most options work with [choice] + ["19"] * 12 because:
-#   - "19" quits the main menu when it lands on "Choose:"
-#   - "Press ENTER to continue..." consumes one input() and ignores the value
-#
-# Options with nested sub-menus need custom sequences so the sub-menu
-# gets a valid choice instead of "19" (which prints "Invalid choice." in a loop
-# until stdin is exhausted, crashing with EOFError).
-#
-# Option 10 sub-menu choices: 1=specific DID, 2=summary, 3=config data,
-#                             4=export JSON, 5=all DIDs, 6=return to main
-# Sequence: pick 5 (generate all, no further input) → absorb up to 8
-# "Press ENTER" prompts → pick 6 (return to main) → 19s quit main menu.
-_SPECIAL_INPUT_SEQUENCES: dict = {
-    "10": ["10", "5"] + [""] * 8 + ["6"] + ["19"] * 5,
-}
+# ── Per-option input sequence builder ─────────────────────────────────────
+
+def _build_input_sequence(
+    choice: str,
+    sub_choice: str = "",
+    extra_params: Optional[List[str]] = None,
+) -> List[str]:
+    """Return the stdin lines to feed freepbx-callflows for *choice*.
+
+    When *sub_choice* is empty the function picks a safe default sub-menu path
+    so that options with nested sub-menus don't loop on "Invalid choice." until
+    stdin is exhausted (which causes an EOFError crash).
+
+    When *sub_choice* is provided, a tailored sequence is built using any
+    *extra_params* values (host, hours, pattern, etc.).
+    """
+    if extra_params is None:
+        extra_params = []
+
+    def ep(idx: int, default: str = "") -> str:
+        """Return extra_params[idx] if non-empty, else *default*."""
+        val = extra_params[idx] if idx < len(extra_params) else ""
+        return val.strip() if val.strip() else default
+
+    quit_main = ["19"] * 5
+
+    # ── No sub-choice: use safe defaults for sub-menu options ───────────────
+    if not sub_choice:
+        if choice == "10":
+            # ASCII art: default sub=5 (generate ALL DIDs)
+            # Sequence: 10 → 5 (sub) → "" (sub press-enter) → 6 (quit sub)
+            #           → "" (main-menu press-enter at lines 2277-2278) → quit mains
+            return ["10", "5", "", "6", ""] + quit_main
+        if choice == "14":
+            # Error map: default sub=2 (Asterisk error codes)
+            return ["14", "2", "", "5"] + quit_main
+        if choice == "15":
+            # Network: default sub=1 (port/firewall check)
+            return ["15", "1", "", "15"] + quit_main
+        if choice == "16":
+            # Enhanced log: default sub=1 (recent errors, last 1h)
+            return ["16", "1", "1", "", "9"] + quit_main
+        if choice == "17":
+            # CDR: default sub=1 (call summary, last 24h)
+            return ["17", "1", "24", "", "11"] + quit_main
+        if choice == "18":
+            # Phone analysis: default sub=1 (all phone status)
+            return ["18", "1", "", "9"] + quit_main
+        # Simple options (1,2,3,4,5,6,7,8,9,12,13): standard sequence
+        return [choice] + ["19"] * 12
+
+    sc = sub_choice.strip()
+
+    # ── Option 3: DID-specific call-flow (top-level param, no sub-menu) ────
+    if choice == "3":
+        did_sel = ep(0, "*")
+        return ["3", did_sel, ""] + quit_main
+
+    # ── Option 10: ASCII art call-flows ─────────────────────────────────────
+    # Sub-menu: 1=specific DID(s), 2=summary, 3=config, 4=export, 5=ALL, 6=exit
+    # After run_ascii_callflow() returns the main loop calls input() once more
+    # (lines 2277-2278), so we need an extra "" AFTER the sub-quit ("6").
+    if choice == "10":
+        if sc == "1":
+            did_sel = ep(0, "all")
+            return ["10", "1", did_sel, "", "6", ""] + quit_main
+        return ["10", sc, "", "6", ""] + quit_main
+
+    # ── Option 14: Error map & quick reference ──────────────────────────────
+    # Sub-menu: 1=SIP lookup, 2=asterisk codes, 3=freepbx ref, 4=common, 5=exit
+    if choice == "14":
+        if sc == "1":
+            sip_code = ep(0, "")
+            return ["14", "1", sip_code, "", "5"] + quit_main
+        return ["14", sc, "", "5"] + quit_main
+
+    # ── Option 15: Network diagnostics ──────────────────────────────────────
+    # Sub-menu: 1-14 various diagnostics; 15=exit
+    if choice == "15":
+        no_extra = {"1", "2", "3", "4", "9", "12", "13", "14"}
+        if sc in no_extra:
+            return ["15", sc, "", "15"] + quit_main
+        if sc == "5":   # ping
+            host = ep(0, "8.8.8.8")
+            return ["15", "5", host, "", "15"] + quit_main
+        if sc == "6":   # traceroute
+            host = ep(0, "8.8.8.8")
+            return ["15", "6", host, "", "15"] + quit_main
+        if sc == "7":   # DNS lookup
+            domain = ep(0, "google.com")
+            return ["15", "7", domain, "", "15"] + quit_main
+        if sc == "8":   # packet capture: duration, port filter, host filter
+            dur  = ep(0, "60")
+            port = ep(1, "")
+            host = ep(2, "")
+            return ["15", "8", dur, port, host, "", "15"] + quit_main
+        if sc == "10":  # SIP packet capture
+            dur = ep(0, "30")
+            return ["15", "10", dur, "", "15"] + quit_main
+        if sc == "11":  # bandwidth monitor
+            dur = ep(0, "30")
+            return ["15", "11", dur, "", "15"] + quit_main
+        return ["15", sc, "", "15"] + quit_main
+
+    # ── Option 16: Enhanced log analysis ────────────────────────────────────
+    # Sub-menu: 1-8 various; 9=exit
+    if choice == "16":
+        needs_hours = {"1", "2", "4"}
+        if sc in needs_hours:
+            hours = ep(0, "1")
+            return ["16", sc, hours, "", "9"] + quit_main
+        if sc == "5":   # regex pattern search
+            pattern = ep(0, "error")
+            logfile = ep(1, "")
+            return ["16", "5", pattern, logfile, "", "9"] + quit_main
+        if sc == "8":   # SIP code lookup
+            code = ep(0, "")
+            return ["16", "8", code, "", "9"] + quit_main
+        # Sub-choices 3, 6, 7 (no extra params)
+        return ["16", sc, "", "9"] + quit_main
+
+    # ── Option 17: CDR/CEL call log analysis ────────────────────────────────
+    # Sub-menu: 1-10 all need hours; 10 also needs filename; 11=exit
+    if choice == "17":
+        hours = ep(0, "24")
+        if sc == "10":  # export to CSV
+            filename = ep(1, "")
+            return ["17", "10", hours, filename, "", "11"] + quit_main
+        return ["17", sc, hours, "", "11"] + quit_main
+
+    # ── Option 18: Phone/endpoint analysis ──────────────────────────────────
+    # Sub-menu: 1-8 no extra params; 9=exit
+    if choice == "18":
+        return ["18", sc, "", "9"] + quit_main
+
+    # ── Fallback ─────────────────────────────────────────────────────────────
+    return [choice] + ["19"] * 12
 
 
 # ── ANSI / prompt normalisation ────────────────────────────────────────────
@@ -244,27 +368,25 @@ def _run_cmd(chan: "paramiko.Channel", cmd: str, timeout: float) -> Tuple[int, s
     return rc, "\n".join(cleaned).strip("\n")
 
 
-def _run_menu_choice(chan: "paramiko.Channel", choice: str, timeout: float) -> Tuple[int, str]:
+def _run_menu_choice(
+    chan: "paramiko.Channel",
+    choice: str,
+    timeout: float,
+    sub_choice: str = "",
+    extra_params: Optional[List[str]] = None,
+) -> Tuple[int, str]:
     """Drive ``freepbx-callflows`` with *choice* non-interactively.
 
     Writes the input sequence to a temp file via base64 (zero quoting issues),
-    then pipes it into the menu.  Trailing "19" lines ensure the menu quits
-    cleanly regardless of whether the chosen option has a "Press ENTER" prompt
-    or an interactive sub-menu.
+    then pipes it into the menu.  See ``_build_input_sequence`` for details on
+    how *sub_choice* and *extra_params* are used to navigate sub-menus.
     """
     token = uuid.uuid4().hex[:12]
     marker = "__FPBXRUN_RC__"
     marker_re = re.compile(r"{}:{}:(?P<rc>\d+)".format(re.escape(marker), re.escape(token)))
     tmpfile = "/tmp/.fpbxrun_{}".format(token)
 
-    # Input fed to freepbx-callflows stdin.
-    # Options with nested sub-menus use a custom sequence; all others use the
-    # standard [choice] + ["19"] * 12 where "19" quits the main menu and
-    # "Press ENTER to continue..." consumes one input() (ignoring the value).
-    if choice in _SPECIAL_INPUT_SEQUENCES:
-        input_lines = _SPECIAL_INPUT_SEQUENCES[choice]
-    else:
-        input_lines = [choice] + ["19"] * 12
+    input_lines = _build_input_sequence(choice, sub_choice, extra_params)
     input_content = "\n".join(input_lines) + "\n"
     encoded = base64.b64encode(input_content.encode()).decode()
 
@@ -383,6 +505,10 @@ def main() -> int:
     parser.add_argument("--root-password", default="", help="Root password for su -")
     parser.add_argument("--menu-choice", required=True,
                         help="freepbx-callflows menu option number (e.g. 6)")
+    parser.add_argument("--sub-choice", default="",
+                        help="Sub-menu choice within the selected option (e.g. '5')")
+    parser.add_argument("--extra-param", action="append", dest="extra_params", default=[],
+                        help="Extra input parameter (repeatable; order matters)")
     parser.add_argument("--grab-dump", action="store_true",
                         help="After running, read back the JSON dump file and emit it "
                              "with the {} marker".format(DUMP_JSON_MARKER))
@@ -429,7 +555,12 @@ def main() -> int:
         print("[remote_run] Running menu option {} — {}".format(choice, label), flush=True)
         print("=" * 60, flush=True)
 
-        rc, output = _run_menu_choice(chan, choice, timeout=args.timeout)
+        rc, output = _run_menu_choice(
+            chan, choice,
+            sub_choice=args.sub_choice,
+            extra_params=args.extra_params,
+            timeout=args.timeout,
+        )
 
         for line in output.splitlines():
             print(line, flush=True)

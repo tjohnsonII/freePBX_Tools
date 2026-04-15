@@ -305,6 +305,55 @@
   border: 1px solid #ffb3b3;
 }
 
+/* Sub-option panel — shown for tools with sub-menus or top-level params */
+.diag-suboption-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f7f9fc;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diag-suboption-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.diag-suboption-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  min-width: 90px;
+}
+
+.diag-suboption-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.diag-suboption-param {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diag-suboption-input {
+  padding: 5px 9px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 140px;
+  max-width: 240px;
+  background: #fff;
+}
+
 /* Log panel — plain text output (Install Tools, Grab Dump) */
 .diag-log {
   height: 480px;

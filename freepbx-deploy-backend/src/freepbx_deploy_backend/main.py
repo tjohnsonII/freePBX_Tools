@@ -73,7 +73,7 @@ class DiagnosticsSummaryRequest(BaseModel):
 
 
 _ALLOWED_MENU_CHOICES = frozenset({
-    "1", "2", "4", "6", "7", "8", "9", "10",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
     "12", "13", "14", "15", "16", "17", "18",
 })
 
@@ -85,6 +85,8 @@ class RemoteRunRequest(BaseModel):
     root_password: str = ""
     menu_choice: str = Field(..., description="freepbx-callflows menu option number (e.g. '6')")
     grab_dump: bool = Field(False, description="Read back the JSON dump file after running")
+    sub_choice: str = Field("", description="Sub-menu choice within the selected option")
+    extra_params: List[str] = Field(default_factory=list, description="Extra input parameters for sub-menu options")
 
 
 class JobInfo(BaseModel):
@@ -110,6 +112,8 @@ class Job:
     bundle_name: str
     menu_choice: str = ""   # populated for remote_run action
     grab_dump: bool = False  # populated for remote_run action
+    sub_choice: str = ""    # optional sub-menu choice for remote_run
+    extra_params: List[str] = field(default_factory=list)  # optional extra params
 
     status: str = "queued"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -328,6 +332,10 @@ async def _run_job(job: Job) -> None:
                 "--menu-choice", job.menu_choice,
                 "--timeout", "180",
             ]
+            if job.sub_choice:
+                args += ["--sub-choice", job.sub_choice]
+            for p in job.extra_params:
+                args += ["--extra-param", p]
             if job.grab_dump:
                 args.append("--grab-dump")
             rc = await _run_one(job, args, "Remote Run: menu option {}".format(job.menu_choice))
@@ -516,6 +524,8 @@ async def remote_run(req: RemoteRunRequest) -> JobInfo:
         bundle_name="",
         menu_choice=choice,
         grab_dump=req.grab_dump,
+        sub_choice=req.sub_choice.strip(),
+        extra_params=req.extra_params,
     )
 
     async with JOBS_LOCK:

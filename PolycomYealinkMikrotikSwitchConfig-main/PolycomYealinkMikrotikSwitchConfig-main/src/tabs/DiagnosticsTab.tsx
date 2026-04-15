@@ -46,22 +46,172 @@ type ServiceEntry =
 
 const DUMP_JSON_MARKER = '__FREEPBX_DUMP_JSON__:';
 
-const TOOL_OPTIONS: { value: string; label: string }[] = [
+// ── Tool config types ────────────────────────────────────────────────────
+
+type ParamDef = {
+  label: string;
+  placeholder: string;
+  defaultValue: string;
+};
+
+type SubOption = {
+  value: string;
+  label: string;
+  params: ParamDef[];
+};
+
+type ToolConfig = {
+  value: string;
+  label: string;
+  /** For options that need a top-level param but no sub-menu (e.g. option 3). */
+  topLevelParams?: ParamDef[];
+  /** For options with interactive sub-menus. */
+  subOptions?: SubOption[];
+  /** Default sub-option value (falls back to first item). */
+  defaultSub?: string;
+};
+
+const TOOL_CONFIG: ToolConfig[] = [
   { value: '1',  label: '1 — Refresh DB snapshot' },
   { value: '2',  label: '2 — Show inventory + list DIDs' },
+  {
+    value: '3',
+    label: '3 — Generate call-flow for specific DID(s)',
+    topLevelParams: [
+      { label: 'DID indexes', placeholder: '1,3,5-8 or *', defaultValue: '*' },
+    ],
+  },
   { value: '4',  label: '4 — Generate call-flows for ALL DIDs' },
+  { value: '5',  label: '5 — Generate call-flows ALL DIDs (skip OPEN label)' },
   { value: '6',  label: '6 — Time-Condition status' },
   { value: '7',  label: '7 — Module analysis' },
   { value: '8',  label: '8 — Paging / overhead / fax analysis' },
   { value: '9',  label: '9 — Comprehensive component analysis' },
-  { value: '10', label: '10 — ASCII art call-flows' },
+  {
+    value: '10',
+    label: '10 — ASCII art call-flows',
+    defaultSub: '5',
+    subOptions: [
+      { value: '5', label: 'Generate flows for ALL DIDs', params: [] },
+      { value: '1', label: 'Generate flow for specific DID(s)', params: [
+        { label: 'DID indexes', placeholder: '1,3 or all', defaultValue: 'all' },
+      ]},
+      { value: '2', label: 'Data collection summary', params: [] },
+      { value: '3', label: 'Detailed config data', params: [] },
+      { value: '4', label: 'Export all data to JSON', params: [] },
+    ],
+  },
   { value: '12', label: '12 — Full Asterisk diagnostic' },
   { value: '13', label: '13 — Automated log analysis' },
-  { value: '14', label: '14 — Error map & quick reference' },
-  { value: '15', label: '15 — Network diagnostics' },
-  { value: '16', label: '16 — Enhanced log analysis (dmesg/journal)' },
-  { value: '17', label: '17 — CDR/CEL call log analysis' },
-  { value: '18', label: '18 — Phone/endpoint analysis' },
+  {
+    value: '14',
+    label: '14 — Error map & quick reference',
+    defaultSub: '2',
+    subOptions: [
+      { value: '2', label: 'Asterisk error codes', params: [] },
+      { value: '3', label: 'FreePBX error reference', params: [] },
+      { value: '4', label: 'Common issues & solutions', params: [] },
+      { value: '1', label: 'SIP code lookup', params: [
+        { label: 'SIP code (optional)', placeholder: '408', defaultValue: '' },
+      ]},
+    ],
+  },
+  {
+    value: '15',
+    label: '15 — Network diagnostics & packet capture',
+    defaultSub: '1',
+    subOptions: [
+      { value: '1',  label: 'Port & firewall check', params: [] },
+      { value: '2',  label: 'SIP connectivity test', params: [] },
+      { value: '3',  label: 'Asterisk network stats', params: [] },
+      { value: '4',  label: 'RTP port range test', params: [] },
+      { value: '5',  label: 'Ping test', params: [
+        { label: 'Host', placeholder: '8.8.8.8', defaultValue: '8.8.8.8' },
+      ]},
+      { value: '6',  label: 'Traceroute', params: [
+        { label: 'Host', placeholder: '8.8.8.8', defaultValue: '8.8.8.8' },
+      ]},
+      { value: '7',  label: 'DNS lookup', params: [
+        { label: 'Domain', placeholder: 'google.com', defaultValue: 'google.com' },
+      ]},
+      { value: '8',  label: 'Packet capture', params: [
+        { label: 'Duration (seconds)', placeholder: '60', defaultValue: '60' },
+        { label: 'Port filter (optional)', placeholder: '5060', defaultValue: '' },
+        { label: 'Host filter (optional)', placeholder: '1.2.3.4', defaultValue: '' },
+      ]},
+      { value: '9',  label: 'Current connections', params: [] },
+      { value: '10', label: 'SIP packet capture', params: [
+        { label: 'Duration (seconds)', placeholder: '30', defaultValue: '30' },
+      ]},
+      { value: '11', label: 'Bandwidth monitor', params: [
+        { label: 'Duration (seconds)', placeholder: '30', defaultValue: '30' },
+      ]},
+      { value: '12', label: 'QoS/DSCP settings', params: [] },
+      { value: '13', label: 'NAT/firewall detection', params: [] },
+      { value: '14', label: 'Network interface info', params: [] },
+    ],
+  },
+  {
+    value: '16',
+    label: '16 — Enhanced log analysis (dmesg/journal)',
+    defaultSub: '1',
+    subOptions: [
+      { value: '1', label: 'Recent errors', params: [
+        { label: 'Last N hours', placeholder: '1', defaultValue: '1' },
+      ]},
+      { value: '2', label: 'Warning summary', params: [
+        { label: 'Last N hours', placeholder: '1', defaultValue: '1' },
+      ]},
+      { value: '3', label: 'Call pattern analysis', params: [] },
+      { value: '4', label: 'Security scan', params: [
+        { label: 'Last N hours', placeholder: '1', defaultValue: '1' },
+      ]},
+      { value: '5', label: 'Regex pattern search', params: [
+        { label: 'Regex pattern', placeholder: 'error|fail', defaultValue: 'error' },
+        { label: 'Log file (optional)', placeholder: '/var/log/asterisk/full', defaultValue: '' },
+      ]},
+      { value: '6', label: 'Registration failures', params: [] },
+      { value: '7', label: 'SIP debug summary', params: [] },
+      { value: '8', label: 'SIP code lookup', params: [
+        { label: 'SIP code', placeholder: '408', defaultValue: '' },
+      ]},
+    ],
+  },
+  {
+    value: '17',
+    label: '17 — CDR/CEL call log analysis',
+    defaultSub: '1',
+    subOptions: [
+      { value: '1',  label: 'Call summary', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '2',  label: 'Failed calls', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '3',  label: 'Long calls', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '4',  label: 'Calls by extension', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '5',  label: 'Calls by DID', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '6',  label: 'Peak hours analysis', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '7',  label: 'Call duration stats', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '8',  label: 'International calls', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '9',  label: 'Queue call analysis', params: [{ label: 'Last N hours', placeholder: '24', defaultValue: '24' }] },
+      { value: '10', label: 'Export to CSV', params: [
+        { label: 'Last N hours', placeholder: '24', defaultValue: '24' },
+        { label: 'Filename (optional)', placeholder: 'auto-generated', defaultValue: '' },
+      ]},
+    ],
+  },
+  {
+    value: '18',
+    label: '18 — Phone/endpoint analysis',
+    defaultSub: '1',
+    subOptions: [
+      { value: '1', label: 'All phone status', params: [] },
+      { value: '2', label: 'Registered phones', params: [] },
+      { value: '3', label: 'Unregistered phones', params: [] },
+      { value: '4', label: 'Firmware info', params: [] },
+      { value: '5', label: 'Extension config', params: [] },
+      { value: '6', label: 'Codec analysis', params: [] },
+      { value: '7', label: 'NAT/firewall for phones', params: [] },
+      { value: '8', label: 'Phone health check', params: [] },
+    ],
+  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -157,6 +307,8 @@ export default function DiagnosticsTab() {
 
   // ── Tools panel state ──────────────────────────────────────────────────
   const [toolCmd, setToolCmd] = useState('6');
+  const [subChoice, setSubChoice] = useState('');
+  const [extraParams, setExtraParams] = useState<string[]>([]);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [toolStatus, setToolStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [toolBusy, setToolBusy] = useState(false);
@@ -172,6 +324,50 @@ export default function DiagnosticsTab() {
   const [terminalMode, setTerminalMode] = useState(false);
   const isTerminalModeRef = useRef(false);
   const xtermRef = useRef<TerminalHandle | null>(null);
+
+  // ── Computed tool config ───────────────────────────────────────────────
+  const currentConfig = useMemo(
+    () => TOOL_CONFIG.find((c) => c.value === toolCmd),
+    [toolCmd],
+  );
+  const currentSubConfig = useMemo(
+    () => currentConfig?.subOptions?.find((s) => s.value === subChoice),
+    [currentConfig, subChoice],
+  );
+  // Params to render: sub-option params (when sub-menu active), top-level params, or none
+  const activeParams: ParamDef[] =
+    currentSubConfig?.params ?? currentConfig?.topLevelParams ?? [];
+
+  // Reset sub-choice and extra-params whenever the top-level tool changes
+  useEffect(() => {
+    const cfg = TOOL_CONFIG.find((c) => c.value === toolCmd);
+    if (cfg?.subOptions?.length) {
+      const def = cfg.defaultSub ?? cfg.subOptions[0].value;
+      setSubChoice(def);
+      const sub = cfg.subOptions.find((s) => s.value === def);
+      setExtraParams(sub?.params.map((p) => p.defaultValue) ?? []);
+    } else if (cfg?.topLevelParams?.length) {
+      setSubChoice('');
+      setExtraParams(cfg.topLevelParams.map((p) => p.defaultValue));
+    } else {
+      setSubChoice('');
+      setExtraParams([]);
+    }
+  }, [toolCmd]);
+
+  function handleSubChoiceChange(newSub: string): void {
+    setSubChoice(newSub);
+    const sub = currentConfig?.subOptions?.find((s) => s.value === newSub);
+    setExtraParams(sub?.params.map((p) => p.defaultValue) ?? []);
+  }
+
+  function updateExtraParam(idx: number, value: string): void {
+    setExtraParams((prev) => {
+      const next = [...prev];
+      next[idx] = value;
+      return next;
+    });
+  }
 
   // ── Diagnostics request body ───────────────────────────────────────────
   const requestBody = useMemo(() => {
@@ -379,6 +575,8 @@ export default function DiagnosticsTab() {
           password,
           root_password: rootPassword || password,
           menu_choice: toolCmd,
+          sub_choice: subChoice,
+          extra_params: extraParams,
         }),
       });
       if (!res.ok) {
@@ -643,7 +841,7 @@ export default function DiagnosticsTab() {
             aria-label="Select tool to run"
             title="Select tool to run"
           >
-            {TOOL_OPTIONS.map((o) => (
+            {TOOL_CONFIG.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -670,13 +868,55 @@ export default function DiagnosticsTab() {
             Grab Dump
           </button>
 
-          {/* Status badge */}
+        {/* Status badge */}
           {toolStatus !== 'idle' && (
             <span className={`diag-tool-status diag-tool-status-${toolStatus}`}>
               {toolStatusLabel[toolStatus]}
             </span>
           )}
         </div>
+
+        {/* Sub-option panel — shown for tools with sub-menus or top-level params */}
+        {(currentConfig?.subOptions || currentConfig?.topLevelParams) && (
+          <div className="diag-suboption-panel">
+            {currentConfig.subOptions && (
+              <div className="diag-suboption-row">
+                <label className="diag-suboption-label" htmlFor="diag-subchoice">
+                  Sub-option
+                </label>
+                <select
+                  id="diag-subchoice"
+                  className="diag-tool-select"
+                  value={subChoice}
+                  onChange={(e) => handleSubChoiceChange(e.target.value)}
+                  disabled={toolBusy}
+                >
+                  {currentConfig.subOptions.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {activeParams.length > 0 && (
+              <div className="diag-suboption-params">
+                {activeParams.map((p, i) => (
+                  <div key={i} className="diag-suboption-param">
+                    <label className="diag-suboption-label">{p.label}</label>
+                    <input
+                      className="diag-suboption-input"
+                      value={extraParams[i] ?? p.defaultValue}
+                      onChange={(e) => updateExtraParam(i, e.target.value)}
+                      placeholder={p.placeholder}
+                      disabled={toolBusy}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Terminal panel (xterm.js) — shown when Run Tool is active */}
         {terminalMode && (
