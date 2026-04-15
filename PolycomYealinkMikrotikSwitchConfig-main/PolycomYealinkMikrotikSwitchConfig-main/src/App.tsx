@@ -591,12 +591,26 @@ function App() {
   }
 
   // ── Yealink Full 3-Page Layout Editor ──────────────────────────────────────
-  type FullLayoutKey = { label: string; value: string; type: 'BLF' | 'SpeedDial' };
+  // ── Full Layout Editor — 40 keys × up to 3 daisy-chained modules ───────────
+  // One physical EXP40/EXP50 = 40 keys (keys 1-40) in expansion_module.N
+  // Daisy-chained units use expansion_module.1, expansion_module.2, expansion_module.3
+  type FullLayoutKey = { label: string; value: string; type: 'BLF' | 'SpeedDial' | 'Park' };
+  const KEYS_PER_MODULE = 40;
+  const MAX_MODULES = 3;
+  const [numModules, setNumModules] = useState(1);
   const [fullLayout, setFullLayout] = useState<FullLayoutKey[][]>(
-    [0, 1, 2].map(() => Array.from({ length: 20 }, () => ({ label: '', value: '', type: 'BLF' as const })))
+    Array.from({ length: MAX_MODULES }, () =>
+      Array.from({ length: KEYS_PER_MODULE }, () => ({ label: '', value: '', type: 'BLF' as const }))
+    )
   );
   const [fullLayoutPage, setFullLayoutPage] = useState(0);
   const [fullLayoutPbxIp, setFullLayoutPbxIp] = useState('');
+
+  function handleNumModulesChange(n: number) {
+    setNumModules(n);
+    // Clamp active tab to the new max
+    setFullLayoutPage(prev => Math.min(prev, n - 1));
+  }
 
   function updateFullLayoutKey(page: number, keyIdx: number, field: keyof FullLayoutKey, val: string) {
     setFullLayout(prev => prev.map((pg, pi) =>
@@ -606,14 +620,19 @@ function App() {
 
   function generateFullLayoutConfig() {
     const lines: string[] = [];
-    fullLayout.forEach((page, pi) => {
-      page.forEach((key, ki) => {
+    fullLayout.slice(0, numModules).forEach((mod, mi) => {
+      mod.forEach((key, ki) => {
         if (!key.value && !key.label) return; // skip empty keys
-        const prefix = `expansion_module.${pi + 1}.key.${ki + 1}`;
+        const prefix = `expansion_module.${mi + 1}.key.${ki + 1}`;
         if (key.type === 'SpeedDial') {
           lines.push(`${prefix}.type=13`);
           lines.push(`${prefix}.value=${key.value}`);
+        } else if (key.type === 'Park') {
+          // Call Park — type 10; value = park orbit, optionally @pbxIp
+          lines.push(`${prefix}.type=10`);
+          lines.push(`${prefix}.value=${key.value}${fullLayoutPbxIp ? '@' + fullLayoutPbxIp : ''}`);
         } else {
+          // BLF — type 16; value = ext@pbxIp
           lines.push(`${prefix}.type=16`);
           lines.push(`${prefix}.value=${key.value}${fullLayoutPbxIp ? '@' + fullLayoutPbxIp : ''}`);
         }
@@ -1978,12 +1997,12 @@ function App() {
             </div>
           </div>
 
-          {/* ── Yealink Full 3-Page Layout Editor ── */}
+          {/* ── Yealink Full Layout Editor ── */}
           <div className="full-layout-editor">
             <div className="full-layout-header">
-              <h3 className="full-layout-title">Yealink EXP40 / EXP50 — Full 3-Page Layout</h3>
+              <h3 className="full-layout-title">Yealink EXP40 / EXP50 — Full Layout Editor</h3>
               <div className="full-layout-actions">
-                <label className="scraper-label" htmlFor="full-layout-pbx-ip">PBX IP (for BLF keys):</label>
+                <label className="scraper-label" htmlFor="full-layout-pbx-ip">PBX IP (for BLF/Park keys):</label>
                 <input
                   id="full-layout-pbx-ip"
                   type="text"
@@ -1991,29 +2010,50 @@ function App() {
                   value={fullLayoutPbxIp}
                   onChange={e => setFullLayoutPbxIp(e.target.value)}
                   placeholder="e.g. 192.168.1.100"
-                  title="PBX IP address used for all BLF keys"
+                  title="PBX IP address used for BLF and Park keys"
                 />
                 <button
                   type="button"
                   className="scraper-scrape-btn"
                   onClick={generateFullLayoutConfig}
-                  title="Generate config for all 3 pages and load into Sidecar Config"
+                  title={`Generate config for ${numModules === 1 ? '1 module' : numModules + ' daisy-chained modules'} → Sidecar`}
                 >
-                  Generate All 3 Pages → Sidecar
+                  Generate {numModules === 1 ? '1 Module' : `All ${numModules} Modules`} → Sidecar
                 </button>
               </div>
             </div>
 
-            {/* Page tabs */}
+            {/* Module count selector */}
+            <div className="full-layout-module-controls">
+              <span className="full-layout-module-label">Expansion modules:</span>
+              {[1, 2, 3].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  className={numModules === n ? 'full-layout-tab-active' : 'full-layout-tab'}
+                  onClick={() => handleNumModulesChange(n)}
+                  title={n === 1 ? 'Single EXP40/EXP50 (40 keys)' : `${n} modules daisy-chained (${n * 40} keys total)`}
+                >
+                  {n === 1 ? '1 Module' : `${n} Modules (daisy-chain)`}
+                </button>
+              ))}
+              <span className="full-layout-module-hint">
+                {numModules === 1
+                  ? '40 keys — expansion_module.1.key.1–40'
+                  : `${numModules * 40} keys — expansion_module.1–${numModules}, keys 1–40 each`}
+              </span>
+            </div>
+
+            {/* Module tabs */}
             <div className="full-layout-page-tabs">
-              {[0, 1, 2].map(pi => (
+              {Array.from({ length: numModules }, (_, pi) => (
                 <button
                   key={pi}
                   type="button"
                   className={fullLayoutPage === pi ? 'full-layout-tab-active' : 'full-layout-tab'}
                   onClick={() => setFullLayoutPage(pi)}
                 >
-                  Page {pi + 1}
+                  Module {pi + 1}
                   {fullLayout[pi].some(k => k.value || k.label) && (
                     <span className="full-layout-tab-dot"> ●</span>
                   )}
@@ -2021,13 +2061,13 @@ function App() {
               ))}
             </div>
 
-            {/* 2-column × 10-row key grid for current page */}
+            {/* 2-column × 20-row key grid for current module (40 keys total) */}
             <div className="full-layout-grid">
-              <div className="full-layout-col-header">Left column (keys 1, 3, 5 … 19)</div>
-              <div className="full-layout-col-header">Right column (keys 2, 4, 6 … 20)</div>
-              {Array.from({ length: 10 }).map((_, row) => {
-                const leftIdx = row * 2;      // keys 1,3,5...19  (0-indexed: 0,2,4...18)
-                const rightIdx = row * 2 + 1; // keys 2,4,6...20  (0-indexed: 1,3,5...19)
+              <div className="full-layout-col-header">Left column (keys 1, 3, 5 … 39)</div>
+              <div className="full-layout-col-header">Right column (keys 2, 4, 6 … 40)</div>
+              {Array.from({ length: 20 }).map((_, row) => {
+                const leftIdx = row * 2;      // keys 1,3,5...39  (0-indexed: 0,2,4...38)
+                const rightIdx = row * 2 + 1; // keys 2,4,6...40  (0-indexed: 1,3,5...39)
                 const leftKey = fullLayout[fullLayoutPage][leftIdx];
                 const rightKey = fullLayout[fullLayoutPage][rightIdx];
                 return (
@@ -2040,7 +2080,7 @@ function App() {
                         className="full-layout-label-input"
                         placeholder="Label"
                         value={leftKey.label}
-                        title={`Key ${leftIdx + 1} label`}
+                        title={`Module ${fullLayoutPage + 1} key ${leftIdx + 1} label`}
                         onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'label', e.target.value)}
                       />
                       <input
@@ -2048,17 +2088,18 @@ function App() {
                         className="full-layout-ext-input"
                         placeholder="Ext / Number"
                         value={leftKey.value}
-                        title={`Key ${leftIdx + 1} extension or number`}
+                        title={`Module ${fullLayoutPage + 1} key ${leftIdx + 1} extension or number`}
                         onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'value', e.target.value)}
                       />
                       <select
                         className="full-layout-type-select"
                         value={leftKey.type}
-                        title={`Key ${leftIdx + 1} type`}
-                        onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'type', e.target.value as 'BLF' | 'SpeedDial')}
+                        title={`Module ${fullLayoutPage + 1} key ${leftIdx + 1} type`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, leftIdx, 'type', e.target.value as FullLayoutKey['type'])}
                       >
                         <option value="BLF">BLF</option>
                         <option value="SpeedDial">SD</option>
+                        <option value="Park">Park</option>
                       </select>
                     </div>
                     {/* Right key */}
@@ -2069,7 +2110,7 @@ function App() {
                         className="full-layout-label-input"
                         placeholder="Label"
                         value={rightKey.label}
-                        title={`Key ${rightIdx + 1} label`}
+                        title={`Module ${fullLayoutPage + 1} key ${rightIdx + 1} label`}
                         onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'label', e.target.value)}
                       />
                       <input
@@ -2077,17 +2118,18 @@ function App() {
                         className="full-layout-ext-input"
                         placeholder="Ext / Number"
                         value={rightKey.value}
-                        title={`Key ${rightIdx + 1} extension or number`}
+                        title={`Module ${fullLayoutPage + 1} key ${rightIdx + 1} extension or number`}
                         onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'value', e.target.value)}
                       />
                       <select
                         className="full-layout-type-select"
                         value={rightKey.type}
-                        title={`Key ${rightIdx + 1} type`}
-                        onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'type', e.target.value as 'BLF' | 'SpeedDial')}
+                        title={`Module ${fullLayoutPage + 1} key ${rightIdx + 1} type`}
+                        onChange={e => updateFullLayoutKey(fullLayoutPage, rightIdx, 'type', e.target.value as FullLayoutKey['type'])}
                       >
                         <option value="BLF">BLF</option>
                         <option value="SpeedDial">SD</option>
+                        <option value="Park">Park</option>
                       </select>
                     </div>
                   </>

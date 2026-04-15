@@ -473,6 +473,31 @@
   margin-bottom: 12px;
 }
 
+.full-layout-module-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #eef4fb;
+  border: 1px solid #cce1fa;
+  border-radius: 6px;
+}
+
+.full-layout-module-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #333;
+  white-space: nowrap;
+}
+
+.full-layout-module-hint {
+  font-size: 11px;
+  color: #666;
+  margin-left: 4px;
+}
+
 .full-layout-tab {
   padding: 5px 16px;
   font-size: 13px;
