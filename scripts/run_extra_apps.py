@@ -168,17 +168,17 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
     remote_ctl = svc["remote_ctl"]
     target = f"{user}@{host}"
 
-    # Command: copy the ctl script if missing, then start (idempotent)
-    # Uses BatchMode=yes so it fails fast if no key auth is set up
-    ssh_check = [ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, "echo ok"]
-    ssh_start = [
-        ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target,
-        f"cd {remote_dir} && sh {remote_ctl} start",
+    # Base SSH options — includes legacy DSA host key support for old routers/devices
+    # that only offer ssh-dss. BatchMode=yes fails fast instead of hanging on password prompt.
+    ssh_opts = [
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-o", "HostKeyAlgorithms=+ssh-dss",
+        "-o", "PubkeyAcceptedAlgorithms=+ssh-dss",
     ]
-    ssh_status = [
-        ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target,
-        f"cd {remote_dir} && sh {remote_ctl} status",
-    ]
+    ssh_check = [ssh, *ssh_opts, target, "echo ok"]
+    ssh_start = [ssh, *ssh_opts, target, f"cd {remote_dir} && sh {remote_ctl} start"]
+    ssh_status = [ssh, *ssh_opts, target, f"cd {remote_dir} && sh {remote_ctl} status"]
 
     if dry_run:
         return _dry_run_result(svc, ssh_start)
@@ -189,7 +189,7 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
     if result.returncode != 0:
         return _unavailable(
             svc,
-            f"SSH key auth to {target} failed — run: ssh-copy-id {target}\n"
+            f"SSH key auth to {target} failed (set up keys with: ssh-copy-id {target})\n"
             f"  stderr: {result.stderr.strip()}",
         )
 
