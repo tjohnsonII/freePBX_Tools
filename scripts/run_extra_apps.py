@@ -275,11 +275,13 @@ def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: i
     wait_for_process_stable(int(entry["pid"]), timeout_s=10, section="ready", min_alive_s=2.0)
     health_paths = svc.get("health_paths", ["/"])
     health_url = f"http://{host}:{port}{health_paths[0]}"
-    ok = wait_for_http(health_url, timeout_s=readiness_timeout, section="ready")
-    reason = f"HTTP probe passed at {health_url}" if ok else f"HTTP probe timed out at {health_url}"
+    # wait_for_http raises LauncherError on timeout, returns None on success.
+    # Do not assign to a bool — if we get past this line the probe passed.
+    wait_for_http(health_url, timeout_s=readiness_timeout, section="ready")
+    reason = f"HTTP probe passed at {health_url}"
     url = f"http://{host}:{port}"
-    update_service_state(root, name, readiness_status="ready" if ok else "degraded",
-                         readiness_reason=reason, mode="backend", degraded=not ok, url=url)
+    update_service_state(root, name, readiness_status="ready",
+                         readiness_reason=reason, mode="backend", degraded=False, url=url)
     return _ok_result(svc, entry, reason, url)
 
 
