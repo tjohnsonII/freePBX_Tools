@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8787';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store' });
