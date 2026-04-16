@@ -168,7 +168,7 @@ function App() {
   // State for generated config output
   const [output, setOutput] = useState('');
   // --- Phone Config Scraper panel state ---
-  const SCRAPER_BASE_PHONE = 'http://localhost:8788';
+  const SCRAPER_BASE_PHONE = import.meta.env.VITE_SCRAPER_BASE || 'http://localhost:8788';
   const [scraperHandles, setScraperHandles] = useState<{ handle: string; name: string; ip: string }[]>([]);
   const [scraperHandle, setScraperHandle] = useState('');
   const [scraperDevices, setScraperDevices] = useState<{ device_id: string; directory_name: string; extension: string; mac: string; make: string; model: string; bulk_config: string; view_config: string; arbitrary_attributes: string; device_properties: string; last_seen_utc: string }[]>([]);

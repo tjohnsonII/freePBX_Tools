@@ -15,7 +15,7 @@ import {
   type EfkOptions,
 } from '../data/phoneTemplates';
 
-const SCRAPER_BASE = 'http://localhost:8788';
+const SCRAPER_BASE = import.meta.env.VITE_SCRAPER_BASE || 'http://localhost:8788';
 
 // ─── Scraper types ────────────────────────────────────────────────────────
 type VpbxRecord = { handle: string; name: string; account_status: string };

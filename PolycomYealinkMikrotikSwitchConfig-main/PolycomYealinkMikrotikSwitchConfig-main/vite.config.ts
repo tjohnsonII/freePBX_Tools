@@ -8,7 +8,7 @@ export default defineConfig({
     port: 3002,
     strictPort: true,
     open: true,
-    allowedHosts:['timsablab.com','timsablab.ddn.net','polycom.123hostedtools.com'],
+    allowedHosts: ['timsablab.com', 'timsablab.ddns.net', 'polycom.123hostedtools.com'],
     headers: {
       'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
