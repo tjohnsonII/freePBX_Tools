@@ -152,7 +152,11 @@ def _build_commands(root: Path, py: str, args: argparse.Namespace) -> dict[str, 
 
 def start_services(root: Path, commands: dict[str, list[str]]) -> None:
     for service, cmd in commands.items():
-        run_checked(cmd, cwd=root, section=f"launch:{service}")
+        try:
+            run_checked(cmd, cwd=root, section=f"launch:{service}")
+        except Exception as exc:
+            print(f"[warn] {service} launcher exited non-zero: {exc}")
+            print(f"[warn] Continuing — check logs for {service}")
 
 
 def _service_row(

@@ -14,7 +14,13 @@ MANAGED_ENVS = {
         "packages": ["uvicorn", "fastapi"],
     },
     ".venv-webscraper": {
+        # requirements.txt = scraper/browser deps (selenium etc.)
+        # requirements_api.txt = API server deps (fastapi, uvicorn)
+        # editable_install = installs the webscraper package itself so
+        #   "webscraper.ticket_api.app" is importable from this venv
         "requirements": ROOT / "webscraper" / "requirements.txt",
+        "extra_requirements": ROOT / "webscraper" / "requirements_api.txt",
+        "editable_install": ROOT / "webscraper",
         "packages": [],
     },
 }
@@ -57,6 +63,11 @@ def install_requirements(py: Path, req_file: Path) -> None:
     subprocess.run([str(py), "-m", "pip", "install", "-r", str(req_file)], check=True)
 
 
+def install_editable(py: Path, project_dir: Path) -> None:
+    print(f"[bootstrap] installing editable package from {project_dir}")
+    subprocess.run([str(py), "-m", "pip", "install", "-e", str(project_dir)], check=True)
+
+
 def bootstrap_env(name: str, cfg: dict) -> None:
     create_venv(name)
     py = venv_python(name)
@@ -64,10 +75,20 @@ def bootstrap_env(name: str, cfg: dict) -> None:
     subprocess.run([str(py), "-m", "pip", "install", "--upgrade", "pip"], check=True)
 
     req = cfg.get("requirements")
+    extra_req = cfg.get("extra_requirements")
+    editable = cfg.get("editable_install")
     packages = cfg.get("packages", [])
 
     if req and Path(req).exists():
         install_requirements(py, Path(req))
+
+    if extra_req and Path(extra_req).exists():
+        install_requirements(py, Path(extra_req))
+
+    if editable and Path(editable).exists():
+        install_editable(py, Path(editable))
+
+    if req or extra_req or editable:
         return
 
     missing = [pkg for pkg in packages if not module_installed(py, pkg)]
