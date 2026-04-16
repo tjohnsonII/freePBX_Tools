@@ -1,6 +1,7 @@
 # Reverse Proxy Deployment Playbook
 
 ## Purpose
+
 This playbook is the standard process for publishing internal web apps in the lab without exposing random backend ports or re-solving DNS, TLS, and Apache issues every time.
 
 Use this for any new app behind the Apache reverse proxy on `192.168.100.10`.
@@ -14,17 +15,20 @@ Core model:
 ## Environment Baseline
 
 ### Reverse proxy
+
 - Apache server IP: `192.168.100.10`
 - Apache listens on: `80`, `443`
 - Public NAT forwards: `80` and `443` to `192.168.100.10`
 
 ### DNS
+
 - Internal DNS: Windows DNS
 - Common internal zone: `timsablab.ddns.net`
 - Additional zone in use: `123hostedtools.com`
 - Internal app hostnames should resolve to: `192.168.100.10`
 
 ### Apache config locations
+
 - Site definitions: `/etc/apache2/sites-available/`
 - Enabled site symlinks: `/etc/apache2/sites-enabled/`
 - LetsEncrypt certs: `/etc/letsencrypt/live/`
@@ -32,6 +36,7 @@ Core model:
 - Per-app logs: `/var/log/apache2/<app>-error.log`, `/var/log/apache2/<app>-access.log`
 
 ### Required Apache commands
+
 ```bash
 sudo apachectl configtest
 sudo apachectl -S
@@ -41,6 +46,7 @@ sudo ss -tlnp | grep -E ':80|:443'
 ```
 
 ### Common Apache modules
+
 ```bash
 sudo a2enmod proxy
 sudo a2enmod proxy_http
@@ -68,25 +74,32 @@ sudo a2enmod ssl
 ## Standard Deployment Workflow
 
 ### Step 1: Pick the hostname
+
 Examples:
+
 - `notes.timsablab.ddns.net`
 - `api.timsablab.ddns.net`
 - `portfolio.timsablab.ddns.net`
 - `netbox.timsablab.ddns.net`
 
 ### Step 2: Identify backend target
+
 Examples:
+
 - `http://127.0.0.1:3001`
 - `http://192.168.30.120:5000`
 - `https://192.168.99.43:8090`
 
 ### Step 3: Confirm backend works directly
+
 HTTP backend:
+
 ```bash
 curl -I http://127.0.0.1:3001/
 ```
 
 HTTPS backend:
+
 ```bash
 curl -kI https://192.168.99.43:8090/
 ```
@@ -94,45 +107,57 @@ curl -kI https://192.168.99.43:8090/
 If backend does not work here, stop.
 
 ### Step 4: Create HTTP vhost
+
 Create a file in `/etc/apache2/sites-available/`.
 
 ### Step 5: Enable the site
+
 ```bash
 sudo a2ensite hostname.conf
 ```
 
 ### Step 6: Test Apache config
+
 ```bash
 sudo apachectl configtest
 ```
+
 Expected:
+
 ```text
 Syntax OK
 ```
 
 ### Step 7: Reload Apache
+
 ```bash
 sudo systemctl reload apache2
 ```
 
 ### Step 8: Local Apache test before DNS/browser work
+
 HTTP:
+
 ```bash
 curl -I --resolve hostname:80:127.0.0.1 http://hostname/
 ```
 
 HTTPS:
+
 ```bash
 curl -vkI --resolve hostname:443:127.0.0.1 https://hostname/
 ```
 
 ### Step 9: Create or verify DNS record points to `192.168.100.10`
+
 PowerShell example:
+
 ```powershell
 Add-DnsServerResourceRecordA -ZoneName "timsablab.ddns.net" -Name "notes" -IPv4Address "192.168.100.10"
 ```
 
 Verify:
+
 ```powershell
 Get-DnsServerResourceRecord -ZoneName "timsablab.ddns.net" -Name "notes"
 nslookup notes.timsablab.ddns.net
@@ -140,19 +165,23 @@ Resolve-DnsName notes.timsablab.ddns.net
 ```
 
 Expected:
+
 ```text
 192.168.100.10
 ```
 
 ### Step 10: Get SSL cert
+
 ```bash
 sudo certbot --apache -d hostname
 ```
 
 ### Step 11: If backend is HTTPS, fix generated SSL vhost
+
 Certbot generates the `-le-ssl.conf` file, but HTTPS backends often need manual edits.
 
 ### Step 12: Convert HTTP vhost into redirect-only after SSL works
+
 ```apache
 <VirtualHost *:80>
     ServerName hostname
@@ -161,18 +190,22 @@ Certbot generates the `-le-ssl.conf` file, but HTTPS backends often need manual 
 ```
 
 ### Step 13: Final reload
+
 ```bash
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
 ### Step 14: Final tests
+
 Server-side:
+
 ```bash
 curl -vkI --resolve hostname:443:127.0.0.1 https://hostname/
 ```
 
 Client-side:
+
 ```powershell
 ipconfig /flushdns
 nslookup hostname
@@ -185,11 +218,13 @@ Test-NetConnection hostname -Port 443
 
 Use this when the backend app speaks plain HTTP.
 
-### Example
+### HTTP Example
+
 - Hostname: `notes.timsablab.ddns.net`
 - Backend: `http://127.0.0.1:3001`
 
-### Initial HTTP vhost
+### HTTP Initial vhost
+
 ```bash
 sudo tee /etc/apache2/sites-available/notes.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -208,32 +243,37 @@ sudo tee /etc/apache2/sites-available/notes.timsablab.ddns.net.conf > /dev/null 
 EOF
 ```
 
-### Enable and reload
+### HTTP Enable and reload
+
 ```bash
 sudo a2ensite notes.timsablab.ddns.net.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-### Test locally
+### HTTP Test locally
+
 ```bash
 curl -I http://127.0.0.1:3001/
 curl -I --resolve notes.timsablab.ddns.net:80:127.0.0.1 http://notes.timsablab.ddns.net/
 ```
 
-### DNS
+### HTTP DNS
+
 ```powershell
 Add-DnsServerResourceRecordA -ZoneName "timsablab.ddns.net" -Name "notes" -IPv4Address "192.168.100.10"
 ipconfig /flushdns
 nslookup notes.timsablab.ddns.net
 ```
 
-### Certbot
+### HTTP Certbot
+
 ```bash
 sudo certbot --apache -d notes.timsablab.ddns.net
 ```
 
-### Final HTTP redirect file
+### HTTP Final redirect file
+
 ```bash
 sudo tee /etc/apache2/sites-available/notes.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -243,7 +283,8 @@ sudo tee /etc/apache2/sites-available/notes.timsablab.ddns.net.conf > /dev/null 
 EOF
 ```
 
-### Final HTTPS test
+### HTTP Final HTTPS test
+
 ```bash
 sudo apachectl configtest
 sudo systemctl reload apache2
@@ -256,11 +297,13 @@ curl -vkI --resolve notes.timsablab.ddns.net:443:127.0.0.1 https://notes.timsabl
 
 Use this when the backend app itself already serves HTTPS.
 
-### Example
+### HTTPS Example
+
 - Hostname: `prtg.timsablab.ddns.net`
 - Backend: `https://192.168.99.43:8090`
 
-### Initial HTTP vhost
+### HTTPS Initial vhost
+
 ```bash
 sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -284,24 +327,28 @@ sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net.conf > /dev/null <
 EOF
 ```
 
-### Enable and reload
+### HTTPS Enable and reload
+
 ```bash
 sudo a2ensite prtg.timsablab.ddns.net.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-### Test backend directly
+### HTTPS Test backend directly
+
 ```bash
 curl -kI https://192.168.99.43:8090/
 ```
 
-### Certbot
+### HTTPS Certbot
+
 ```bash
 sudo certbot --apache -d prtg.timsablab.ddns.net
 ```
 
-### Fix generated SSL vhost
+### HTTPS Fix generated SSL vhost
+
 ```bash
 sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net-le-ssl.conf > /dev/null <<'EOF'
 <IfModule mod_ssl.c>
@@ -333,7 +380,8 @@ sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net-le-ssl.conf > /dev
 EOF
 ```
 
-### Convert HTTP to redirect-only
+### HTTPS Convert to redirect-only
+
 ```bash
 sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -343,7 +391,8 @@ sudo tee /etc/apache2/sites-available/prtg.timsablab.ddns.net.conf > /dev/null <
 EOF
 ```
 
-### Final test
+### HTTPS Final test
+
 ```bash
 sudo apachectl configtest
 sudo systemctl reload apache2
@@ -351,6 +400,7 @@ curl -vkI --resolve prtg.timsablab.ddns.net:443:127.0.0.1 https://prtg.timsablab
 ```
 
 Expected response example:
+
 ```text
 HTTP/1.1 302 Moved Temporarily
 Server: PRTG
@@ -361,28 +411,33 @@ Location: /index.htm
 
 ## Node.js Example
 
-### Scenario
+### Node.js Scenario
+
 - App: `portfolio.timsablab.ddns.net`
 - Backend: `http://127.0.0.1:3005`
 
-### Run backend
+### Node.js Run backend
+
 ```bash
 node server.js
 ```
 
 Better long-term:
+
 ```bash
 pm2 start server.js --name portfolio
 pm2 save
 pm2 startup
 ```
 
-### Verify backend
+### Node.js Verify backend
+
 ```bash
 curl -I http://127.0.0.1:3005/
 ```
 
-### Apache vhost
+### Node.js Apache vhost
+
 ```bash
 sudo tee /etc/apache2/sites-available/portfolio.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -401,26 +456,30 @@ sudo tee /etc/apache2/sites-available/portfolio.timsablab.ddns.net.conf > /dev/n
 EOF
 ```
 
-### Enable and reload
+### Node.js Enable and reload
+
 ```bash
 sudo a2ensite portfolio.timsablab.ddns.net.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-### DNS
+### Node.js DNS
+
 ```powershell
 Add-DnsServerResourceRecordA -ZoneName "timsablab.ddns.net" -Name "portfolio" -IPv4Address "192.168.100.10"
 ipconfig /flushdns
 nslookup portfolio.timsablab.ddns.net
 ```
 
-### SSL
+### Node.js SSL
+
 ```bash
 sudo certbot --apache -d portfolio.timsablab.ddns.net
 ```
 
-### Redirect HTTP to HTTPS
+### Node.js Redirect HTTP to HTTPS
+
 ```bash
 sudo tee /etc/apache2/sites-available/portfolio.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -430,7 +489,8 @@ sudo tee /etc/apache2/sites-available/portfolio.timsablab.ddns.net.conf > /dev/n
 EOF
 ```
 
-### Final test
+### Node.js Final test
+
 ```bash
 sudo apachectl configtest
 sudo systemctl reload apache2
@@ -441,21 +501,25 @@ curl -vkI --resolve portfolio.timsablab.ddns.net:443:127.0.0.1 https://portfolio
 
 ## Python / FastAPI Example
 
-### Scenario
+### FastAPI Scenario
+
 - App: `api.timsablab.ddns.net`
 - Backend: `http://127.0.0.1:8000`
 
-### Run backend
+### FastAPI Run backend
+
 ```bash
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-### Verify backend
+### FastAPI Verify backend
+
 ```bash
 curl -I http://127.0.0.1:8000/
 ```
 
-### Apache vhost
+### FastAPI Apache vhost
+
 ```bash
 sudo tee /etc/apache2/sites-available/api.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -474,26 +538,30 @@ sudo tee /etc/apache2/sites-available/api.timsablab.ddns.net.conf > /dev/null <<
 EOF
 ```
 
-### Enable and reload
+### FastAPI Enable and reload
+
 ```bash
 sudo a2ensite api.timsablab.ddns.net.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-### DNS
+### FastAPI DNS
+
 ```powershell
 Add-DnsServerResourceRecordA -ZoneName "timsablab.ddns.net" -Name "api" -IPv4Address "192.168.100.10"
 ipconfig /flushdns
 nslookup api.timsablab.ddns.net
 ```
 
-### SSL
+### FastAPI SSL
+
 ```bash
 sudo certbot --apache -d api.timsablab.ddns.net
 ```
 
-### Redirect HTTP to HTTPS
+### FastAPI Redirect HTTP to HTTPS
+
 ```bash
 sudo tee /etc/apache2/sites-available/api.timsablab.ddns.net.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -503,7 +571,8 @@ sudo tee /etc/apache2/sites-available/api.timsablab.ddns.net.conf > /dev/null <<
 EOF
 ```
 
-### Final test
+### FastAPI Final test
+
 ```bash
 sudo apachectl configtest
 sudo systemctl reload apache2
@@ -515,6 +584,7 @@ curl -vkI --resolve api.timsablab.ddns.net:443:127.0.0.1 https://api.timsablab.d
 ## Command-Only Quick Checklist
 
 ### HTTP backend app
+
 ```bash
 sudo tee /etc/apache2/sites-available/APP.DOMAIN.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -538,6 +608,7 @@ sudo certbot --apache -d APP.DOMAIN
 ```
 
 ### HTTPS backend app
+
 ```bash
 sudo tee /etc/apache2/sites-available/APP.DOMAIN.conf > /dev/null <<'EOF'
 <VirtualHost *:80>
@@ -568,7 +639,7 @@ sudo certbot --apache -d APP.DOMAIN
 ## Troubleshooting Matrix
 
 | Symptom | Meaning | First check |
-|---|---|---|
+| --- | --- | --- |
 | Old personal site loads | Default Apache vhost caught request | `sudo apachectl -S` |
 | MikroTik login loads | Request hit router, not Apache | DNS + router web service |
 | `502 Proxy Error` | Apache matched but backend target/protocol is wrong | backend curl + Apache vhost |
@@ -581,7 +652,7 @@ sudo certbot --apache -d APP.DOMAIN
 ## Deployed Apps Tracking Table
 
 | App | Hostname | Backend Protocol | Backend IP | Backend Port | DNS Target | HTTP Vhost | HTTPS Vhost | Cert Status | Notes |
-|---|---|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | PRTG | `prtg.timsablab.ddns.net` | HTTPS | `192.168.99.43` | `8090` | `192.168.100.10` | `prtg.timsablab.ddns.net.conf` | `prtg.timsablab.ddns.net-le-ssl.conf` | Working | Apache proxies HTTPS-to-HTTPS |
 | Grafana | `grafana.123hostedtools.com` | HTTP | `192.168.99.187` | `3000` | `192.168.100.10` | `grafana.123hostedtools.com.conf` | `grafana.123hostedtools.com-le-ssl.conf` | Working | Apache proxies HTTP backend |
 | FreePBX | `freepbx.timsablab.ddns.net` | HTTPS | `192.168.142.42` | `443` | `192.168.100.10` | `freepbx.timsablab.ddns.net.conf` | `freepbx.timsablab.ddns.net-le-ssl.conf` | Working | HTTPS backend |
@@ -601,4 +672,3 @@ If a new app fails, do not jump straight into browser guessing. Use this order:
 6. Apache logs
 
 That order will save you a ton of time.
-

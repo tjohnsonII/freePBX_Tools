@@ -220,7 +220,9 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
 
 def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:
     """Start a FastAPI app via uvicorn using its own venv."""
-    venv_python = (root / svc["venv"] / "Scripts" / "python.exe").resolve()
+    import os
+    _sub = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
+    venv_python = (root / svc["venv"] / _sub[0] / _sub[1]).resolve()
     if not venv_python.exists():
         return _unavailable(svc, f"venv not found: {venv_python}. Run bootstrap first.")
 

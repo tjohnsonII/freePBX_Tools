@@ -21,7 +21,10 @@ MANAGED_ENVS = {
 
 
 def venv_python(venv_name: str) -> Path:
-    return ROOT / venv_name / "Scripts" / "python.exe"
+    import os
+    if os.name == "nt":
+        return ROOT / venv_name / "Scripts" / "python.exe"
+    return ROOT / venv_name / "bin" / "python"
 
 
 def create_venv(venv_name: str) -> None:

@@ -98,12 +98,8 @@ def ensure_precommit():
 
     ensure_detect_secrets_baseline()
     ensure_allowlist_pragmas()
-    # Install hooks
-    run(["pre-commit", "install"], check=False)
-    # Run across all files
-    code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
-    if code != 0:
-        raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
+    # Do NOT run pre-commit install — that would inject hooks into .git/hooks
+    # and cause every normal `git commit` to hang downloading gitleaks.
 
 
 def ensure_allowlist_pragmas():
@@ -251,7 +247,7 @@ def ensure_gitleaks_exe():
     if gl_exe.exists():
         return gl_exe
     # Download latest Windows x64 asset
-    with urlopen("https://api.github.com/repos/gitleaks/gitleaks/releases/latest") as resp:
+    with urlopen("https://api.github.com/repos/gitleaks/gitleaks/releases/latest", timeout=30) as resp:
         rel = json.loads(resp.read().decode("utf-8"))
     asset = None
     for a in rel.get("assets", []):
@@ -294,16 +290,19 @@ def has_staged_changes() -> bool:
 
 
 def auto_stage_and_commit(message: str | None = None) -> bool:
-    """Stage all changes and commit if any staged deltas exist after hooks."""
-    # Stage everything respecting .gitignore
-    run(["git", "add", "-A"], check=True)
+    """Stage tracked modified files and commit if any staged deltas exist after hooks."""
+    # Stage only tracked modified files — avoids pulling in untracked sensitive files
+    run(["git", "add", "-u"], check=True)
     # Block known sensitive artifacts
     verify_staged_files_safe()
-    # Run hooks across all files and re-stage if they made fixes
-    code, out, err = run(["pre-commit", "run", "--all-files"], check=False)
+    if not has_staged_changes():
+        return False
+    # Run hooks only on staged files to avoid flagging untracked sensitive files (cookies, etc.)
+    code, out, err = run(["pre-commit", "run"], check=False)
     if code != 0:
         raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
-    run(["git", "add", "-A"], check=True)
+    # Re-stage in case hooks modified files
+    run(["git", "add", "-u"], check=True)
     if not has_staged_changes():
         return False
     msg = message or f"security: automated commit ({datetime.now().isoformat(timespec='seconds')})"
@@ -348,10 +347,10 @@ def push_changes(mirror: bool, remote: str):
 def main():
     parser = argparse.ArgumentParser(description="Secure push workflow")
     # Default to mirror pushes; allow override with --normal
-    parser.add_argument("--normal", dest="mirror", action="store_false", help="Use normal push instead of mirror")
+    parser.add_argument("--mirror", dest="mirror", action="store_true", help="Use force mirror push instead of normal push")
     parser.add_argument("--remote", default="origin", help="Git remote (default: origin)")
     parser.add_argument("--message", default=None, help="Commit message for auto-commit")
-    parser.set_defaults(mirror=True)
+    parser.set_defaults(mirror=False)
     args = parser.parse_args()
 
     os.chdir(str(REPO_ROOT))
@@ -360,19 +359,11 @@ def main():
     ensure_gitignore()
     untrack_generated_outputs()
     ensure_precommit()
-    # Auto-stage and commit in one run
-    auto_stage_and_commit(args.message)
-    clean, gout, gerr = run_gitleaks_scan()
-    if not clean:
-        print("[WARN] Gitleaks found leaks. Attempting history purge...")
-        purge_history()
-        clean2, gout2, gerr2 = run_gitleaks_scan()
-        if not clean2:
-            raise RuntimeError("Leaks remain after purge. Aborting push.")
-        push_changes(args.mirror, args.remote)
-    else:
-        # Honor --mirror flag even when scans are clean
-        push_changes(args.mirror, args.remote)
+    # Auto-stage and commit (pre-commit hook already runs gitleaks on staged files)
+    committed = auto_stage_and_commit(args.message)
+    if not committed:
+        print("[INFO] Nothing to commit.")
+    push_changes(args.mirror, args.remote)
 
     print("[INFO] Secure push completed")
 
