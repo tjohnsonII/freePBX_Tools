@@ -168,13 +168,16 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
     remote_ctl = svc["remote_ctl"]
     target = f"{user}@{host}"
 
-    # Base SSH options — includes legacy DSA host key support for old routers/devices
-    # that only offer ssh-dss. BatchMode=yes fails fast instead of hanging on password prompt.
+    # Base SSH options — legacy device support:
+    #   HostKeyAlgorithms=+ssh-dss   : accept DSA host key (old routers only offer this)
+    #   PubkeyAcceptedAlgorithms=+ssh-rsa : allow SHA-1 RSA user key signing
+    #                                       (old sshd rejects rsa-sha2-256 the modern default)
+    # BatchMode=yes fails fast instead of hanging on a password prompt.
     ssh_opts = [
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
         "-o", "HostKeyAlgorithms=+ssh-dss",
-        "-o", "PubkeyAcceptedAlgorithms=+ssh-dss",
+        "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
     ]
     ssh_check = [ssh, *ssh_opts, target, "echo ok"]
     ssh_start = [ssh, *ssh_opts, target, f"cd {remote_dir} && sh {remote_ctl} start"]
