@@ -55,7 +55,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Also start extra services: HomeLab Network Mapping (3011), Traceroute Visualizer (3006), Polycom App (3002), FreePBX Web Manager (5000)",
     )
     parser.add_argument(
-        "--only-extras", nargs="+", choices=["homelab", "remote_traceroute", "traceroute", "polycom", "web_manager"],
+        "--only-extras", nargs="+", choices=["homelab", "remote_traceroute", "traceroute", "polycom", "web_manager", "deploy_backend"],
         metavar="SERVICE",
         help="With --extras, limit which extra services to start",
     )
