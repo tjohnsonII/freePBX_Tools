@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -112,6 +113,11 @@ def _start_npm(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) 
     svc_dir = (root / svc["rel_dir"]).resolve()
     if not (svc_dir / "package.json").exists():
         return _unavailable(svc, f"No package.json found at {svc_dir}")
+
+    # Auto-install node_modules if missing (avoids "next: not found" on fresh servers)
+    if not (svc_dir / "node_modules").exists():
+        print(f"[npm] node_modules missing for {svc['label']} — running npm install")
+        subprocess.run([npm, "install"], cwd=str(svc_dir), check=False)
 
     host = svc["host"]
     port = svc["port"]
@@ -260,8 +266,11 @@ def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: i
 
 def _start_flask(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) -> dict:
     """Start the Flask web manager (web_manager.py)."""
+    import os
+    venv_sub = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
+    venv_py = root / ".venv-web-manager" / venv_sub[0] / venv_sub[1]
     import shutil
-    py = shutil.which("python") or sys.executable
+    py = str(venv_py) if venv_py.exists() else (shutil.which("python3") or shutil.which("python") or sys.executable)
     svc_dir = root
     web_manager = root / "web_manager.py"
     if not web_manager.exists():

@@ -10,8 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 MANAGED_ENVS = {
     ".venv-web-manager": {
-        "requirements": None,
-        "packages": ["uvicorn", "fastapi"],
+        "requirements": ROOT / "web_requirements.txt",
+        "packages": [],
+    },
+    "freepbx-deploy-backend/.venv": {
+        "requirements": ROOT / "freepbx-deploy-backend" / "requirements.txt",
+        "packages": [],
     },
     ".venv-webscraper": {
         # requirements.txt = scraper/browser deps (selenium etc.)
