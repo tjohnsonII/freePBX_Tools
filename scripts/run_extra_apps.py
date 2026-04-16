@@ -206,6 +206,12 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
     already_running = result.returncode == 0 and "RUNNING" in result.stdout.upper()
 
     if not already_running:
+        # Kill any orphaned instances that the ctl script's PID file lost track of.
+        # Without this, the new start crashes with "Address already in use" because
+        # an old process still owns the port, making status immediately show STOPPED.
+        ssh_killall = [ssh, *ssh_opts, target, "pkill -f traceroute_server_update.py; sleep 1; true"]
+        subprocess.run(ssh_killall, capture_output=True, text=True, timeout=15)
+
         result = subprocess.run(ssh_start, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             return _unavailable(svc, f"Remote start failed: {result.stderr.strip() or result.stdout.strip()}")
