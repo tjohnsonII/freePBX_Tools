@@ -297,10 +297,12 @@ def auto_stage_and_commit(message: str | None = None) -> bool:
     verify_staged_files_safe()
     if not has_staged_changes():
         return False
-    # Run hooks only on staged files to avoid flagging untracked sensitive files (cookies, etc.)
-    code, out, err = run(["pre-commit", "run"], check=False)
+    # Run only detect-secrets on staged files (pure Python, no binary download).
+    # Gitleaks is intentionally skipped here — it requires a large binary download
+    # and is better run separately or via CI.
+    code, out, err = run(["pre-commit", "run", "detect-secrets"], check=False)
     if code != 0:
-        raise RuntimeError(f"Pre-commit hooks failed\n{out}\n{err}")
+        raise RuntimeError(f"detect-secrets check failed\n{out}\n{err}")
     # Re-stage in case hooks modified files
     run(["git", "add", "-u"], check=True)
     if not has_staged_changes():
