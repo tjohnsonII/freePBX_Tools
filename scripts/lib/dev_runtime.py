@@ -202,16 +202,25 @@ def is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
-def kill_pid_tree(pid: int, *, section: str) -> None:
+def kill_pid_tree(pid: int, *, section: str, force: bool = False) -> None:
     if pid <= 0:
         return
     if is_windows():
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
         log(section, f"Sent taskkill to pid {pid}")
         return
+    import signal as _signal
+    sig = _signal.SIGKILL if force else _signal.SIGTERM
+    sig_name = "SIGKILL" if force else "SIGTERM"
     try:
-        os.kill(pid, 15)
-        log(section, f"Sent SIGTERM to pid {pid}")
+        # Kill the process group so child processes (e.g. next-server under npm) die too
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, sig)
+            log(section, f"Sent {sig_name} to process group {pgid} (pid={pid})")
+        except (ProcessLookupError, PermissionError):
+            os.kill(pid, sig)
+            log(section, f"Sent {sig_name} to pid {pid}")
     except ProcessLookupError:
         return
     except PermissionError:
@@ -231,12 +240,25 @@ def ensure_port_available(port: int, *, cleanup: bool, section: str) -> None:
     for pid in sorted(pids):
         kill_pid_tree(pid, section=section)
 
-    deadline = time.time() + 10
+    deadline = time.time() + 5
     while time.time() < deadline:
         if not is_port_open("127.0.0.1", port):
             log(section, f"Port {port} is now free")
             return
         time.sleep(0.25)
+
+    # SIGTERM didn't free the port — escalate to SIGKILL
+    if not is_windows():
+        log(section, f"Port {port} still busy after SIGTERM — escalating to SIGKILL")
+        for pid in sorted(pids_for_port(port)):
+            kill_pid_tree(pid, section=section, force=True)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if not is_port_open("127.0.0.1", port):
+                log(section, f"Port {port} is now free after SIGKILL")
+                return
+            time.sleep(0.25)
+
     raise LauncherError(f"Port {port} remains busy after cleanup attempts.")
 
 
