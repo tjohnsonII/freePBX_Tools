@@ -288,8 +288,10 @@ def has_staged_changes() -> bool:
 
 def auto_stage_and_commit(message: str | None = None) -> bool:
     """Stage tracked modified files and commit if any staged deltas exist after hooks."""
-    # Stage only tracked modified files — avoids pulling in untracked sensitive files
+    # Stage tracked modified files plus any new files in scripts/ (safe directory).
+    # The blocklist check below is the real guard against sensitive files.
     run(["git", "add", "-u"], check=True)
+    run(["git", "add", "scripts/"], check=False)
     # Block known sensitive artifacts
     verify_staged_files_safe()
     if not has_staged_changes():
