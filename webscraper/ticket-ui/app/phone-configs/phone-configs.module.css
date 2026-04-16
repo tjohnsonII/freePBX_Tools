@@ -1,0 +1,368 @@
+.main {
+  max-width: 1400px;
+}
+
+.section {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+  background: #161b22;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  align-items: center;
+}
+
+.searchInput {
+  min-width: 220px;
+}
+
+.refreshBtn {
+  white-space: nowrap;
+}
+
+.forceBtn {
+  white-space: nowrap;
+  background-color: #b94a2c;
+  color: #fff;
+  border: 1px solid #922c12;
+}
+
+.forceBtn:hover:not(:disabled) {
+  background-color: #922c12;
+}
+
+.forceBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.incompleteBtn {
+  white-space: nowrap;
+  background-color: #7c4a00;
+  color: #fff;
+  border: 1px solid #5a3500;
+}
+
+.incompleteBtn:hover:not(:disabled) {
+  background-color: #5a3500;
+}
+
+.incompleteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.subtle {
+  color: #8b949e;
+  font-size: 0.78rem;
+  margin: 4px 0 10px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.error {
+  color: #f85149;
+  font-size: 0.82rem;
+  margin: 8px 0;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  font-size: 0.8rem;
+  border-collapse: collapse;
+}
+
+.th {
+  white-space: nowrap;
+  padding: 6px 10px;
+  text-align: left;
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+.row td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #21262d;
+  vertical-align: middle;
+}
+
+.row:hover td {
+  background: #1c2230;
+}
+
+.handleLabel {
+  color: #58a6ff;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.mono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #8b949e;
+  white-space: nowrap;
+}
+
+.emptyCell {
+  text-align: center;
+  color: #484f58;
+  font-size: 0.82rem;
+  padding: 20px !important;
+}
+
+.rowSelected td {
+  background: #0d2044 !important;
+}
+
+.configToggleBtn {
+  background: none;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #58a6ff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.configToggleBtn:hover {
+  background: #0d2044;
+  border-color: #58a6ff;
+}
+
+.configCell {
+  padding: 0 !important;
+  background: #0d1117;
+}
+
+.configPre {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+  color: #3fb950;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-left: 3px solid #1a4731;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.count {
+  color: #8b949e;
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.expandedCell {
+  padding: 0 !important;
+  background: #0d1117;
+  border-bottom: 2px solid #30363d;
+}
+
+.expandedHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 6px;
+}
+
+.expandedTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #58a6ff;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  flex: 1;
+}
+
+.innerTable {
+  width: 100%;
+  font-size: 0.78rem;
+  border-collapse: collapse;
+}
+
+.innerRow td {
+  padding: 5px 14px;
+  border-bottom: 1px solid #161b22;
+  vertical-align: middle;
+}
+
+.innerRow:hover td {
+  background: #1c2230;
+}
+
+.statusActive {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: #1a4731;
+  color: #3fb950;
+}
+
+.statusOther {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: #21262d;
+  color: #8b949e;
+}
+
+/* ── Phone Config Generator ──────────────────────────────────────────── */
+.generatorHint {
+  color: #8b949e;
+  font-size: 0.78rem;
+  margin: 0 0 0 8px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.generatorSelectors {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.selectorGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 280px;
+}
+
+.selectorLabel {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #484f58;
+  font-weight: 600;
+}
+
+.selectorSelect {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 280px;
+}
+
+.selectorSelect:focus {
+  outline: none;
+  border-color: #1f6feb;
+}
+
+.configPanels {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.configPanel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.configPanelHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #21262d;
+}
+
+.configPanelTitle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.configPanelMeta {
+  font-size: 0.75rem;
+  color: #484f58;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-left: 3px solid #1a4731;
+  border-radius: 4px;
+  color: #3fb950;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+  padding: 12px 14px;
+  resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.genTextarea:focus {
+  outline: none;
+  border-color: #1f6feb;
+}
+
+.noConfig {
+  background: #0d1117;
+  border: 1px dashed #30363d;
+  border-radius: 6px;
+  padding: 20px 16px;
+  color: #484f58;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.noConfig strong {
+  color: #58a6ff;
+}
+
+.link {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

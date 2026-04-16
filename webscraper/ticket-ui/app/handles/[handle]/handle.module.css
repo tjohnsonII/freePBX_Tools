@@ -1,0 +1,181 @@
+.breadcrumb {
+  font-size: 0.78rem;
+  color: #8b949e;
+  margin-bottom: 12px;
+}
+
+.breadcrumb a {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.handleName {
+  color: #e6edf3;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.summaryHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.handleTitle {
+  margin: 0;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 1.3rem;
+  color: #e6edf3;
+}
+
+.buildRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.buildBtn {
+  font-size: 0.78rem;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #e6edf3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.buildBtn:hover:not(:disabled) {
+  background: #30363d;
+}
+
+.buildBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Stat tiles ────────────────────────────────────────────────────────────── */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.statTile {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+.statLabel {
+  font-size: 0.7rem;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.statValue {
+  font-size: 1.4rem;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #e6edf3;
+  line-height: 1.2;
+}
+
+.statOpen {
+  color: #3fb950;
+}
+
+.statMono {
+  font-size: 0.82rem;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #e6edf3;
+}
+
+/* ── Timeline ──────────────────────────────────────────────────────────────── */
+
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timelineItem {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  border-bottom: 1px solid #21262d;
+}
+
+.timelineDate {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #8b949e;
+  min-width: 88px;
+  flex-shrink: 0;
+}
+
+.timelineCat {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.catIncident  { color: #f85149; }
+.catOutage    { color: #f85149; }
+.catChange    { color: #58a6ff; }
+.catRequest   { color: #3fb950; }
+.catMaintenance { color: #e3b341; }
+.catResolved  { color: #8b949e; }
+
+.timelineTitle {
+  color: #e6edf3;
+  flex: 1;
+}
+
+.timelineTicketId {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+  color: #58a6ff;
+  flex-shrink: 0;
+}
+
+.timelineDetails {
+  width: 100%;
+  font-size: 0.75rem;
+  color: #8b949e;
+  padding-left: 200px;
+  font-style: italic;
+}
+
+/* ── Section header with inline filter ────────────────────────────────────── */
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sectionHeader h2 {
+  margin: 0;
+}

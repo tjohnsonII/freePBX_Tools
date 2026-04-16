@@ -67,7 +67,6 @@ def main() -> int:
             "-m",
             "uvicorn",
             "webscraper_manager.api.server:app",
-            "--reload",
             "--host",
             args.host,
             "--port",

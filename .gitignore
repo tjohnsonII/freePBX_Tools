@@ -222,4 +222,7 @@ var/
 *.html
 
 #webscraper ticket UI build artifacts
-webscraper/ticket-ui/*
+webscraper/ticket-ui/node_modules/
+webscraper/ticket-ui/.next/
+webscraper/ticket-ui/*.tsbuildinfo
+webscraper/ticket-ui/F5

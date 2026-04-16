@@ -1,0 +1,19 @@
+.error {
+  color: #f85149;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.selectInline {
+  margin-left: 6px;
+}
+
+.logOutput {
+  max-height: 70vh;
+  overflow: auto;
+}

@@ -1,0 +1,134 @@
+.main {
+  max-width: 1400px;
+}
+
+.section {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+  background: #161b22;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  align-items: center;
+}
+
+.searchInput {
+  min-width: 220px;
+}
+
+.refreshBtn {
+  white-space: nowrap;
+}
+
+.subtle {
+  color: #8b949e;
+  font-size: 0.78rem;
+  margin: 4px 0 10px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.error {
+  color: #f85149;
+  font-size: 0.82rem;
+  margin: 8px 0;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  font-size: 0.8rem;
+  border-collapse: collapse;
+}
+
+.th {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  white-space: nowrap;
+  padding: 6px 10px;
+  text-align: left;
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+.th:hover {
+  color: #e6edf3;
+}
+
+.row td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #21262d;
+  vertical-align: middle;
+}
+
+.row:hover td {
+  background: #1c2230;
+}
+
+.handleCell {
+  font-weight: 700;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #8b949e;
+  white-space: nowrap;
+}
+
+.statusActive {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: #1a4731;
+  color: #3fb950;
+}
+
+.statusOther {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: #21262d;
+  color: #8b949e;
+}
+
+.emptyCell {
+  text-align: center;
+  color: #484f58;
+  font-size: 0.82rem;
+  padding: 20px !important;
+}
+
