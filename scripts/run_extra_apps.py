@@ -242,7 +242,6 @@ def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: i
         svc["app"],
         "--host", host,
         "--port", str(port),
-        "--reload",
     ]
 
     stop_service(root, name)

@@ -205,9 +205,12 @@ def _python_exe() -> str:
         return configured
 
     # Prefer the repo's standard Python (has Paramiko, etc.) over the backend venv.
+    # Windows dev machine paths first, then Linux fallbacks.
     candidates = [
         Path("E:/DevTools/Python/python.exe"),
         Path("E:/DevTools/Python/python3.exe"),
+        Path("/usr/bin/python3"),
+        Path("/usr/local/bin/python3"),
     ]
     for p in candidates:
         try:
