@@ -228,7 +228,7 @@ def _start_uvicorn(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: i
     """Start a FastAPI app via uvicorn using its own venv."""
     import os
     _sub = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
-    venv_python = (root / svc["venv"] / _sub[0] / _sub[1]).resolve()
+    venv_python = root / svc["venv"] / _sub[0] / _sub[1]
     if not venv_python.exists():
         return _unavailable(svc, f"venv not found: {venv_python}. Run bootstrap first.")
 
