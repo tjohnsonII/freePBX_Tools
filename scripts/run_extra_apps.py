@@ -187,6 +187,8 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
         return _dry_run_result(svc, ssh_start)
 
     import subprocess
+    import time as _time
+
     # Verify key-based auth works
     result = subprocess.run(ssh_check, capture_output=True, text=True, timeout=15)
     if result.returncode != 0:
@@ -196,16 +198,25 @@ def _start_ssh_remote(root: Path, svc: dict, *, dry_run: bool, readiness_timeout
             f"  stderr: {result.stderr.strip()}",
         )
 
-    # Start (idempotent — ctl script skips if already running)
-    result = subprocess.run(ssh_start, capture_output=True, text=True, timeout=30)
-    if result.returncode != 0:
-        return _unavailable(svc, f"Remote start failed: {result.stderr.strip() or result.stdout.strip()}")
-
-    print(f"[remote] {result.stdout.strip()}")
-
-    # Confirm running
+    # Check if already running before attempting start.
+    # Calling start when the server is already on the port causes a new process
+    # to crash immediately (Address already in use), making status report STOPPED
+    # even though the original instance is healthy.
     result = subprocess.run(ssh_status, capture_output=True, text=True, timeout=15)
-    running = result.returncode == 0
+    already_running = result.returncode == 0 and "RUNNING" in result.stdout.upper()
+
+    if not already_running:
+        result = subprocess.run(ssh_start, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return _unavailable(svc, f"Remote start failed: {result.stderr.strip() or result.stdout.strip()}")
+        print(f"[remote] {result.stdout.strip()}")
+        # Brief pause for process to stabilize before checking status
+        _time.sleep(2)
+        result = subprocess.run(ssh_status, capture_output=True, text=True, timeout=15)
+    else:
+        print(f"[remote] already running, skipping start")
+
+    running = result.returncode == 0 and "RUNNING" in result.stdout.upper()
     status_out = result.stdout.strip()
 
     if not running:
