@@ -89,17 +89,14 @@ def verify_staged_files_safe():
 
 
 def ensure_precommit():
-    # Check pre-commit
+    # Only require detect-secrets (pure Python). No pre-commit binary needed.
     try:
-        run(["pre-commit", "--version"], check=True)
+        run([sys.executable, "-m", "detect_secrets", "--version"], check=True)
     except Exception:
-        # Install via pip
-        run([sys.executable, "-m", "pip", "install", "pre-commit", "detect-secrets"], check=True)
+        run([sys.executable, "-m", "pip", "install", "detect-secrets"], check=True)
 
     ensure_detect_secrets_baseline()
     ensure_allowlist_pragmas()
-    # Do NOT run pre-commit install — that would inject hooks into .git/hooks
-    # and cause every normal `git commit` to hang downloading gitleaks.
 
 
 def ensure_allowlist_pragmas():
@@ -297,16 +294,18 @@ def auto_stage_and_commit(message: str | None = None) -> bool:
     verify_staged_files_safe()
     if not has_staged_changes():
         return False
-    # Run only detect-secrets on staged files (pure Python, no binary download).
-    # Gitleaks is intentionally skipped here — it requires a large binary download
-    # and is better run separately or via CI.
-    code, out, err = run(["pre-commit", "run", "detect-secrets"], check=False)
-    if code != 0:
-        raise RuntimeError(f"detect-secrets check failed\n{out}\n{err}")
-    # Re-stage in case hooks modified files
-    run(["git", "add", "-u"], check=True)
-    if not has_staged_changes():
-        return False
+    # Run detect-secrets directly as a Python module on staged files only.
+    # No pre-commit, no binary downloads, no environment setup.
+    _, staged_out, _ = run(["git", "diff", "--cached", "--name-only"], check=False)
+    staged_files = [f for f in staged_out.splitlines() if f.strip()]
+    if staged_files:
+        baseline = str(REPO_ROOT / ".secrets.baseline")
+        code, out, err = run(
+            [sys.executable, "-m", "detect_secrets", "scan", "--baseline", baseline, "--only-allowlisted"] + staged_files,
+            check=False,
+        )
+        if code != 0:
+            raise RuntimeError(f"detect-secrets check failed\n{out}\n{err}")
     msg = message or f"security: automated commit ({datetime.now().isoformat(timespec='seconds')})"
     run(["git", "commit", "-m", msg], check=True)
     return True
