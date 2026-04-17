@@ -333,6 +333,10 @@ def _run_scrape_job(
     )
 
     options = Options()
+    for candidate in ("/opt/google/chrome/chrome", "/opt/google/chrome/google-chrome", "/usr/bin/google-chrome-stable"):
+        if os.path.isfile(candidate):
+            options.binary_location = candidate
+            break
     chrome_profile_dir = os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR", "").strip()
     if chrome_profile_dir:
         profile_path = (Path(chrome_profile_dir) if os.path.isabs(chrome_profile_dir)
@@ -344,12 +348,20 @@ def _run_scrape_job(
         options.add_argument("--disable-gpu")
     else:
         options.add_argument("--start-maximized")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+    chromedriver_path = next(
+        (p for p in ("/usr/local/bin/chromedriver", "/usr/bin/chromedriver") if os.path.isfile(p)), None
+    )
     driver = None
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []
     try:
         _scrape_emit(job_id, "launched_browser", event="launched_browser")
-        driver = webdriver.Chrome(options=options)
+        from selenium.webdriver.chrome.service import Service as ChromeService
+        svc = ChromeService(chromedriver_path) if chromedriver_path else None
+        driver = webdriver.Chrome(service=svc, options=options) if svc else webdriver.Chrome(options=options)
         driver.get(CHROME_CUSTOMERS_URL)
         _scrape_emit(job_id, "waiting_for_login", event="waiting_for_login",
                      data={"timeout_seconds": login_timeout_seconds})
@@ -907,6 +919,74 @@ def _job_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ── Session validity check ────────────────────────────────────────────────────
+
+def _check_saved_session() -> dict[str, object]:
+    """Return {valid, message} by probing secure.123.net with saved profile cookies."""
+    import sqlite3 as _sqlite3
+    import http.cookiejar as _cookiejar
+    import urllib.request as _urllib_request
+
+    profile_dir = os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR", "").strip()
+    if not profile_dir:
+        return {"valid": None, "message": "No Chrome profile configured — manual login required"}
+
+    profile_path = (Path(profile_dir) if os.path.isabs(profile_dir)
+                    else Path(__file__).resolve().parents[5] / profile_dir)
+    cookie_db = profile_path / "Default" / "Cookies"
+    if not cookie_db.exists():
+        return {"valid": False, "message": "No saved session — run auth_session.sh and log in via VNC"}
+
+    try:
+        # Copy to temp file (Chrome may lock the original)
+        import shutil, tempfile
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+        shutil.copy2(cookie_db, tmp_path)
+
+        jar = _cookiejar.CookieJar()
+        conn = _sqlite3.connect(tmp_path)
+        rows = conn.execute(
+            "SELECT host_key, name, value, path, expires_utc, is_secure FROM cookies "
+            "WHERE host_key LIKE '%123.net%'"
+        ).fetchall()
+        conn.close()
+        os.unlink(tmp_path)
+
+        if not rows:
+            return {"valid": False, "message": "No 123.net cookies in saved profile — run auth_session.sh"}
+
+        # Quick HTTP probe using saved cookies
+        opener = _urllib_request.build_opener(_urllib_request.HTTPCookieProcessor(jar))
+        for host, name, value, path, _, secure in rows:
+            ck = _cookiejar.Cookie(
+                version=0, name=name, value=value, port=None, port_specified=False,
+                domain=host.lstrip("."), domain_specified=True,
+                domain_initial_dot=host.startswith("."),
+                path=path, path_specified=True, secure=bool(secure),
+                expires=None, discard=True, comment=None, comment_url=None, rest={},
+            )
+            jar.set_cookie(ck)
+
+        req = _urllib_request.Request(
+            "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp = opener.open(req, timeout=10)
+        final_url = resp.geturl()
+        if "secure.123.net" in final_url and "customers" in final_url:
+            return {"valid": True, "message": "Session is active"}
+        return {"valid": False, "message": f"Session redirected to {final_url} — re-auth required"}
+    except Exception as exc:
+        return {"valid": False, "message": f"Session check failed: {exc}"}
+
+
+@app.get("/api/scrape/check-auth")
+def api_check_auth():
+    """Check whether the saved Chrome profile has a valid 123.net session."""
+    return _check_saved_session()
+
+
 # ── Scrape control endpoints ──────────────────────────────────────────────────
 
 
@@ -921,6 +1001,9 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
     handles = _load_scrape_handles()
     if not handles:
         raise HTTPException(status_code=400, detail="No handles available to scrape")
+    auth = _check_saved_session()
+    if auth.get("valid") is False:
+        raise HTTPException(status_code=401, detail=f"re-auth-required: {auth['message']}")
     resume = (payload.resume_from_handle if payload else None)
     now = _iso_now()
     job_id = str(uuid.uuid4())
