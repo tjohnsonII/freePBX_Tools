@@ -152,6 +152,8 @@ cookies*.json
 # local dumps / exports / scratch
 *.csv
 *.json
+!PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.app.json
+!PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.node.json
 ENV_VARS.txt
 *VERSION*.txt
 *_TREE*.txt
