@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3011",
     "build": "next build",
-    "start": "next start --port 3011",
+    "start": "next start --port 3011 --hostname 127.0.0.1",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

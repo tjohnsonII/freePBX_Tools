@@ -49,6 +49,7 @@ SERVICES = {
         "kind": "npm-next",
         "health_paths": ["/"],
         "success_markers": ["Ready in", "Local:"],
+        "npm_script": "start",
     },
     "remote_traceroute": {
         "label": "Remote Traceroute Server (CAGE)",
@@ -123,8 +124,12 @@ def _start_npm(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) 
     port = svc["port"]
     name = svc["service_name"]
 
-    # Vite uses --port directly; Next.js uses -- --port
-    if svc["kind"] == "npm-vite":
+    # Services with "npm_script": "start" use a pre-built production server;
+    # port/hostname are already embedded in the package.json script.
+    script = svc.get("npm_script", "dev")
+    if script != "dev":
+        cmd = [npm, "run", script]
+    elif svc["kind"] == "npm-vite":
         cmd = [npm, "run", "dev", "--", "--port", str(port), "--host", host]
     else:
         cmd = [npm, "run", "dev", "--", "--port", str(port), "--hostname", host]
