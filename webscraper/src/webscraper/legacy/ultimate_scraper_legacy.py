@@ -1972,6 +1972,74 @@ def scrape_ticket_details(
     return summary
 
 
+_VPBX_ACTIVE_STATUSES: frozenset[str] = frozenset({"production_billed", "testing", "provisioning"})
+_VPBX_URL = "https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi"
+
+
+def _discover_handles_from_driver(driver: Any, log: Any) -> List[str]:
+    """Navigate to vpbx.cgi on the live authenticated session, paginate through
+    all DataTables pages, and return handles whose status is in _VPBX_ACTIVE_STATUSES."""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from webscraper.vpbx.handles import _parse_vpbx_page_source
+
+    log.info("vpbx_discovery_start url=%s", _VPBX_URL)
+    driver.get(_VPBX_URL)
+    try:
+        WebDriverWait(driver, 30).until(
+            lambda d: len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
+        )
+    except Exception as exc:
+        log.warning("vpbx_discovery_wait_failed error=%s current_url=%s", exc, driver.current_url)
+        raise RuntimeError(f"vpbx.cgi did not load a handles table (url={driver.current_url})") from exc
+
+    all_records: dict[str, dict[str, str]] = {}
+    page_num = 1
+    while True:
+        for rec in _parse_vpbx_page_source(driver.page_source):
+            all_records[rec["handle"]] = rec
+        log.info("vpbx_discovery_page page=%s this_page_cumulative=%s", page_num, len(all_records))
+
+        next_btns = driver.find_elements(By.ID, "vpbx_list_next")
+        if not next_btns:
+            break
+        classes = next_btns[0].get_attribute("class") or ""
+        if "disabled" in classes or "ui-state-disabled" in classes:
+            break
+
+        first_rows = driver.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")
+        first_row_text = first_rows[0].text if first_rows else ""
+        try:
+            next_btns[0].click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", next_btns[0])
+        try:
+            WebDriverWait(driver, 10).until(
+                lambda d: (
+                    d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")
+                    and d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")[0].text != first_row_text
+                )
+            )
+        except Exception:
+            import time as _time
+            _time.sleep(1.5)
+        page_num += 1
+
+    active = [
+        r["handle"]
+        for r in all_records.values()
+        if r.get("account_status", "").strip().lower() in _VPBX_ACTIVE_STATUSES
+    ]
+    skipped = len(all_records) - len(active)
+    log.info("vpbx_discovery_done total=%s active=%s skipped_decommissioned=%s", len(all_records), len(active), skipped)
+    print(
+        f"[DISCOVERY] vpbx.cgi: {len(all_records)} total handles, "
+        f"{len(active)} active, {skipped} skipped (decommissioned/other)",
+        flush=True,
+    )
+    return active
+
+
 def selenium_scrape_tickets(
     url: str,
     output_dir: str,
@@ -2032,6 +2100,7 @@ def selenium_scrape_tickets(
     no_profile_launch: bool = False,
     browser: str = "edge",
     db_path: Optional[str] = None,
+    auto_discover_handles: bool = False,
 ) -> None:
     """Minimal Selenium workflow that:
     - launches Edge (headless optional)
@@ -3189,6 +3258,12 @@ def selenium_scrape_tickets(
         def is_invalid_session_error(err: Exception) -> bool:
             return "invalid session id" in str(err).lower()
 
+        if auto_discover_handles:
+            handles = _discover_handles_from_driver(driver, logger)
+            if not handles:
+                print("[DISCOVERY] No active handles found on vpbx.cgi — nothing to scrape.", flush=True)
+                return
+
         abort_run = False
         total_ticket_scraped = 0
         total_ticket_skipped = 0
@@ -3374,6 +3449,16 @@ def main() -> int:
     parser.add_argument("--db", default=os.path.join("webscraper", "output", "tickets.sqlite"), help="SQLite database path for ticket upsert (default: webscraper/output/tickets.sqlite)")
     parser.add_argument("--handles", nargs="+", default=default_handles, help="One or more customer handles")
     parser.add_argument("--handles-file", help="Path to a file containing handles (one per line; '#' for comments)")
+    parser.add_argument(
+        "--auto-discover",
+        action="store_true",
+        help=(
+            "Phase 1: after login, scrape vpbx.cgi to discover all active handles "
+            "(status: production_billed, testing, provisioning). "
+            "Overrides --handles and --handles-file. "
+            "Phase 2: scrape tickets for each discovered handle using the existing logic."
+        ),
+    )
     parser.add_argument("--show", action="store_true", help="Run browser in visible (non-headless) mode")
     parser.add_argument("--browser", choices=["edge", "chrome"], default=selection.browser, help="Browser engine")
     parser.add_argument("--vacuum", action="store_true", help="Aggressively crawl internal links after search to save pages")
@@ -3527,10 +3612,15 @@ def main() -> int:
     out_dir = os.environ.get("SCRAPER_OUT") or args.out
     kb_jsonl = args.kb_jsonl or os.path.join(out_dir, "kb.jsonl")
     cookie_file = os.environ.get("WEBSCRAPER_COOKIES_FILE") or os.environ.get("SCRAPER_COOKIE_FILE") or args.cookie_file
-    # Determine handles precedence: --handles-file > env > CLI list
+    # Determine handles precedence: --auto-discover > --handles-file > env > CLI list
+    auto_discover = getattr(args, "auto_discover", False)
     handles_env = os.environ.get("SCRAPER_HANDLES")
     handles = None
-    if args.handles_file:
+    if auto_discover:
+        # Handles will be discovered from vpbx.cgi inside selenium_scrape_tickets()
+        handles = []
+        logger.info("handles_source run_id=%s source=auto_discover", run_id)
+    elif args.handles_file:
         try:
             with open(args.handles_file, "r", encoding="utf-8") as hf:
                 lines = hf.read().splitlines()
@@ -3723,6 +3813,7 @@ def main() -> int:
         no_profile_launch=args.no_profile_launch,
         browser=args.browser,
         db_path=args.db,
+        auto_discover_handles=auto_discover,
     )
     logger.info("scraper_complete run_id=%s status=ok", run_id)
     return 0

@@ -77,9 +77,10 @@ SERVICES = {
         "rel_dir": "PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main",
         "port": 3002,
         "host": "127.0.0.1",
-        "kind": "npm-vite",
+        "kind": "static",
         "health_paths": ["/"],
-        "success_markers": ["Local:", "ready in", "VITE"],
+        "success_markers": [],
+        "skip": True,
     },
     "web_manager": {
         "label": "FreePBX Tools Web Manager (Flask)",
