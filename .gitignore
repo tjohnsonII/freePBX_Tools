@@ -206,6 +206,9 @@ imported_cookies.json
 # allow tracked webscraper config module
 !webscraper/src/webscraper/config.py
 
+# local settings override (not committed; use settings.example.yaml as reference)
+webscraper/configs/settings.yaml
+
 
 # webscraper runtime/output (do not track)
 webscraper/var/

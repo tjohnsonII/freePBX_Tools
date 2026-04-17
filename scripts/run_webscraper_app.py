@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -119,7 +120,12 @@ def _start_api(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "pid": None,
             "log_file": None,
         }
-    entry = start_detached(root=root, service_name="webscraper_ticket_api", cmd=api_cmd, cwd=root)
+    chrome_profile = str(root / "webscraper" / "var" / "chrome-profile")
+    api_env: dict[str, str] = {}
+    if os.path.isdir(chrome_profile):
+        api_env["WEBSCRAPER_CHROME_PROFILE_DIR"] = chrome_profile
+    entry = start_detached(root=root, service_name="webscraper_ticket_api", cmd=api_cmd, cwd=root,
+                           env_overrides=api_env if api_env else None)
     save_service_state(root, entry)
     wait_for_process_stable(int(entry["pid"]), timeout_s=10, section="ready", min_alive_s=3.0)
     health_url = f"http://{args.api_host}:{args.api_port}/api/health"
