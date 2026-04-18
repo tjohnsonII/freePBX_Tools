@@ -337,23 +337,15 @@ def _run_scrape_job(
         if os.path.isfile(candidate):
             options.binary_location = candidate
             break
-    chrome_profile_dir = os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR", "").strip()
-    if chrome_profile_dir:
-        profile_path = (Path(chrome_profile_dir) if os.path.isabs(chrome_profile_dir)
-                        else Path(__file__).resolve().parents[5] / chrome_profile_dir)
-        options.add_argument(f"--user-data-dir={profile_path}")
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-    else:
-        options.add_argument("--start-maximized")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--start-maximized")
     chromedriver_path = next(
         (p for p in ("/usr/local/bin/chromedriver", "/usr/bin/chromedriver") if os.path.isfile(p)), None
     )
+    # Run on virtual display :99 (Xvfb) so user can connect via VNC to log in
+    os.environ.setdefault("DISPLAY", ":99")
     driver = None
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []

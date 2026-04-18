@@ -18,46 +18,29 @@ echo "=========================================="
 
 cd "$REPO"
 
-# ── 0. Start VNC auth session in background ───────────────────────────────
+# ── 0. Start persistent virtual display + VNC ─────────────────────────────
 echo ""
-echo "[0/6] Starting VNC auth session for webscraper..."
+echo "[0/6] Starting virtual display and VNC..."
 
-# Kill any stale virtual display / VNC from a previous run
 pkill -f "Xvfb :${DISPLAY_NUM}" 2>/dev/null || true
 pkill -f "x11vnc.*:${DISPLAY_NUM}" 2>/dev/null || true
-pkill -f "chrome.*user-data-dir=$PROFILE_DIR" 2>/dev/null || true
 sleep 1
 
-mkdir -p "$PROFILE_DIR"
-
-if command -v Xvfb &>/dev/null && command -v google-chrome &>/dev/null; then
+if command -v Xvfb &>/dev/null; then
     Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 2>/dev/null &
     sleep 1
     DISPLAY=":${DISPLAY_NUM}" openbox 2>/dev/null &
     sleep 0.5
     x11vnc -display ":${DISPLAY_NUM}" -localhost -nopw -forever -bg -quiet 2>/dev/null
-    DISPLAY=":${DISPLAY_NUM}" google-chrome \
-        --user-data-dir="$PROFILE_DIR" \
-        --no-sandbox --disable-dev-shm-usage --disable-gpu \
-        --window-size=1280,900 \
-        "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi" \
-        2>/dev/null &
+    echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on localhost:${VNC_PORT} ready."
     echo ""
-    echo "  ┌─────────────────────────────────────────────────────────┐"
-    echo "  │  VNC auth session started on localhost:${VNC_PORT}              │"
-    echo "  │                                                         │"
-    echo "  │  From your laptop:                                      │"
-    echo "  │    ssh -L 5901:127.0.0.1:5900 $(hostname -s)                   │"
-    echo "  │    Then open VNC → localhost:5901                       │"
-    echo "  │                                                         │"
-    echo "  │  Log in to 123.net, then CLOSE CHROME (not VNC).       │"
-    echo "  │  Services will start while you authenticate.            │"
-    echo "  └─────────────────────────────────────────────────────────┘"
+    echo "  When a scrape is triggered, Chrome will open on this display."
+    echo "  If login is required, connect via VNC:"
+    echo "    ssh -L 5901:127.0.0.1:5900 $(hostname -s)"
+    echo "    Then open VNC client → localhost:5901"
     echo ""
 else
-    echo "[WARN] Xvfb or google-chrome not found — skipping VNC auth session."
-    echo "       Run: sudo apt install -y xvfb x11vnc openbox"
-    echo "       And: scripts/auth_session.sh"
+    echo "[WARN] Xvfb not found — run: sudo apt install -y xvfb x11vnc openbox"
 fi
 
 # ── 1. Pull latest code ────────────────────────────────────────────────────
@@ -159,13 +142,8 @@ echo ""
 echo "Log saved to: $LOG_FILE"
 echo ""
 echo "─────────────────────────────────────────────────────────"
-echo " SCRAPER AUTH STATUS"
-AUTH_RESULT=$(curl -s http://127.0.0.1:8788/api/scrape/check-auth 2>/dev/null || echo '{"valid":null}')
-if echo "$AUTH_RESULT" | grep -q '"valid": true'; then
-    echo "  ✓ Saved session is active — scrape will run headlessly"
-else
-    MSG=$(echo "$AUTH_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','unknown'))" 2>/dev/null || echo "unknown")
-    echo "  ✗ $MSG"
-    echo "  → Connect VNC to localhost:5901 and log in, then close Chrome"
-fi
+echo " To start scraping: trigger a scrape from the ticket UI"
+echo " or via: curl -X POST http://127.0.0.1:8788/api/scrape/start"
+echo " Chrome will open on the virtual display. If login is"
+echo " needed, VNC in:  ssh -L 5901:127.0.0.1:5900 $(hostname -s)"
 echo "─────────────────────────────────────────────────────────"
