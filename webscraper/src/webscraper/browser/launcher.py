@@ -24,24 +24,25 @@ def _add_root_flags(options) -> None:
 
 
 def _repair_chrome_profile(profile_dir: Path, profile_name: str = "Default") -> None:
-    """Remove corrupt or unreadable Chrome profile files that cause startup crashes."""
-    profile_default = profile_dir / profile_name
-    if not profile_default.exists():
-        return
-    for fname in ("Preferences", "Secure Preferences"):
-        pref_path = profile_default / fname
+    """Remove corrupt or unreadable Chrome profile JSON files that cause startup crashes."""
+    candidates = [
+        profile_dir / "Local State",
+        profile_dir / profile_name / "Preferences",
+        profile_dir / profile_name / "Secure Preferences",
+    ]
+    for pref_path in candidates:
         if not pref_path.exists():
             continue
         try:
             data = pref_path.read_text(encoding="utf-8")
             json.loads(data)
         except (PermissionError, json.JSONDecodeError, UnicodeDecodeError):
-            backup = pref_path.with_suffix(".bak")
+            backup = pref_path.with_name(pref_path.name + ".bak")
             try:
                 pref_path.rename(backup)
-                print(f"[launcher] Moved corrupt {fname} to {backup.name} — Chrome will recreate it")
+                print(f"[launcher] Moved corrupt {pref_path.name} to {backup.name} — Chrome will recreate it")
             except Exception as exc:
-                print(f"[launcher] Could not remove corrupt {fname}: {exc}")
+                print(f"[launcher] Could not remove corrupt {pref_path.name}: {exc}")
 
 
 def get_driver(
