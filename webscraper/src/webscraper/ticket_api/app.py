@@ -993,9 +993,6 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
     handles = _load_scrape_handles()
     if not handles:
         raise HTTPException(status_code=400, detail="No handles available to scrape")
-    auth = _check_saved_session()
-    if auth.get("valid") is False:
-        raise HTTPException(status_code=401, detail=f"re-auth-required: {auth['message']}")
     resume = (payload.resume_from_handle if payload else None)
     now = _iso_now()
     job_id = str(uuid.uuid4())

@@ -121,11 +121,11 @@ def _start_api(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
     chrome_profile = str(root / "webscraper" / "var" / "chrome-profile")
-    api_env: dict[str, str] = {}
+    api_env: dict[str, str] = {"DISPLAY": ":99"}
     if os.path.isdir(chrome_profile):
         api_env["WEBSCRAPER_CHROME_PROFILE_DIR"] = chrome_profile
     entry = start_detached(root=root, service_name="webscraper_ticket_api", cmd=api_cmd, cwd=root,
-                           env_overrides=api_env if api_env else None)
+                           env_overrides=api_env)
     save_service_state(root, entry)
     wait_for_process_stable(int(entry["pid"]), timeout_s=10, section="ready", min_alive_s=3.0)
     health_url = f"http://{args.api_host}:{args.api_port}/api/health"
