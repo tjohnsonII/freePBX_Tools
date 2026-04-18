@@ -160,7 +160,7 @@ def _start_ui(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
 
-    ui_cmd = [npm_executable(), "--prefix", "webscraper/ticket-ui", "run", "dev", "--", "--port", str(args.ui_port), "--hostname", args.ui_host]
+    ui_cmd = [npm_executable(), "--prefix", "webscraper/ticket-ui", "run", "start", "--", "--port", str(args.ui_port), "--hostname", args.ui_host]
     stop_service(root, "webscraper_ticket_ui")
     if args.dry_run:
         return {
