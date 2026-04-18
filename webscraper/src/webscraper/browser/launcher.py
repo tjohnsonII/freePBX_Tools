@@ -14,6 +14,7 @@ def _add_root_flags(options) -> None:
     """Chromium-based browsers crash when run as root without --no-sandbox."""
     if os.name != "nt" and os.getuid() == 0:
         options.add_argument("--no-sandbox")
+        options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--no-first-run")
