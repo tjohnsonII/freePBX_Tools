@@ -86,7 +86,9 @@ def _start_worker(root: Path, args: argparse.Namespace) -> dict[str, object]:
         }
 
     edgedriver_path = "/root/.cache/selenium/msedgedriver/linux64/147.0.3912.72/msedgedriver"
-    worker_env = {"EDGEDRIVER_PATH": edgedriver_path} if os.path.exists(edgedriver_path) else {}
+    worker_env: dict[str, str] = {"DISPLAY": ":99"}
+    if os.path.exists(edgedriver_path):
+        worker_env["EDGEDRIVER_PATH"] = edgedriver_path
     entry = start_detached(root=root, service_name="webscraper_worker_service", cmd=worker_cmd, cwd=worker_cwd, env_overrides=worker_env)
     save_service_state(root, entry)
     wait_for_process_stable(int(entry["pid"]), timeout_s=args.readiness_timeout, section="ready", min_alive_s=4.0)

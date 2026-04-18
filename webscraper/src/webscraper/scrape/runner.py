@@ -21,7 +21,7 @@ def _build_config(mode: str, dry_run: bool) -> dict[str, Any]:
         "resume": mode == "incremental",
         "dry_run": dry_run,
         "browser": cfg.browser,
-        "headless": False,
+        "headless": True,
         "profile_dir": str(cfg.profile_dir),
         "profile_name": cfg.profile_name,
         "cookie_file": os.getenv("WEBSCRAPER_COOKIES_FILE", str((Path(__file__).resolve().parents[3] / "var" / "auth" / "cookies.json").resolve())),
