@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal, Optional
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
+
+
+def _add_root_flags(options) -> None:
+    """Chromium-based browsers crash when run as root without --no-sandbox."""
+    if os.name != "nt" and os.getuid() == 0:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
 
 
 def get_driver(
@@ -26,6 +34,7 @@ def get_driver(
             options.binary_location = binary_path
         if headless:
             options.add_argument("--headless=new")
+        _add_root_flags(options)
         return webdriver.Chrome(options=options)
 
     options = EdgeOptions()
@@ -36,4 +45,5 @@ def get_driver(
         options.binary_location = binary_path
     if headless:
         options.add_argument("--headless=new")
+    _add_root_flags(options)
     return webdriver.Edge(options=options)
