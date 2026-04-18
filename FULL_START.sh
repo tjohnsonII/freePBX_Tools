@@ -162,6 +162,13 @@ done
 echo "[3/6] Waiting for ports to clear..."
 sleep 4
 
+# ── 3b. Ensure manager-ui uses local API proxy (not broken HTTPS URL) ─────
+MANAGER_ENV="$REPO/manager-ui/.env.local"
+if [ -f "$MANAGER_ENV" ] && grep -q "https://" "$MANAGER_ENV" 2>/dev/null; then
+    echo "NEXT_PUBLIC_API_BASE=" > "$MANAGER_ENV"
+    echo "[3/6] Set manager-ui API_BASE to local proxy (was https://...)."
+fi
+
 # ── 4. Reload/start Apache (picks up any vhost changes) ──────────────────
 echo ""
 echo "[4/6] Starting Apache..."
