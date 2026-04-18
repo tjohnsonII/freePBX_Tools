@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Literal, Optional
@@ -14,6 +15,32 @@ def _add_root_flags(options) -> None:
     if os.name != "nt" and os.getuid() == 0:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--no-first-run")
+        options.add_argument("--no-default-browser-check")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-background-networking")
+
+
+def _repair_chrome_profile(profile_dir: Path, profile_name: str = "Default") -> None:
+    """Remove corrupt or unreadable Chrome profile files that cause startup crashes."""
+    profile_default = profile_dir / profile_name
+    if not profile_default.exists():
+        return
+    for fname in ("Preferences", "Secure Preferences"):
+        pref_path = profile_default / fname
+        if not pref_path.exists():
+            continue
+        try:
+            data = pref_path.read_text(encoding="utf-8")
+            json.loads(data)
+        except (PermissionError, json.JSONDecodeError, UnicodeDecodeError):
+            backup = pref_path.with_suffix(".bak")
+            try:
+                pref_path.rename(backup)
+                print(f"[launcher] Moved corrupt {fname} to {backup.name} — Chrome will recreate it")
+            except Exception as exc:
+                print(f"[launcher] Could not remove corrupt {fname}: {exc}")
 
 
 def get_driver(
@@ -26,6 +53,7 @@ def get_driver(
 ):
     profile_dir.mkdir(parents=True, exist_ok=True)
     if browser == "chrome":
+        _repair_chrome_profile(profile_dir, profile_name)
         options = ChromeOptions()
         options.add_argument(f"--user-data-dir={profile_dir}")
         options.add_argument(f"--profile-directory={profile_name}")
