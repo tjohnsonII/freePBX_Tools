@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
 import styles from "./OrchestrationDashboard.module.css";
 
@@ -34,6 +34,7 @@ type SystemStatus = {
   db_counts: { tickets: number; handles: number };
   last_error?: string | null;
   state: StepState;
+  login_required?: boolean;
 };
 
 type ScrapeStart = { queued: boolean; job_id: string; handles_total: number; status: string; resume_from_handle?: string | null };
@@ -146,9 +147,29 @@ export default function OrchestrationDashboard() {
     }
   };
 
+  const loginRequired = useMemo(() => {
+    if (status?.login_required) return true;
+    const waitIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "waiting_for_login");
+    if (waitIdx === -1) return false;
+    const loginIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "login_detected");
+    return loginIdx < waitIdx;
+  }, [status, scrapeEvents]);
+
+  const vncHost = typeof window !== "undefined" ? window.location.hostname : "192.168.30.19";
+
   return (
     <section className={styles.section}>
       <h2>Scrape Dashboard</h2>
+      {loginRequired && (
+        <div className={styles.loginBanner}>
+          <strong>Login required</strong> — Chrome is waiting for you to sign in.
+          <ol className={styles.loginBannerSteps}>
+            <li>Open a terminal and run:<br /><code>ssh -L 5901:127.0.0.1:5900 {vncHost}</code></li>
+            <li>Open your VNC client and connect to <code>localhost:5901</code></li>
+            <li>Complete the 123.net SSO login — scraping will resume automatically.</li>
+          </ol>
+        </div>
+      )}
       {error ? <p className={styles.error}>{error}</p> : null}
       <div className={styles.statusGrid}>
         <div><strong>Backend</strong><div>{status?.backend_health ?? "unknown"}</div></div>

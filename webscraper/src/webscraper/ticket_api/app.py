@@ -1084,11 +1084,28 @@ def job_status_alias(job_id: str):
 @app.get("/api/system/status")
 def api_system_status():
     stats = db.get_stats(db_path())
+    login_required = False
+    try:
+        latest_job = db.get_latest_scrape_job(db_path())
+        if latest_job and latest_job.get("status") in ("running", "queued"):
+            events = db.get_scrape_events(db_path(), latest_job["job_id"], limit=30)
+            wait_idx = -1
+            login_idx = -1
+            for i, ev in enumerate(events):
+                ev_name = (ev.get("data") or {}).get("event")
+                if ev_name == "waiting_for_login":
+                    wait_idx = i
+                elif ev_name == "login_detected":
+                    login_idx = i
+            login_required = wait_idx > login_idx
+    except Exception:
+        pass
     return {
         "backend_health": "ok",
         "browser_status": "n/a",
         "auth_status": "n/a",
         "state": "idle",
+        "login_required": login_required,
         "db_counts": {
             "tickets": int(stats.get("total_tickets", 0)),
             "handles": int(stats.get("total_handles", 0)),
