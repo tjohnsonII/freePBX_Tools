@@ -107,7 +107,9 @@ fi
 # ── 1. Pull latest code ────────────────────────────────────────────────────
 echo ""
 echo "[1/6] Pulling latest code..."
-if ! git pull --rebase origin main; then
+git config --global --add safe.directory "$REPO" 2>/dev/null || true
+CURRENT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "Server")
+if ! git pull --rebase origin "$CURRENT_BRANCH"; then
     echo "[WARN] git pull failed — continuing with local code."
 fi
 
@@ -153,14 +155,21 @@ done
 echo "[3/6] Waiting for ports to clear..."
 sleep 4
 
-# ── 4. Reload Apache (picks up any vhost changes) ─────────────────────────
+# ── 4. Reload/start Apache (picks up any vhost changes) ──────────────────
 echo ""
-echo "[4/6] Reloading Apache..."
-if systemctl reload apache2; then
-    echo "[4/6] Apache reloaded."
+echo "[4/6] Starting Apache..."
+if systemctl is-active apache2 &>/dev/null; then
+    if systemctl reload apache2; then
+        echo "[4/6] Apache reloaded."
+    else
+        echo "[WARN] Apache reload failed — trying restart..."
+        systemctl restart apache2 2>&1 || echo "[WARN] Apache restart also failed — check: journalctl -u apache2 -n 20"
+    fi
+elif apache2ctl configtest 2>/dev/null; then
+    systemctl start apache2 && echo "[4/6] Apache started." || echo "[WARN] Apache start failed — services will continue without it."
 else
-    echo "[ERROR] Apache reload failed — check: journalctl -u apache2 -n 20"
-    exit 1
+    echo "[WARN] Apache config invalid (missing SSL cert?) — services will start without Apache."
+    echo "[WARN] To fix: sudo certbot renew --force-renewal"
 fi
 
 # ── 5. Start all services ─────────────────────────────────────────────────
