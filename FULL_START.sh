@@ -53,25 +53,23 @@ echo ""
 echo "[0/6] Starting virtual display and VNC..."
 
 if command -v Xvfb &>/dev/null; then
-    # Only restart Xvfb if it isn't already running on this display
+    # Preserve Xvfb (keeps existing VNC desktop state); always restart x11vnc
+    # so any -localhost restriction is replaced with all-interface binding.
+    pkill -f "x11vnc" 2>/dev/null || true
+    sleep 0.5
+
     if ! pgrep -f "Xvfb :${DISPLAY_NUM}" &>/dev/null; then
-        pkill -f "x11vnc.*:${DISPLAY_NUM}" 2>/dev/null || true
-        sleep 0.5
         Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 2>/dev/null &
         sleep 1
         DISPLAY=":${DISPLAY_NUM}" openbox 2>/dev/null &
         sleep 0.5
     fi
 
-    # Only (re)start x11vnc if it isn't already listening on port ${VNC_PORT}
-    if ! ss -tlnp 2>/dev/null | grep -q ":${VNC_PORT} "; then
-        # No -localhost: x11vnc binds to all interfaces so LAN users connect directly
-        x11vnc -display ":${DISPLAY_NUM}" -rfbport "${VNC_PORT}" \
-            -nopw -forever -bg -quiet 2>/dev/null
-        sleep 0.5
-    fi
+    # Start x11vnc on all interfaces (no -localhost) so LAN users can connect directly
+    x11vnc -display ":${DISPLAY_NUM}" -rfbport "${VNC_PORT}" \
+        -nopw -forever -bg -quiet 2>/dev/null
+    sleep 0.5
     echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on ${VNC_BIND_IP}:${VNC_PORT} ready."
-    echo "PORT=${VNC_PORT}"
     echo ""
 else
     echo "[WARN] Xvfb not found — run: sudo apt install -y xvfb x11vnc openbox"
