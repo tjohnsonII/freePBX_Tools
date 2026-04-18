@@ -125,7 +125,7 @@ def _capture_auth_failure_artifacts(driver: Any) -> None:
 
 
 def _is_authenticated_session(driver: Any) -> bool:
-    return (not _is_login_redirect(getattr(driver, "current_url", "") or "")) and _is_expected_auth_host(
+    return (not _is_login_redirect(driver)) and _is_expected_auth_host(
         getattr(driver, "current_url", "") or ""
     )
 
