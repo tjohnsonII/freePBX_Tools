@@ -19,7 +19,7 @@ if command -v Xvfb &>/dev/null; then
     sleep 1
     DISPLAY=":${DISPLAY_NUM}" openbox 2>/dev/null &
     sleep 0.5
-    x11vnc -display ":${DISPLAY_NUM}" -localhost -nopw -forever -bg -quiet 2>/dev/null || true
+    x11vnc -display ":${DISPLAY_NUM}" -rfbport 5900 -nopw -forever -bg -quiet 2>/dev/null || true
     echo "[start] Virtual display :${DISPLAY_NUM} ready."
 else
     echo "[WARN] Xvfb not found — Chrome scraping will fail."

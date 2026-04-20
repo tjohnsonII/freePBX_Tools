@@ -70,6 +70,7 @@ SERVICES = {
         "kind": "npm-next",
         "health_paths": ["/"],
         "success_markers": ["Ready in", "Local:"],
+        "npm_script": "start",
     },
     "polycom": {
         "label": "Polycom/Yealink/Mikrotik Config App",

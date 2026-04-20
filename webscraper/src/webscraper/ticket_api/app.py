@@ -844,6 +844,20 @@ def _startup_bootstrap() -> None:
     if handles:
         for handle in handles:
             db.ensure_handle_row(db_path(), handle)
+    # Reap jobs left in running/queued state from a previous crashed session
+    try:
+        import sqlite3 as _sqlite3
+        con = _sqlite3.connect(db_path())
+        cur = con.execute(
+            "UPDATE scrape_jobs SET status='failed', finished_utc=datetime('now')"
+            " WHERE status IN ('running','queued')"
+        )
+        if cur.rowcount:
+            LOGGER.warning("startup: reaped %d stale running/queued jobs", cur.rowcount)
+        con.commit()
+        con.close()
+    except Exception as exc:
+        LOGGER.warning("startup: could not reap stale jobs: %s", exc)
     stats = db.get_stats(db_path())
     LOGGER.info("startup db_path=%s handles=%s tickets=%s",
                 db_path(), stats.get("total_handles"), stats.get("total_tickets"))

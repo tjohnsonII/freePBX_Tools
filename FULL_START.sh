@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+FORCE_REBUILD=false
+for arg in "$@"; do
+    case "$arg" in
+        --force-rebuild) FORCE_REBUILD=true ;;
+        *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
+    esac
+done
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "[ERROR] FULL_START.sh must be run as root. Use: sudo ./FULL_START.sh"
     exit 1
@@ -69,7 +77,7 @@ if command -v Xvfb &>/dev/null; then
     x11vnc -display ":${DISPLAY_NUM}" -rfbport "${VNC_PORT}" \
         -nopw -forever -bg -quiet 2>/dev/null
     sleep 0.5
-    echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on ${VNC_BIND_IP}:${VNC_PORT} ready."
+    echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on 0.0.0.0:${VNC_PORT} (all interfaces) ready."
     echo ""
 else
     echo "[WARN] Xvfb not found — run: sudo apt install -y xvfb x11vnc openbox"
@@ -120,29 +128,73 @@ if ! git pull --rebase origin "$CURRENT_BRANCH"; then
     echo "[WARN] git pull failed — continuing with local code."
 fi
 
-# ── 2. Rebuild polycom static dist if source changed ──────────────────────
+# ── 2. Rebuild front-ends if source changed ────────────────────────────────
 echo ""
-echo "[2/6] Checking polycom build..."
-POLYCOM_SRC_HASH=$(find "$POLYCOM_DIR/src" -name "*.ts" -o -name "*.tsx" -o -name "*.css" 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
-POLYCOM_HASH_FILE="$POLYCOM_DIR/.src_hash"
+echo "[2/6] Checking front-end builds..."
 
-if [ ! -d "$POLYCOM_DIR/dist" ] || [ ! -f "$POLYCOM_HASH_FILE" ] || [ "$POLYCOM_SRC_HASH" != "$(cat $POLYCOM_HASH_FILE)" ]; then
-    echo "[2/6] Source changed or dist missing — rebuilding polycom..."
-    cd "$POLYCOM_DIR"
-    if ! npm ci --silent; then
-        echo "[ERROR] polycom npm ci failed — check $LOG_FILE"
-        exit 1
-    fi
-    if ! npm run build; then
-        echo "[ERROR] polycom npm build failed — check $LOG_FILE"
-        exit 1
-    fi
-    echo "$POLYCOM_SRC_HASH" > "$POLYCOM_HASH_FILE"
-    cd "$REPO"
-    echo "[2/6] Polycom build complete."
-else
-    echo "[2/6] Polycom dist is up to date — skipping build."
+DEPLOY_UI_DIR="$REPO/freepbx-deploy-ui"
+HOMELAB_DIR="$REPO/HomeLab_NetworkMapping/ccna-lab-tracker"
+MANAGER_UI_DIR="$REPO/manager-ui"
+TICKET_UI_DIR="$REPO/webscraper/ticket-ui"
+TRACEROUTE_DIR="$REPO/traceroute-visualizer-main/traceroute-visualizer-main"
+
+if [ "$FORCE_REBUILD" = true ]; then
+    echo "[2/6] --force-rebuild: clearing all build caches and output dirs..."
+    rm -f "$DEPLOY_UI_DIR/.src_hash" \
+          "$HOMELAB_DIR/.src_hash" \
+          "$MANAGER_UI_DIR/.src_hash" \
+          "$TICKET_UI_DIR/.src_hash" \
+          "$TRACEROUTE_DIR/.src_hash" \
+          "$POLYCOM_DIR/.src_hash"
+    rm -rf "$DEPLOY_UI_DIR/dist" \
+           "$HOMELAB_DIR/.next" \
+           "$MANAGER_UI_DIR/.next" \
+           "$TICKET_UI_DIR/.next" \
+           "$TRACEROUTE_DIR/.next" \
+           "$POLYCOM_DIR/dist"
 fi
+
+# Ensure API_BASE is empty before build so it bakes in correctly
+MANAGER_ENV="$MANAGER_UI_DIR/.env.local"
+if [ ! -f "$MANAGER_ENV" ] || grep -q "https://" "$MANAGER_ENV" 2>/dev/null; then
+    echo "NEXT_PUBLIC_API_BASE=" > "$MANAGER_ENV"
+    echo "[2/6] Reset manager-ui NEXT_PUBLIC_API_BASE to empty (local proxy)."
+fi
+
+# Generic rebuild function — works for Next.js and Vite apps
+rebuild_app() {
+    local label=$1
+    local dir=$2
+    local dist_dir=${3:-.next}   # third arg is the output dir to check (default .next)
+    local src_hash
+    src_hash=$(find "$dir" \( -path "$dir/.next" -o -path "$dir/dist" -o -path "$dir/node_modules" \) -prune \
+        -o \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" -o -name "*.js" -o -name "*.mjs" \
+           -o -name "next.config.*" -o -name "vite.config.*" \) \
+        -print 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+    local hash_file="$dir/.src_hash"
+    if [ ! -d "$dir/$dist_dir" ] || [ ! -f "$hash_file" ] || [ "$src_hash" != "$(cat "$hash_file")" ]; then
+        echo "[2/6] $label: source changed or build missing — rebuilding..."
+        cd "$dir"
+        if ! npm ci --silent; then
+            echo "[ERROR] $label npm ci failed — check $LOG_FILE"; exit 1
+        fi
+        if ! npm run build; then
+            echo "[ERROR] $label npm build failed — check $LOG_FILE"; exit 1
+        fi
+        echo "$src_hash" > "$hash_file"
+        cd "$REPO"
+        echo "[2/6] $label build complete."
+    else
+        echo "[2/6] $label: up to date — skipping build."
+    fi
+}
+
+rebuild_app "manager-ui"    "$MANAGER_UI_DIR"  ".next"
+rebuild_app "ticket-ui"     "$TICKET_UI_DIR"   ".next"
+rebuild_app "homelab"       "$HOMELAB_DIR"     ".next"
+rebuild_app "traceroute"    "$TRACEROUTE_DIR"  ".next"
+rebuild_app "deploy-ui"     "$DEPLOY_UI_DIR"   "dist"
+rebuild_app "polycom"       "$POLYCOM_DIR"     "dist"
 
 # ── 3. Stop all services cleanly ──────────────────────────────────────────
 echo ""
@@ -161,13 +213,6 @@ done
 
 echo "[3/6] Waiting for ports to clear..."
 sleep 4
-
-# ── 3b. Ensure manager-ui uses local API proxy (not broken HTTPS URL) ─────
-MANAGER_ENV="$REPO/manager-ui/.env.local"
-if [ -f "$MANAGER_ENV" ] && grep -q "https://" "$MANAGER_ENV" 2>/dev/null; then
-    echo "NEXT_PUBLIC_API_BASE=" > "$MANAGER_ENV"
-    echo "[3/6] Set manager-ui API_BASE to local proxy (was https://...)."
-fi
 
 # ── 4. Reload/start Apache (picks up any vhost changes) ──────────────────
 echo ""

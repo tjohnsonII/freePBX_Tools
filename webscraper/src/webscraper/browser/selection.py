@@ -23,6 +23,10 @@ def _existing(path: str | None) -> str | None:
 def _detect_chrome() -> str | None:
     candidates = [
         os.getenv("CHROME_PATH"),
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     ]
@@ -47,11 +51,11 @@ def _detect_edge() -> str | None:
 
 
 def resolve_browser_selection() -> BrowserSelection:
-    browser = (os.getenv("WEBSCRAPER_BROWSER") or "edge").strip().lower()
+    browser = (os.getenv("WEBSCRAPER_BROWSER") or "chrome").strip().lower()
     if browser not in {"chrome", "edge"}:
         browser = "chrome"
 
-    default_profile_dir = "webscraper/var/edge-profile" if browser == "edge" else "webscraper/var/chrome-profile"
+    default_profile_dir = "webscraper/var/chrome-profile" if browser == "chrome" else "webscraper/var/edge-profile"
     shared_profile_dir = (os.getenv("WEBSCRAPER_PROFILE_DIR") or "").strip()
     chrome_profile_dir = (os.getenv("WEBSCRAPER_CHROME_PROFILE_DIR") or "").strip()
     edge_profile_dir = (os.getenv("WEBSCRAPER_EDGE_PROFILE_DIR") or "").strip()
