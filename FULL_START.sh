@@ -83,6 +83,9 @@ else
     echo "[WARN] Xvfb not found — run: sudo apt install -y xvfb x11vnc openbox"
 fi
 
+# Export DISPLAY so all child processes (workers, scrapers) inherit it and can render to VNC
+export DISPLAY=":${DISPLAY_NUM}"
+
 # ── 0b. Auth session check ─────────────────────────────────────────────────
 echo ""
 COOKIES_FILE="$PROFILE_DIR/Default/Cookies"
