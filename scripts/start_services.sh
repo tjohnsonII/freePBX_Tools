@@ -8,6 +8,14 @@ DISPLAY_NUM=99
 
 cd "$REPO"
 
+# Load secrets from .env if present (never committed — contains INGEST_API_KEY etc.)
+if [ -f "$REPO/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO/.env"
+    set +a
+fi
+
 # ── Virtual display + VNC ─────────────────────────────────────────────────────
 echo "[start] Setting up virtual display :${DISPLAY_NUM}..."
 pkill -f "Xvfb :${DISPLAY_NUM}" 2>/dev/null || true
