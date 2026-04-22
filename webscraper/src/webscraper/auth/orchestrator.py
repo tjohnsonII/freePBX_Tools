@@ -208,17 +208,41 @@ def _persist_auth_artifacts(driver, ctx: AuthContext) -> None:
     with open(cookie_path, "w", encoding="utf-8") as handle:
         json.dump(driver.get_cookies() or [], handle, indent=2)
 
+    # Guard localStorage access — calling execute_script on a 401/error page that
+    # blocks localStorage causes a Chrome internal segfault, not just a JS error.
+    # Only attempt storage export when on a safe navigable page.
+    storage_payload: dict = {}
+    try:
+        current_url = driver.current_url or ""
+        # Skip on error pages, about: pages, and non-http pages where localStorage
+        # is blocked at the browser security level and will segfault Chrome.
+        safe_origins = ("https://", "http://")
+        blocked_indicators = ("401", "403", "about:", "chrome-error:", "data:")
+        is_safe = (
+            any(current_url.startswith(o) for o in safe_origins)
+            and not any(b in current_url for b in blocked_indicators)
+        )
+        if is_safe:
+            storage_payload = driver.execute_script(
+                """
+                return {
+                  localStorage: (function() {
+                    try { return Object.assign({}, window.localStorage || {}); }
+                    catch(e) { return {}; }
+                  })(),
+                  sessionStorage: (function() {
+                    try { return Object.assign({}, window.sessionStorage || {}); }
+                    catch(e) { return {}; }
+                  })()
+                };
+                """
+            ) or {}
+    except Exception as exc:
+        print(f"[AUTH] storage export skipped: {exc}")
+
     storage_path = os.path.join(os.path.dirname(cookie_path), "storage.json")
-    storage_payload = driver.execute_script(
-        """
-        return {
-          localStorage: Object.assign({}, window.localStorage || {}),
-          sessionStorage: Object.assign({}, window.sessionStorage || {})
-        };
-        """
-    )
     with open(storage_path, "w", encoding="utf-8") as handle:
-        json.dump(storage_payload or {}, handle, indent=2)
+        json.dump(storage_payload, handle, indent=2)
 
 
 def _resolve_cookie_files(ctx: AuthContext) -> List[str]:

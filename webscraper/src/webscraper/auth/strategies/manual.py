@@ -11,7 +11,7 @@ from typing import Iterable, Optional, Tuple
 from selenium import webdriver
 
 from ..driver_factory import create_edge_driver_for_auth
-from ..healthcheck import is_authenticated
+from ..healthcheck import is_authenticated, is_authenticated_no_nav
 from ..types import AuthContext
 
 _MANUAL_PROMPTED = False
@@ -186,25 +186,55 @@ def _wait_for_manual_auth(driver, ctx: AuthContext) -> Tuple[bool, str]:
         return is_authenticated(driver, ctx)
 
     print(f"[AUTH] waiting for MFA/login completion (mode=auto timeout={timeout_sec}s)", flush=True)
+    print("[AUTH] Connect to VNC and log in — browser will not refresh while you type.", flush=True)
     deadline = time.time() + timeout_sec
+    last_url = ""
+    url_stable_since = time.time()
     while time.time() < deadline:
-        ok, reason = is_authenticated(driver, ctx)
+        try:
+            current_url = driver.current_url or ""
+        except Exception:
+            time.sleep(8)
+            continue
+
+        # Track URL stability — don't touch DOM while Chrome is mid-redirect (SSO)
+        if current_url != last_url:
+            last_url = current_url
+            url_stable_since = time.time()
+            print(f"[AUTH] navigating... url={current_url!r}", flush=True)
+            time.sleep(8)
+            continue
+
+        # Only check DOM when URL has been stable for at least 5 seconds
+        if time.time() - url_stable_since < 5:
+            time.sleep(3)
+            continue
+
+        try:
+            ok, reason = is_authenticated_no_nav(driver, ctx)
+        except Exception:
+            time.sleep(8)
+            continue
+
         if ok:
-            return True, reason
-        time.sleep(1)
+            # Confirm with a real navigation now that login appears complete
+            return is_authenticated(driver, ctx)
+        time.sleep(8)
 
     _diagnostic_dump(driver, ctx)
     print(
         "[AUTH] Timeout waiting for authenticated selector/state. "
-        "Browser remains open. Complete MFA and press Enter to re-check (Ctrl+C to abort).",
+        "Browser remains open. Complete login in VNC, then press Enter to re-check (Ctrl+C to abort).",
         flush=True,
     )
     while True:
-        _ = sys.stdin.readline()
+        line = sys.stdin.readline()
         ok, reason = is_authenticated(driver, ctx)
         if ok:
             return True, reason
-        print("[AUTH] Still not authenticated. Complete MFA then press Enter to re-check.", flush=True)
+        if not line:
+            time.sleep(5)
+        print("[AUTH] Still not authenticated. Complete login then press Enter to re-check.", flush=True)
 
 
 def _maybe_prompt_for_cookie(ctx: AuthContext) -> Optional[str]:
