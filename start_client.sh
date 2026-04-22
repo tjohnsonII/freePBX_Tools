@@ -13,8 +13,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-: "${INGEST_SERVER_URL:?Set INGEST_SERVER_URL to the server base URL (e.g. http://10.0.0.5:8788)}"
-: "${INGEST_API_KEY:?Set INGEST_API_KEY to the shared secret}"
+# Load .env if present so you don't have to export vars manually each session
+if [ -f ".env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source ".env"
+    set +a
+fi
+
+: "${INGEST_SERVER_URL:?Set INGEST_SERVER_URL in .env or export it manually}"
+: "${INGEST_API_KEY:?Set INGEST_API_KEY in .env or export it manually}"
 
 export CLIENT_MODE=1
 export WEBSCRAPER_PORT="${WEBSCRAPER_PORT:-8789}"
