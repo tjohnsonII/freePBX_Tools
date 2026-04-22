@@ -986,6 +986,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register ingest routes so remote clients can POST scraped data to this server.
+# Protected by X-Ingest-Key header (INGEST_API_KEY env var); localhost-only fallback.
+from webscraper.ticket_api import ingest_routes as _ingest_routes  # noqa: E402
+_ingest_routes.register(app, db, db_path)
+
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):

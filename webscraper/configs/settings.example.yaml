@@ -10,3 +10,19 @@ paths:
   cookies: var/cookies
   profiles: var/profiles
   db: var/db
+
+# ── Client mode ────────────────────────────────────────────────────────────────
+# Set CLIENT_MODE=1 to have this instance scrape and send data to a remote server
+# instead of writing to a local SQLite database.
+#
+# Required env vars when CLIENT_MODE=1:
+#   CLIENT_MODE=1
+#   INGEST_SERVER_URL=http://<server-ip>:8788   # ticket_api base URL on server
+#   INGEST_API_KEY=<shared-secret>              # must match server INGEST_API_KEY
+#
+# On the server set:
+#   INGEST_API_KEY=<same-shared-secret>
+#
+# client:
+#   server_url: http://server-ip:8788
+#   api_key: ""   # prefer INGEST_API_KEY env var over storing key in file
