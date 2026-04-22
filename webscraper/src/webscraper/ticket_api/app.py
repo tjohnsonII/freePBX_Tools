@@ -25,7 +25,13 @@ from webscraper.handles_loader import load_handles
 from webscraper.lib.db_path import get_tickets_db_path
 from webscraper.logging_config import LOG_DIR, setup_logging
 from webscraper.paths import kb_dir
-from webscraper.ticket_api import db
+
+# CLIENT_MODE=1 → send all writes to a remote server via HTTP (no local SQLite).
+# Leave unset (or 0) for normal local operation.
+if os.getenv("CLIENT_MODE", "").strip() == "1":
+    from webscraper.ticket_api import db_client as db  # type: ignore[no-redef]
+else:
+    from webscraper.ticket_api import db  # type: ignore[assignment]
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -839,14 +845,19 @@ def _tail_file(path: Path, lines: int) -> list[str]:
 
 
 def _startup_bootstrap() -> None:
-    db.ensure_indexes(db_path())
-    handles = load_handles()
-    if handles:
-        for handle in handles:
-            db.ensure_handle_row(db_path(), handle)
-    stats = db.get_stats(db_path())
-    LOGGER.info("startup db_path=%s handles=%s tickets=%s",
-                db_path(), stats.get("total_handles"), stats.get("total_tickets"))
+    _client_mode = os.getenv("CLIENT_MODE", "").strip() == "1"
+    if _client_mode:
+        server = os.getenv("INGEST_SERVER_URL", "http://127.0.0.1:8788")
+        LOGGER.info("startup CLIENT_MODE=1 ingest_server=%s", server)
+    else:
+        db.ensure_indexes(db_path())
+        handles = load_handles()
+        if handles:
+            for handle in handles:
+                db.ensure_handle_row(db_path(), handle)
+        stats = db.get_stats(db_path())
+        LOGGER.info("startup db_path=%s handles=%s tickets=%s",
+                    db_path(), stats.get("total_handles"), stats.get("total_tickets"))
     if not _has_python_multipart():
         LOGGER.warning(_missing_python_multipart_message())
 
@@ -867,6 +878,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register ingest routes (used when a CLIENT sends scraped data to this server).
+from webscraper.ticket_api import ingest_routes as _ingest_routes  # noqa: E402
+_ingest_routes.register(app, db, db_path)
 
 
 @app.middleware("http")
