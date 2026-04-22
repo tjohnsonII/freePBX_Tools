@@ -39,8 +39,9 @@ if ip link show tun0 &>/dev/null && ip addr show tun0 | grep -q "inet "; then
     VPN_IP=$(ip addr show tun0 | grep "inet " | awk '{print $2}')
     echo "[vpn] Connected — tun0 ${VPN_IP}"
 else
-    echo "[vpn] tun0 not up — starting VPN (config: work)..."
-    openvpn3 session-start --config work
+    echo "[vpn] tun0 not up — starting VPN (/home/tim2/1767636174601.ovpn)..."
+    openvpn3 session-start --config /home/tim2/1767636174601.ovpn || \
+        openvpn3 session-start --config work
     echo "[vpn] Waiting for tun0..."
     for i in $(seq 1 15); do
         if ip link show tun0 &>/dev/null && ip addr show tun0 | grep -q "inet "; then
@@ -67,15 +68,22 @@ if command -v Xvfb &>/dev/null; then
     sleep 0.5
 
     if ! pgrep -f "Xvfb :${DISPLAY_NUM}" &>/dev/null; then
-        Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 2>/dev/null &
+        # -ac      : disable access control (Chrome can connect without auth issues)
+        # -noreset : don't reset display when last client disconnects (Chrome can reconnect)
+        # +extension RANDR : enable RandR so Chrome can query display geometry
+        # -nolisten tcp : no TCP, only unix socket (safer)
+        Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 \
+            -ac -noreset +extension RANDR -nolisten tcp 2>/dev/null &
         sleep 1
-        DISPLAY=":${DISPLAY_NUM}" openbox 2>/dev/null &
-        sleep 0.5
+        DISPLAY=":${DISPLAY_NUM}" /usr/bin/dbus-launch --exit-with-session /usr/bin/startxfce4 > /root/xfce4.log 2>&1 &
+        sleep 3
     fi
 
     # Start x11vnc on all interfaces (no -localhost) so LAN users can connect directly
+    # -ncache 10 : enable caching to reduce VNC framebuffer retransmissions
+    # -shared    : allow multiple VNC viewers simultaneously
     x11vnc -display ":${DISPLAY_NUM}" -rfbport "${VNC_PORT}" \
-        -nopw -forever -bg -quiet 2>/dev/null
+        -nopw -forever -shared -ncache 10 -bg -quiet 2>/dev/null
     sleep 0.5
     echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on 0.0.0.0:${VNC_PORT} (all interfaces) ready."
     echo ""
@@ -86,41 +94,13 @@ fi
 # Export DISPLAY so all child processes (workers, scrapers) inherit it and can render to VNC
 export DISPLAY=":${DISPLAY_NUM}"
 
-# ── 0b. Auth session check ─────────────────────────────────────────────────
+# ── 0b. Ensure tim2 owns all runtime dirs (worker runs as tim2, not root) ─────
 echo ""
-COOKIES_FILE="$PROFILE_DIR/Default/Cookies"
-AUTH_NEEDED=false
-
-if [ ! -f "$COOKIES_FILE" ]; then
-    echo "[auth] No saved session found."
-    AUTH_NEEDED=true
-else
-    AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$COOKIES_FILE") ) / 86400 ))
-    if [ "$AGE_DAYS" -ge "$AUTH_MAX_AGE_DAYS" ]; then
-        echo "[auth] Session is ${AGE_DAYS} days old — refreshing."
-        AUTH_NEEDED=true
-    else
-        echo "[auth] Session is ${AGE_DAYS} day(s) old — reusing saved profile."
-    fi
-fi
-
-if [ "$AUTH_NEEDED" = true ]; then
-    echo "[auth] VNC is ready at ${VNC_BIND_IP}:${VNC_PORT} — connect now, then press Enter to launch Chrome."
-    read -r -p ""
-    export DISPLAY=":${DISPLAY_NUM}"
-    mkdir -p "$PROFILE_DIR"
-    google-chrome \
-        --user-data-dir="$PROFILE_DIR" \
-        --no-sandbox \
-        --disable-dev-shm-usage \
-        --disable-gpu \
-        --window-size=1280,900 \
-        "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi" &
-    CHROME_PID=$!
-    echo "[auth] Chrome open — log in via VNC, then close Chrome to save the session."
-    wait "$CHROME_PID" 2>/dev/null || true
-    echo "[auth] Session saved."
-fi
+mkdir -p "$PROFILE_DIR"
+chown -R tim2:tim2 "$PROFILE_DIR" 2>/dev/null || true
+chown -R tim2:tim2 "$REPO/webscraper/var" 2>/dev/null || true
+chown -R tim2:tim2 "$REPO/var" 2>/dev/null || true
+echo "[auth] Runtime dirs owned by tim2. Chrome profile ready."
 
 # ── 1. Pull latest code ────────────────────────────────────────────────────
 echo ""
@@ -157,12 +137,11 @@ if [ "$FORCE_REBUILD" = true ]; then
            "$POLYCOM_DIR/dist"
 fi
 
-# Ensure API_BASE is empty before build so it bakes in correctly
+# Set the API base URL for browser-side fetches (LogViewer, ServicePanel, WebscraperStatus etc.)
+# manager-api.123hostedtools.com proxies to 8787 — this is how the browser reaches the API.
 MANAGER_ENV="$MANAGER_UI_DIR/.env.local"
-if [ ! -f "$MANAGER_ENV" ] || grep -q "https://" "$MANAGER_ENV" 2>/dev/null; then
-    echo "NEXT_PUBLIC_API_BASE=" > "$MANAGER_ENV"
-    echo "[2/6] Reset manager-ui NEXT_PUBLIC_API_BASE to empty (local proxy)."
-fi
+echo "NEXT_PUBLIC_API_BASE=https://manager-api.123hostedtools.com" > "$MANAGER_ENV"
+echo "[2/6] Set NEXT_PUBLIC_API_BASE=https://manager-api.123hostedtools.com"
 
 # Generic rebuild function — works for Next.js and Vite apps
 rebuild_app() {
@@ -185,6 +164,10 @@ rebuild_app() {
             echo "[ERROR] $label npm build failed — check $LOG_FILE"; exit 1
         fi
         echo "$src_hash" > "$hash_file"
+        # Fix ownership so non-root user can write/delete build artifacts later
+        if [ -n "${SUDO_USER:-}" ]; then
+            chown -R "$SUDO_USER:$SUDO_USER" "$dir/$dist_dir" "$hash_file" 2>/dev/null || true
+        fi
         cd "$REPO"
         echo "[2/6] $label build complete."
     else
@@ -198,6 +181,15 @@ rebuild_app "homelab"       "$HOMELAB_DIR"     ".next"
 rebuild_app "traceroute"    "$TRACEROUTE_DIR"  ".next"
 rebuild_app "deploy-ui"     "$DEPLOY_UI_DIR"   "dist"
 rebuild_app "polycom"       "$POLYCOM_DIR"     "dist"
+
+# ── 2c. Ensure systemd override for Apache auto-restart is in place ──────
+APACHE_OVERRIDE="/etc/systemd/system/apache2.service.d/override.conf"
+if [ ! -f "$APACHE_OVERRIDE" ]; then
+    mkdir -p "$(dirname "$APACHE_OVERRIDE")"
+    printf '[Service]\nRestart=on-failure\nRestartSec=10\n' > "$APACHE_OVERRIDE"
+    systemctl daemon-reload
+    echo "[2c] Apache systemd Restart=on-failure override installed."
+fi
 
 # ── 3. Stop all services cleanly ──────────────────────────────────────────
 echo ""
@@ -220,6 +212,17 @@ sleep 4
 # ── 4. Reload/start Apache (picks up any vhost changes) ──────────────────
 echo ""
 echo "[4/6] Starting Apache..."
+
+# If config is invalid, attempt cert renewal once before giving up
+if ! apache2ctl configtest 2>/dev/null; then
+    echo "[4/6] Apache config invalid — attempting certbot renewal..."
+    if certbot renew --force-renewal -q 2>&1; then
+        echo "[4/6] Certs renewed."
+    else
+        echo "[WARN] certbot renewal failed — Apache may not start."
+    fi
+fi
+
 if systemctl is-active apache2 &>/dev/null; then
     if systemctl reload apache2; then
         echo "[4/6] Apache reloaded."
@@ -228,10 +231,11 @@ if systemctl is-active apache2 &>/dev/null; then
         systemctl restart apache2 2>&1 || echo "[WARN] Apache restart also failed — check: journalctl -u apache2 -n 20"
     fi
 elif apache2ctl configtest 2>/dev/null; then
-    systemctl start apache2 && echo "[4/6] Apache started." || echo "[WARN] Apache start failed — services will continue without it."
+    systemctl start apache2 && echo "[4/6] Apache started." || echo "[WARN] Apache start failed — check: journalctl -u apache2 -n 20"
 else
-    echo "[WARN] Apache config invalid (missing SSL cert?) — services will start without Apache."
-    echo "[WARN] To fix: sudo certbot renew --force-renewal"
+    echo "[ERROR] Apache config still invalid after cert renewal attempt."
+    echo "[ERROR] Run manually: sudo certbot renew --force-renewal && sudo systemctl start apache2"
+    apache2ctl configtest 2>&1 || true
 fi
 
 # ── 5. Start all services ─────────────────────────────────────────────────
@@ -239,7 +243,7 @@ echo ""
 echo "[5/6] Starting all services..."
 if ! python3 scripts/run_all_web_apps.py \
     --browser none \
-    --webscraper-mode combined \
+    --webscraper-mode api \
     --extras \
     --readiness-timeout 120; then
     echo "[ERROR] run_all_web_apps.py failed — check $LOG_FILE"

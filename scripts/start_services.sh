@@ -45,7 +45,7 @@ systemctl reload apache2 2>/dev/null && echo "[start] Apache reloaded." || true
 echo "[start] Starting all services..."
 python3 scripts/run_all_web_apps.py \
     --browser none \
-    --webscraper-mode combined \
+    --webscraper-mode api \
     --extras \
     --readiness-timeout 120
 

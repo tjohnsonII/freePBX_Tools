@@ -9,16 +9,18 @@ from typing import Any
 from webscraper import ultimate_scraper_legacy as legacy
 from webscraper.cli.main import prepare_run_output_dir
 from webscraper.config import load_config
+from webscraper.handles_loader import load_handles
 
 
 def _build_config(mode: str, dry_run: bool) -> dict[str, Any]:
     output_dir = str((Path(__file__).resolve().parents[3] / "var" / "output").resolve())
     cfg = load_config()
+    handles = load_handles()
     return {
-        "url": "https://secure.123.net/customers.cgi",
+        "url": "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi",
         "output_dir": output_dir,
-        "handles": [],
-        "resume": mode == "incremental",
+        "handles": handles,
+        "resume": True,
         "dry_run": dry_run,
         "browser": cfg.browser,
         "headless": True,

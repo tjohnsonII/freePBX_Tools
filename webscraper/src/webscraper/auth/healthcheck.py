@@ -13,10 +13,11 @@ from selenium.webdriver.common.by import By
 from .types import AuthContext
 
 DEFAULT_AUTH_SELECTORS = (
-    "input#search_phrase",
+    "input#customers",        # actual search input on customers.cgi
+    "#customers",
+    "input#search_phrase",    # legacy fallback
     "#index_to_search",
     "#search_results",
-    "#submit",
 )
 
 DEFAULT_SESSION_COOKIE_NAMES = (
@@ -215,8 +216,12 @@ def auth_confirmed_from_page(
         return False, f"unexpected_host:{current_host}"
 
     in_app_url = ("/cgi-bin/web_interface/admin/" in lowered_url) or ("customers.cgi" in lowered_url)
-    if in_app_url and not any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")):
-        if has_expected_logged_in_elements:
+    source_lower = (page_source or "").lower()
+    is_error_page = any(marker in source_lower for marker in ("401 unauthorized", "403 forbidden", "access denied", "not authorized"))
+    # Blank page (empty DOM) at the right URL = expired session, not authenticated
+    is_blank_page = not has_enough_dom_content and not page_source.strip()
+    if in_app_url and not any(token in lowered_url for token in ("login", "signin", "sign-in", "sso")) and not is_error_page and not is_blank_page:
+        if not has_password_input:
             return True, "authenticated_url_detected"
         return False, "authenticated_url_missing_expected_selector"
 
@@ -244,6 +249,20 @@ def auth_confirmed_from_page(
         return True, "no_login_markers_and_dom_content_present"
 
     return False, "auth_not_confirmed"
+
+
+def is_authenticated_no_nav(driver, ctx: AuthContext) -> Tuple[bool, str]:
+    """Check auth state from current browser state without navigating."""
+    current_url = _current_url(driver, ctx.auth_check_url or ctx.base_url)
+    source = _page_source(driver)
+    return auth_confirmed_from_page(
+        current_url=current_url,
+        page_source=source,
+        has_password_input=_has_password_input(driver),
+        has_expected_logged_in_elements=_has_expected_logged_in_elements(driver),
+        has_session_cookie=_has_session_cookie(driver),
+        has_enough_dom_content=_has_enough_dom_content(driver),
+    )
 
 
 def is_authenticated(driver, ctx: AuthContext) -> Tuple[bool, str]:
