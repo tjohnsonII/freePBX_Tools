@@ -146,8 +146,8 @@ else
     _fail "Wrong key was NOT rejected — got HTTP $STATUS (expected 403)"
   fi
 
-  # 2d — handle appears on server
-  HANDLES=$(_curl_json "$SERVER/api/handles?q=__TESTHANDLE__") || HANDLES=""
+  # 2d — handle appears on server (use /all endpoint which supports q filter)
+  HANDLES=$(_curl_json "$SERVER/api/handles/all?q=__TESTHANDLE__&limit=10") || HANDLES=""
   if echo "$HANDLES" | grep -q "__TESTHANDLE__"; then
     _pass "Ingested handle visible on server"
   else
