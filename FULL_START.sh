@@ -18,11 +18,6 @@ REPO=/var/www/freePBX_Tools
 LOG_DIR="$REPO/var/logs/startup"
 LOG_FILE="$LOG_DIR/full_start_$(date +%Y%m%d_%H%M%S).log"
 POLYCOM_DIR="$REPO/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main"
-PROFILE_DIR="$REPO/webscraper/var/chrome-profile"
-DISPLAY_NUM=99
-VNC_PORT=5900
-VNC_BIND_IP="192.168.100.10"
-AUTH_MAX_AGE_DAYS=7
 
 mkdir -p "$LOG_DIR"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -33,74 +28,13 @@ echo "=========================================="
 
 cd "$REPO"
 
-# ── VPN check ─────────────────────────────────────────────────────────────
-echo ""
-if ip link show tun0 &>/dev/null && ip addr show tun0 | grep -q "inet "; then
-    VPN_IP=$(ip addr show tun0 | grep "inet " | awk '{print $2}')
-    echo "[vpn] Connected — tun0 ${VPN_IP}"
-else
-    echo "[vpn] tun0 not up — starting VPN (/home/tim2/1767636174601.ovpn)..."
-    openvpn3 session-start --config /home/tim2/1767636174601.ovpn || \
-        openvpn3 session-start --config work
-    echo "[vpn] Waiting for tun0..."
-    for i in $(seq 1 15); do
-        if ip link show tun0 &>/dev/null && ip addr show tun0 | grep -q "inet "; then
-            VPN_IP=$(ip addr show tun0 | grep "inet " | awk '{print $2}')
-            echo "[vpn] Connected — tun0 ${VPN_IP}"
-            break
-        fi
-        sleep 2
-    done
-    if ! ip link show tun0 &>/dev/null || ! ip addr show tun0 | grep -q "inet "; then
-        echo "[ERROR] VPN failed to connect after 30s — aborting."
-        exit 1
-    fi
+# ── Load local environment (INGEST_API_KEY, etc.) ─────────────────────────
+if [ -f "$REPO/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO/.env"
+    set +a
 fi
-
-# ── 0. Start persistent virtual display + VNC ─────────────────────────────
-echo ""
-echo "[0/6] Starting virtual display and VNC..."
-
-if command -v Xvfb &>/dev/null; then
-    # Preserve Xvfb (keeps existing VNC desktop state); always restart x11vnc
-    # so any -localhost restriction is replaced with all-interface binding.
-    pkill -f "x11vnc" 2>/dev/null || true
-    sleep 0.5
-
-    if ! pgrep -f "Xvfb :${DISPLAY_NUM}" &>/dev/null; then
-        # -ac      : disable access control (Chrome can connect without auth issues)
-        # -noreset : don't reset display when last client disconnects (Chrome can reconnect)
-        # +extension RANDR : enable RandR so Chrome can query display geometry
-        # -nolisten tcp : no TCP, only unix socket (safer)
-        Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 \
-            -ac -noreset +extension RANDR -nolisten tcp 2>/dev/null &
-        sleep 1
-        DISPLAY=":${DISPLAY_NUM}" /usr/bin/dbus-launch --exit-with-session /usr/bin/startxfce4 > /root/xfce4.log 2>&1 &
-        sleep 3
-    fi
-
-    # Start x11vnc on all interfaces (no -localhost) so LAN users can connect directly
-    # -ncache 10 : enable caching to reduce VNC framebuffer retransmissions
-    # -shared    : allow multiple VNC viewers simultaneously
-    x11vnc -display ":${DISPLAY_NUM}" -rfbport "${VNC_PORT}" \
-        -nopw -forever -shared -ncache 10 -bg -quiet 2>/dev/null
-    sleep 0.5
-    echo "[0/6] Virtual display :${DISPLAY_NUM} and VNC on 0.0.0.0:${VNC_PORT} (all interfaces) ready."
-    echo ""
-else
-    echo "[WARN] Xvfb not found — run: sudo apt install -y xvfb x11vnc openbox"
-fi
-
-# Export DISPLAY so all child processes (workers, scrapers) inherit it and can render to VNC
-export DISPLAY=":${DISPLAY_NUM}"
-
-# ── 0b. Ensure tim2 owns all runtime dirs (worker runs as tim2, not root) ─────
-echo ""
-mkdir -p "$PROFILE_DIR"
-chown -R tim2:tim2 "$PROFILE_DIR" 2>/dev/null || true
-chown -R tim2:tim2 "$REPO/webscraper/var" 2>/dev/null || true
-chown -R tim2:tim2 "$REPO/var" 2>/dev/null || true
-echo "[auth] Runtime dirs owned by tim2. Chrome profile ready."
 
 # ── 1. Pull latest code ────────────────────────────────────────────────────
 echo ""
@@ -306,7 +240,7 @@ fi
 echo "=========================================="
 echo ""
 echo "─────────────────────────────────────────────────────────"
-echo " Scrape:  curl -X POST http://127.0.0.1:8788/api/scrape/start"
 echo " Tickets: https://tickets.123hostedtools.com"
-echo " VNC:     ${VNC_BIND_IP}:${VNC_PORT}  (no tunnel needed)"
+echo " API:     http://127.0.0.1:8788/api/health"
+echo " Ingest:  POST /api/ingest/* (requires X-Ingest-Key)"
 echo "─────────────────────────────────────────────────────────"

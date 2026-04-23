@@ -1098,8 +1098,8 @@ def _check_saved_session() -> dict[str, object]:
 
 @app.get("/api/scrape/check-auth")
 def api_check_auth():
-    """Check whether the saved Chrome profile has a valid 123.net session."""
-    return _check_saved_session()
+    """Auth check runs on the client, not the server."""
+    raise HTTPException(status_code=501, detail="Auth check runs on the client. Use the client branch.")
 
 
 # ── Scrape control endpoints ──────────────────────────────────────────────────
@@ -1107,53 +1107,14 @@ def api_check_auth():
 
 @app.post("/api/scrape/start")
 def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
-    """Start (or resume) a Selenium scrape job.
-
-    Accepts optional ``resume_from_handle`` to skip all handles up to and
-    including the given handle.  If omitted, ``var/kb/scrape_state.json`` is
-    checked automatically for the last completed handle.
-    """
-    handles = _load_scrape_handles()
-    if not handles:
-        raise HTTPException(status_code=400, detail="No handles available to scrape")
-    resume = (payload.resume_from_handle if payload else None)
-    now = _iso_now()
-    job_id = str(uuid.uuid4())
-    db.create_scrape_job(
-        db_path(),
-        job_id=job_id,
-        handle=None,
-        mode="scrape",
-        ticket_limit=None,
-        status="queued",
-        created_utc=now,
-        handles=handles,
-    )
-    _append_event("info", "scrape_queued", job_id=job_id,
-                  meta={"event": "queued", "handles": len(handles), "resume_from": resume})
-    threading.Thread(
-        target=_run_scrape_job,
-        kwargs={
-            "job_id": job_id,
-            "handles": handles,
-            "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS,
-            "resume_from_handle": resume,
-        },
-        daemon=True,
-    ).start()
-    return {
-        "queued": True,
-        "job_id": job_id,
-        "handles_total": len(handles),
-        "status": "queued",
-        "resume_from_handle": resume,
-    }
+    """Scraping runs on the client. This server only receives data via /api/ingest/*."""
+    raise HTTPException(status_code=501, detail="Scraping is handled by the client. Use the client branch.")
 
 
 @app.post("/api/scrape/selenium_fallback")
 def api_scrape_selenium_fallback():
-    """Alias for /api/scrape/start kept for backward compatibility."""
-    return api_scrape_start_selenium(None)
+    """Alias kept for compatibility — scraping is handled by the client."""
+    raise HTTPException(status_code=501, detail="Scraping is handled by the client. Use the client branch.")
 
 
 @app.get("/api/scrape/state")
