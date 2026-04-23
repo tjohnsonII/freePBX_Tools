@@ -1,0 +1,167 @@
+Run these in order:
+
+1. Webscraper API (8788):
+
+$p = (Get-NetTCPConnection -LocalPort 8788 -State Listen).OwningProcess; taskkill /PID $p /F
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode api --doctor --readiness-timeout 180
+
+2. Webscraper UI (3005):
+
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode ui --doctor --readiness-timeout 180
+
+3. Manager backend (8787):
+
+$p = (Get-NetTCPConnection -LocalPort 8787 -State Listen).OwningProcess; taskkill /PID $p /F
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_web_manager_app.py --no-port-cleanup --readiness-timeout 180
+
+4. Manager UI (3004):
+
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_manager_ui_app.py --doctor --readiness-timeout 180
+
+
+1. Start manager/backend normally
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_web_manager_app.py --doctor --readiness-timeout 180
+2. Start manager UI normally
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_manager_ui_app.py --doctor --readiness-timeout 180
+3. Start ticket API only
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode api --doctor --readiness-timeout 180
+4. Start the webscraper UI
+E:\DevTools\Python\python.EXE E:\DevTools\freepbx-tools\scripts\run_webscraper_app.py --mode ui --doctor --readiness-timeout 180
+
+http://127.0.0.1:3004 → manager UI
+
+http://127.0.0.1:3005 → webscraper ticket UI
+
+http://127.0.0.1:8787/api/health
+
+http://127.0.0.1:8788/api/health
+
+https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi - Starting scrap point
+
+#Keep the screen open
+powercfg /change monitor-timeout-ac 0
+powercfg /change standby-timeout-ac 0
+while ($true) { (New-Object -ComObject WScript.Shell).SendKeys('{SCROLLLOCK}'); Start-Sleep -Seconds 60 }
+
+If you don’t care about precision:
+
+taskkill /F /IM python.exe
+taskkill /F /IM node.exe
+
+⚠️ Only do this if you're not running anything else important.
+
+🔥 Fast + Clean Stop (Recommended)
+
+Use the PIDs from your output:
+
+taskkill /PID 30252 /F   # manager backend (8787)
+taskkill /PID 6352 /F    # manager UI (3004)
+taskkill /PID 26756 /F   # ticket API (8788)
+🧹 Safer (if PIDs change or you rerun things)
+
+Kill by port instead:
+
+Kill 8787 (manager backend)
+netstat -ano | findstr :8787
+taskkill /PID <PID> /F
+Kill 3004 (Next.js UI)
+netstat -ano | findstr :3004
+taskkill /PID <PID> /F
+Kill 8788 (ticket API)
+netstat -ano | findstr :8788
+taskkill /PID <PID> /F
+⚡ One-liner (nuke everything dev-related)
+
+
+
+🧠 What your launcher is already doing (FYI)
+
+You saw this earlier:
+
+[ports] Port 8787 is in use; attempting cleanup
+[ports] Sent taskkill to pid ...
+
+So your scripts already try to clean ports — but doing it manually is better while debugging.
+
+✅ After killing everything
+
+Verify clean state:
+
+netstat -ano | findstr :8787
+netstat -ano | findstr :3004
+netstat -ano | findstr :8788
+
+You want no output for each.
+
+Clear the log view and watch the ticket API log live
+
+In PowerShell:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Wait -Tail 80
+
+Best way to isolate the auth breakdown
+
+Run one test at a time and immediately capture the last 120 lines after each.
+
+After Flow A
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+After Flow B
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+After Flow C
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120
+6. If you want cleaner comparisons, save each run
+
+After each flow:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowA.txt
+
+Then for the next one:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_api.log -Tail 120 > flowB.txt
+
+And so on.
+
+7. Also check the UI log if needed
+
+Sometimes the frontend is swallowing useful info. Watch this too in a second terminal:
+
+Get-Content E:\DevTools\freepbx-tools\var\web-app-launcher\logs\webscraper_ticket_ui.log -Wait -Tail 60
+
+What was built
+scripts/run_extra_apps.py — new standalone launcher using the same dev_runtime helpers as everything else:
+
+Key	Service	Port	Kind
+traceroute	Traceroute Visualizer	3006	Next.js
+polycom	Polycom/Yealink/Mikrotik App	3002	Vite
+web_manager	FreePBX Tools Web Manager	5000	Flask
+run_all_web_apps.py — gained --extras and --only-extras flags, runs the extras phase after the core stack is ready.
+
+.vscode/tasks.json — three new VS Code tasks:
+
+start: everything — full stack (manager + webscraper + extras) + opens browser
+start: everything (no browser) — same, no browser launch
+start: extras only — just the three extra services, for when the core is already running
+To run now
+Via VS Code → Ctrl+Shift+P → Tasks: Run Task → start: everything
+
+Via terminal (equivalent to your Testing.txt paste, but one command):
+
+
+python scripts\run_all_web_apps.py --browser existing-profile --webscraper-mode combined --extras
+Just the 3 extra services (if core stack is already up):
+
+
+python scripts\run_extra_apps.py
+Only specific extras:
+
+
+python scripts\run_extra_apps.py --only traceroute polycom
+
+Done. On next run, after all services are ready, Chrome will open tabs for:
+
+Tab	URL
+1 (first)	http://127.0.0.1:3004/dashboard — Manager
+2	http://127.0.0.1:3005 — Webscraper / VPBX
+3	http://127.0.0.1:3006 — Traceroute Visualizer
+4	http://127.0.0.1:3002 — Polycom/Yealink/Mikrotik
+5	http://127.0.0.1:5000 — FreePBX Web Manager

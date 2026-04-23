@@ -1,0 +1,35 @@
+.mikrotik-textarea {
+  width: 100%;
+}
+
+.mikrotik-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mikrotik-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.mikrotik-input {
+  padding: 3px 6px;
+}
+
+.mikrotik-status {
+  font-size: 12px;
+  align-self: flex-end;
+  padding-bottom: 4px;
+}
+
+.mikrotik-status.online {
+  color: #16794a;
+}
+
+.mikrotik-status.offline {
+  color: #b42318;
+}

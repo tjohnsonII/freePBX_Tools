@@ -1,0 +1,258 @@
+.main {
+  max-width: 1400px;
+}
+
+.layout {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  align-items: flex-start;
+}
+
+.section {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  background: #161b22;
+}
+
+/* ── Header section (full width) ─────────────────────────────────────── */
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.subtitle {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
+}
+
+.count {
+  color: #8b949e;
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.subtle {
+  color: #8b949e;
+  font-size: 0.78rem;
+  margin: 4px 0 10px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.error {
+  color: #f85149;
+  font-size: 0.82rem;
+  margin: 8px 0;
+}
+
+.refreshBtn {
+  white-space: nowrap;
+}
+
+/* ── Handle list panel ────────────────────────────────────────────────── */
+.handleList {
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  width: 100%;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.handleUl {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.handleItem {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+
+.handleItem:hover {
+  background: #1c2230;
+  border-color: #30363d;
+}
+
+.handleItemSelected {
+  background: #0d2044 !important;
+  border-color: #1f6feb !important;
+}
+
+.handleCode {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #58a6ff;
+  font-weight: 700;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.handleName {
+  color: #8b949e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.configBadge {
+  color: #3fb950;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.emptyItem {
+  color: #484f58;
+  font-size: 0.78rem;
+  padding: 8px;
+  text-align: center;
+}
+
+/* ── Config viewer panel ──────────────────────────────────────────────── */
+.configViewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.emptyState {
+  color: #484f58;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 40px 0;
+}
+
+/* Metadata row above the config textarea */
+.metaBar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #21262d;
+  margin-bottom: 14px;
+}
+
+.metaGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metaLabel {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #484f58;
+  font-weight: 600;
+}
+
+.metaValue {
+  font-size: 0.82rem;
+  color: #e6edf3;
+}
+
+.metaMono {
+  font-size: 0.78rem;
+  color: #8b949e;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.configLabel {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.configTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-left: 3px solid #1a4731;
+  border-radius: 4px;
+  color: #3fb950;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+  padding: 12px 14px;
+  resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
+  min-height: 400px;
+}
+
+.configTextarea:focus {
+  outline: none;
+  border-color: #1f6feb;
+}
+
+.emptyConfig {
+  background: #0d1117;
+  border: 1px dashed #30363d;
+  border-radius: 6px;
+  padding: 32px;
+  text-align: center;
+  color: #8b949e;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.emptyConfig strong {
+  color: #58a6ff;
+}
+
+/* ── Status badges ───────────────────────────────────────────────────── */
+.statusActive {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  background: #1a4731;
+  color: #3fb950;
+}
+
+.statusOther {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  background: #21262d;
+  color: #8b949e;
+}

@@ -1,0 +1,23 @@
+{
+  "generated_at": "2025-08-21T00:04:06.152253Z",
+  "freepbx": {
+    "field": "FreePBX",
+    "accepted_majors": [
+      15,
+      16
+    ],
+    "min_seen": "2.8.1.0",
+    "max_seen": "16.0.40.13",
+    "coverage_basis": "top_90_percent_by_major_min_2"
+  },
+  "asterisk": {
+    "field": "Asterisk",
+    "accepted_majors": [
+      16,
+      18
+    ],
+    "min_seen": "1.8.4",
+    "max_seen": "18.26.2",
+    "coverage_basis": "top_90_percent_by_major_min_2"
+  }
+}

@@ -1,0 +1,16 @@
+.mikrotik-template-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mikrotik-template-location {
+  min-width: 200px;
+}
+
+.mikrotik-template-output {
+  width: 100%;
+  font-family: monospace;
+  font-size: 13px;
+}

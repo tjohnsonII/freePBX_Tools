@@ -1,0 +1,106 @@
+.body {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 200px;
+  min-height: 100vh;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarBrand {
+  padding: 14px 16px;
+  border-bottom: 1px solid #30363d;
+}
+
+.sidebarBrandTitle {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #e6edf3;
+  line-height: 1.4;
+}
+
+.sidebarBrandSub {
+  font-size: 0.68rem;
+  color: #8b949e;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  flex: 1;
+}
+
+.navLink {
+  display: block;
+  padding: 8px 16px;
+  color: #8b949e;
+  font-size: 0.85rem;
+  transition: background 0.12s, color 0.12s;
+}
+
+.navLink:hover {
+  background: #21262d;
+  color: #e6edf3;
+  text-decoration: none;
+}
+
+/* ── Content area ────────────────────────────────────────────────────────── */
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.header {
+  padding: 10px 20px;
+  border-bottom: 1px solid #30363d;
+  background: #161b22;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.headerTitle {
+  font-size: 0.8rem;
+  color: #8b949e;
+  font-weight: 500;
+}
+
+.headerDot {
+  color: #30363d;
+  margin: 0 4px;
+}
+
+.envBadge {
+  font-size: 0.72rem;
+  color: #58a6ff;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.liveIndicator {
+  font-size: 0.72rem;
+  color: #3fb950;
+}
+
+.main {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+}

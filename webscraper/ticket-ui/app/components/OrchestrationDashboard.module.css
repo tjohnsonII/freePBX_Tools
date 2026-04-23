@@ -1,0 +1,216 @@
+.section {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #161b22;
+}
+
+.error {
+  color: #f85149;
+  font-size: 0.82rem;
+  margin: 4px 0;
+}
+
+/* ── Login required banner ───────────────────────────────────────────────────── */
+
+.loginBanner {
+  background: #2d1e00;
+  border: 1px solid #d29922;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  color: #e3b341;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.loginBanner strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  color: #f0c040;
+}
+
+.loginBannerSteps {
+  margin: 8px 0 0 0;
+  padding-left: 1.4rem;
+  color: #c9a227;
+}
+
+.loginBannerSteps li {
+  margin-bottom: 6px;
+}
+
+.loginBannerSteps code {
+  background: #1c1400;
+  border: 1px solid #4a3800;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.82rem;
+  color: #ffd97a;
+}
+
+/* ── Status tiles ────────────────────────────────────────────────────────── */
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.statusGrid > div {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.statusGrid strong {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8b949e;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.statusGrid > div > div {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e6edf3;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  word-break: break-all;
+}
+
+/* ── Action row ──────────────────────────────────────────────────────────── */
+
+.actionRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* ── Live scrape job ─────────────────────────────────────────────────────── */
+
+.seleniumJobStatus {
+  margin-top: 14px;
+  border-top: 1px solid #21262d;
+  padding-top: 12px;
+}
+
+.seleniumJobSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: #8b949e;
+}
+
+.seleniumJobMessage {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.seleniumJobError {
+  color: #f85149;
+}
+
+.seleniumEventLog {
+  margin-top: 10px;
+}
+
+.seleniumEventList {
+  margin: 6px 0 0 0;
+  padding: 8px 8px 8px 2.2rem;
+  font-size: 0.75rem;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: decimal;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 4px;
+}
+
+.seleniumEventItem {
+  padding: 1px 0;
+  color: #8b949e;
+}
+
+.seleniumEventError {
+  padding: 1px 0;
+  color: #f85149;
+}
+
+.seleniumEventTs {
+  color: #484f58;
+  margin-right: 6px;
+}
+
+.seleniumTicketIds {
+  color: #58a6ff;
+  margin-left: 4px;
+}
+
+/* ── Recent jobs ─────────────────────────────────────────────────────────── */
+
+.e2eSteps {
+  margin-top: 10px;
+}
+
+.recentJobs {
+  margin-top: 14px;
+  border-top: 1px solid #21262d;
+  padding-top: 12px;
+}
+
+.recentJobs ul {
+  margin: 8px 0 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.recentJobs li {
+  padding: 5px 0;
+  border-bottom: 1px solid #21262d;
+  color: #8b949e;
+}
+
+.jobToggleBtn {
+  background: transparent;
+  color: #58a6ff;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.jobToggleBtn:hover {
+  background: #21262d;
+  border-color: #8b949e;
+}
+
+.jobDetails {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: #8b949e;
+}
+
+.jobDetailsError {
+  color: #f85149;
+}

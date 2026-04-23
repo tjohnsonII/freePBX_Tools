@@ -1,0 +1,81 @@
+# refresh_ARP_MAC (ROS7)
+# Repopulate ARP & neighbors via fast ping sweep, print summaries.
+#
+# Variable Map
+# - pingCount: integer; number of ping packets per host (default: 1)
+# - pingInterval: duration; interval between pings (optional; currently commented)
+# - pingTimeout: duration; per-ping timeout (optional; currently commented)
+# - targetInterfaces: list of interface names; limits sweep to these (e.g., vlan202)
+# - onlyDynamic: boolean; if true, sweep only dynamic ARP entries
+# - onlyStale: boolean; if true, sweep only ARP entries with status "stale"
+#
+# Section Map (pseudo-functions)
+# - init: log start and define variables
+# - flush_switch_hosts: best-effort clear ethernet switch host table (may be read-only)
+# - sweep_arp: iterate ARP entries, apply filters, ping selected addresses
+# - summarize: print ARP/neighbors counts and tables; show switch host table
+# - done: log completion
+#
+# Permissions
+# - Requires: read,test (for ARP/neighbors reads and /tool ping)
+# - Optional: write (only if keeping switch host removal; safe to omit if disabled)
+
+:local pingCount 1
+## Optional timing; disabled to avoid parser issues
+# :local pingInterval 200ms
+# :local pingTimeout 300ms
+
+# Limit sweep to active ARP entries
+:local targetInterfaces {"vlan202"; "vlan302"; "vlan102"}
+:local onlyDynamic true
+:local onlyStale false
+
+:log warning "[refresh] start: sweeping subnets to refresh ARP/neighbors"
+
+# Optional: try device-specific host-table flush (best-effort)
+:do { /interface ethernet switch host print; :foreach id in=[/interface ethernet switch host find] do={ /interface ethernet switch host remove $id } } on-error={ :log warning "[refresh] ethernet switch host table not available or read-only - skipping" }
+## No bridge on this router; omit any bridge host handling
+
+# ARP-driven ping sweep (limits to interfaces and entry type)
+:log warning "[refresh] ARP-driven sweep: filtering by interface/dynamic/stale flags"
+:foreach id in=[/ip arp find] do={
+    :local addr [/ip arp get $id address]
+    :local iface [/ip arp get $id interface]
+    :local dyn [/ip arp get $id dynamic]
+    :local stat [/ip arp get $id status]
+
+    # Filter interfaces
+    :local include true
+    :if ([:len $targetInterfaces] > 0) do={
+        :set include false
+        :foreach ti in=$targetInterfaces do={ :if ($iface=$ti) do={ :set include true } }
+    }
+
+    # Apply filters via nested ifs (avoid 'continue')
+    :if ($include) do={
+        :if ((!$onlyDynamic) || $dyn) do={
+            :if ((!$onlyStale) || ($stat="stale")) do={
+                :local msg ("[refresh] ping " . $addr . " (" . $iface . " status " . $stat . ")")
+                :log info $msg
+                /tool ping address=$addr count=$pingCount
+            }
+        }
+    }
+}
+
+:delay 1s
+
+# Summaries
+:put ("ARP total: " . [/ip arp print count-only])
+:put ("Neighbors total: " . [/ip neighbor print count-only])
+
+:put "---- ARP (dynamic) ----"
+/ip arp print where dynamic=yes
+
+:put "---- Neighbors ----"
+/ip neighbor print
+
+:put "---- Switch Hosts ----"
+:do { /interface ethernet switch host print } on-error={ :put "Ethernet switch host not available" }
+
+:log warning "[refresh] done"

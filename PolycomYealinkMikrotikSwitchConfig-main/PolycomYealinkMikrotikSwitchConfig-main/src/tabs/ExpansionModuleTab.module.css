@@ -1,0 +1,269 @@
+/* ── Webscraper load panel ─────────────────────────────────────────────────── */
+.scraperPanel {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  background: #fafafa;
+}
+
+.scraperHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.scraperTitle {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.badgeChecking { font-size: 12px; color: #888; }
+.badgeOnline   { font-size: 12px; color: #16794a; }
+.badgeOffline  { font-size: 12px; color: #b42318; }
+
+.scraperSelectors {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.scraperLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #444;
+}
+
+.scraperNote {
+  font-weight: 400;
+  color: #888;
+}
+
+.scraperSelect {
+  min-width: 260px;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+/* ── Sidecar config section ────────────────────────────────────────────────── */
+.sidecarSection {
+  margin-top: 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 14px;
+}
+
+.sidecarRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sidecarSectionTitle {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.sidecarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loadBtn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #f0f0f0;
+  cursor: pointer;
+}
+
+.loadBtn:hover { background: #e0e0e0; }
+
+.saveBtn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #0078d4;
+  background: #0078d4;
+  color: #fff;
+  cursor: pointer;
+}
+
+.saveBtn:hover:not(:disabled) { background: #005fa3; }
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saveStatus {
+  font-size: 12px;
+  color: #555;
+}
+
+.savedNote {
+  font-size: 12px;
+  color: #805c00;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.sidecarTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  resize: vertical;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+/* ── Yealink / Polycom column layout ───────────────────────────────────────── */
+.columns {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.column {
+  flex: 1;
+  min-width: 320px;
+}
+
+.deviceImg {
+  width: 100%;
+  max-width: 260px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+
+.instructions {
+  background: #f7fbff;
+  border: 1px solid #cce1fa;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.formGroup {
+  margin-bottom: 16px;
+}
+
+.infoIcon {
+  margin-left: 4px;
+  cursor: pointer;
+  color: #0078d4;
+}
+
+.generateBtn {
+  margin-bottom: 16px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.outputArea {
+  margin-bottom: 16px;
+}
+
+.outputTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ── Preview box ───────────────────────────────────────────────────────────── */
+.previewBox {
+  background: #f8fbff;
+  border: 1px solid #b5d6f7;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.previewLabel {
+  margin-bottom: 8px;
+}
+
+.pageToggleActive {
+  margin: 0 4px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.pageToggleInactive {
+  margin: 0 4px;
+  background: #eee;
+  color: #333;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.keyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 120px);
+  gap: 5px;
+}
+
+.keyCell {
+  padding: 5px;
+  border: 1px solid #aaa;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 12px;
+  min-height: 38px;
+  position: relative;
+  background: #e0f0ff;
+}
+
+.keyCellBLF      { background: #d6f5d6; }
+.keyCellSpeedDial { background: #d6e6f5; }
+
+.keyIcon {
+  font-size: 18px;
+  display: block;
+}
+
+.emptyLabel {
+  color: #bbb;
+}
+
+.keyValue {
+  font-size: 10px;
+  color: #888;
+}
+
+.scrapeRow {
+  margin-top: 10px;
+}
+
+.incompleteNote {
+  color: #b42318;
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: 8px;
+}

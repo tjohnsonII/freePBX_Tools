@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Attach: All Services",
+      "configurations": [
+        "Attach: traceroute (9230)",
+        "Attach: deploy-ui (9232)",
+        "Attach: polycom (9233)",
+        "Attach: deploy-backend (5678)",
+        "Attach: webscraper (5679)"
+      ],
+      "presentation": {
+        "order": 1
+      }
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Attach: traceroute (9230)",
+      "type": "node",
+      "request": "attach",
+      "port": 9230,
+      "restart": true,
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Attach: deploy-ui (9232)",
+      "type": "node",
+      "request": "attach",
+      "port": 9232,
+      "restart": true,
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Attach: polycom (9233)",
+      "type": "node",
+      "request": "attach",
+      "port": 9233,
+      "restart": true,
+      "timeout": 30000,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Attach: deploy-backend (5678)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "justMyCode": false
+    },
+    {
+      "name": "Attach: webscraper (5679)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5679
+      },
+      "justMyCode": false
+    }
+  ]
+}

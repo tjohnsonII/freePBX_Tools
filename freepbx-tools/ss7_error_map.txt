@@ -1,0 +1,206 @@
+# FreePBX Internal Error Map
+
+## Purpose and Scope
+This document centralizes the highest-impact runtime failures observed across FreePBX and Asterisk logs so on-call engineers can triage issues quickly. It distills the critical indicators outlined in the FreePBX/Asterisk log analysis guide and maps them to the tooling shipped in this repository for rapid verification.【F:LOG_ANALYSIS.md†L253-L344】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L1-L210】
+
+## Quick Reference Matrix
+| Category | Typical Log Signature | Impact | Primary Logs | First Response |
+| --- | --- | --- | --- | --- |
+| Database connectivity failure | `Failed to connect to database`, `MySQL server has gone away` | FreePBX cannot read configuration; inbound/outbound calls may fail | `/var/log/asterisk/full`, `/var/log/httpd/error_log` | Run the database failure grep to confirm and capture the last 20 entries for escalation.【F:LOG_ANALYSIS.md†L257-L264】 |
+| Trunk offline / registration loss | `Registration.*failed`, `qualify: Endpoint.*is now Unreachable` | External calling over the affected trunk will fail | `/var/log/asterisk/full` | Execute the trunk health grep and snapshot the failing endpoints.【F:LOG_ANALYSIS.md†L268-L276】 |
+| Authentication storm / SIP attack | `NOTICE.*failed to authenticate`, `SECURITY.*failed authentication` | High risk of brute-force attacks or blocked endpoints | `/var/log/asterisk/full`, `/var/log/fail2ban.log` | Pull the latest security events and enumerate offending IPs.【F:LOG_ANALYSIS.md†L292-L299】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L163-L210】 |
+| Queue abandon spike | Multiple `ABANDON` events, abandon rate > 20% | Customer hang-ups before answer, SLA breach | `/var/log/asterisk/queue_log` | Use the queue analyzer to calculate abandon rate and capture current wait statistics.【F:LOG_ANALYSIS.md†L280-L288】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L109-L161】 |
+| Codec negotiation failure | `Unable to negotiate codec`, `no compatible formats` | Calls fail with fast busy or immediate hangup | `/var/log/asterisk/full` | Filter recent logs for codec negotiation errors and identify the involved endpoints.【F:LOG_ANALYSIS.md†L315-L322】 |
+| Media / RTP path failure | `RTP Timeout`, `Disconnecting call due to lack of audio RTP activity` | One-way or no audio; call teardown | `/var/log/asterisk/full`, `/var/log/asterisk/rtp_debug` | Enable RTP debug on the affected channel pair and capture packet loss details for escalation.【F:LOG_ANALYSIS.md†L323-L332】 |
+| Voicemail storage issue | `Failed to create voicemail`, `disk full`, `no space left` | New voicemail drops fail to record | `/var/log/asterisk/full` | Gather the last voicemail-related failures and verify disk capacity on the voicemail partition.【F:LOG_ANALYSIS.md†L338-L344】 |
+| Channel utilization ceiling | `core show channels count` near limit | New calls may be rejected once capacity is reached | Asterisk CLI | Run the core channel count and correlate with concurrent call analytics.【F:LOG_ANALYSIS.md†L305-L311】 |
+
+## Response Playbooks
+
+### 1. Database Connectivity Failure
+1. Run `grep -i "database.*fail\|mysql.*error" /var/log/asterisk/full | tail -20` to confirm active failures and collect the most recent stack traces.【F:LOG_ANALYSIS.md†L257-L264】
+2. Check whether the automated log analyzer already flagged the incident to gather structured details for incident tickets.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L51-L214】
+3. Escalate to the database owner with the captured log snippet and note any concurrent GUI errors from Apache.
+
+### 2. Trunk Offline / Registration Loss
+1. Execute `grep -E "Registration.*failed|qualify.*Unreachable|trunk.*unavailable" /var/log/asterisk/full | tail -50` to identify the affected trunks and timestamps.【F:LOG_ANALYSIS.md†L268-L276】
+2. Re-run the automated analyzer to capture a summarized incident report for the NOC dashboard.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L82-L104】【F:freepbx-tools/bin/freepbx_log_analyzer.py†L218-L248】
+3. Notify the carrier or network team with the offending endpoints and begin active monitoring for registration recovery.
+
+### 3. Authentication Storm / SIP Attack
+1. Use `grep -i "failed.*auth\|SECURITY" /var/log/asterisk/full | tail -50` to validate the volume of failed logins and determine whether fail2ban is responding.【F:LOG_ANALYSIS.md†L292-L299】
+2. If the log analyzer shows more than 20 recent failures, collect the summarized IP list it produces for blocklisting.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L168-L190】
+3. Coordinate with security operations to block abusive IPs upstream and document the incident.
+
+### 4. Queue Abandon Spike
+1. Inspect the last 100 queue events using `tail -100 /var/log/asterisk/queue_log | grep -c ABANDON` to quantify the surge.【F:LOG_ANALYSIS.md†L280-L288】
+2. Run the queue performance analyzer to retrieve current abandon rate and wait time metrics for the incident log.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L109-L161】
+3. Alert the contact center supervisor with current wait times and recommended staffing adjustments.
+
+### 5. Codec Negotiation Failure
+1. Filter the full log with `grep -i "codec.*negotiat\|no compatible format" /var/log/asterisk/full | tail -20` to isolate the failing endpoints.【F:LOG_ANALYSIS.md†L315-L322】
+2. Document the codec pair in the incident record and coordinate with device owners for configuration alignment.
+
+### 5a. Media / RTP Path Failure
+1. Use `asterisk -rx "rtp set debug on"` scoped to the channel (for example, `channel SIP/1001-0000001a`) to confirm whether packets are arriving from both endpoints.【F:LOG_ANALYSIS.md†L323-L332】
+2. Collect packet captures with `tcpdump -i eth0 udp port 10000-20000 -w rtp_capture.pcap` when loss or silence occurs and attach the first 60 seconds to the incident record for voice engineering review.
+3. After validation, disable debug via `asterisk -rx "rtp set debug off"` to limit log noise.
+
+### 6. Voicemail Storage Issue
+1. Run `grep -i "voicemail.*fail\|disk.*full\|no space left" /var/log/asterisk/full | tail -20` to capture failing mailbox IDs.【F:LOG_ANALYSIS.md†L338-L344】
+2. Include disk utilization metrics from the voicemail partition in the escalation notes.
+
+### 7. Channel Utilization Ceiling
+1. Execute `asterisk -rx "core show channels count"` during the incident window to confirm saturation.【F:LOG_ANALYSIS.md†L305-L311】
+2. Cross-check the output with active call analytics to recommend scaling actions or call shedding.
+
+## Automation Hooks
+The `freepbx_log_analyzer.py` utility encapsulates these checks, summarizes severity (Critical/High/Medium), and surfaces supporting log excerpts that can be attached to incident tickets. Integrating it into scheduled jobs or the FreePBX dashboard ensures proactive detection of the issues in this map.【F:freepbx-tools/bin/freepbx_log_analyzer.py†L29-L248】
+
+## SIP ↔ Q.850 ↔ Asterisk Cause Code Mapping
+
+| SIP Response | Q.850 Cause | Q.850 Description | Asterisk Hangupcause Description |
+| --- | --- | --- | --- |
+| 100 Trying | 1 | Unallocated (unassigned) number | CALL_UNALLOCATED |
+| 180 Ringing | 19 | No answer from user (user alerted) | NO_ANSWER |
+| 181 Call is Being Forwarded | 181 | Call is being forwarded | CALL_IS_BEING_FORWARDED |
+| 182 Queued | 182 | Call queued | QUEUED |
+| 183 Session Progress | — | Early media in progress | Informational only |
+| 200 OK | 16 | Normal call clearing | NORMAL_CLEARING |
+| 202 Accepted | 16 | Normal call clearing | NORMAL_CLEARING |
+| 300 Multiple Choices | 31 | Normal, unspecified | NORMAL_UNSPECIFIED |
+| 301 Moved Permanently | 22 | Number changed | NUMBER_CHANGED |
+| 302 Moved Temporarily | 22 | Number changed (temporary) | NUMBER_CHANGED |
+| 400 Bad Request | 97 | Invalid message | INVALID_MESSAGE |
+| 401 Unauthorized | 21 | Call rejected | CALL_REJECTED |
+| 403 Forbidden | 21 | Call rejected | CALL_REJECTED |
+| 404 Not Found | 1 | Unallocated number | UNALLOCATED_NUMBER |
+| 405 Method Not Allowed | 63 | Service not available | SERVICE_NOT_AVAILABLE |
+| 406 Not Acceptable | 79 | Service or option not available | SERVICE_NOT_IMPLEMENTED |
+| 408 Request Timeout | 18 | No user responding | NO_USER_RESPONSE |
+| 410 Gone | 22 | Number changed | NUMBER_CHANGED |
+| 415 Unsupported Media Type | 65 | Bearer capability not implemented | BEARER_CAPABILITY_NOT_IMPLEMENTED |
+| 480 Temporarily Unavailable | 19 | No answer from user | NO_ANSWER |
+| 481 Call/Transaction Does Not Exist | 41 | Temporary failure | TEMPORARY_FAILURE |
+| 482 Loop Detected | 25 | Exchange routing error | EXCHANGE_ROUTING_ERROR |
+| 483 Too Many Hops | 25 | Exchange routing error | EXCHANGE_ROUTING_ERROR |
+| 484 Address Incomplete | 28 | Invalid number format | INVALID_NUMBER_FORMAT |
+| 486 Busy Here | 17 | User busy | USER_BUSY |
+| 487 Request Terminated | 16 | Normal call clearing | NORMAL_CLEARING |
+| 488 Not Acceptable Here | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+| 500 Internal Server Error | 41 | Temporary failure | TEMPORARY_FAILURE |
+| 501 Not Implemented | 63 | Service not available | SERVICE_NOT_AVAILABLE |
+| 502 Bad Gateway | 38 | Network out of order | NETWORK_OUT_OF_ORDER |
+| 503 Service Unavailable | 34 | No circuit/channel available | CIRCUIT_CONGESTION |
+| 504 Gateway Timeout | 102 | Recovery on timer expiry | RECOVERY_ON_TIMER_EXPIRY |
+| 505 Version Not Supported | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+| 580 Precondition Failure | 127 | Interworking unspecified | INTERWORKING_UNSPECIFIED |
+| 600 Busy Everywhere | 17 | User busy | USER_BUSY |
+| 603 Decline | 21 | Call rejected | CALL_REJECTED |
+| 604 Does Not Exist Anywhere | 1 | Unallocated number | UNALLOCATED_NUMBER |
+| 606 Not Acceptable | 79 | Service not implemented | SERVICE_NOT_IMPLEMENTED |
+
+### Using the Mapping in Incident Triage
+
+* **CLI correlation:**
+  * chan_sip: `asterisk -rx "sip show channel <channel_id>"` exposes `Hangup Cause` and `Q.850` fields for the live call leg.
+  * PJSIP: `asterisk -rx "pjsip show history <endpoint>"` reveals the SIP response sequence, while `asterisk -rx "core show hangupcauses"` surfaces recent cause code tallies.
+* **Log correlation:** In `/var/log/asterisk/full`, enable verbose SIP logging with `pjsip set logger on` (PJSIP) or `sip set debug on` (chan_sip) to capture the dual `Reason: SIP;cause=` and `Reason: Q.850;cause=` headers for cross-verification.
+* **CDR correlation:** Query `select calldate, src, dst, disposition, amaflags, hangupcause from asteriskcdrdb.cdr where uniqueid='<call_uniqueid>';` to align the SIP response with the stored cause value.
+
+## Quick Diagnostic Tips
+
+| Symptom | Common SIP/Q.850 Cause | What It Usually Means |
+| --- | --- | --- |
+| Immediate “busy” tone | 486 / 17 | User Busy – phone in use or call limit reached |
+| Rings then drops | 480 / 19 | User never answered or device not registered |
+| Fails instantly | 404 / 1 | Extension not found or wrong dialed number |
+| “Call failed” right away | 503 / 34 | Trunk congestion / carrier unavailable |
+| Long silence before drop | 408 / 18 | No response – NAT, firewall, or transport issue |
+| Works internally but not outbound | 21 / 401 / 403 / 603 | Carrier rejecting call (auth or route issue) |
+| Audio dies mid-call | 41 / 500 | Upstream gateway or media path failure |
+| Random inbound drops | 16 / 487 | Normal clearing from caller side—investigate user experience |
+
+## SS7 (ISUP) Cause Code Error Map
+
+While FreePBX primarily surfaces SIP responses, the upstream carrier often originates those decisions from SS7/ISUP cause
+codes. The matrix below expands the core causes into an “error map” you can use to trace PSTN signalling issues back to SIP
+symptoms and FreePBX evidence points.
+
+### Legend
+
+* **Class** mirrors ITU-T Q.850 groupings so you can quickly isolate routing vs. resource exhaustion scenarios.
+* **SIP Manifestation** lists the most common SIP response or Reason header the carrier will translate from the SS7 cause.
+* **FreePBX Evidence** highlights where the condition appears (logs, CLI, CDR) so you can validate without needing carrier
+  traces.
+
+### Detailed Mapping
+
+| Cause (Dec/Hex) | Class | Q.850 Description | Typical Trigger in PSTN | SIP Manifestation | FreePBX Evidence |
+| --- | --- | --- | --- | --- | --- |
+| 1 / 0x01 | Normal call clearing | Unallocated (unassigned) number | Dialled DN not in carrier routing table, disconnected DID | `404 Not Found`, `410 Gone`, `Reason: Q.850;cause=1` | Hangupcause `1`, `CHANUNAVAIL` in `/var/log/asterisk/full` |
+| 2 / 0x02 | Normal call clearing | No route to specified transit network | Carrier misconfigured trunk group routing | `503 Service Unavailable` | Hangupcause `2`, accompanied by `No route to transit network` log | 
+| 3 / 0x03 | Normal call clearing | No route to destination | Exchange or LCR missing destination | `503`, `404` depending on carrier | Hangupcause `3`, SIP debug shows upstream `503` |
+| 6 / 0x06 | Normal call clearing | Channel unacceptable | Carrier circuit attribute mismatch (echo canceller, codec) | `488 Not Acceptable Here` | Hangupcause `6`, CLI shows `Channel unacceptable` |
+| 7 / 0x07 | Normal call clearing | Call awarded and being delivered | Mid-call reroute, mostly informational | `181 Call is Being Forwarded` | Hangupcause `7` rarely stored; look for `Call is being forwarded` in history |
+| 16 / 0x10 | Normal call clearing | Normal call clearing | Remote party hung up cleanly | `200 OK` followed by `BYE`, `487 Request Terminated` | Hangupcause `16` with CDR disposition `ANSWERED` or `NO ANSWER` |
+| 17 / 0x11 | Normal call clearing | User busy | Busy subscriber, call limit reached, call waiting disabled | `486 Busy Here`, `600 Busy Everywhere` | Hangupcause `17`, SIP debug shows busy tone; `CONGESTION` app logs |
+| 18 / 0x12 | Normal call clearing | No user responding | Device ringing without answer or endpoint offline | `408 Request Timeout`, `480 Temporarily Unavailable` | Hangupcause `18`; `/var/log/asterisk/full` logs `No user responding` |
+| 19 / 0x13 | Normal call clearing | No answer from user (user alerted) | Extension rang but timed out | `480 Temporarily Unavailable`, `487 Request Terminated` | Hangupcause `19` with `NO ANSWER` disposition |
+| 20 / 0x14 | Normal call clearing | Subscriber absent | Device unreachable, out of coverage | `480`, `404` depending on translation | Hangupcause `20`; log shows `Subscriber absent` |
+| 21 / 0x15 | Normal call clearing | Call rejected | Upstream policy rejection (ACL, auth failure) | `403 Forbidden`, `603 Decline` | Hangupcause `21`; security log shows rejection reason |
+| 22 / 0x16 | Normal call clearing | Number changed | DID ported or re-assigned without redirect | `410 Gone`, `301/302 Moved` | Hangupcause `22`; look for `Number changed` in SIP history |
+| 23 / 0x17 | Normal call clearing | Redirection to new destination | Carrier forwarded to different number | `302 Moved Temporarily`, `181 Call is Being Forwarded` | Hangupcause `23`; inbound CDR may show redirecting number |
+| 26 / 0x1A | Normal call clearing | Non-selected user clearing | Hunt group member not selected | `486 Busy Here`, `480` | Hangupcause `26`; SIP debug shows alternate endpoint chosen |
+| 27 / 0x1B | Normal call clearing | Destination out of order | Remote switch failure | `502 Bad Gateway` | Hangupcause `27`; error logged as `Destination out of order` |
+| 28 / 0x1C | Normal call clearing | Invalid number format | Missing prefix, dial plan mismatch | `484 Address Incomplete` | Hangupcause `28`; `/var/log/asterisk/full` entry `Invalid number format` |
+| 29 / 0x1D | Normal call clearing | Facility rejected | Unsupported supplementary service (CLIR, diversion) | `403`, `501` | Hangupcause `29`; CLI shows `Facility rejected` |
+| 30 / 0x1E | Normal call clearing | Response to status enquiry | Mid-call keepalive; usually informational | `OPTIONS` response | Hangupcause `30` seldom recorded |
+| 31 / 0x1F | Normal call clearing | Normal, unspecified | Generic release with no precise cause | `480`, `487` | Hangupcause `31` when upstream hides detail |
+| 34 / 0x22 | Resource unavailable | No circuit/channel available | Trunk group exhausted, carrier congestion | `503 Service Unavailable`, `486 Busy` | Hangupcause `34`; `/var/log/asterisk/full` shows `Circuit/channel unavailable` |
+| 38 / 0x26 | Resource unavailable | Network out of order | Carrier softswitch failure, fiber cut | `502 Bad Gateway`, `503` | Hangupcause `38`; repeated attempts show same cause |
+| 41 / 0x29 | Resource unavailable | Temporary failure | Transient switch error | `500 Internal Server Error`, `480` | Hangupcause `41`; logs show `Temporary failure` |
+| 42 / 0x2A | Resource unavailable | Switching equipment congestion | Remote switch overloaded | `503`, `486` | Hangupcause `42`; watch for concurrent trunk alarms |
+| 44 / 0x2C | Resource unavailable | Requested circuit/channel not available | Specific DS0/CIC locked out | `503`, `500` | Hangupcause `44`; CLI may show `Channel unavailable` |
+| 47 / 0x2F | Resource unavailable | Resource unavailable, unspecified | Catch-all for resource denial | `503` | Hangupcause `47`; escalate with call samples |
+| 55 / 0x37 | Service or option unavailable | Incoming call barred within CUG | Closed user group restrictions | `403 Forbidden` | Hangupcause `55`; log emphasises `Incoming call barred` |
+| 57 / 0x39 | Service or option unavailable | Bearer capability not authorized | Codec or bearer class blocked | `488`, `415` | Hangupcause `57`; SIP shows codec mismatch |
+| 58 / 0x3A | Service or option unavailable | Bearer capability not presently available | Carrier lacks requested bearer | `488`, `606 Not Acceptable` | Hangupcause `58`; review SDP/codec negotiation |
+| 63 / 0x3F | Service or option unavailable | Service or option not available, unspecified | Supplementary feature unsupported | `501 Not Implemented`, `405 Method Not Allowed` | Hangupcause `63`; logs note unsupported service |
+| 65 / 0x41 | Service or option unavailable | Bearer capability not implemented | Carrier cannot provide media type | `415 Unsupported Media Type` | Hangupcause `65`; codec debug reveals mismatch |
+| 66 / 0x42 | Service or option unavailable | Channel type not implemented | ISDN BRI/PRI mismatch | `488`, `503` | Hangupcause `66`; channel debug indicates mismatch |
+| 69 / 0x45 | Service or option unavailable | Requested facility not implemented | Unsupported supplementary service | `501`, `403` | Hangupcause `69`; watch for `Facility not implemented` |
+| 79 / 0x4F | Service or option unavailable | Service or option not implemented, unspecified | Generic unsupported feature | `488`, `606` | Hangupcause `79`; `SERVICE_NOT_IMPLEMENTED` in CLI |
+| 81 / 0x51 | Service or option unavailable | Invalid call reference value | Protocol mismatch mid-dialog | `481 Call/Transaction Does Not Exist` | Hangupcause `81`; SIP dialog out-of-sync logs |
+| 87 / 0x57 | Service or option unavailable | User not member of CUG | Attempted access to restricted group | `403` | Hangupcause `87`; seldom seen in SMB envs |
+| 88 / 0x58 | Service or option unavailable | Incompatible destination | PSTN to VoIP incompatibility | `488`, `415` | Hangupcause `88`; codec debug recommended |
+| 95 / 0x5F | Service or option unavailable | Invalid message, unspecified | Protocol corruption | `400 Bad Request` | Hangupcause `95`; SIP parser errors |
+| 96 / 0x60 | Service or option unavailable | Mandatory information element missing | Carrier omitted required parameter | `400`, `500` | Hangupcause `96`; SIP logs show malformed message |
+| 97 / 0x61 | Service or option unavailable | Message type non-existent or not implemented | Unknown ISUP message | `400` | Hangupcause `97`; escalate to carrier |
+| 98 / 0x62 | Service or option unavailable | Message not compatible with call state | Out-of-sequence signalling | `481`, `491 Request Pending` | Hangupcause `98`; SIP debug shows glare |
+| 99 / 0x63 | Service or option unavailable | Information element/parameter non-existent | Missing key parameter | `400` | Hangupcause `99`; logs highlight offending IE |
+| 100 / 0x64 | Service or option unavailable | Invalid information element contents | Corrupted digits, invalid coding | `400`, `488` | Hangupcause `100`; escalate with trace |
+| 101 / 0x65 | Service or option unavailable | Message not compatible with call state | Similar to 98; often glare | `491 Request Pending` | Hangupcause `101`; concurrency conflicts |
+| 102 / 0x66 | Service or option unavailable | Recovery on timer expiry | Timer expiry on IAM/REL wait | `504 Gateway Timeout` | Hangupcause `102`; SIP log shows timer expiry |
+| 103 / 0x67 | Service or option unavailable | Parameter non-existent or not implemented | Unsupported optional parameter | `400` | Hangupcause `103`; rare |
+| 111 / 0x6F | Service or option unavailable | Protocol error, unspecified | Generic ISUP protocol fault | `500` | Hangupcause `111`; escalate with signalling trace |
+| 127 / 0x7F | Interworking | Interworking, unspecified | Gateway translation issue between PSTN/SIP | `580 Precondition Failure`, `503` | Hangupcause `127`; note `INTERWORKING_UNSPECIFIED` |
+
+### Field Workflow
+
+1. **Capture the SIP perspective:** Enable `pjsip set logger on` or `sip set debug on` and gather the full INVITE-to-BYE flow so
+   you have the `Reason:` headers containing both SIP and Q.850/SS7 causes.
+2. **Correlate with Asterisk metrics:** Run `core show hangupcauses` to observe which SS7 causes dominate during the incident
+   window and match to the CDR `hangupcause` column for reporting.
+3. **Escalate with carrier-ready evidence:** When the cause points to a resource or protocol fault (e.g., `38`, `41`, `96`),
+   bundle the SIP trace, Asterisk call-ID, and timestamp so the carrier can retrieve their SS7 trace and confirm the upstream
+   fault domain.
+
+### Quick Filters
+
+* **Routing/numbering faults (1–31):** Prioritize dial plan validation and DID provisioning checks.
+* **Resource exhaustion (34–47):** Inspect concurrent call counts, carrier trunk limits, and recent congestion alerts.
+* **Service/feature mismatches (55–111):** Validate codec offers, supplementary services (CLIR, diversion), and trunk profiles
+  against carrier requirements.
+* **Interworking issues (127):** Expect media gateway or SIP-SS7 translation glitches—gather RTP statistics and carrier ticket
+  numbers.

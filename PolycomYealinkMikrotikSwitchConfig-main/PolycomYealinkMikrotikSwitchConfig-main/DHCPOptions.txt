@@ -1,0 +1,48 @@
+The time and date on the devices are provided by the DHCP server via options. 
+ 
+Time offset for EST (GMT -5): String: -18000 or Hex: FFFFB9B0
+Time offset for CST (GMT -4): String: -14400 or Hex: FFFFC7CD
+ 
+DHCP Options for device provisioning and updates (Generic):
+ 
+Option 2 - FFFFC7CD or FFFFB9B0
+Option 42 - 209.115.181.113
+Option 66 - provisioner.123.net
+Option 160 - provisioner.123.net
+If the phones are on a VLAN:
+Option 129 - VLAN-A=XXX (Where XXX is the VLAN for the phones)
+ 
+Example configurations for some popular devices:
+ 
+Cisco iOS or Adtran AOS:
+ 
+conf t
+ip dhcp pool 123Phones
+option 2 hex FFFFC7CD or FFFFB9B0
+option 42 ip 209.115.181.113
+option 66 hex 6874.7470.3a2f.2f70.726f.7669.7369.6f6e.6572.2e31.3233.2e6e.6574
+option 129 ascii "VLAN-A=123"
+option 160 hex 6874.7470.3a2f.2f70.726f.7669.7369.6f6e.6572.2e31.3233.2e6e.6574
+end
+wr
+ 
+MikroTik RouterOS:
+ 
+/ip dhcp-server option
+add code=2 name="GMT Offset -5" value=0xFFFFC7CD or 0xFFFFB9B0
+add code=129 name="Phone VLAN" value="'VLAN-A=202'"
+add code=42 name="NTP Server" value="'209.115.181.113'"
+add code=66 name="Prov Server 66" value="'http://provisioner.123.net'"
+add code=160 name="Prov Server 160" value="'http://provisioner.123.net'"
+ 
+Meraki:
+ 
+WARNING: Changing the DHCP pool could trigger a reboot of ALL phones:
+Security & SD-WAN -> DHCP
+DHCP Options
+Option -> Code -> Type --> Value
+Time offset (2) -> 2 -> Integer -> -14400 or -18000
+NTP Server (42) -> 42 -> IP -> 209.115.181.113
+TFTP server name (66) -> 66 -> Text -> provisioner.123.net
+Custom -> 160 -> Text -> provisioner.123.net
+Then select Save Changes at the bottom of the screen

@@ -1,0 +1,243 @@
+# =========================
+# Secrets
+# =========================
+.env
+
+# =========================
+# Python / Virtual Envs
+# =========================
+.venv/
+.venv*/
+.venv-*/
+.venv-wsl/
+.venv-web-manager/
+venv/
+env/
+ENV/
+
+# =========================
+# Python artifacts
+# =========================
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# =========================
+# Node / frontend
+# =========================
+node_modules/
+.next/
+.turbo/
+dist/
+build/
+
+# =========================
+# Logs / temp files
+# =========================
+*.log
+*.tmp
+*.bak
+CAGE_INFO/*.log
+ultimate_scraper.log
+webscraper.log
+
+# =========================
+# OS / editor noise
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# =========================
+# Local secrets / configs (do not commit)
+# =========================
+.secrets.baseline
+config.py
+scraper_config.py
+freepbx-deploy-backend/.env
+freepbx-deploy-backend/.env.*
+freepbx-deploy-frontend/.env
+
+# =========================
+# Generated outputs / data (do not track)
+# =========================
+# Scraper outputs
+webscraper/output/
+webscraper/test-output/
+webscraper/ticket-discovery-output/
+scraped_tickets/
+
+# Other local data/output folders
+data/
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
+data/test-data/test_scrape_output/
+
+# Traceroute visualizer data allowlist (keep these tracked)
+!traceroute-visualizer-main/backend/ip_aliases.json
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/ipOwnership.json
+
+# =========================
+# Webscraper cookie/secret files (scoped)
+# =========================
+webscraper/cookies*.txt
+webscraper/cookies*.json
+webscraper/live_cookies.json
+webscraper/output/**/selenium_cookies.json
+webscraper/output/**/cookies*.json
+webscraper/output/**/cookies*.txt
+webscraper/output/live_cookies.json
+
+# Root-level cookies/credentials artifacts
+cookies.json
+cookies.txt
+cookies_header_string.txt
+*_cookies.*
+*_credentials.*
+
+# =========================
+# Webscraper browser profiles (credential-bearing state)
+# =========================
+webscraper/webscraper/edge_profile_tmp/
+webscraper/**/edge_profile_tmp/
+webscraper/**/edge_profile/
+webscraper/**/chrome_profile/
+webscraper/edge_profile*
+webscraper/chrome_profile*
+webscraper/**/edge_profile*
+webscraper/**/chrome_profile*
+!webscraper/src/webscraper/auth/chrome_profile.py
+webscraper/**/User Data/
+webscraper/**/Default/
+webscraper/**/Secure Preferences
+webscraper/**/Cookies
+webscraper/**/Login Data
+webscraper/**/Web Data
+webscraper/**/Local State
+webscraper/**/Network/
+webscraper/**/Singleton*
+webscraper/**/DevToolsActivePort
+webscraper/**/*.pma
+webscraper/**/CrashpadMetrics-*
+webscraper/**/first_party_sets.db-journal
+webscraper/output/**/selenium_cookies.json
+webscraper/output/live_cookies.json
+webscraper/output/**/cookies*.json
+webscraper/output/**/cookies*.txt
+
+
+# data dumps (optional — only if you don’t want them in git)
+data/
+!traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
+!PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/src/data/
+webscraper/output/
+webscraper/ticket-discovery-output/
+freepbx-tools/bin/123net_internal_docs/
+tools/
+scripts/secure_push.ps1
+gitleaks-report.json
+
+# local secrets / cookies
+cookies*.txt
+cookies*.json
+*cookies*
+*_cookies*
+!webscraper/src/webscraper/auth/imported_cookies.py
+!webscraper/src/webscraper/auth/inject_cookies.py
+!webscraper/tests/test_imported_cookies.py
+!webscraper/tests/test_inject_cookies.py
+*token*
+*jwt*
+*.db
+*.sqlite
+*.sqlite3
+
+# local dumps / exports / scratch
+*.csv
+*.json
+!PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.app.json
+!PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.node.json
+ENV_VARS.txt
+*VERSION*.txt
+*_TREE*.txt
+*_IPS*.txt
+sensitive_paths.txt
+server_ips.txt
+
+# VSCode local
+.vscode/
+
+# local reports / exports
+PIP_PACKAGES*.txt
+ProductionServers.txt
+TREE_*.txt
+customer_handles.txt
+env_git.txt
+site_company_mapping.txt
+traceroute-visualizer-main/traceroute_webapp_improvements.txt
+freepbx-tools/test_info.txt
+
+# traceroute backend scratch
+traceroute-visualizer-main/backend/All_Assignments.txt
+
+# Webscraper runtime output / browser temp profiles
+webscraper/browser/output/
+webscraper/**/edge_tmp_profile/
+
+
+!webscraper/ticket-ui/package.json
+!webscraper/ticket-ui/tsconfig.json
+
+webscraper/test-output/
+webscraper/ticket-discovery-output/
+webscraper/**/output/
+
+# accidental null-file created by bad redirects/tools
+**/$null
+**/\$null
+webscraper/ticket-ui/F5
+
+# webscraper-manager runtime state
+.webscraper_manager/
+webscraper/var/auth/imported_cookies.json
+webscraper/var/logs/
+
+# Imported auth cookies (local-only)
+imported_cookies.json
+
+# allow tracked webscraper config module
+!webscraper/src/webscraper/config.py
+
+# local settings override (not committed; use settings.example.yaml as reference)
+webscraper/configs/settings.yaml
+
+
+# webscraper runtime/output (do not track)
+webscraper/var/
+webscraper/**/var/
+webscraper/var/runtime/
+
+# browser profiles / selenium user data (credential-bearing)
+**/chrome-profile/
+**/edge-profile/
+**/user-data-dir/
+**/selenium-profile/
+**/playwright/.cache/
+
+# Runtime artifacts (may contain cookies/tokens)
+var/
+**/var/
+*.html
+
+#webscraper ticket UI build artifacts
+webscraper/ticket-ui/node_modules/
+webscraper/ticket-ui/.next/
+webscraper/ticket-ui/*.tsbuildinfo
+webscraper/ticket-ui/F5
+
+# Build cache hashes generated by FULL_START.sh rebuild_app()
+.src_hash
+*.tsbuildinfo

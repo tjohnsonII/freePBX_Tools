@@ -1,0 +1,13 @@
+[Unit]
+Description=FreePBX Nightly Ticket Scrape
+After=freepbx-tools.service
+Wants=freepbx-tools.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -sf -X POST http://127.0.0.1:8788/api/scrape/start \
+    -H "Content-Type: application/json" \
+    -d "{}"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=freepbx-nightly-scrape

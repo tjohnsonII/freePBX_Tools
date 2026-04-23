@@ -1,0 +1,10 @@
+[Unit]
+Description=FreePBX Tools Health Watchdog
+After=freepbx-tools.service
+
+[Service]
+Type=oneshot
+ExecStart=/var/www/freePBX_Tools/scripts/watchdog.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=freepbx-watchdog

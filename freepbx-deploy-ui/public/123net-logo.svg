@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="80" viewBox="0 0 280 80" role="img" aria-label="123NET logo">
+  <rect x="0" y="0" width="80" height="80" fill="#E31E24"/>
+  <rect x="80" y="0" width="80" height="80" fill="#00A651"/>
+  <rect x="160" y="0" width="80" height="80" fill="#0071BC"/>
+  <rect x="240" y="0" width="40" height="80" fill="#111111"/>
+
+  <text x="40" y="58" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="56" fill="#ffffff">1</text>
+  <text x="120" y="58" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="56" fill="#ffffff">2</text>
+  <text x="200" y="58" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="56" fill="#ffffff">3</text>
+
+  <text x="260" y="24" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="20" fill="#ffffff">N</text>
+  <text x="260" y="48" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="20" fill="#ffffff">E</text>
+  <text x="260" y="72" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="20" fill="#ffffff">T</text>
+</svg>

@@ -1,0 +1,7 @@
+# Sensitive strings to replace in history
+literal:ws0AY=fHY6*^b*at?m]8==>***REMOVED***
+literal:sdxczvsdxczv==>***REMOVED***
+literal:Greenbird64*==>***REMOVED***
+# Example: redact any 'FREEPBX_PASSWORD = "..."' like lines
+regex:FREEPBX_PASSWORD\s*=\s*"[^"]+"==>FREEPBX_PASSWORD = "***REMOVED***"
+regex:FREEPBX_ROOT_PASSWORD\s*=\s*"[^"]+"==>FREEPBX_ROOT_PASSWORD = "***REMOVED***"

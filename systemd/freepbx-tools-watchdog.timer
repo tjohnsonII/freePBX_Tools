@@ -1,0 +1,10 @@
+[Unit]
+Description=FreePBX Tools Watchdog (every 5 minutes)
+Requires=freepbx-tools.service
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

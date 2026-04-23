@@ -1,0 +1,63 @@
+{
+    "python.defaultInterpreterPath": ".venv-webscraper\\Scripts\\python.exe",
+    "python.terminal.activateEnvironment": false,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.pycodestyleEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "webscraper/src"
+    ],
+    "terminal.integrated.env.windows": {
+        "Path": "E:\\DevTools\\Graphviz\\Graphviz\\bin;${env:Path}",
+        "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "CHROMEDRIVER_PATH": "E:\\DevTools\\freepbx-tools\\webscraper\\chromedriver-win64\\chromedriver-win64\\chromedriver.exe",
+        "PIP_CACHE_DIR": "E:\\DevTools\\pip-cache",
+        "TEMP": "E:\\DevTools\\Temp",
+        "TMP": "E:\\DevTools\\Temp"
+    },
+    "terminal.integrated.shellIntegration.enabled": false,
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "terminal.integrated.profiles.windows": {
+        "Command Prompt": {
+            "path": "C:\\Windows\\System32\\cmd.exe",
+            "args": [
+                "/d",
+                "/k"
+            ]
+        }
+    },
+    "terminal.integrated.automationProfile.windows": {
+        "path": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+            "/d",
+            "/c"
+        ]
+    },
+    "files.exclude": {
+        "**/*.log": true,
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/dist": true,
+        "**/build": true
+    },
+    "search.exclude": {
+        "**/*.log": true,
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/dist": true,
+        "**/build": true
+    },
+    "files.watcherExclude": {
+        "**/*.log": true,
+        "**/node_modules/**": true,
+        "**/.next/**": true,
+        "**/.turbo/**": true,
+        "**/dist/**": true,
+        "**/build/**": true
+    }
+}

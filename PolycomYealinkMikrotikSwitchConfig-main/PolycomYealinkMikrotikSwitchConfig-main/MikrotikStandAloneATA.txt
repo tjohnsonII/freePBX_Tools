@@ -1,0 +1,14 @@
+/interface ethernet
+set [ find default-name=ether9 ] comment=ATA
+/interface vlan
+add interface=ether9 name=vlan202 vlan-id=202
+/ip pool
+add name=ATA ranges=172.16.1.3-172.16.1.10
+/ip dhcp-server
+add address-pool=ATA disabled=no interface=ether9 name="ATA DHCP NETWORK"
+/ip address
+add address=172.16.1.1/24 interface=ether9 network=172.16.1.0
+/ip dhcp-server network
+add address=172.16.1.0/24 dns-server=1.1.1.1,8.8.8.8 gateway=172.16.1.1 netmask=24
+/ip firewall nat
+add action=masquerade chain=srcnat src-address=172.16.1.0/24
