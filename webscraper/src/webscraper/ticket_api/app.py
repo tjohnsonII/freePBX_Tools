@@ -315,7 +315,7 @@ def _run_scrape_job(
     resume_from_handle: str | None = None,
 ) -> None:
     from selenium import webdriver
-    from selenium.common.exceptions import TimeoutException
+    from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
     from selenium.webdriver.common.by import By
     from selenium.webdriver.common.keys import Keys
     from selenium.webdriver.support import expected_conditions as EC
@@ -347,11 +347,31 @@ def _run_scrape_job(
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--start-maximized")
+    options.add_argument("--disable-hang-monitor")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    # Use the persistent Chrome profile so saved cookies survive across scrape runs
+    _chrome_profile_dir = (
+        os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR")
+        or os.environ.get("CHROME_USER_DATA_DIR")
+        or str(Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome-profile")
+    )
+    options.add_argument(f"--user-data-dir={_chrome_profile_dir}")
+    options.add_argument("--profile-directory=Default")
+    # Remove stale SingletonLock so Chrome doesn't exit immediately on startup
+    _singleton_lock = Path(_chrome_profile_dir) / "SingletonLock"
+    if _singleton_lock.exists() or _singleton_lock.is_symlink():
+        try:
+            _singleton_lock.unlink()
+        except Exception:
+            pass
     chromedriver_path = next(
         (p for p in ("/usr/local/bin/chromedriver", "/usr/bin/chromedriver") if os.path.isfile(p)), None
     )
-    # Run on virtual display :99 (Xvfb) so user can connect via VNC to log in
-    os.environ.setdefault("DISPLAY", ":99")
+    # Display :20 = Chrome Remote Desktop (visible to user); falls back to :99 (VNC)
+    os.environ["DISPLAY"] = os.environ.get("DISPLAY", ":20")
     driver = None
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []
@@ -454,13 +474,25 @@ def _run_scrape_job(
             except Exception as flush_exc:
                 LOGGER.warning("scrape_flush_failed error=%s", flush_exc)
 
-        for idx, handle in enumerate(handles, start=1):
+        handle_list = list(handles)
+        browser_crash_count = 0
+        MAX_BROWSER_CRASHES = 3
+        crash_retried: set[str] = set()
+        hi = 0  # 0-based handle index
+        _retry_after_crash = False  # set True when we restart browser; cleared each iteration
+
+        while hi < len(handle_list):
+            _retry_after_crash = False
+            handle = handle_list[hi]
+            idx = hi + 1  # 1-based for display/progress
+
             # Resume: skip handles before (and including) the resume point
             if skipping:
                 if handle == skip_until:
                     skipping = False
                 _scrape_emit(job_id, f"skipping_handle {handle}", handle=handle,
                              event="skipping_handle")
+                hi += 1
                 continue
 
             search_string = _scrape_search_string(handle)
@@ -470,7 +502,7 @@ def _run_scrape_job(
                 "completed_handles": idx - 1,
             })
             _update_scrape_job(job_id=job_id, status="running", completed=idx - 1,
-                               total=len(handles), result=result)
+                               total=len(handle_list), result=result)
             _scrape_emit(job_id, f"scraping_handle {handle}", handle=handle,
                          event="scraping_handle", data={"index": idx, "total": len(handles)})
 
@@ -516,6 +548,7 @@ def _run_scrape_job(
                     handle_summaries.append(handle_summary)
                     _scrape_emit(job_id, f"handle_mismatch {handle} {mismatch_msg}", handle=handle,
                                  event="handle_mismatch")
+                    hi += 1  # must advance before continue in a while loop
                     continue
 
                 _scrape_emit(job_id, f"handle_verified {handle}", handle=handle,
@@ -625,6 +658,73 @@ def _run_scrape_job(
                 except Exception as db_exc:
                     LOGGER.warning("scrape_db_write_failed handle=%s error=%s", handle, db_exc)
 
+            except (InvalidSessionIdException, WebDriverException, ConnectionError, OSError) as _wde:
+                # Catch Selenium exceptions AND low-level connection errors (RemoteDisconnected,
+                # ConnectionAbortedError, etc.) that indicate the Chrome process died.
+                crash_exc = _wde
+                _msg = str(_wde).lower()
+                _is_crash = (
+                    isinstance(_wde, (InvalidSessionIdException, ConnectionError, OSError))
+                    or "invalid session" in _msg
+                    or "session deleted" in _msg
+                    or "connection aborted" in _msg
+                    or "remotedisconnected" in _msg
+                    or "remote end closed" in _msg
+                    or "chrome not reachable" in _msg
+                )
+                if not _is_crash:
+                    # Non-crash WebDriverException — treat as normal handle failure
+                    handle_summary["status"] = "failed"
+                    handle_summary["error"] = str(crash_exc)
+                    handle_summaries.append(handle_summary)
+                    LOGGER.exception(
+                        "scrape_handle_exception job_id=%s handle=%s error=%s",
+                        job_id, handle, crash_exc,
+                    )
+                    _scrape_emit(job_id, f"handle_exception {handle}: {crash_exc}", handle=handle,
+                                 event="handle_exception")
+                else:
+                    LOGGER.error(
+                        "scrape_browser_crash job_id=%s handle=%s crash_count=%s error=%s",
+                        job_id, handle, browser_crash_count, crash_exc,
+                    )
+                    if browser_crash_count < MAX_BROWSER_CRASHES and handle not in crash_retried:
+                        crash_retried.add(handle)
+                        browser_crash_count += 1
+                        _scrape_emit(
+                            job_id,
+                            f"browser_crashed_restarting attempt={browser_crash_count}",
+                            handle=handle,
+                            event="browser_crashed",
+                            data={"attempt": browser_crash_count},
+                        )
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
+                        driver = webdriver.Chrome(service=svc, options=options) if svc else webdriver.Chrome(options=options)
+                        driver.get(CHROME_CUSTOMERS_URL)
+                        _scrape_emit(job_id, "waiting_for_login_after_crash", event="waiting_for_login",
+                                     data={"timeout_seconds": login_timeout_seconds})
+                        restart_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
+                        restart_wait.until(
+                            lambda d: "secure.123.net" in (d.current_url or "").lower()
+                            and (
+                                len(d.find_elements(By.CSS_SELECTOR, "#customers")) > 0
+                                or len(d.find_elements(By.XPATH, "//th[normalize-space()='Company Handle:']")) > 0
+                            )
+                        )
+                        _scrape_emit(job_id, "browser_restarted_login_detected", event="browser_restarted")
+                        LOGGER.info("scrape_browser_restarted job_id=%s attempt=%s", job_id, browser_crash_count)
+                        _retry_after_crash = True
+                        # Retry this handle — do NOT increment hi
+                        continue
+                    # Exhausted retries: record failure and move on
+                    handle_summary["status"] = "failed"
+                    handle_summary["error"] = str(crash_exc)
+                    handle_summaries.append(handle_summary)
+                    _scrape_emit(job_id, f"handle_exception {handle}: {crash_exc}", handle=handle,
+                                 event="handle_exception")
             except Exception as handle_exc:
                 handle_summary["status"] = "failed"
                 handle_summary["error"] = str(handle_exc)
@@ -639,7 +739,7 @@ def _run_scrape_job(
                 result.update({
                     "status_message": f"scraped_tickets {handle} count={handle_summary.get('ticket_count', 0)}",
                     "completed_handles": idx,
-                    "current_handle": handle if idx < len(handles) else None,
+                    "current_handle": handle if hi + 1 < len(handle_list) else None,
                     "ticket_count": len(scraped_rows),
                     "handle_summaries": handle_summaries,
                     "output_dir": str(run_output_dir.resolve()),
@@ -649,11 +749,15 @@ def _run_scrape_job(
                         "ticket_details": str(details_path.resolve()),
                     },
                 })
-                _flush_progress(last_completed=handle)
+                if not _retry_after_crash:
+                    _flush_progress(last_completed=handle)
+                else:
+                    _flush_progress()  # don't advance last_completed; we're retrying
                 _update_scrape_job(
                     job_id=job_id, status="running", completed=idx,
-                    total=len(handles), result=result,
+                    total=len(handle_list), result=result,
                 )
+            hi += 1
 
         _flush_progress()
         LOGGER.info("scrape_output summary=%s tickets=%s details=%s",
@@ -855,6 +959,20 @@ def _startup_bootstrap() -> None:
         if handles:
             for handle in handles:
                 db.ensure_handle_row(db_path(), handle)
+        # Reap jobs left in running/queued state from a previous crashed session
+        try:
+            import sqlite3 as _sqlite3
+            con = _sqlite3.connect(db_path())
+            cur = con.execute(
+                "UPDATE scrape_jobs SET status='failed', finished_utc=datetime('now')"
+                " WHERE status IN ('running','queued')"
+            )
+            if cur.rowcount:
+                LOGGER.warning("startup: reaped %d stale running/queued jobs", cur.rowcount)
+            con.commit()
+            con.close()
+        except Exception as exc:
+            LOGGER.warning("startup: could not reap stale jobs: %s", exc)
         stats = db.get_stats(db_path())
         LOGGER.info("startup db_path=%s handles=%s tickets=%s",
                     db_path(), stats.get("total_handles"), stats.get("total_tickets"))
@@ -879,7 +997,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register ingest routes (used when a CLIENT sends scraped data to this server).
+# Register ingest routes so remote clients can POST scraped data to this server.
+# Protected by X-Ingest-Key header (INGEST_API_KEY env var); localhost-only fallback.
 from webscraper.ticket_api import ingest_routes as _ingest_routes  # noqa: E402
 _ingest_routes.register(app, db, db_path)
 

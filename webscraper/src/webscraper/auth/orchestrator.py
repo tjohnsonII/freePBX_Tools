@@ -6,8 +6,9 @@ from dataclasses import replace
 from typing import Iterable, List, Optional
 
 from .chrome_profile import get_driver_reusing_profile
-from .probe import TARGET_URL, probe_auth
 from .session import build_authenticated_session, selenium_driver_to_requests_session, summarize_driver_cookies
+
+_DEFAULT_TARGET_URL = "https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
 
 from .types import AuthAttempt, AuthContext, AuthMode, AuthResult
 from .strategies import manual, profile, programmatic
@@ -38,7 +39,7 @@ def _persist_selenium_cookies(cookies: list[dict]) -> None:
         pass
 
 
-def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
+def authenticate_and_fetch(url: str = _DEFAULT_TARGET_URL, mode: str = "auto") -> dict:
     """Fetch a page using requests, selenium, or auto fallback.
 
     Returns a dict containing mode/probe/fetch diagnostics.
@@ -50,10 +51,17 @@ def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
     request_error: str | None = None
     selenium_error: str | None = None
 
+    def _probe_auth(client, url: str) -> dict:
+        try:
+            from .probe import probe_auth as _pa  # optional module
+            return _pa(client, url=url)
+        except ImportError:
+            return {"ok": False, "notes": "probe module unavailable"}
+
     if selected_mode in {"auto", "requests"}:
         try:
             session = build_authenticated_session()
-            req_probe = probe_auth(session, url=url)
+            req_probe = _probe_auth(session, url=url)
             if req_probe.get("ok"):
                 response = session.get(url, timeout=30, allow_redirects=True)
                 return {
@@ -75,13 +83,13 @@ def authenticate_and_fetch(url: str = TARGET_URL, mode: str = "auto") -> dict:
         driver = None
         try:
             driver = get_driver_reusing_profile(headless=False)
-            sel_probe = probe_auth(driver, url=url)
+            sel_probe = _probe_auth(driver, url=url)
             if not sel_probe.get("ok"):
                 raise RuntimeError(f"selenium auth probe failed: {sel_probe.get('notes', 'unknown reason')}")
 
             if selected_mode == "auto":
                 seeded_session = selenium_driver_to_requests_session(driver, base_url=url)
-                seeded_probe = probe_auth(seeded_session, url=url)
+                seeded_probe = _probe_auth(seeded_session, url=url)
                 if not seeded_probe.get("ok"):
                     diagnostics = summarize_driver_cookies(driver)
                     raise RuntimeError(
@@ -200,17 +208,41 @@ def _persist_auth_artifacts(driver, ctx: AuthContext) -> None:
     with open(cookie_path, "w", encoding="utf-8") as handle:
         json.dump(driver.get_cookies() or [], handle, indent=2)
 
+    # Guard localStorage access — calling execute_script on a 401/error page that
+    # blocks localStorage causes a Chrome internal segfault, not just a JS error.
+    # Only attempt storage export when on a safe navigable page.
+    storage_payload: dict = {}
+    try:
+        current_url = driver.current_url or ""
+        # Skip on error pages, about: pages, and non-http pages where localStorage
+        # is blocked at the browser security level and will segfault Chrome.
+        safe_origins = ("https://", "http://")
+        blocked_indicators = ("401", "403", "about:", "chrome-error:", "data:")
+        is_safe = (
+            any(current_url.startswith(o) for o in safe_origins)
+            and not any(b in current_url for b in blocked_indicators)
+        )
+        if is_safe:
+            storage_payload = driver.execute_script(
+                """
+                return {
+                  localStorage: (function() {
+                    try { return Object.assign({}, window.localStorage || {}); }
+                    catch(e) { return {}; }
+                  })(),
+                  sessionStorage: (function() {
+                    try { return Object.assign({}, window.sessionStorage || {}); }
+                    catch(e) { return {}; }
+                  })()
+                };
+                """
+            ) or {}
+    except Exception as exc:
+        print(f"[AUTH] storage export skipped: {exc}")
+
     storage_path = os.path.join(os.path.dirname(cookie_path), "storage.json")
-    storage_payload = driver.execute_script(
-        """
-        return {
-          localStorage: Object.assign({}, window.localStorage || {}),
-          sessionStorage: Object.assign({}, window.sessionStorage || {})
-        };
-        """
-    )
     with open(storage_path, "w", encoding="utf-8") as handle:
-        json.dump(storage_payload or {}, handle, indent=2)
+        json.dump(storage_payload, handle, indent=2)
 
 
 def _resolve_cookie_files(ctx: AuthContext) -> List[str]:

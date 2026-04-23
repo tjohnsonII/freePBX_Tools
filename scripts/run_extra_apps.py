@@ -70,6 +70,7 @@ SERVICES = {
         "kind": "npm-next",
         "health_paths": ["/"],
         "success_markers": ["Ready in", "Local:"],
+        "npm_script": "start",
     },
     "polycom": {
         "label": "Polycom/Yealink/Mikrotik Config App",
@@ -128,7 +129,9 @@ def _start_npm(root: Path, svc: dict, *, dry_run: bool, readiness_timeout: int) 
     # Services with "npm_script": "start" use a pre-built production server;
     # port/hostname are already embedded in the package.json script.
     script = svc.get("npm_script", "dev")
-    if script != "dev":
+    if script != "dev" and svc["kind"] == "npm-next":
+        cmd = [npm, "run", script, "--", "--port", str(port), "--hostname", host]
+    elif script != "dev":
         cmd = [npm, "run", script]
     elif svc["kind"] == "npm-vite":
         cmd = [npm, "run", "dev", "--", "--port", str(port), "--host", host]

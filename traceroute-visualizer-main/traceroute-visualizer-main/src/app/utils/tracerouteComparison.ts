@@ -1,4 +1,4 @@
-import { classifyHop, Hop } from "./tracerouteClassification";
+import { Hop } from "./tracerouteClassification";
 import {
   getFirstSilentHop,
   getLastRespondingHopIndex,

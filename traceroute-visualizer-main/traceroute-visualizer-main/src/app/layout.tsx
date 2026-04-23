@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import Image from "next/image";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -36,9 +38,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <header className="brandHeader">
-          <a className="brandLogo" href="/" aria-label="123NET">
-            <img src="/123net-logo.png" alt="123NET" />
-          </a>
+          <Link className="brandLogo" href="/" aria-label="123NET">
+            <Image src="/123net-logo.png" alt="123NET" width={120} height={40} />
+          </Link>
           <div className="brandHeaderText">
             <div className="brandAppName">Traceroute Visualizer</div>
             <div className="brandMeta">Network diagnostics</div>

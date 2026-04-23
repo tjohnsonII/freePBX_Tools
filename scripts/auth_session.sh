@@ -14,10 +14,16 @@
 
 set -euo pipefail
 
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[ERROR] auth_session.sh must be run as root. Use: sudo ./scripts/auth_session.sh"
+    exit 1
+fi
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROFILE_DIR="$REPO/webscraper/var/chrome-profile"
 DISPLAY_NUM=99
 VNC_PORT=5900
+VNC_BIND_IP="192.168.100.10"
 TARGET_URL="https://secure.123.net/cgi-bin/web_interface/admin/customers.cgi"
 
 mkdir -p "$PROFILE_DIR"
@@ -48,19 +54,21 @@ export DISPLAY=":${DISPLAY_NUM}"
 openbox &
 sleep 0.5
 
-# ── Expose display via VNC (localhost-only, no password) ─────────────────
-echo "[auth] Starting x11vnc on localhost:${VNC_PORT} ..."
-x11vnc -display ":${DISPLAY_NUM}" -localhost -nopw -forever -bg -quiet
+# ── Expose display via VNC (LAN-accessible, no password) ─────────────────
+echo "[auth] Starting x11vnc on ${VNC_BIND_IP}:${VNC_PORT} ..."
+x11vnc -display ":${DISPLAY_NUM}" -listen "${VNC_BIND_IP}" -nopw -forever -bg -quiet
 echo ""
 echo "==========================================================="
-echo "  VNC is ready on localhost:${VNC_PORT}"
-echo ""
-echo "  From your laptop, open an SSH tunnel:"
-echo "    ssh -L ${VNC_PORT}:127.0.0.1:${VNC_PORT} $(hostname)"
-echo ""
-echo "  Then connect a VNC client to:  localhost:${VNC_PORT}"
+echo "  VNC is ready — connect your VNC client directly to:"
+echo "    ${VNC_BIND_IP}:${VNC_PORT}"
+echo "  No SSH tunnel needed."
 echo "==========================================================="
 echo ""
+
+# ── Wait for VNC client to connect before launching Chrome ───────────────
+echo "[auth] Waiting for VNC client to connect to ${VNC_BIND_IP}:${VNC_PORT} ..."
+echo "[auth] Open your VNC client now, then press Enter to launch Chrome."
+read -r -p ""
 
 # ── Launch Chrome with persistent profile (NOT headless) ─────────────────
 echo "[auth] Launching Chrome with profile: $PROFILE_DIR"

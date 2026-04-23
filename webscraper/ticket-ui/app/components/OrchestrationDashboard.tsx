@@ -156,6 +156,7 @@ export default function OrchestrationDashboard() {
   }, [status, scrapeEvents]);
 
   const vncHost = typeof window !== "undefined" ? window.location.hostname : "192.168.30.19";
+  const vncDirect = "192.168.100.10:5900";
 
   return (
     <section className={styles.section}>
@@ -164,10 +165,13 @@ export default function OrchestrationDashboard() {
         <div className={styles.loginBanner}>
           <strong>Login required</strong> — Chrome is waiting for you to sign in.
           <ol className={styles.loginBannerSteps}>
-            <li>Open a terminal and run:<br /><code>ssh -L 5901:127.0.0.1:5900 {vncHost}</code></li>
-            <li>Open your VNC client and connect to <code>localhost:5901</code></li>
-            <li>Complete the 123.net SSO login — scraping will resume automatically.</li>
+            <li>Connect your VNC client directly to <code>{vncDirect}</code></li>
+            <li>Complete the 123.net SSO login in the Chrome window.</li>
+            <li>Scraping will resume automatically once you log in.</li>
           </ol>
+          <p style={{marginTop: "0.5em", fontSize: "0.85em", opacity: 0.7}}>
+            If direct VNC fails: <code>ssh -L 5901:127.0.0.1:5900 {vncHost}</code> then connect to <code>localhost:5901</code>
+          </p>
         </div>
       )}
       {error ? <p className={styles.error}>{error}</p> : null}

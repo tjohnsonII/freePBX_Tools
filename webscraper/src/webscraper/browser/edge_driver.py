@@ -248,6 +248,12 @@ def create_edge_driver(
             edge_args.append("--disable-gpu")
             edge_options.add_argument("--no-sandbox")
             edge_args.append("--no-sandbox")
+        elif os.name != "nt" and os.getuid() == 0:
+            # Chromium-based browsers refuse to run as root without --no-sandbox
+            edge_options.add_argument("--no-sandbox")
+            edge_args.append("--no-sandbox")
+            edge_options.add_argument("--disable-gpu")
+            edge_args.append("--disable-gpu")
         return edge_options, edge_args
 
     attach_requested = bool(attach or auto_attach)
@@ -617,6 +623,12 @@ def create_edge_driver(
             edge_args.append("--disable-gpu")
             edge_options.add_argument("--no-sandbox")
             edge_args.append("--no-sandbox")
+        elif os.name != "nt" and os.getuid() == 0:
+            # Chromium-based browsers refuse to run as root without --no-sandbox
+            edge_options.add_argument("--no-sandbox")
+            edge_args.append("--no-sandbox")
+            edge_options.add_argument("--disable-gpu")
+            edge_args.append("--disable-gpu")
         return edge_options, edge_args
 
     attach_requested = bool(attach or auto_attach)

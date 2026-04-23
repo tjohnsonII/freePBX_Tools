@@ -15,7 +15,15 @@ export const metadata: Metadata = {
   },
 };
 
-const nav = ['dashboard', 'tickets', 'handles', 'database', 'system', 'logs'];
+const nav: { href: string; label: string; }[] = [
+  { href: '/dashboard',  label: 'Dashboard' },
+  { href: '/services',   label: '⚡ Services' },
+  { href: '/tickets',    label: 'Tickets' },
+  { href: '/handles',    label: 'Handles' },
+  { href: '/database',   label: 'Database' },
+  { href: '/system',     label: 'System' },
+  { href: '/logs',       label: 'Logs' },
+];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,11 +31,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="flex min-h-screen">
           <aside className="w-56 border-r border-slate-800 p-4">
-            <h1 className="mb-3 text-sm font-semibold">Webscraper Hosted Dashboard</h1>
-            <nav className="space-y-1 text-sm">
-              {nav.map((item) => (
-                <Link className="block rounded px-2 py-1 hover:bg-slate-800" key={item} href={`/${item}`}>
-                  {item[0].toUpperCase() + item.slice(1)}
+            <h1 className="mb-1 text-sm font-semibold">123 Hosted Tools</h1>
+            <p className="mb-3 text-xs text-slate-500">manager.123hostedtools.com</p>
+            <nav className="space-y-0.5 text-sm">
+              {nav.map(({ href, label }) => (
+                <Link className="block rounded px-2 py-1.5 hover:bg-slate-800 transition-colors" key={href} href={href}>
+                  {label}
                 </Link>
               ))}
             </nav>

@@ -82,7 +82,7 @@ def ensure_authenticated(
             f"AUTH REQUIRED: Please login in the opened browser window. Waiting up to {timeout} seconds..."
         )
         print(f"[AUTH] login-like page detected url={current_url!r} title={title!r}")
-        time.sleep(2)
+        time.sleep(8)
 
     raise TimeoutError(f"Authentication was not completed within {timeout} seconds")
 

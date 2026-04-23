@@ -89,7 +89,12 @@ def main() -> int:
         stop_service(root, "manager_ui_frontend")
 
         npm = npm_executable()
-        cmd = [npm, "--prefix", "manager-ui", "run", "dev"]
+        next_build_dir = root / "manager-ui" / ".next"
+        if not next_build_dir.exists():
+            print("[manager-ui] No .next build found — running npm build first...")
+            import subprocess as _sp
+            _sp.run([npm, "--prefix", "manager-ui", "run", "build"], cwd=root, check=True)
+        cmd = [npm, "--prefix", "manager-ui", "run", "start", "--", "--port", str(args.port), "--hostname", args.host]
         if args.dry_run:
             print(f"[dry-run] would launch manager_ui_frontend: {' '.join(cmd)}")
             return 0
@@ -102,7 +107,7 @@ def main() -> int:
         )
         save_service_state(root, entry)
         readiness_paths = args.readiness_paths or ["/", "/dashboard", "/api/health"]
-        readiness_markers = args.readiness_markers or ["Ready in", "Local: http://localhost:3004"]
+        readiness_markers = args.readiness_markers or ["Ready in", "Local:", "started server on"]
         reason = wait_for_dev_server_ready(
             pid=int(entry["pid"]),
             host=args.host,

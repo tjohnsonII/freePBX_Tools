@@ -85,7 +85,21 @@ def _start_worker(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
 
-    entry = start_detached(root=root, service_name="webscraper_worker_service", cmd=worker_cmd, cwd=worker_cwd)
+    edgedriver_path = "/root/.cache/selenium/msedgedriver/linux64/147.0.3912.72/msedgedriver"
+    chrome_profile = str(root / "webscraper" / "var" / "chrome-profile")
+    worker_env: dict[str, str] = {
+        "DISPLAY": ":20",
+        "WEBSCRAPER_BROWSER": "chrome",
+        "WEBSCRAPER_CHROME_PROFILE_DIR": chrome_profile,
+        "CHROME_USER_DATA_DIR": chrome_profile,
+        "WEBSCRAPER_AUTH_TIMEOUT_SEC": "300",
+        "HOME": "/home/tim2",
+    }
+    if os.path.exists(edgedriver_path):
+        worker_env["EDGEDRIVER_PATH"] = edgedriver_path
+    # Run worker as tim2 (not root) so Chrome behaves like a normal desktop browser
+    worker_cmd = ["sudo", "-H", "-u", "tim2", "--"] + worker_cmd
+    entry = start_detached(root=root, service_name="webscraper_worker_service", cmd=worker_cmd, cwd=worker_cwd, env_overrides=worker_env)
     save_service_state(root, entry)
     wait_for_process_stable(int(entry["pid"]), timeout_s=args.readiness_timeout, section="ready", min_alive_s=4.0)
     update_service_state(root, "webscraper_worker_service", readiness_status="ready", readiness_reason="worker process stable", mode="worker", degraded=False)
@@ -121,9 +135,13 @@ def _start_api(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
     chrome_profile = str(root / "webscraper" / "var" / "chrome-profile")
-    api_env: dict[str, str] = {"DISPLAY": ":99"}
-    if os.path.isdir(chrome_profile):
-        api_env["WEBSCRAPER_CHROME_PROFILE_DIR"] = chrome_profile
+    api_env: dict[str, str] = {
+        "DISPLAY": ":20",
+        "WEBSCRAPER_CHROME_PROFILE_DIR": chrome_profile,
+        "CHROME_USER_DATA_DIR": chrome_profile,
+        "WEBSCRAPER_AUTH_TIMEOUT_SEC": "300",
+        "HOME": "/home/tim2",
+    }
     entry = start_detached(root=root, service_name="webscraper_ticket_api", cmd=api_cmd, cwd=root,
                            env_overrides=api_env)
     save_service_state(root, entry)
@@ -160,7 +178,7 @@ def _start_ui(root: Path, args: argparse.Namespace) -> dict[str, object]:
             "log_file": None,
         }
 
-    ui_cmd = [npm_executable(), "--prefix", "webscraper/ticket-ui", "run", "dev", "--", "--port", str(args.ui_port), "--hostname", args.ui_host]
+    ui_cmd = [npm_executable(), "--prefix", "webscraper/ticket-ui", "run", "start", "--", "--port", str(args.ui_port), "--hostname", args.ui_host]
     stop_service(root, "webscraper_ticket_ui")
     if args.dry_run:
         return {

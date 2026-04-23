@@ -125,7 +125,7 @@ def _capture_auth_failure_artifacts(driver: Any) -> None:
 
 
 def _is_authenticated_session(driver: Any) -> bool:
-    return (not _is_login_redirect(getattr(driver, "current_url", "") or "")) and _is_expected_auth_host(
+    return (not _is_login_redirect(driver)) and _is_expected_auth_host(
         getattr(driver, "current_url", "") or ""
     )
 
@@ -2710,7 +2710,15 @@ def selenium_scrape_tickets(
                     driver.quit()
                 except Exception:
                     pass
-            initialize_driver()
+            for _restart_attempt in range(1, 4):
+                try:
+                    initialize_driver()
+                    return
+                except Exception as _exc:
+                    print(f"[WARN] Driver restart attempt {_restart_attempt}/3 failed: {_exc}")
+                    if _restart_attempt < 3:
+                        time.sleep(5)
+            raise RuntimeError("Driver restart failed after 3 attempts")
 
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
@@ -3310,12 +3318,15 @@ def selenium_scrape_tickets(
                         print("[WARN] Attach mode active; skipping driver restart and aborting remaining handles.")
                         abort_run = True
                         break
-                    if retries >= 1:
-                        print("[ERROR] Already restarted once; aborting remaining handles.")
-                        abort_run = True
+                    if retries >= 2:
+                        print(f"[WARN] Too many retries for {handle}; skipping handle and continuing.")
                         break
                     retries += 1
-                    restart_driver("invalid session id")
+                    try:
+                        restart_driver("invalid session id")
+                    except Exception as _restart_exc:
+                        print(f"[WARN] Driver restart failed for {handle}: {_restart_exc}; skipping handle.")
+                        break
                 except WebDriverException as e:
                     if is_invalid_session_error(e):
                         print(f"[WARN] Invalid session id detected for {handle}: {e}")
@@ -3323,12 +3334,15 @@ def selenium_scrape_tickets(
                             print("[WARN] Attach mode active; skipping driver restart and aborting remaining handles.")
                             abort_run = True
                             break
-                        if retries >= 1:
-                            print("[ERROR] Already restarted once; aborting remaining handles.")
-                            abort_run = True
+                        if retries >= 2:
+                            print(f"[WARN] Too many retries for {handle}; skipping handle and continuing.")
                             break
                         retries += 1
-                        restart_driver("invalid session id")
+                        try:
+                            restart_driver("invalid session id")
+                        except Exception as _restart_exc:
+                            print(f"[WARN] Driver restart failed for {handle}: {_restart_exc}; skipping handle.")
+                            break
                         continue
                     raise
             if abort_run:
