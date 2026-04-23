@@ -26,10 +26,14 @@ fi
 
 export CLIENT_MODE=1
 export WEBSCRAPER_PORT="${WEBSCRAPER_PORT:-8789}"
+# Ensure Chrome has a display to open on. :99 is the Xvfb/VNC display started
+# by start_services.sh. Don't override if the caller already set DISPLAY.
+export DISPLAY="${DISPLAY:-:99}"
 
 echo "[client] Starting webscraper in CLIENT MODE"
 echo "[client] Sending scraped data to: $INGEST_SERVER_URL"
 echo "[client] Local trigger API on port: $WEBSCRAPER_PORT"
+echo "[client] Chrome will open on display: $DISPLAY  (connect via VNC to see it)"
 
 exec python -m uvicorn webscraper.ticket_api.app:app \
     --host 0.0.0.0 \

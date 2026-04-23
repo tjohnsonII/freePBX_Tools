@@ -370,8 +370,10 @@ def _run_scrape_job(
     chromedriver_path = next(
         (p for p in ("/usr/local/bin/chromedriver", "/usr/bin/chromedriver") if os.path.isfile(p)), None
     )
-    # Display :20 = Chrome Remote Desktop (visible to user); falls back to :99 (VNC)
-    os.environ["DISPLAY"] = os.environ.get("DISPLAY", ":20")
+    # Use whatever display is already set; fall back to :99 (Xvfb/VNC).
+    # The Server branch uses :20 (Chrome Remote Desktop) but the client uses :99.
+    os.environ.setdefault("DISPLAY", ":99")
+    _display = os.environ["DISPLAY"]
     driver = None
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []
@@ -381,8 +383,23 @@ def _run_scrape_job(
         svc = ChromeService(chromedriver_path) if chromedriver_path else None
         driver = webdriver.Chrome(service=svc, options=options) if svc else webdriver.Chrome(options=options)
         driver.get(CHROME_CUSTOMERS_URL)
-        _scrape_emit(job_id, "waiting_for_login", event="waiting_for_login",
-                     data={"timeout_seconds": login_timeout_seconds})
+        _scrape_emit(
+            job_id,
+            f"waiting_for_login — Chrome opened on display {_display} "
+            f"(connect via VNC and log in to the Chrome window navigating to secure.123.net — "
+            f"do NOT use a different browser window)",
+            event="waiting_for_login",
+            data={
+                "timeout_seconds": login_timeout_seconds,
+                "display": _display,
+                "target_url": CHROME_CUSTOMERS_URL,
+                "instruction": (
+                    f"Connect to VNC display {_display}, find the Chrome window "
+                    f"that opened automatically, and log in. "
+                    f"Do not use any other browser or Chrome instance."
+                ),
+            },
+        )
 
         login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
         login_wait.until(
