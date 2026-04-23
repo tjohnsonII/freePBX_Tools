@@ -124,10 +124,13 @@ else
   fi
 
   # 2b — ingest with correct key
+  # Handle name avoids underscores — SQLite LIKE treats _ as a single-char wildcard,
+  # so __FOO__ in a q= filter matches everything instead of just that handle.
+  TEST_HANDLE="XTESTINGESTX"
   INGEST_RESP=$(_curl_json -s -X POST "$SERVER/api/ingest/handles" \
     -H "X-Ingest-Key: $KEY" \
     -H "Content-Type: application/json" \
-    -d '{"rows":[{"handle":"__TESTHANDLE__"}]}') || INGEST_RESP=""
+    -d "{\"rows\":[{\"handle\":\"$TEST_HANDLE\"}]}") || INGEST_RESP=""
   if echo "$INGEST_RESP" | grep -q '"inserted"'; then
     _pass "Ingest POST accepted by server"
   else
@@ -146,9 +149,9 @@ else
     _fail "Wrong key was NOT rejected — got HTTP $STATUS (expected 403)"
   fi
 
-  # 2d — handle appears on server (use /all endpoint which supports q filter)
-  HANDLES=$(_curl_json "$SERVER/api/handles/all?q=__TESTHANDLE__&limit=10") || HANDLES=""
-  if echo "$HANDLES" | grep -q "__TESTHANDLE__"; then
+  # 2d — handle appears on server
+  HANDLES=$(_curl_json "$SERVER/api/handles/all?q=${TEST_HANDLE}&limit=10") || HANDLES=""
+  if echo "$HANDLES" | grep -q "$TEST_HANDLE"; then
     _pass "Ingested handle visible on server"
   else
     _fail "Handle not found on server after ingest"
