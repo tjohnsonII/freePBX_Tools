@@ -1164,10 +1164,11 @@ def healthz():
 @app.get("/api/handles")
 @app.get("/handles")
 def api_handles(
+    q: str = "",
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = 0,
 ):
-    items = db.list_handles(db_path(), limit=limit, offset=offset)
+    items = db.list_handles(db_path(), q=q, limit=limit, offset=offset)
     return {"items": sorted(
         items,
         key=lambda item: item.get("last_updated_utc") or item.get("finished_utc") or "",

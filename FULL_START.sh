@@ -18,6 +18,14 @@ echo "=========================================="
 
 cd "$REPO"
 
+# ── Load local environment (INGEST_API_KEY, etc.) ─────────────────────────
+if [ -f "$REPO/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO/.env"
+    set +a
+fi
+
 # ── 0. Start persistent virtual display + VNC ─────────────────────────────
 echo ""
 echo "[0/6] Starting virtual display and VNC..."
@@ -46,7 +54,7 @@ fi
 # ── 1. Pull latest code ────────────────────────────────────────────────────
 echo ""
 echo "[1/6] Pulling latest code..."
-if ! git pull --rebase origin main; then
+if ! git pull --rebase origin Server; then
     echo "[WARN] git pull failed — continuing with local code."
 fi
 
@@ -85,10 +93,14 @@ done
 echo "[3/6] Waiting for ports to clear..."
 sleep 4
 
-# ── 4. Reload Apache (picks up any vhost changes) ─────────────────────────
+# ── 4. Ensure Apache is running (start if stopped, reload if already running) ─
 echo ""
-echo "[4/6] Reloading Apache..."
-systemctl reload apache2 && echo "[4/6] Apache reloaded." || echo "[WARN] Apache reload failed."
+echo "[4/6] Ensuring Apache is running..."
+if systemctl is-active --quiet apache2; then
+    systemctl reload apache2 && echo "[4/6] Apache reloaded." || echo "[WARN] Apache reload failed."
+else
+    systemctl start apache2 && echo "[4/6] Apache started." || echo "[WARN] Apache failed to start."
+fi
 
 # ── 5. Start all services ─────────────────────────────────────────────────
 echo ""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any
 
 from webscraper.ticket_api.db_core import WRITE_LOCK, build_last_activity_expr, get_conn, table_columns
@@ -355,6 +356,7 @@ def ensure_handle_row(db_path: str, handle: str) -> None:
 def upsert_discovered_handles(db_path: str, rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             for row in rows:
@@ -363,8 +365,8 @@ def upsert_discovered_handles(db_path: str, rows: list[dict[str, Any]]) -> int:
                     continue
                 conn.execute(
                     """
-                    INSERT INTO handles(handle, name, account_status, ip, last_seen_utc)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO handles(handle, name, account_status, ip, last_seen_utc, last_updated_utc)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(handle) DO UPDATE SET
                         name=COALESCE(excluded.name, handles.name),
                         account_status=COALESCE(excluded.account_status, handles.account_status),
@@ -376,7 +378,8 @@ def upsert_discovered_handles(db_path: str, rows: list[dict[str, Any]]) -> int:
                         row.get("name"),
                         row.get("account_status"),
                         row.get("ip"),
-                        row.get("last_seen_utc"),
+                        row.get("last_seen_utc") or now_utc,
+                        now_utc,
                     ),
                 )
     return len(rows)
