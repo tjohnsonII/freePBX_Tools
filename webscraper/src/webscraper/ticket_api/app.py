@@ -391,34 +391,61 @@ def job_status_alias(job_id: str):
 
 @app.get("/api/system/status")
 def api_system_status():
+    from datetime import datetime, timezone as _tz
     stats = db.get_stats(db_path())
-    login_required = False
+
+    # ── Active job ────────────────────────────────────────────────────────────
+    current_job: dict[str, Any] | None = None
+    state = "idle"
+    last_error: str | None = None
     try:
         latest_job = db.get_latest_scrape_job(db_path())
         if latest_job and latest_job.get("status") in ("running", "queued"):
-            events = db.get_scrape_events(db_path(), latest_job["job_id"], limit=30)
-            wait_idx = -1
-            login_idx = -1
-            for i, ev in enumerate(events):
-                ev_name = (ev.get("data") or {}).get("event")
-                if ev_name == "waiting_for_login":
-                    wait_idx = i
-                elif ev_name == "login_detected":
-                    login_idx = i
-            login_required = wait_idx > login_idx
+            current_job = _job_row_to_api(latest_job)
+            state = latest_job["status"]
+            last_error = latest_job.get("error_message")
+        elif latest_job and latest_job.get("status") == "failed":
+            last_error = latest_job.get("error_message")
     except Exception:
         pass
+
+    # ── Client heartbeat ──────────────────────────────────────────────────────
+    clients: list[dict[str, Any]] = []
+    try:
+        now_utc = datetime.now(_tz.utc)
+        for hb in db.get_client_heartbeats(db_path()):
+            seen_str = hb.get("server_seen_utc", "")
+            try:
+                seen_dt = datetime.fromisoformat(seen_str.replace("Z", "+00:00"))
+                age_s = int((now_utc - seen_dt).total_seconds())
+            except Exception:
+                age_s = 9999
+            connectivity = "connected" if age_s < 120 else ("recent" if age_s < 600 else "offline")
+            clients.append({
+                "client_id":      hb.get("client_id"),
+                "connectivity":   connectivity,
+                "last_seen_ago_s": age_s,
+                "last_seen_utc":  seen_str,
+                "status":         hb.get("status"),
+                "job_id":         hb.get("job_id"),
+                "current_handle": hb.get("current_handle"),
+                "handles_done":   hb.get("handles_done", 0),
+                "handles_total":  hb.get("handles_total", 0),
+                "client_version": hb.get("client_version"),
+            })
+    except Exception:
+        pass
+
     return {
         "backend_health": "ok",
-        "browser_status": "n/a",
-        "auth_status": "n/a",
-        "state": "idle",
-        "login_required": login_required,
+        "state": state,
         "db_counts": {
             "tickets": int(stats.get("total_tickets", 0)),
             "handles": int(stats.get("total_handles", 0)),
         },
-        "last_error": None,
+        "last_error": last_error,
+        "current_job": current_job,
+        "clients": clients,
     }
 
 

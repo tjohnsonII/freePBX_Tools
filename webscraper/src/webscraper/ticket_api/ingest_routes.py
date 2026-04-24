@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hmac
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -246,3 +247,32 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     _require_ingest_auth(request)
     n = _db.upsert_vpbx_site_configs(_dp(), body.records, body.now_utc)
     return {"inserted": n}
+
+
+class _HeartbeatBody(BaseModel):
+    client_id: str                  # e.g. hostname or a stable UUID
+    status: str                     # "idle" | "scraping" | "paused" | "error"
+    job_id: str | None = None
+    current_handle: str | None = None
+    handles_done: int = 0
+    handles_total: int = 0
+    client_version: str | None = None
+    ts_utc: str | None = None       # client-side timestamp (informational)
+
+
+@router.post("/heartbeat")
+def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    server_now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    _db.upsert_client_heartbeat(_dp(), {
+        "client_id":       body.client_id,
+        "job_id":          body.job_id,
+        "current_handle":  body.current_handle,
+        "status":          body.status,
+        "handles_done":    body.handles_done,
+        "handles_total":   body.handles_total,
+        "client_version":  body.client_version,
+        "client_ts_utc":   body.ts_utc,
+        "server_seen_utc": server_now,
+    })
+    return {"ok": True, "server_seen_utc": server_now}

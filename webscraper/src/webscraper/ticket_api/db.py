@@ -334,6 +334,17 @@ def ensure_indexes(db_path: str) -> None:
                     site_config  TEXT,
                     last_seen_utc TEXT
                 );
+                CREATE TABLE IF NOT EXISTS client_heartbeats (
+                    client_id       TEXT PRIMARY KEY,
+                    job_id          TEXT,
+                    current_handle  TEXT,
+                    status          TEXT,
+                    handles_done    INTEGER,
+                    handles_total   INTEGER,
+                    client_version  TEXT,
+                    client_ts_utc   TEXT,
+                    server_seen_utc TEXT NOT NULL
+                );
                 """
             )
 
@@ -812,6 +823,41 @@ def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
         "last_loaded": state["last_loaded"] if state else row["created_utc"] if row else None,
         "source": (state["source"] if state and state["source"] else "none"),
     }
+
+
+def upsert_client_heartbeat(db_path: str, row: dict[str, Any]) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO client_heartbeats
+                    (client_id, job_id, current_handle, status, handles_done,
+                     handles_total, client_version, client_ts_utc, server_seen_utc)
+                VALUES (:client_id, :job_id, :current_handle, :status, :handles_done,
+                        :handles_total, :client_version, :client_ts_utc, :server_seen_utc)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    job_id          = excluded.job_id,
+                    current_handle  = excluded.current_handle,
+                    status          = excluded.status,
+                    handles_done    = excluded.handles_done,
+                    handles_total   = excluded.handles_total,
+                    client_version  = excluded.client_version,
+                    client_ts_utc   = excluded.client_ts_utc,
+                    server_seen_utc = excluded.server_seen_utc
+                """,
+                row,
+            )
+
+
+def get_client_heartbeats(db_path: str) -> list[dict[str, Any]]:
+    try:
+        with get_conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_heartbeats ORDER BY server_seen_utc DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
 
 
 def get_stats(db_path: str) -> dict[str, Any]:
