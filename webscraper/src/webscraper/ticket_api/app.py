@@ -497,18 +497,14 @@ def _run_scrape_job(
         details_path = run_output_dir / "ticket_details.json"
         state_path = run_output_dir / "scrape_state.json"
 
-        # Resume: skip handles we've already completed
+        # Resume: skip handles before (and including) the given handle.
+        # resume_from_handle is always passed explicitly by the UI (from GET /api/scrape/state).
+        # "Start Scrape" passes None → always a fresh start, no auto-read of state file.
         skip_until: str | None = resume_from_handle
-        if skip_until is None and state_path.exists():
-            try:
-                saved_state = json.loads(state_path.read_text(encoding="utf-8"))
-                skip_until = saved_state.get("last_completed_handle")
-                if skip_until:
-                    _scrape_emit(job_id, f"resuming_from {skip_until}", event="resuming_from",
-                                 data={"handle": skip_until})
-                    LOGGER.info("scrape_resuming job_id=%s from_handle=%s", job_id, skip_until)
-            except Exception as state_exc:
-                LOGGER.warning("scrape_state_read_failed error=%s", state_exc)
+        if skip_until:
+            _scrape_emit(job_id, f"resuming_from {skip_until}", event="resuming_from",
+                         data={"handle": skip_until})
+            LOGGER.info("scrape_resuming job_id=%s from_handle=%s", job_id, skip_until)
 
         skipping = skip_until is not None
 
@@ -567,12 +563,15 @@ def _run_scrape_job(
             handle = handle_list[hi]
             idx = hi + 1  # 1-based for display/progress
 
-            # Resume: skip handles before (and including) the resume point
+            # Resume: skip handles before (and including) the resume point silently.
+            # We do NOT emit a per-handle event here — with hundreds of handles to
+            # skip and each emit making a remote network call, this would add
+            # minutes of dead time before scraping starts.
             if skipping:
                 if handle == skip_until:
                     skipping = False
-                _scrape_emit(job_id, f"skipping_handle {handle}", handle=handle,
-                             event="skipping_handle")
+                    _scrape_emit(job_id, f"resumed_at {handle}", handle=handle,
+                                 event="resumed_at")
                 hi += 1
                 continue
 
