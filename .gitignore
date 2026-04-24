@@ -158,6 +158,7 @@ cookies*.json
 # local dumps / exports / scratch
 *.csv
 *.json
+!pyrightconfig.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.app.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.node.json
 ENV_VARS.txt
