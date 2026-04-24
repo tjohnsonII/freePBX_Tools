@@ -45,6 +45,9 @@ HANDLE_RE = re.compile(r"^[A-Za-z0-9]+$")
 LOCALHOST_ONLY = {"127.0.0.1", "::1"}
 OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").resolve())
 
+# Cancel events keyed by job_id; set() to request graceful stop after current handle
+_SCRAPE_CANCEL_EVENTS: dict[str, threading.Event] = {}
+
 TIMELINE_CATEGORIES: tuple[str, ...] = (
     "ticket_opened",
     "follow_up",
@@ -313,6 +316,7 @@ def _run_scrape_job(
     handles: list[str],
     login_timeout_seconds: int,
     resume_from_handle: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     from selenium import webdriver
     from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
@@ -367,13 +371,27 @@ def _run_scrape_job(
             _singleton_lock.unlink()
         except Exception:
             pass
-    chromedriver_path = next(
-        (p for p in ("/usr/local/bin/chromedriver", "/usr/bin/chromedriver") if os.path.isfile(p)), None
+    _chromedriver_candidates = [
+        os.getenv("WEBSCRAPER_CHROMEDRIVER_PATH", ""),
+        "/usr/local/bin/chromedriver",
+        "/usr/bin/chromedriver",
+        str(Path(__file__).resolve().parents[4] / "webscraper" / "chromedriver-win64" / "chromedriver-win64" / "chromedriver.exe"),
+    ]
+    chromedriver_path = next((p for p in _chromedriver_candidates if p and os.path.isfile(p)), None)
+
+    _is_windows = os.name == "nt"
+    if not _is_windows:
+        os.environ.setdefault("DISPLAY", ":99")
+    _display = os.environ.get("DISPLAY", "")
+    _login_instruction = (
+        "Log in in the Chrome window that just opened on your desktop. "
+        "Do not use any other browser window."
+        if _is_windows
+        else (
+            f"Connect via VNC to display {_display} and log in in the Chrome window "
+            f"that opened automatically. Do not use any other browser or Chrome instance."
+        )
     )
-    # Use whatever display is already set; fall back to :99 (Xvfb/VNC).
-    # The Server branch uses :20 (Chrome Remote Desktop) but the client uses :99.
-    os.environ.setdefault("DISPLAY", ":99")
-    _display = os.environ["DISPLAY"]
     driver = None
     scraped_rows: list[dict[str, str]] = []
     handle_summaries: list[dict[str, Any]] = []
@@ -385,29 +403,20 @@ def _run_scrape_job(
         driver.get(CHROME_CUSTOMERS_URL)
         _scrape_emit(
             job_id,
-            f"waiting_for_login — Chrome opened on display {_display} "
-            f"(connect via VNC and log in to the Chrome window navigating to secure.123.net — "
-            f"do NOT use a different browser window)",
+            f"waiting_for_login — {_login_instruction}",
             event="waiting_for_login",
             data={
                 "timeout_seconds": login_timeout_seconds,
-                "display": _display,
+                "display": _display or "desktop",
                 "target_url": CHROME_CUSTOMERS_URL,
-                "instruction": (
-                    f"Connect to VNC display {_display}, find the Chrome window "
-                    f"that opened automatically, and log in. "
-                    f"Do not use any other browser or Chrome instance."
-                ),
+                "instruction": _login_instruction,
             },
         )
 
         login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
         login_wait.until(
             lambda d: "secure.123.net" in (d.current_url or "").lower()
-            and (
-                len(d.find_elements(By.CSS_SELECTOR, "#customers")) > 0
-                or len(d.find_elements(By.XPATH, "//th[normalize-space()='Company Handle:']")) > 0
-            )
+            and not _is_login_page(d)
         )
         _scrape_emit(job_id, "login_detected", event="login_detected")
         cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
@@ -499,6 +508,15 @@ def _run_scrape_job(
         _retry_after_crash = False  # set True when we restart browser; cleared each iteration
 
         while hi < len(handle_list):
+            if cancel_event is not None and cancel_event.is_set():
+                result["status_message"] = "cancelled"
+                _update_scrape_job(
+                    job_id=job_id, status="cancelled",
+                    completed=int(result.get("completed_handles") or 0),
+                    total=len(handles), finished_utc=_iso_now(), result=result,
+                )
+                _scrape_emit(job_id, "cancelled", event="cancelled")
+                return
             _retry_after_crash = False
             handle = handle_list[hi]
             idx = hi + 1  # 1-based for display/progress
@@ -824,6 +842,7 @@ def _run_scrape_job(
         )
         _scrape_emit(job_id, "failed", event="failed", data={"error": str(exc)})
     finally:
+        _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
         if driver is not None:
             try:
                 driver.quit()
@@ -1043,6 +1062,10 @@ class ScrapeStartRequest(BaseModel):
     resume_from_handle: str | None = None
 
 
+class CancelScrapeRequest(BaseModel):
+    job_id: str | None = None
+
+
 # ── Job conversion helper ─────────────────────────────────────────────────────
 
 
@@ -1078,7 +1101,7 @@ def _check_saved_session() -> dict[str, object]:
                     else Path(__file__).resolve().parents[5] / profile_dir)
     cookie_db = profile_path / "Default" / "Cookies"
     if not cookie_db.exists():
-        return {"valid": False, "message": "No saved session — run auth_session.sh and log in via VNC"}
+        return {"valid": False, "message": "No saved session — trigger a scrape job and log in when Chrome opens"}
 
     try:
         # Copy to temp file (Chrome may lock the original)
@@ -1159,6 +1182,8 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
     )
     _append_event("info", "scrape_queued", job_id=job_id,
                   meta={"event": "queued", "handles": len(handles), "resume_from": resume})
+    cancel_event = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
     threading.Thread(
         target=_run_scrape_job,
         kwargs={
@@ -1166,6 +1191,7 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
             "handles": handles,
             "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS,
             "resume_from_handle": resume,
+            "cancel_event": cancel_event,
         },
         daemon=True,
     ).start()
@@ -1194,6 +1220,31 @@ def api_scrape_state():
         return json.loads(state_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read scrape state: {exc}") from exc
+
+
+@app.post("/api/scrape/cancel")
+def api_scrape_cancel(payload: CancelScrapeRequest | None = None):
+    """Request graceful cancellation of a running scrape job.
+
+    The job will stop after it finishes the current handle. If ``job_id`` is
+    omitted the most-recent running or queued job is targeted.
+    """
+    job_id = payload.job_id if payload else None
+    if job_id is None:
+        rows = db.list_scrape_jobs(db_path(), limit=10)
+        active = next(
+            (r for r in rows if (r.get("status") or "") in ("running", "queued")), None
+        )
+        if active is None:
+            raise HTTPException(status_code=404, detail="No active scrape job found")
+        job_id = active["job_id"]
+
+    event = _SCRAPE_CANCEL_EVENTS.get(job_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"No cancellable job with id={job_id}")
+    event.set()
+    _scrape_emit(job_id, "cancel_requested", event="cancel_requested")
+    return {"job_id": job_id, "message": "Cancellation requested — job will stop after current handle."}
 
 
 # ── Job status endpoints ──────────────────────────────────────────────────────

@@ -30,10 +30,30 @@ export WEBSCRAPER_PORT="${WEBSCRAPER_PORT:-8789}"
 # by start_services.sh. Don't override if the caller already set DISPLAY.
 export DISPLAY="${DISPLAY:-:99}"
 
+# Kill any existing process on the API port
+_kill_port() {
+  local port="$1"
+  local pid=""
+  if command -v lsof &>/dev/null; then
+    pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+  elif command -v powershell.exe &>/dev/null; then
+    pid=$(powershell.exe -NoProfile -Command "
+      \$c = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+      if (\$c) { \$c.OwningProcess | Sort-Object -Unique }
+    " 2>/dev/null | tr -d '\r' || true)
+  fi
+  if [[ -n "$pid" ]]; then
+    echo "[client] Port $port in use by PID $pid — stopping it..."
+    kill "$pid" 2>/dev/null || taskkill //F //PID "$pid" &>/dev/null || true
+    sleep 1
+  fi
+}
+_kill_port "$WEBSCRAPER_PORT"
+
 echo "[client] Starting webscraper in CLIENT MODE"
 echo "[client] Sending scraped data to: $INGEST_SERVER_URL"
 echo "[client] Local trigger API on port: $WEBSCRAPER_PORT"
-echo "[client] Chrome will open on display: $DISPLAY  (connect via VNC to see it)"
+echo "[client] Chrome will open on your Windows desktop (no VNC needed)"
 
 exec python -m uvicorn webscraper.ticket_api.app:app \
     --host 0.0.0.0 \

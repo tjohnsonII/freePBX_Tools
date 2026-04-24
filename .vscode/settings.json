@@ -1,5 +1,5 @@
 {
-    "python.defaultInterpreterPath": ".venv-webscraper\\Scripts\\python.exe",
+    "python.defaultInterpreterPath": "webscraper\\.venv-webscraper\\Scripts\\python.exe",
     "python.terminal.activateEnvironment": false,
     "python.linting.enabled": true,
     "python.linting.pylintEnabled": false,
@@ -13,7 +13,7 @@
     "terminal.integrated.env.windows": {
         "Path": "E:\\DevTools\\Graphviz\\Graphviz\\bin;${env:Path}",
         "CHROME_PATH": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "CHROMEDRIVER_PATH": "E:\\DevTools\\freepbx-tools\\webscraper\\chromedriver-win64\\chromedriver-win64\\chromedriver.exe",
+        "CHROMEDRIVER_PATH": "E:\\DevTools\\client-freepbx\\freePBX_Tools\\webscraper\\chromedriver-win64\\chromedriver-win64\\chromedriver.exe",
         "PIP_CACHE_DIR": "E:\\DevTools\\pip-cache",
         "TEMP": "E:\\DevTools\\Temp",
         "TMP": "E:\\DevTools\\Temp"
