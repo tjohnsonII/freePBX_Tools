@@ -42,6 +42,12 @@
   margin-bottom: 6px;
 }
 
+.loginBannerNote {
+  margin-top: 0.5em;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
 .loginBannerSteps code {
   background: #1c1400;
   border: 1px solid #4a3800;

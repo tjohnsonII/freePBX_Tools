@@ -342,14 +342,29 @@ def _run_scrape_job(
         started_utc=started_utc, result=result,
     )
 
+    _is_windows = os.name == "nt"
+
     options = Options()
-    for candidate in ("/opt/google/chrome/chrome", "/opt/google/chrome/google-chrome", "/usr/bin/google-chrome-stable"):
-        if os.path.isfile(candidate):
-            options.binary_location = candidate
-            break
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
+    if _is_windows:
+        # Explicit binary candidates for Windows (Selenium can't always find Chrome in PATH)
+        for candidate in (
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ):
+            if os.path.isfile(candidate):
+                options.binary_location = candidate
+                break
+    else:
+        for candidate in ("/opt/google/chrome/chrome", "/opt/google/chrome/google-chrome", "/usr/bin/google-chrome-stable"):
+            if os.path.isfile(candidate):
+                options.binary_location = candidate
+                break
+        # Linux-only flags (sandboxing, shared-memory, GPU workarounds)
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+
     options.add_argument("--start-maximized")
     options.add_argument("--disable-hang-monitor")
     options.add_argument("--disable-popup-blocking")
@@ -371,15 +386,22 @@ def _run_scrape_job(
             _singleton_lock.unlink()
         except Exception:
             pass
-    _chromedriver_candidates = [
-        os.getenv("WEBSCRAPER_CHROMEDRIVER_PATH", ""),
-        "/usr/local/bin/chromedriver",
-        "/usr/bin/chromedriver",
-        str(Path(__file__).resolve().parents[4] / "webscraper" / "chromedriver-win64" / "chromedriver-win64" / "chromedriver.exe"),
-    ]
-    chromedriver_path = next((p for p in _chromedriver_candidates if p and os.path.isfile(p)), None)
 
-    _is_windows = os.name == "nt"
+    if _is_windows:
+        # On Windows, skip the bundled chromedriver and let Selenium Manager
+        # auto-download the correct version for the installed Chrome.
+        # Chrome auto-updates frequently and the bundled exe goes stale quickly.
+        _explicit_driver = os.getenv("WEBSCRAPER_CHROMEDRIVER_PATH", "")
+        chromedriver_path = _explicit_driver if _explicit_driver and os.path.isfile(_explicit_driver) else None
+    else:
+        _chromedriver_candidates = [
+            os.getenv("WEBSCRAPER_CHROMEDRIVER_PATH", ""),
+            "/usr/local/bin/chromedriver",
+            "/usr/bin/chromedriver",
+            str(Path(__file__).resolve().parents[4] / "webscraper" / "chromedriver-win64" / "chromedriver-win64" / "chromedriver.exe"),
+        ]
+        chromedriver_path = next((p for p in _chromedriver_candidates if p and os.path.isfile(p)), None)
+
     if not _is_windows:
         os.environ.setdefault("DISPLAY", ":99")
     _display = os.environ.get("DISPLAY", "")
@@ -426,25 +448,42 @@ def _run_scrape_job(
         )
         _ = selenium_driver_to_requests_session(driver, base_url=CHROME_CUSTOMERS_URL)
 
-        # ── Verify noc-tickets.123.net is also accessible ────────────────────
-        # Ticket detail pages live on a different subdomain.  With SSO the first
-        # login usually covers both, but if a second login is required the user
-        # can complete it here before the batch starts.
+        # ── Verify noc-tickets.123.net is also accessible (non-blocking) ────────
+        # Done in a background tab so the main window stays on customers.cgi.
+        # If the check times out or fails, log a warning and continue — the list
+        # scraping works fine without it; only ticket detail fetches need it.
         LOGGER.info("scrape_checking_noc_tickets_access job_id=%s", job_id)
         _scrape_emit(job_id, "checking_noc_tickets_access", event="checking_noc_tickets_access",
                      data={"url": NOC_TICKETS_BASE_URL})
-        _wait_for_domain_access(
-            driver,
-            NOC_TICKETS_BASE_URL,
-            timeout_seconds=login_timeout_seconds,
-            emit_fn=lambda msg: _scrape_emit(job_id, msg, event="noc_tickets_login_wait"),
-            label="noc-tickets.123.net",
-        )
-        _scrape_emit(job_id, "noc_tickets_access_confirmed", event="noc_tickets_access_confirmed")
-        LOGGER.info("scrape_noc_tickets_access_ok job_id=%s", job_id)
+        _main_handle = driver.current_window_handle
+        try:
+            driver.execute_script("window.open('');")
+            _noc_tab = next(h for h in driver.window_handles if h != _main_handle)
+            driver.switch_to.window(_noc_tab)
+            _wait_for_domain_access(
+                driver,
+                NOC_TICKETS_BASE_URL,
+                timeout_seconds=30,
+                emit_fn=lambda msg: _scrape_emit(job_id, msg, event="noc_tickets_login_wait"),
+                label="noc-tickets.123.net",
+            )
+            _scrape_emit(job_id, "noc_tickets_access_confirmed", event="noc_tickets_access_confirmed")
+            LOGGER.info("scrape_noc_tickets_access_ok job_id=%s", job_id)
+        except Exception as _noc_exc:
+            LOGGER.warning("scrape_noc_tickets_check_skipped job_id=%s reason=%s", job_id, _noc_exc)
+            _scrape_emit(job_id, f"noc_tickets_check_skipped: {_noc_exc}", event="noc_tickets_skipped")
+        finally:
+            try:
+                if driver.current_window_handle != _main_handle:
+                    driver.close()
+            except Exception:
+                pass
+            try:
+                driver.switch_to.window(_main_handle)
+            except Exception:
+                pass
 
-        # Navigate back to the customers page so handle iteration starts cleanly
-        driver.get(CHROME_CUSTOMERS_URL)
+        # Main window is still on customers.cgi — confirm search box is present
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "#customers"))
         )
@@ -507,6 +546,13 @@ def _run_scrape_job(
         hi = 0  # 0-based handle index
         _retry_after_crash = False  # set True when we restart browser; cleared each iteration
 
+        _heartbeat: Any = None
+        if os.getenv("CLIENT_MODE", "").strip() == "1":
+            from webscraper.heartbeat import HeartbeatThread
+            _heartbeat = HeartbeatThread()
+            _heartbeat.update(status="scraping", job_id=job_id, handles_total=len(handle_list))
+            _heartbeat.start()
+
         while hi < len(handle_list):
             if cancel_event is not None and cancel_event.is_set():
                 result["status_message"] = "cancelled"
@@ -529,6 +575,15 @@ def _run_scrape_job(
                              event="skipping_handle")
                 hi += 1
                 continue
+
+            if _heartbeat is not None:
+                _heartbeat.update(
+                    current_handle=handle,
+                    handles_done=hi,
+                    handles_total=len(handle_list),
+                    status="scraping",
+                    job_id=job_id,
+                )
 
             search_string = _scrape_search_string(handle)
             result.update({
@@ -843,6 +898,9 @@ def _run_scrape_job(
         _scrape_emit(job_id, "failed", event="failed", data={"error": str(exc)})
     finally:
         _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+        if _heartbeat is not None:
+            _heartbeat.update(status="idle", job_id=None, current_handle=None)
+            _heartbeat.stop()
         if driver is not None:
             try:
                 driver.quit()
@@ -1278,6 +1336,46 @@ def job_status_alias(job_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
     return _job_row_to_api(row)
+
+
+# ── Client heartbeat ─────────────────────────────────────────────────────────
+
+
+class _ClientHeartbeatRequest(BaseModel):
+    client_id: str
+    status: str = "idle"
+    vpn_connected: bool = False
+    vpn_ip: str | None = None
+    job_id: str | None = None
+    current_handle: str | None = None
+    handles_done: int | None = None
+    handles_total: int | None = None
+
+
+@app.post("/api/client/heartbeat")
+def api_client_heartbeat(body: _ClientHeartbeatRequest):
+    """Receive a heartbeat from a scraper client (GUI app on a laptop)."""
+    ts = _iso_now()
+    db.upsert_client_heartbeat(
+        db_path(),
+        client_id=body.client_id,
+        status=body.status,
+        vpn_connected=body.vpn_connected,
+        vpn_ip=body.vpn_ip,
+        job_id=body.job_id,
+        current_handle=body.current_handle,
+        handles_done=body.handles_done,
+        handles_total=body.handles_total,
+        ts_utc=ts,
+    )
+    return {"ok": True, "ts": ts}
+
+
+@app.get("/api/clients")
+def api_clients():
+    """Return all known scraper clients and their latest heartbeat state."""
+    rows = db.list_client_heartbeats(db_path())
+    return {"items": rows}
 
 
 # ── System / health ───────────────────────────────────────────────────────────

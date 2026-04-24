@@ -116,6 +116,18 @@ class _VpbxSiteConfigsBody(BaseModel):
     now_utc: str
 
 
+class _HeartbeatBody(BaseModel):
+    client_id: str
+    status: str = "idle"
+    vpn_connected: bool = False
+    vpn_ip: str | None = None
+    job_id: str | None = None
+    current_handle: str | None = None
+    handles_done: int | None = None
+    handles_total: int | None = None
+    ts_utc: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 # db and db_path are injected at registration time to avoid circular imports.
 
@@ -246,3 +258,21 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     _require_ingest_auth(request)
     n = _db.upsert_vpbx_site_configs(_dp(), body.records, body.now_utc)
     return {"inserted": n}
+
+
+@router.post("/heartbeat")
+def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    _db.upsert_client_heartbeat(
+        _dp(),
+        client_id=body.client_id,
+        status=body.status,
+        vpn_connected=body.vpn_connected,
+        vpn_ip=body.vpn_ip,
+        job_id=body.job_id,
+        current_handle=body.current_handle,
+        handles_done=body.handles_done,
+        handles_total=body.handles_total,
+        ts_utc=body.ts_utc,
+    )
+    return {"ok": True}

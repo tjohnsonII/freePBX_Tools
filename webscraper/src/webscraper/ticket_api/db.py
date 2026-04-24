@@ -338,6 +338,23 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS client_heartbeats (
+                    client_id       TEXT PRIMARY KEY,
+                    status          TEXT NOT NULL DEFAULT 'idle',
+                    vpn_connected   INTEGER NOT NULL DEFAULT 0,
+                    vpn_ip          TEXT,
+                    job_id          TEXT,
+                    current_handle  TEXT,
+                    handles_done    INTEGER,
+                    handles_total   INTEGER,
+                    last_seen_utc   TEXT NOT NULL,
+                    first_seen_utc  TEXT NOT NULL
+                );
+                """
+            )
+
             auth_cookie_columns = table_columns(conn, "auth_cookies")
             if "expires" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN expires INTEGER")
@@ -1230,3 +1247,53 @@ def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_ut
                     ),
                 )
     return len(records)
+
+
+# ── Client heartbeats ─────────────────────────────────────────────────────────
+
+
+def upsert_client_heartbeat(
+    db_path: str,
+    client_id: str,
+    status: str,
+    vpn_connected: bool,
+    vpn_ip: str | None,
+    job_id: str | None,
+    current_handle: str | None,
+    handles_done: int | None,
+    handles_total: int | None,
+    ts_utc: str,
+) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO client_heartbeats
+                    (client_id, status, vpn_connected, vpn_ip, job_id,
+                     current_handle, handles_done, handles_total,
+                     last_seen_utc, first_seen_utc)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    status         = excluded.status,
+                    vpn_connected  = excluded.vpn_connected,
+                    vpn_ip         = excluded.vpn_ip,
+                    job_id         = excluded.job_id,
+                    current_handle = excluded.current_handle,
+                    handles_done   = excluded.handles_done,
+                    handles_total  = excluded.handles_total,
+                    last_seen_utc  = excluded.last_seen_utc
+                """,
+                (
+                    client_id, status, int(vpn_connected), vpn_ip, job_id,
+                    current_handle, handles_done, handles_total,
+                    ts_utc, ts_utc,
+                ),
+            )
+
+
+def list_client_heartbeats(db_path: str) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM client_heartbeats ORDER BY last_seen_utc DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]

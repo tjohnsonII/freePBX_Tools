@@ -633,3 +633,42 @@ def safe_artifact_path(requested_path: str, output_root: str):
     if root == candidate or root in candidate.parents:
         return candidate
     return None
+
+
+# ── Client heartbeat ──────────────────────────────────────────────────────────
+
+
+def upsert_client_heartbeat(
+    db_path: str,  # noqa: ARG001
+    client_id: str,
+    status: str,
+    vpn_connected: bool,
+    vpn_ip: str | None,
+    job_id: str | None,
+    current_handle: str | None,
+    handles_done: int | None,
+    handles_total: int | None,
+    ts_utc: str,
+) -> None:
+    _post_queued(
+        "/api/ingest/heartbeat",
+        {
+            "client_id":      client_id,
+            "status":         status,
+            "vpn_connected":  vpn_connected,
+            "vpn_ip":         vpn_ip,
+            "job_id":         job_id,
+            "current_handle": current_handle,
+            "handles_done":   handles_done if handles_done is not None else 0,
+            "handles_total":  handles_total if handles_total is not None else 0,
+            "ts_utc":         ts_utc,
+        },
+    )
+
+
+def list_client_heartbeats(db_path: str) -> list[dict[str, Any]]:  # noqa: ARG001
+    try:
+        data = _get("/api/clients")
+        return data.get("items", []) if isinstance(data, dict) else data
+    except Exception:
+        return []
