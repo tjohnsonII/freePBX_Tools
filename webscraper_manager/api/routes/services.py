@@ -174,23 +174,6 @@ def _system_services() -> list[dict[str, Any]]:
         "pid": None, "pid_alive": vpn_up, "log": None, "started_at": None, "cmd": None,
     })
 
-    # VNC
-    vnc_pid = None
-    try:
-        import psutil
-        for p in psutil.process_iter(["pid", "name", "cmdline"]):
-            if "x11vnc" in " ".join(p.info.get("cmdline") or []):
-                vnc_pid = p.info["pid"]
-                break
-    except Exception:
-        pass
-    services.append({
-        "name": "vnc", "label": "VNC (x11vnc :99)", "group": "system",
-        "port": 5900, "port_up": _is_port_open(5900),
-        "pid": vnc_pid, "pid_alive": vnc_pid is not None,
-        "log": None, "started_at": None, "cmd": None,
-    })
-
     return services
 
 
@@ -305,20 +288,6 @@ async def restart_service(name: str, request: Request) -> dict:
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return {"ok": True, "service": "vpn"}
-
-    if name == "vnc":
-        try:
-            subprocess.run(["pkill", "-f", "x11vnc"], capture_output=True)
-            time.sleep(0.5)
-            subprocess.Popen(
-                ["x11vnc", "-display", ":99", "-rfbport", "5900",
-                 "-nopw", "-forever", "-bg", "-quiet"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return {"ok": True, "service": "vnc"}
 
     # ── web app services ──────────────────────────────────────────────────────
     run_state = _load_run_state(repo_root)
