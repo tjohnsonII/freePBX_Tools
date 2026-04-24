@@ -53,9 +53,7 @@ _RESTART_FALLBACKS: dict[str, dict[str, Any]] = {
     "webscraper_ticket_ui": {
         "script": "scripts/run_all_web_apps.py", "args": ["--webscraper-mode", "ui"],
     },
-    "webscraper_worker_service": {
-        "script": "scripts/run_all_web_apps.py", "args": ["--webscraper-mode", "worker"],
-    },
+    # webscraper_worker_service intentionally omitted — status comes from client heartbeat
 }
 
 LOG_LINES = 150
@@ -139,8 +137,34 @@ def _tail_log(path: str | None, n: int = LOG_LINES) -> list[str]:
         return []
 
 
+# ── client heartbeat ──────────────────────────────────────────────────────────
+def _fetch_client_heartbeats() -> list[dict[str, Any]]:
+    try:
+        import urllib.request as _ur
+        with _ur.urlopen("http://127.0.0.1:8788/api/clients", timeout=2) as r:
+            import json as _json
+            return _json.loads(r.read()).get("items", [])
+    except Exception:
+        return []
+
+
+def _primary_client(heartbeats: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float]:
+    """Return (most-recent active heartbeat, age_seconds). Active = seen within 600s."""
+    from datetime import datetime, timezone as _tz
+    now = datetime.now(_tz.utc)
+    for hb in heartbeats:
+        try:
+            seen = datetime.fromisoformat(hb.get("server_seen_utc", "").replace("Z", "+00:00"))
+            age = (now - seen).total_seconds()
+            if age < 600:
+                return hb, age
+        except Exception:
+            pass
+    return None, 9999
+
+
 # ── system infra status ───────────────────────────────────────────────────────
-def _system_services() -> list[dict[str, Any]]:
+def _system_services(heartbeats: list[dict[str, Any]]) -> list[dict[str, Any]]:
     services = []
 
     # Apache
@@ -155,19 +179,10 @@ def _system_services() -> list[dict[str, Any]]:
         "log": "/var/log/apache2/error.log", "started_at": None, "cmd": None,
     })
 
-    # VPN
-    vpn_up = False
-    vpn_ip = None
-    try:
-        import psutil
-        for iface, addr_list in psutil.net_if_addrs().items():
-            if iface.startswith("tun"):
-                for a in addr_list:
-                    if a.family.name == "AF_INET":
-                        vpn_up = True
-                        vpn_ip = a.address
-    except Exception:
-        pass
+    # VPN — sourced from client heartbeat, not server interface
+    client, _ = _primary_client(heartbeats)
+    vpn_up = bool(client and client.get("vpn_connected"))
+    vpn_ip = client.get("vpn_ip") if client else None
     services.append({
         "name": "vpn", "label": f"VPN{f' ({vpn_ip})' if vpn_ip else ''}",
         "group": "system", "port": None, "port_up": None,
@@ -180,13 +195,14 @@ def _system_services() -> list[dict[str, Any]]:
 # ── main list ─────────────────────────────────────────────────────────────────
 def _build_service_list(repo_root: Path) -> list[dict[str, Any]]:
     run_state = _load_run_state(repo_root)
+    heartbeats = _fetch_client_heartbeats()
+    client, client_age_s = _primary_client(heartbeats)
     services: list[dict[str, Any]] = []
 
     # All services tracked in run_state.json
     for name, entry in run_state.items():
         pid = int(entry.get("pid", 0) or 0)
         port: int | None = None
-        # infer port from stored cmd/url
         url = entry.get("url", "")
         for seg in (entry.get("cmd") or []):
             if seg.isdigit() and 1000 < int(seg) < 65000:
@@ -214,7 +230,7 @@ def _build_service_list(repo_root: Path) -> list[dict[str, Any]]:
             "cmd": entry.get("cmd"),
         })
 
-    # Add any known services missing from run_state (e.g. manager_ui after crash)
+    # Add any known services missing from run_state
     existing_names = {s["name"] for s in services}
     for name in _RESTART_FALLBACKS:
         if name not in existing_names:
@@ -230,7 +246,20 @@ def _build_service_list(repo_root: Path) -> list[dict[str, Any]]:
                 "log": None, "started_at": None, "cmd": None,
             })
 
-    services.extend(_system_services())
+    # Scraper Worker — reflect client heartbeat status, not a local process
+    worker_up = client_age_s < 120
+    worker_status = client.get("status", "offline") if client else "offline"
+    worker_label = f"Scraper Worker ({worker_status})" if client else "Scraper Worker"
+    services.append({
+        "name": "webscraper_worker_service",
+        "label": worker_label,
+        "group": "scraper",
+        "pid": None, "pid_alive": worker_up,
+        "port": None, "port_up": None,
+        "log": None, "started_at": None, "cmd": None,
+    })
+
+    services.extend(_system_services(heartbeats))
     return services
 
 

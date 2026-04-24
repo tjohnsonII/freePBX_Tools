@@ -124,7 +124,7 @@ def _build_handle_timeline(
     handle: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     tickets_payload = db.list_tickets(db_path(), handle=handle, page=1, page_size=1000, sort="oldest")
-    ticket_rows = tickets_payload.get("items") if isinstance(tickets_payload, dict) else []
+    ticket_rows = (tickets_payload.get("items") if isinstance(tickets_payload, dict) else None) or []
     events: list[dict[str, Any]] = []
     for row in ticket_rows:
         ticket_id = str(row.get("ticket_id") or "").strip()
@@ -889,6 +889,13 @@ def api_vpbx_site_config_by_handle(handle: str):
 def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Request):
     """VPBX site config scraping runs on the client. Data arrives via /api/ingest/vpbx/site-configs."""
     raise HTTPException(status_code=501, detail="VPBX site config scraping is handled by the client. Use the client branch.")
+
+
+@app.get("/api/clients")
+def api_clients():
+    """Return all known scraper clients and their latest heartbeat state."""
+    rows = db.get_client_heartbeats(db_path())
+    return {"items": rows}
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
