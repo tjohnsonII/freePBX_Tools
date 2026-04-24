@@ -343,7 +343,9 @@ def ensure_indexes(db_path: str) -> None:
                     handles_total   INTEGER,
                     client_version  TEXT,
                     client_ts_utc   TEXT,
-                    server_seen_utc TEXT NOT NULL
+                    server_seen_utc TEXT NOT NULL,
+                    vpn_connected   INTEGER,
+                    vpn_ip          TEXT
                 );
                 """
             )
@@ -828,13 +830,21 @@ def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
 def upsert_client_heartbeat(db_path: str, row: dict[str, Any]) -> None:
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
+            # Migrate existing rows that predate vpn columns
+            cols = {c["name"] for c in conn.execute("PRAGMA table_info(client_heartbeats)").fetchall()}
+            if "vpn_connected" not in cols:
+                conn.execute("ALTER TABLE client_heartbeats ADD COLUMN vpn_connected INTEGER")
+            if "vpn_ip" not in cols:
+                conn.execute("ALTER TABLE client_heartbeats ADD COLUMN vpn_ip TEXT")
             conn.execute(
                 """
                 INSERT INTO client_heartbeats
                     (client_id, job_id, current_handle, status, handles_done,
-                     handles_total, client_version, client_ts_utc, server_seen_utc)
+                     handles_total, client_version, client_ts_utc, server_seen_utc,
+                     vpn_connected, vpn_ip)
                 VALUES (:client_id, :job_id, :current_handle, :status, :handles_done,
-                        :handles_total, :client_version, :client_ts_utc, :server_seen_utc)
+                        :handles_total, :client_version, :client_ts_utc, :server_seen_utc,
+                        :vpn_connected, :vpn_ip)
                 ON CONFLICT(client_id) DO UPDATE SET
                     job_id          = excluded.job_id,
                     current_handle  = excluded.current_handle,
@@ -843,7 +853,9 @@ def upsert_client_heartbeat(db_path: str, row: dict[str, Any]) -> None:
                     handles_total   = excluded.handles_total,
                     client_version  = excluded.client_version,
                     client_ts_utc   = excluded.client_ts_utc,
-                    server_seen_utc = excluded.server_seen_utc
+                    server_seen_utc = excluded.server_seen_utc,
+                    vpn_connected   = excluded.vpn_connected,
+                    vpn_ip          = excluded.vpn_ip
                 """,
                 row,
             )

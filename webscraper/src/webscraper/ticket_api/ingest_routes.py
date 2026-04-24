@@ -258,6 +258,8 @@ class _HeartbeatBody(BaseModel):
     handles_total: int = 0
     client_version: str | None = None
     ts_utc: str | None = None       # client-side timestamp (informational)
+    vpn_connected: bool | None = None
+    vpn_ip: str | None = None
 
 
 @router.post("/heartbeat")
@@ -274,5 +276,7 @@ def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
         "client_version":  body.client_version,
         "client_ts_utc":   body.ts_utc,
         "server_seen_utc": server_now,
+        "vpn_connected":   int(body.vpn_connected) if body.vpn_connected is not None else None,
+        "vpn_ip":          body.vpn_ip,
     })
     return {"ok": True, "server_seen_utc": server_now}

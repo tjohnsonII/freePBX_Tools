@@ -22,6 +22,8 @@ type ClientInfo = {
   handles_done: number;
   handles_total: number;
   client_version: string | null;
+  vpn_connected: boolean | null;
+  vpn_ip: string | null;
 };
 
 type WebscraperData = {
@@ -150,6 +152,22 @@ export function WebscraperStatus() {
                 <span className="text-slate-400">
                   v<span className="font-mono text-slate-200">{client.client_version}</span>
                 </span>
+              )}
+            </div>
+
+            {/* VPN row */}
+            <div className="flex items-center gap-x-4 text-sm">
+              {client.vpn_connected === null ? (
+                <span className="text-slate-500 text-xs">VPN — not reported</span>
+              ) : client.vpn_connected ? (
+                <>
+                  <span className="font-mono font-bold text-green-400">⬛ VPN connected</span>
+                  {client.vpn_ip && (
+                    <span className="text-slate-400 font-mono text-xs">{client.vpn_ip}</span>
+                  )}
+                </>
+              ) : (
+                <span className="font-mono font-bold text-red-400">⬛ VPN disconnected</span>
               )}
             </div>
 

@@ -432,6 +432,8 @@ def api_system_status():
                 "handles_done":   hb.get("handles_done", 0),
                 "handles_total":  hb.get("handles_total", 0),
                 "client_version": hb.get("client_version"),
+                "vpn_connected":  bool(hb.get("vpn_connected")) if hb.get("vpn_connected") is not None else None,
+                "vpn_ip":         hb.get("vpn_ip"),
             })
     except Exception:
         pass
