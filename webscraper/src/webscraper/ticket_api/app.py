@@ -1995,6 +1995,11 @@ def api_noc_queue_refresh(body: _NocQueueRefreshBody, request: Request):
     )
     _append_event("info", f"noc_queue_refresh_queued view={view_key or 'all'}", job_id=job_id)
 
+    cancel_event = threading.Event()
+    pause_event  = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id]  = pause_event
+
     def _run() -> None:
         from webscraper.noc_queue.scraper import fetch_noc_queues  # noqa: PLC0415
 
@@ -2004,6 +2009,18 @@ def api_noc_queue_refresh(body: _NocQueueRefreshBody, request: Request):
             _append_event("info", f"noc_queue:{msg}", job_id=job_id)
 
         try:
+            if cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                   finished_utc=_iso_now())
+                _append_event("info", "noc_queue_cancelled_before_start", job_id=job_id)
+                return
+            # Honour pause before launching Chrome
+            while pause_event.is_set():
+                if cancel_event.is_set():
+                    _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                       finished_utc=_iso_now())
+                    return
+                time.sleep(0.5)
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
             records = fetch_noc_queues(
@@ -2021,6 +2038,9 @@ def api_noc_queue_refresh(body: _NocQueueRefreshBody, request: Request):
             LOGGER.exception("noc_queue_refresh_failed job_id=%s", job_id)
             _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
                                finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+            _SCRAPE_PAUSE_EVENTS.pop(job_id, None)
 
     threading.Thread(target=_run, daemon=True, name=f"noc-queue-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
@@ -2051,6 +2071,11 @@ def api_vpbx_refresh(request: Request):
     )
     _append_event("info", "vpbx_refresh_queued", job_id=job_id)
 
+    cancel_event = threading.Event()
+    pause_event  = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id]  = pause_event
+
     def _run() -> None:
         from webscraper.vpbx.handles import fetch_handles_selenium  # noqa: PLC0415
 
@@ -2061,6 +2086,17 @@ def api_vpbx_refresh(request: Request):
             _append_event("info", f"vpbx:{msg}", job_id=job_id)
 
         try:
+            if cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                   finished_utc=_iso_now())
+                _append_event("info", "vpbx_cancelled_before_start", job_id=job_id)
+                return
+            while pause_event.is_set():
+                if cancel_event.is_set():
+                    _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                       finished_utc=_iso_now())
+                    return
+                time.sleep(0.5)
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
             records = fetch_handles_selenium(base_url, login_timeout_seconds=login_timeout,
@@ -2075,6 +2111,9 @@ def api_vpbx_refresh(request: Request):
             LOGGER.exception("vpbx_refresh_failed job_id=%s", job_id)
             _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
                                finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+            _SCRAPE_PAUSE_EVENTS.pop(job_id, None)
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-refresh-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
@@ -2136,6 +2175,11 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         ticket_limit=None, status="queued", created_utc=now,
     )
     _append_event("info", f"vpbx_device_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
+
+    cancel_event = threading.Event()
+    pause_event  = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id]  = pause_event
 
     def _run() -> None:
         from webscraper.vpbx.device_configs import fetch_device_configs  # noqa: PLC0415
@@ -2208,8 +2252,29 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
             total_saved += len(records)
             _update_scrape_job(job_id=job_id, status="running",
                                completed=total_saved, total=total_saved + 1)
+            # Pause/cancel checkpoint between handles
+            while pause_event.is_set() and not cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="paused",
+                                   completed=total_saved, total=total_saved + 1)
+                time.sleep(0.5)
+            if cancel_event.is_set():
+                raise InterruptedError("cancelled")
+            if pause_event.is_set() is False:
+                _update_scrape_job(job_id=job_id, status="running",
+                                   completed=total_saved, total=total_saved + 1)
 
         try:
+            if cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                   finished_utc=_iso_now())
+                _append_event("info", "vpbx_device_configs_cancelled_before_start", job_id=job_id)
+                return
+            while pause_event.is_set():
+                if cancel_event.is_set():
+                    _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                       finished_utc=_iso_now())
+                    return
+                time.sleep(0.5)
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
             records = fetch_device_configs(
@@ -2220,18 +2285,22 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
-            # All records are already flushed incrementally by _on_handle_done above.
-            # No second upsert needed — the on_handle_done callback saves every handle
-            # as it completes, so records are already in the DB.
             finished = _iso_now()
             _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
                                finished_utc=finished,
                                result={"device_count": len(records)})
             _append_event("info", f"vpbx_device_configs_done count={len(records)}", job_id=job_id)
+        except InterruptedError:
+            _update_scrape_job(job_id=job_id, status="cancelled", completed=total_saved,
+                               total=total_saved, finished_utc=_iso_now())
+            _append_event("info", f"vpbx_device_configs_cancelled saved={total_saved}", job_id=job_id)
         except Exception as exc:
             LOGGER.exception("vpbx_device_configs_failed job_id=%s", job_id)
             _update_scrape_job(job_id=job_id, status="error", completed=total_saved, total=total_saved,
                                finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+            _SCRAPE_PAUSE_EVENTS.pop(job_id, None)
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-devconf-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
@@ -2284,6 +2353,11 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
     )
     _append_event("info", f"vpbx_site_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
 
+    cancel_event = threading.Event()
+    pause_event  = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id]  = pause_event
+
     def _run() -> None:
         from webscraper.vpbx.device_configs import fetch_site_configs  # noqa: PLC0415
 
@@ -2314,8 +2388,29 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
             total_saved += len(records)
             _update_scrape_job(job_id=job_id, status="running",
                                completed=total_saved, total=total_saved + 1)
+            # Pause/cancel checkpoint between handles
+            while pause_event.is_set() and not cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="paused",
+                                   completed=total_saved, total=total_saved + 1)
+                time.sleep(0.5)
+            if cancel_event.is_set():
+                raise InterruptedError("cancelled")
+            if pause_event.is_set() is False:
+                _update_scrape_job(job_id=job_id, status="running",
+                                   completed=total_saved, total=total_saved + 1)
 
         try:
+            if cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                   finished_utc=_iso_now())
+                _append_event("info", "vpbx_site_configs_cancelled_before_start", job_id=job_id)
+                return
+            while pause_event.is_set():
+                if cancel_event.is_set():
+                    _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                       finished_utc=_iso_now())
+                    return
+                time.sleep(0.5)
             _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
                                started_utc=_iso_now())
             records = fetch_site_configs(
@@ -2326,16 +2421,22 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
-            # All records already flushed incrementally by _on_handle_done.
             finished = _iso_now()
             _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
                                finished_utc=finished,
                                result={"site_config_count": len(records)})
             _append_event("info", f"vpbx_site_configs_done count={len(records)}", job_id=job_id)
+        except InterruptedError:
+            _update_scrape_job(job_id=job_id, status="cancelled", completed=total_saved,
+                               total=total_saved, finished_utc=_iso_now())
+            _append_event("info", f"vpbx_site_configs_cancelled saved={total_saved}", job_id=job_id)
         except Exception as exc:
             LOGGER.exception("vpbx_site_configs_failed job_id=%s", job_id)
             _update_scrape_job(job_id=job_id, status="error", completed=total_saved, total=total_saved,
                                finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+            _SCRAPE_PAUSE_EVENTS.pop(job_id, None)
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-siteconf-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
