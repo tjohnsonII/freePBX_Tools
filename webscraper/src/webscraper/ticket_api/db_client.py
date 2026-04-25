@@ -494,7 +494,9 @@ def get_scrape_job(db_path: str, job_id: str) -> dict[str, Any] | None:
 def get_scrape_events(db_path: str, job_id: str, limit: int = 50) -> list[dict[str, Any]]:
     try:
         r = _get(f"/api/jobs/{job_id}/events", limit=limit)
-        return r.get("items", r) if isinstance(r, dict) else (r or [])
+        if isinstance(r, dict):
+            return r.get("events", r.get("items", []))
+        return r or []
     except Exception:
         return []
 

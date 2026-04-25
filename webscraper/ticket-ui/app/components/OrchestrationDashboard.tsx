@@ -155,23 +155,34 @@ export default function OrchestrationDashboard() {
     return loginIdx < waitIdx;
   }, [status, scrapeEvents]);
 
-  const vncHost = typeof window !== "undefined" ? window.location.hostname : "192.168.30.19";
-  const vncDirect = "192.168.100.10:5900";
+  const nocTicketsLoginRequired = useMemo(() => {
+    const waitIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "waiting_for_noc_tickets_login");
+    if (waitIdx === -1) return false;
+    const doneIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "noc_tickets_access_confirmed");
+    return doneIdx < waitIdx;
+  }, [scrapeEvents]);
 
   return (
     <section className={styles.section}>
       <h2>Scrape Dashboard</h2>
       {loginRequired && (
         <div className={styles.loginBanner}>
-          <strong>Login required</strong> — Chrome is waiting for you to sign in.
+          <strong>Login required — Step 1 of 2</strong>
           <ol className={styles.loginBannerSteps}>
-            <li>Connect your VNC client directly to <code>{vncDirect}</code></li>
-            <li>Complete the 123.net SSO login in the Chrome window.</li>
-            <li>Scraping will resume automatically once you log in.</li>
+            <li>Find the Chrome window that just opened on your desktop.</li>
+            <li>Complete the 123.net SSO login (secure.123.net).</li>
+            <li>A second login tab will open automatically for noc-tickets.123.net.</li>
           </ol>
-          <p className={styles.loginBannerNote}>
-            If direct VNC fails: <code>ssh -L 5901:127.0.0.1:5900 {vncHost}</code> then connect to <code>localhost:5901</code>
-          </p>
+        </div>
+      )}
+      {nocTicketsLoginRequired && (
+        <div className={styles.loginBanner}>
+          <strong>Login required — Step 2 of 2 (noc-tickets.123.net)</strong>
+          <ol className={styles.loginBannerSteps}>
+            <li>A second tab has opened in the Chrome window for noc-tickets.123.net.</li>
+            <li>Complete the Keycloak login in that tab.</li>
+            <li>Scraping will begin automatically once both logins are done.</li>
+          </ol>
         </div>
       )}
       {error ? <p className={styles.error}>{error}</p> : null}

@@ -39,7 +39,7 @@ CHROME_CUSTOMERS_URL = "https://secure.123.net/cgi-bin/web_interface/admin/custo
 NOC_TICKETS_BASE_URL = "https://noc-tickets.123.net"
 _LOGIN_URL_MARKERS = ("login", "signin", "sign_in", "sso", "auth", "oauth", "keycloak", "saml")
 TICKET_TABLE_ROW_XPATH = "//div[@id='slideid5']//table//tr[td[1]//a[contains(@href,'/ticket/')]]"
-SELENIUM_LOGIN_TIMEOUT_SECONDS = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+SELENIUM_LOGIN_TIMEOUT_SECONDS = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "600"))
 
 HANDLE_RE = re.compile(r"^[A-Za-z0-9]+$")
 LOCALHOST_ONLY = {"127.0.0.1", "::1"}
@@ -47,6 +47,9 @@ OUTPUT_ROOT = str((Path(__file__).resolve().parents[4] / "webscraper" / "var").r
 
 # Cancel events keyed by job_id; set() to request graceful stop after current handle
 _SCRAPE_CANCEL_EVENTS: dict[str, threading.Event] = {}
+
+# Pause events keyed by job_id; set() = paused, clear() = running
+_SCRAPE_PAUSE_EVENTS: dict[str, threading.Event] = {}
 
 TIMELINE_CATEGORIES: tuple[str, ...] = (
     "ticket_opened",
@@ -171,7 +174,10 @@ def _scrape_emit(
     event: str | None = None,
     data: dict[str, Any] | None = None,
 ) -> None:
-    _append_event("info", message, handle=handle, job_id=job_id, meta={"event": event or "progress", **(data or {})})
+    try:
+        _append_event("info", message, handle=handle, job_id=job_id, meta={"event": event or "progress", **(data or {})})
+    except Exception as _emit_exc:
+        LOGGER.warning("scrape_emit_failed event=%s error=%s", event or "progress", _emit_exc)
 
 
 # Backward-compat alias
@@ -246,12 +252,29 @@ def _scrape_ticket_detail(driver: object, ticket_url: str, *, wait_timeout: int 
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
         if _is_login_page(driver):
-            detail["scrape_error"] = (
-                "Redirected to login page — session does not cover noc-tickets.123.net. "
-                "Complete login and retry."
+            # noc-tickets session expired mid-scrape — wait for the user to re-authenticate
+            # rather than skipping, so Chrome stays on the Keycloak page long enough to log in.
+            LOGGER.warning(
+                "ticket_detail_login_redirect url=%s current_url=%s — pausing for re-auth",
+                ticket_url, driver.current_url,  # type: ignore[attr-defined]
             )
-            LOGGER.warning("ticket_detail_login_redirect url=%s current_url=%s", ticket_url, driver.current_url)  # type: ignore[attr-defined]
-            return detail
+            try:
+                reauth_wait = WebDriverWait(driver, SELENIUM_LOGIN_TIMEOUT_SECONDS, poll_frequency=3.0)
+                reauth_wait.until(lambda d: not _is_login_page(d))
+                LOGGER.info("ticket_detail_reauth_ok url=%s", ticket_url)
+                # Re-navigate to the ticket now that auth is restored
+                driver.get(ticket_url)  # type: ignore[attr-defined]
+                WebDriverWait(driver, wait_timeout).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                if _is_login_page(driver):
+                    raise Exception("Still on login page after re-auth")
+            except Exception as reauth_exc:
+                detail["scrape_error"] = (
+                    f"Re-authentication failed or timed out: {reauth_exc}"
+                )
+                LOGGER.warning("ticket_detail_reauth_failed url=%s error=%s", ticket_url, reauth_exc)
+                return detail
         detail["page_title"] = (driver.title or "").strip()  # type: ignore[attr-defined]
 
         fields: dict[str, str] = {}
@@ -317,6 +340,7 @@ def _run_scrape_job(
     login_timeout_seconds: int,
     resume_from_handle: str | None = None,
     cancel_event: threading.Event | None = None,
+    pause_event: threading.Event | None = None,
 ) -> None:
     from selenium import webdriver
     from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
@@ -435,12 +459,13 @@ def _run_scrape_job(
             },
         )
 
-        login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0)
+        login_wait = WebDriverWait(driver, login_timeout_seconds, poll_frequency=3.0)
         login_wait.until(
             lambda d: "secure.123.net" in (d.current_url or "").lower()
             and not _is_login_page(d)
         )
         _scrape_emit(job_id, "login_detected", event="login_detected")
+        time.sleep(2)  # brief pause so the page settles before moving on
         cookie_summary = summarize_driver_cookies(driver, domains=["secure.123.net", ".123.net"])
         LOGGER.info(
             "scrape_cookie_count job_id=%s count=%s domains=%s",
@@ -448,22 +473,27 @@ def _run_scrape_job(
         )
         _ = selenium_driver_to_requests_session(driver, base_url=CHROME_CUSTOMERS_URL)
 
-        # ── Verify noc-tickets.123.net is also accessible (non-blocking) ────────
-        # Done in a background tab so the main window stays on customers.cgi.
-        # If the check times out or fails, log a warning and continue — the list
-        # scraping works fine without it; only ticket detail fetches need it.
+        # ── Authenticate noc-tickets.123.net in the same window ─────────────────
+        # Navigate the main window to noc-tickets, wait for the user to complete
+        # the Keycloak login, then navigate back to customers.cgi.  Using a
+        # separate tab causes InvalidSessionIdException when the SSO redirect
+        # chain interferes with the ChromeDriver session.
         LOGGER.info("scrape_checking_noc_tickets_access job_id=%s", job_id)
-        _scrape_emit(job_id, "checking_noc_tickets_access", event="checking_noc_tickets_access",
-                     data={"url": NOC_TICKETS_BASE_URL})
-        _main_handle = driver.current_window_handle
+        _scrape_emit(
+            job_id,
+            f"waiting_for_noc_tickets_login — Chrome is now navigating to noc-tickets.123.net "
+            f"for a second login (Keycloak). Complete that login and Chrome will automatically "
+            f"return to the customers page to begin scraping. You have {login_timeout_seconds} seconds.",
+            event="waiting_for_noc_tickets_login",
+            data={"url": NOC_TICKETS_BASE_URL, "timeout_seconds": login_timeout_seconds},
+        )
+        time.sleep(3)  # give the user a moment to read the message before Chrome navigates
         try:
-            driver.execute_script("window.open('');")
-            _noc_tab = next(h for h in driver.window_handles if h != _main_handle)
-            driver.switch_to.window(_noc_tab)
             _wait_for_domain_access(
                 driver,
                 NOC_TICKETS_BASE_URL,
-                timeout_seconds=30,
+                timeout_seconds=login_timeout_seconds,
+                poll_frequency=3.0,
                 emit_fn=lambda msg: _scrape_emit(job_id, msg, event="noc_tickets_login_wait"),
                 label="noc-tickets.123.net",
             )
@@ -472,19 +502,10 @@ def _run_scrape_job(
         except Exception as _noc_exc:
             LOGGER.warning("scrape_noc_tickets_check_skipped job_id=%s reason=%s", job_id, _noc_exc)
             _scrape_emit(job_id, f"noc_tickets_check_skipped: {_noc_exc}", event="noc_tickets_skipped")
-        finally:
-            try:
-                if driver.current_window_handle != _main_handle:
-                    driver.close()
-            except Exception:
-                pass
-            try:
-                driver.switch_to.window(_main_handle)
-            except Exception:
-                pass
 
-        # Main window is still on customers.cgi — confirm search box is present
-        WebDriverWait(driver, 20).until(
+        # Navigate back to customers.cgi and confirm the search box is ready.
+        driver.get(CHROME_CUSTOMERS_URL)
+        WebDriverWait(driver, 60).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "#customers"))
         )
 
@@ -559,6 +580,27 @@ def _run_scrape_job(
                 )
                 _scrape_emit(job_id, "cancelled", event="cancelled")
                 return
+
+            # Pause: block here between handles until unpaused or cancelled
+            if pause_event is not None and pause_event.is_set():
+                _scrape_emit(job_id, "paused — waiting for resume", event="paused")
+                _update_scrape_job(
+                    job_id=job_id, status="paused",
+                    completed=int(result.get("completed_handles") or 0),
+                    total=len(handles), result=result,
+                )
+                while pause_event.is_set():
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    time.sleep(0.5)
+                if cancel_event is None or not cancel_event.is_set():
+                    _scrape_emit(job_id, "resumed", event="resumed")
+                    _update_scrape_job(
+                        job_id=job_id, status="running",
+                        completed=int(result.get("completed_handles") or 0),
+                        total=len(handles), result=result,
+                    )
+
             _retry_after_crash = False
             handle = handle_list[hi]
             idx = hi + 1  # 1-based for display/progress
@@ -750,6 +792,13 @@ def _run_scrape_job(
             except (InvalidSessionIdException, WebDriverException, ConnectionError, OSError) as _wde:
                 # Catch Selenium exceptions AND low-level connection errors (RemoteDisconnected,
                 # ConnectionAbortedError, etc.) that indicate the Chrome process died.
+                # Explicitly exclude HTTP-level errors (4xx/5xx from the remote ingest server)
+                # — those are not Chrome crashes and should not trigger a browser restart.
+                import requests as _requests_mod
+                if isinstance(_wde, _requests_mod.exceptions.RequestException):
+                    LOGGER.warning("scrape_remote_http_error handle=%s error=%s", handle, _wde)
+                    hi += 1
+                    continue
                 crash_exc = _wde
                 _msg = str(_wde).lower()
                 _is_crash = (
@@ -1128,6 +1177,11 @@ class CancelScrapeRequest(BaseModel):
 
 def _job_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
     """Map a scrape_jobs DB row to the API Job shape expected by the dashboard."""
+    # In CLIENT_MODE=1, db_client proxies to the remote server which already
+    # returns shaped data (current_state, records_found, etc.).  Pass it through
+    # rather than re-mapping raw DB field names that don't exist on the response.
+    if "current_state" in row:
+        return row
     result = row.get("result") or {}
     return {
         "job_id": row.get("job_id", ""),
@@ -1240,7 +1294,9 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
     _append_event("info", "scrape_queued", job_id=job_id,
                   meta={"event": "queued", "handles": len(handles), "resume_from": resume})
     cancel_event = threading.Event()
+    pause_event = threading.Event()
     _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id] = pause_event
     threading.Thread(
         target=_run_scrape_job,
         kwargs={
@@ -1249,6 +1305,7 @@ def api_scrape_start_selenium(payload: ScrapeStartRequest | None = None):
             "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS,
             "resume_from_handle": resume,
             "cancel_event": cancel_event,
+            "pause_event": pause_event,
         },
         daemon=True,
     ).start()
@@ -1277,6 +1334,152 @@ def api_scrape_state():
         return json.loads(state_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read scrape state: {exc}") from exc
+
+
+@app.post("/api/scrape/pause")
+def api_scrape_pause(payload: CancelScrapeRequest | None = None):
+    """Pause a running scrape job between handles."""
+    job_id = payload.job_id if payload else None
+    if job_id is None:
+        rows = db.list_scrape_jobs(db_path(), limit=10)
+        active = next((r for r in rows if (r.get("status") or "") in ("running", "queued")), None)
+        if active is None:
+            raise HTTPException(status_code=404, detail="No active scrape job found")
+        job_id = active["job_id"]
+    event = _SCRAPE_PAUSE_EVENTS.get(job_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"No pausable job with id={job_id}")
+    event.set()
+    return {"job_id": job_id, "paused": True, "message": "Pause requested — job will pause after current handle."}
+
+
+@app.post("/api/scrape/resume")
+def api_scrape_resume(payload: CancelScrapeRequest | None = None):
+    """Resume a paused scrape job."""
+    job_id = payload.job_id if payload else None
+    if job_id is None:
+        rows = db.list_scrape_jobs(db_path(), limit=10)
+        paused = next((r for r in rows if (r.get("status") or "") == "paused"), None)
+        if paused is None:
+            raise HTTPException(status_code=404, detail="No paused scrape job found")
+        job_id = paused["job_id"]
+    event = _SCRAPE_PAUSE_EVENTS.get(job_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"No job with id={job_id}")
+    event.clear()
+    return {"job_id": job_id, "paused": False, "message": "Job resumed."}
+
+
+@app.post("/api/scrape/smoke_test")
+def api_scrape_smoke_test():
+    """Run a quick end-to-end test scraping only the first 2 handles."""
+    all_handles = _load_scrape_handles()
+    if not all_handles:
+        raise HTTPException(status_code=400, detail="No handles available to scrape")
+    handles = all_handles[:2]
+    now = _iso_now()
+    job_id = str(uuid.uuid4())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode="smoke_test",
+        ticket_limit=None, status="queued", created_utc=now, handles=handles,
+    )
+    _append_event("info", "smoke_test_queued", job_id=job_id,
+                  meta={"event": "queued", "handles": len(handles)})
+    cancel_event = threading.Event()
+    pause_event = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id] = pause_event
+    threading.Thread(
+        target=_run_scrape_job,
+        kwargs={
+            "job_id": job_id,
+            "handles": handles,
+            "login_timeout_seconds": SELENIUM_LOGIN_TIMEOUT_SECONDS,
+            "resume_from_handle": None,
+            "cancel_event": cancel_event,
+            "pause_event": pause_event,
+        },
+        daemon=True,
+    ).start()
+    return {"queued": True, "job_id": job_id, "handles_total": len(handles),
+            "status": "queued", "mode": "smoke_test"}
+
+
+@app.get("/api/doctor")
+def api_doctor():
+    """Run connectivity and environment checks, return a summary of pass/fail."""
+    import requests as _req
+    checks: dict[str, dict] = {}
+
+    # VPN
+    try:
+        from webscraper.heartbeat import detect_vpn
+        vpn_ok, vpn_ip = detect_vpn()
+    except Exception:
+        vpn_ok, vpn_ip = False, None
+    checks["vpn"] = {
+        "ok": vpn_ok,
+        "detail": f"Connected — {vpn_ip}" if vpn_ok else "Not connected",
+    }
+
+    # Remote ingest server
+    server = os.getenv("INGEST_SERVER_URL", "").rstrip("/")
+    if server:
+        try:
+            r = _req.get(f"{server}/api/health", timeout=6)
+            checks["remote_server"] = {"ok": r.ok, "detail": f"HTTP {r.status_code} — {server}"}
+        except Exception as exc:
+            checks["remote_server"] = {"ok": False, "detail": f"Unreachable — {exc}"}
+    else:
+        checks["remote_server"] = {"ok": False, "detail": "INGEST_SERVER_URL not set in .env"}
+
+    # Chrome binary
+    _is_windows = os.name == "nt"
+    chrome_candidates = (
+        [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ] if _is_windows else [
+            "/opt/google/chrome/chrome",
+            "/opt/google/chrome/google-chrome",
+            "/usr/bin/google-chrome-stable",
+        ]
+    )
+    chrome_path = next((p for p in chrome_candidates if os.path.isfile(p)), None)
+    checks["chrome"] = {
+        "ok": bool(chrome_path),
+        "detail": f"Found — {chrome_path}" if chrome_path else "Not found in standard locations",
+    }
+
+    # Chrome profile directory
+    profile_dir = (
+        os.environ.get("WEBSCRAPER_CHROME_PROFILE_DIR")
+        or os.environ.get("CHROME_USER_DATA_DIR")
+        or str(Path(__file__).resolve().parents[4] / "webscraper" / "var" / "chrome-profile")
+    )
+    profile_ok = os.path.isdir(profile_dir)
+    checks["chrome_profile"] = {
+        "ok": profile_ok,
+        "detail": f"{'Exists' if profile_ok else 'Missing'} — {profile_dir}",
+    }
+
+    # Handle list
+    try:
+        handles = _load_scrape_handles()
+        checks["handles"] = {"ok": bool(handles), "detail": f"{len(handles)} handles loaded"}
+    except Exception as exc:
+        checks["handles"] = {"ok": False, "detail": f"Load failed — {exc}"}
+
+    # CLIENT_MODE env
+    client_mode = os.getenv("CLIENT_MODE", "").strip() == "1"
+    checks["client_mode"] = {
+        "ok": client_mode,
+        "detail": "CLIENT_MODE=1 — writes routed to remote server" if client_mode else "CLIENT_MODE not set — writing locally",
+    }
+
+    overall_ok = all(v["ok"] for v in checks.values())
+    return {"ok": overall_ok, "checks": checks}
 
 
 @app.post("/api/scrape/cancel")
