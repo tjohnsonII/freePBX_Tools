@@ -28,6 +28,8 @@ def _find_repo_root() -> Path:
     for parent in [here] + list(here.parents):
         if (parent / "deploy_freepbx_tools.py").exists() and (parent / "deploy_uninstall_tools.py").exists():
             return parent
+        if (parent / "archive" / "fleet" / "deploy_freepbx_tools.py").exists():
+            return parent / "archive" / "fleet"
     raise RuntimeError("Could not locate repo root (deploy scripts not found)")
 
 
@@ -370,8 +372,8 @@ def health() -> Dict[str, Any]:
     }
 
 
-@app.post("/api/diagnostics/summary")
-async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any]:
+@app.post("/api/diagnostics/summary", response_model=None)
+async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any] | JSONResponse:
     """Collect a single remote-host diagnostic summary (JSON).
 
     Runs a local helper script which SSHes into the FreePBX host and emits JSON.
