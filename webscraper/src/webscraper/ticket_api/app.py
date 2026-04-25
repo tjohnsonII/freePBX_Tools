@@ -226,7 +226,7 @@ def _wait_for_domain_access(
         emit_fn(f"access_confirmed {label or probe_url}")
 
 
-def _scrape_ticket_detail(driver: object, ticket_url: str, *, wait_timeout: int = 15) -> dict[str, Any]:
+def _scrape_ticket_detail(driver: object, ticket_url: str, *, wait_timeout: int = 15, job_id: str | None = None) -> dict[str, Any]:
     """Open a single ticket detail page and scrape every visible field.
 
     Returns a dict with:
@@ -252,16 +252,25 @@ def _scrape_ticket_detail(driver: object, ticket_url: str, *, wait_timeout: int 
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
         if _is_login_page(driver):
-            # noc-tickets session expired mid-scrape — wait for the user to re-authenticate
-            # rather than skipping, so Chrome stays on the Keycloak page long enough to log in.
+            # noc-tickets session expired mid-scrape — wait for the user to re-authenticate.
+            # We must wait until Chrome is on noc-tickets.123.net AND not on a login page,
+            # not just any non-login page (e.g. customers.cgi), to avoid a tight loop where
+            # the wait fires on customers.cgi and we immediately get redirected to Keycloak again.
             LOGGER.warning(
                 "ticket_detail_login_redirect url=%s current_url=%s — pausing for re-auth",
                 ticket_url, driver.current_url,  # type: ignore[attr-defined]
             )
+            if job_id:
+                _scrape_emit(job_id, "waiting_for_noc_tickets_reauth", event="waiting_for_noc_tickets_login")
             try:
                 reauth_wait = WebDriverWait(driver, SELENIUM_LOGIN_TIMEOUT_SECONDS, poll_frequency=3.0)
-                reauth_wait.until(lambda d: not _is_login_page(d))
+                reauth_wait.until(
+                    lambda d: "noc-tickets.123.net" in (d.current_url or "").lower()
+                    and not _is_login_page(d)
+                )
                 LOGGER.info("ticket_detail_reauth_ok url=%s", ticket_url)
+                if job_id:
+                    _scrape_emit(job_id, "noc_tickets_reauth_confirmed", event="noc_tickets_access_confirmed")
                 # Re-navigate to the ticket now that auth is restored
                 driver.get(ticket_url)  # type: ignore[attr-defined]
                 WebDriverWait(driver, wait_timeout).until(
@@ -690,12 +699,14 @@ def _run_scrape_job(
                     )
                 )
                 toggle.click()
-                # Wait for #slideid5 to become visible (handles zero-ticket case)
-                WebDriverWait(driver, 20).until(
+                _scrape_emit(job_id, f"toggle_clicked {handle} — waiting for ticket table to load",
+                             handle=handle, event="toggle_clicked")
+                # Wait for #slideid5 to become visible — large handles (I11=11k rows) can take minutes
+                WebDriverWait(driver, 300).until(
                     EC.visibility_of_element_located((By.CSS_SELECTOR, "#slideid5"))
                 )
-                _scrape_emit(job_id, f"toggle_clicked {handle}", handle=handle,
-                             event="toggle_clicked")
+                _scrape_emit(job_id, f"ticket_table_visible {handle}", handle=handle,
+                             event="ticket_table_visible")
 
                 rows = driver.find_elements(By.XPATH, TICKET_TABLE_ROW_XPATH)
                 handle_tickets: list[dict[str, str]] = []
@@ -752,7 +763,7 @@ def _run_scrape_job(
                         data={"ticket_id": ticket_row["ticket_id"], "index": tidx,
                               "total": len(handle_tickets)},
                     )
-                    detail = _scrape_ticket_detail(driver, t_url)
+                    detail = _scrape_ticket_detail(driver, t_url, job_id=job_id)
                     ticket_row["detail"] = detail
                     if detail.get("scrape_error"):
                         detail_errors += 1
