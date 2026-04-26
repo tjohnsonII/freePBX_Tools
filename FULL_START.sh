@@ -90,6 +90,7 @@ rebuild_app() {
     local hash_file="$dir/.src_hash"
     if [ ! -d "$dir/$dist_dir" ] || [ ! -f "$hash_file" ] || [ "$src_hash" != "$(cat "$hash_file")" ]; then
         echo "[2/6] $label: source changed or build missing — rebuilding..."
+        rm -rf "$dir/$dist_dir"
         cd "$dir"
         if ! npm ci --silent; then
             echo "[ERROR] $label npm ci failed — check $LOG_FILE"; exit 1
