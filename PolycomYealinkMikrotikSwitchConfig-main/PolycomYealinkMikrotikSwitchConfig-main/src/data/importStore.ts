@@ -11,34 +11,37 @@ export type CopyUserRow = {
 };
 
 export type FpbxRow = {
-  extension: string; name: string; secret: string;
-  description: string; voicemail_email: string; voicemail_options: string;
-  outboundcid: string; dial: string; tech: string; user: string;
-  emergency_cid: string; ringtimer: string; callwaiting: string;
-  directdid: string; noanswer_dest: string;
+  extension: string; name: string; description: string; tech: string;
+  secret: string; callwaiting_enable: string;
+  voicemail: string; voicemail_enable: string; voicemail_vmpwd: string;
+  voicemail_email: string; voicemail_same_exten: string;
+  outboundcid: string; id: string; dial: string; user: string;
+  max_contacts: string; accountcode: string;
 };
 
 export type VpbxRow = {
   extension: string; name: string; secret: string; user: string;
   mac: string; model: string; tech: string;
   description: string; voicemail_email: string; voicemail_options: string;
-  outboundcid: string; emergency_cid: string;
+  voicemail_same_exten: string; outboundcid: string; emergency_cid: string;
+  dial: string; max_contacts: string; accountcode: string;
 };
 
 export type StrRow = {
   username: string; password: string; email: string;
+  profile: string;
+  'account1Sip.credentials.authorizationName': string;
+  'account1Sip.credentials.password': string;
   'account1Sip.credentials.displayName': string;
   'account1Sip.credentials.username': string;
   'account1Sip.domain': string;
-  'account1Sip.credentials.password': string;
-  'account1Sip.transport': string;
 };
 
 export type DidRow = {
   cidnum: string; extension: string; destination: string;
   privacyman: string; mohclass: string; description: string;
   grppre: string; delay_answer: string; pricid: string;
-  pmmaxretries: string; pmmaxlength: string; reversal: string;
+  pmmaxretries: string; pmminlength: string; reversal: string;
   rvolume: string; indication_zone: string; callrecording: string;
 };
 
@@ -60,31 +63,31 @@ export const COPY_USER_HEADERS: Record<keyof CopyUserRow, string> = {
 };
 
 export const FPBX_FIELDS: (keyof FpbxRow)[] = [
-  'extension', 'name', 'secret', 'user', 'description',
-  'voicemail_email', 'voicemail_options', 'outboundcid', 'dial',
-  'tech', 'emergency_cid', 'ringtimer', 'callwaiting',
-  'directdid', 'noanswer_dest',
+  'extension', 'name', 'description', 'tech', 'secret',
+  'callwaiting_enable', 'voicemail', 'voicemail_enable', 'voicemail_vmpwd',
+  'voicemail_email', 'voicemail_same_exten',
+  'outboundcid', 'id', 'dial', 'user', 'max_contacts', 'accountcode',
 ];
 
 export const VPBX_FIELDS: (keyof VpbxRow)[] = [
   'extension', 'name', 'secret', 'user', 'mac', 'model', 'tech',
-  'description', 'voicemail_email', 'voicemail_options',
-  'outboundcid', 'emergency_cid',
+  'description', 'voicemail_email', 'voicemail_options', 'voicemail_same_exten',
+  'outboundcid', 'emergency_cid', 'dial', 'max_contacts', 'accountcode',
 ];
 
 export const STRETTO_FIELDS: (keyof StrRow)[] = [
-  'username', 'password', 'email',
+  'username', 'password', 'email', 'profile',
+  'account1Sip.credentials.authorizationName',
+  'account1Sip.credentials.password',
   'account1Sip.credentials.displayName',
   'account1Sip.credentials.username',
   'account1Sip.domain',
-  'account1Sip.credentials.password',
-  'account1Sip.transport',
 ];
 
 export const DIDS_FIELDS: (keyof DidRow)[] = [
   'cidnum', 'extension', 'destination', 'privacyman', 'mohclass',
   'description', 'grppre', 'delay_answer', 'pricid',
-  'pmmaxretries', 'pmmaxlength', 'reversal', 'rvolume',
+  'pmmaxretries', 'pmminlength', 'reversal', 'rvolume',
   'indication_zone', 'callrecording',
 ];
 
@@ -95,19 +98,19 @@ export function emptyCopyUserRow(): CopyUserRow {
 }
 
 export function emptyFpbxRow(): FpbxRow {
-  return { extension: '', name: '', secret: '', user: '', description: '', voicemail_email: '', voicemail_options: '', outboundcid: '', dial: '', tech: 'pjsip', emergency_cid: '', ringtimer: '', callwaiting: '', directdid: '', noanswer_dest: '' };
+  return { extension: '', name: '', description: '', tech: 'pjsip', secret: '', callwaiting_enable: 'ENABLED', voicemail: 'default', voicemail_enable: 'yes', voicemail_vmpwd: '', voicemail_email: '', voicemail_same_exten: 'no', outboundcid: '', id: '', dial: '', user: '', max_contacts: '10', accountcode: '' };
 }
 
 export function emptyVpbxRow(): VpbxRow {
-  return { extension: '', name: '', secret: '', user: '', mac: '', model: '', tech: 'pjsip', description: '', voicemail_email: '', voicemail_options: '', outboundcid: '', emergency_cid: '' };
+  return { extension: '', name: '', secret: '', user: '', mac: '', model: '', tech: 'pjsip', description: '', voicemail_email: '', voicemail_options: '', voicemail_same_exten: '', outboundcid: '', emergency_cid: '', dial: '', max_contacts: '', accountcode: '' };
 }
 
 export function emptyStrRow(): StrRow {
-  return { username: '', password: '', email: '', 'account1Sip.credentials.displayName': '', 'account1Sip.credentials.username': '', 'account1Sip.domain': '', 'account1Sip.credentials.password': '', 'account1Sip.transport': 'TLS' };
+  return { username: '', password: '', email: '', profile: 'sip.only', 'account1Sip.credentials.authorizationName': '', 'account1Sip.credentials.password': '', 'account1Sip.credentials.displayName': '', 'account1Sip.credentials.username': '', 'account1Sip.domain': '' };
 }
 
 export function emptyDidRow(): DidRow {
-  return { cidnum: '', extension: '', destination: '', privacyman: '0', mohclass: 'default', description: '', grppre: '', delay_answer: '0', pricid: '', pmmaxretries: '0', pmmaxlength: '0', reversal: '0', rvolume: '0', indication_zone: '', callrecording: 'dontcare' };
+  return { cidnum: '', extension: '', destination: '', privacyman: '0', mohclass: 'default', description: '', grppre: '', delay_answer: '0', pricid: '', pmmaxretries: '0', pmminlength: '3', reversal: '0', rvolume: '0', indication_zone: '', callrecording: 'dontcare' };
 }
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
@@ -130,8 +133,16 @@ export function saveStore(key: string, rows: AnyRow[]): void {
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
 export function exportCsv(filename: string, fields: string[], rows: AnyRow[]): void {
+  // Find the last row that has at least one non-empty field value
+  let lastData = rows.length - 1;
+  while (lastData >= 0 && fields.every(f => (rows[lastData][f] ?? '').trim() === '')) {
+    lastData--;
+  }
+  if (lastData < 0) return; // nothing to export
+
+  const exportRows = rows.slice(0, lastData + 1);
   const header = fields.join(',');
-  const body = rows.map(r =>
+  const body = exportRows.map(r =>
     fields.map(f => {
       const v = (r[f] ?? '').replace(/"/g, '""');
       return v.includes(',') || v.includes('"') || v.includes('\n') ? `"${v}"` : v;
@@ -152,11 +163,13 @@ export function populateFpbxFromCopyUsers(copyUsers: CopyUserRow[]): FpbxRow[] {
   return copyUsers.map(u => {
     const row = emptyFpbxRow();
     row.name = u.userName;
+    row.description = u.userName;
     row.extension = u.extensionNumber;
     row.voicemail_email = u.email;
     row.outboundcid = u.callerIdNumber;
-    row.directdid = u.directInwardDial;
     row.user = u.extensionNumber;
+    row.id = u.extensionNumber;
+    row.accountcode = u.extensionNumber;
     return row;
   });
 }
@@ -165,7 +178,14 @@ export function populateFpbxFields(rows: FpbxRow[]): FpbxRow[] {
   return rows.map(r => ({
     ...r,
     user: r.user || r.extension,
-    dial: r.dial || `PJSIP/${r.extension}`,
+    dial: r.dial || (r.extension ? `PJSIP/${r.extension}` : ''),
+    id: r.id || r.extension,
+    accountcode: r.accountcode || r.extension,
+    max_contacts: r.max_contacts || '10',
+    callwaiting_enable: r.callwaiting_enable || 'ENABLED',
+    voicemail: r.voicemail || 'default',
+    voicemail_enable: r.voicemail_enable || 'yes',
+    voicemail_same_exten: r.voicemail_same_exten || 'no',
   }));
 }
 
@@ -192,7 +212,8 @@ export function populateVpbxFromFpbx(fpbxRows: FpbxRow[], _existing?: VpbxRow[])
     row.user = r.user || r.extension;
     row.tech = r.tech || 'pjsip';
     row.voicemail_email = r.voicemail_email;
-    row.outboundcid = r.outboundcid;
+    row.outboundcid = r.outboundcid.replace(/\D/g, '');
+    row.dial = r.dial || (r.extension ? `PJSIP/${r.extension}` : '');
     return row;
   });
 }
@@ -200,12 +221,14 @@ export function populateVpbxFromFpbx(fpbxRows: FpbxRow[], _existing?: VpbxRow[])
 export function populateStrettoFromFpbx(fpbxRows: FpbxRow[], sipDomain: string): StrRow[] {
   return fpbxRows.map(r => {
     const row = emptyStrRow();
-    row.username = r.extension;
-    row['account1Sip.credentials.username'] = r.user || r.extension;
-    row['account1Sip.credentials.displayName'] = r.name;
-    row['account1Sip.credentials.password'] = r.secret;
-    row['account1Sip.domain'] = sipDomain;
+    row.username = r.voicemail_email || r.extension;
     row.email = r.voicemail_email;
+    row.profile = 'sip.only';
+    row['account1Sip.credentials.authorizationName'] = r.user || r.extension;
+    row['account1Sip.credentials.password'] = r.secret;
+    row['account1Sip.credentials.displayName'] = r.extension;
+    row['account1Sip.credentials.username'] = r.user || r.extension;
+    row['account1Sip.domain'] = sipDomain;
     return row;
   });
 }

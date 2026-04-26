@@ -39,7 +39,7 @@ const TABS = [
   { key: 'reference', label: 'Reference' },
   { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'copyusers', label: 'copyUserExtensions' },
-  { key: 'fbpx', label: 'FBPX Import' },
+  { key: 'fbpx', label: 'FPBX Import' },
   { key: 'vpbx', label: 'VPBX Import' },
   { key: 'streeto', label: 'Stretto Import' },
   { key: 'dids', label: 'DIDs' },
@@ -1979,10 +1979,10 @@ function App() {
               <div className="output">
                 <textarea title="Generated Polycom expansion config" value={polycomOutput} readOnly rows={5} className="full-width-ta" />
               </div>
-              {/* Polycom Preview Grid */}
+              {/* Polycom Preview Grid — 2 columns × 14 rows matches physical device layout */}
               <div className="expansion-preview">
-                <b>Preview: 28 keys (4 columns × 7 rows)</b>
-                <div className="expansion-grid expansion-grid-4col">
+                <b>Preview: 28 keys (2 columns × 14 rows)</b>
+                <div className="expansion-grid expansion-grid-2col">
                   {Array.from({ length: 28 }).map((_, idx) => (
                     <div
                       key={idx}

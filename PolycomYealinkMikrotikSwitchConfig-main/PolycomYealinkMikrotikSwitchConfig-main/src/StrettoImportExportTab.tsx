@@ -1,13 +1,3 @@
-/**
- * StrettoImportExportTab.tsx
- * Stretto portal user import table — step 4 of the workflow.
- *
- * Receives data from: fpbx (via localStorage) — needs a SIP domain input.
- *
- * Toolbar actions:
- *   Clear | Import CSV | Export CSV
- *   ← Populate from FPBX (requires SIP domain)
- */
 import React, { useEffect, useRef, useState } from 'react';
 import * as Papa from 'papaparse';
 import tableStyles from './tabs/ImportTable.module.css';
@@ -27,15 +17,20 @@ import {
 
 const WIDE_FIELDS = [
   'username', 'email',
+  'account1Sip.credentials.authorizationName',
   'account1Sip.credentials.displayName',
   'account1Sip.credentials.username',
   'account1Sip.domain',
 ] as const;
 
+const STRETTO_SELECT_OPTIONS: Record<string, string[]> = {
+  profile: ['sip.only', 'sip.default'],
+};
+
 const StrettoImportExportTab: React.FC = () => {
   const [rows, setRows] = useState<StrRow[]>(() => {
     const saved = loadStore('stretto') as StrRow[] | null;
-    return saved?.length ? saved : Array(5).fill(null).map(emptyStrRow);
+    return saved?.length ? saved : Array(200).fill(null).map(emptyStrRow);
   });
   const [sipDomain, setSipDomain] = useState('');
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -63,7 +58,7 @@ const StrettoImportExportTab: React.FC = () => {
 
   function handleClear() {
     if (!confirm('Clear all Stretto rows?')) return;
-    setRows(Array(5).fill(null).map(emptyStrRow));
+    setRows(Array(200).fill(null).map(emptyStrRow));
     setStatus({ msg: 'Cleared.', ok: true });
   }
 
@@ -91,6 +86,15 @@ const StrettoImportExportTab: React.FC = () => {
     exportCsv('stretto_import.csv', STRETTO_FIELDS, rows as AnyRow[]);
   }
 
+  // Copy account1Sip.credentials.password → password for every row
+  function handleCopySecret() {
+    setRows(prev => prev.map(r => ({
+      ...r,
+      password: r['account1Sip.credentials.password'] || r.password,
+    })));
+    setStatus({ msg: 'SIP credential password copied to portal password column.', ok: true });
+  }
+
   function handlePopulateFromFpbx() {
     if (!sipDomain.trim()) {
       setStatus({ msg: 'Enter a SIP domain first.', ok: false });
@@ -98,7 +102,7 @@ const StrettoImportExportTab: React.FC = () => {
     }
     const fpbxRows = loadStore('fpbx') as FpbxRow[] | null;
     if (!fpbxRows?.length) {
-      setStatus({ msg: 'No FPBX data found. Populate the FBPX Import tab first.', ok: false });
+      setStatus({ msg: 'No FPBX data found. Populate the FPBX Import tab first.', ok: false });
       return;
     }
     const strRows = populateStrettoFromFpbx(fpbxRows, sipDomain.trim());
@@ -108,13 +112,12 @@ const StrettoImportExportTab: React.FC = () => {
 
   return (
     <div>
-      {/* Toolbar */}
       <div className={tableStyles.toolbar}>
         <div className={tableStyles.toolbarGroup}>
-          <button type="button" className={tableStyles.btnDanger} onClick={handleClear}>Clear</button>
+          <button type="button" className={tableStyles.btnDanger} onClick={handleClear}>Clear All</button>
           <div className={tableStyles.toolbarDivider} />
           <label className={`${tableStyles.btn} ${localStyles.fileLabel}`}>
-            Import CSV
+            Upload
             <input
               ref={fileRef}
               type="file"
@@ -123,20 +126,21 @@ const StrettoImportExportTab: React.FC = () => {
               onChange={handleImport}
             />
           </label>
-          <button type="button" className={tableStyles.btnSuccess} onClick={handleExport}>Export CSV</button>
+          <button type="button" className={tableStyles.btnSuccess} onClick={handleExport}>Export To CSV</button>
+          <button type="button" className={tableStyles.btn} onClick={handleCopySecret}>Copy Secret</button>
         </div>
         <div className={tableStyles.toolbarDivider} />
         <div className={tableStyles.toolbarGroup}>
           <input
             type="text"
-            placeholder="SIP domain (e.g. pbx.example.com)"
+            placeholder="SIP domain (e.g. 69.39.88.78)"
             value={sipDomain}
             onChange={e => setSipDomain(e.target.value)}
             title="SIP domain for Stretto import"
             className={localStyles.sipDomainInput}
           />
           <button type="button" className={tableStyles.btnPrimary} onClick={handlePopulateFromFpbx}>
-            ← Populate from FPBX
+            Populate Stretto
           </button>
         </div>
         {status && (
@@ -153,6 +157,7 @@ const StrettoImportExportTab: React.FC = () => {
         onDeleteRow={handleDeleteRow}
         onAddRow={handleAddRow}
         wideFields={WIDE_FIELDS}
+        selectOptions={STRETTO_SELECT_OPTIONS}
       />
     </div>
   );

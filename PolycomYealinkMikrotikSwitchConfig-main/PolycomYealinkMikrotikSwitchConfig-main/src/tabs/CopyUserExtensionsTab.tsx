@@ -26,10 +26,16 @@ import {
 
 const WIDE = ['userName', 'email', 'directInwardDial'] as const;
 
+const DISPLAY_HEADERS: Record<string, string> = {
+  ...COPY_USER_HEADERS,
+  sbsAccount: 'SMS Required?',
+  softphoneRequired: 'Softphone Account?',
+};
+
 export default function CopyUserExtensionsTab() {
   const [rows, setRows] = useState<CopyUserRow[]>(() => {
     const saved = loadStore('copyUsers') as CopyUserRow[] | null;
-    return saved?.length ? saved : Array(5).fill(null).map(emptyCopyUserRow);
+    return saved?.length ? saved : Array(200).fill(null).map(emptyCopyUserRow);
   });
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -57,7 +63,7 @@ export default function CopyUserExtensionsTab() {
 
   function handleClear() {
     if (!confirm('Clear all rows?')) return;
-    const blank = Array(5).fill(null).map(emptyCopyUserRow);
+    const blank = Array(200).fill(null).map(emptyCopyUserRow);
     setRows(blank);
     saveStore('copyUsers', blank as AnyRow[]);
     setStatus({ msg: 'Cleared.', ok: true });
@@ -91,6 +97,14 @@ export default function CopyUserExtensionsTab() {
     exportCsv('copyUserExtensions.csv', COPY_USER_FIELDS, rows as AnyRow[]);
   }
 
+  function handleCleanDids() {
+    setRows(prev => prev.map(row => ({
+      ...row,
+      directInwardDial: row.directInwardDial.replace(/\D/g, ''),
+    })));
+    setStatus({ msg: 'DIDs cleaned — special characters removed.', ok: true });
+  }
+
   function handlePopulateFpbx() {
     const fpbxRows = populateFpbxFields(populateFpbxFromCopyUsers(rows));
     saveStore('fpbx', fpbxRows as AnyRow[]);
@@ -114,6 +128,10 @@ export default function CopyUserExtensionsTab() {
             />
           </label>
           <button className={styles.btn} onClick={handleExport}>Export CSV</button>
+          <div className={styles.toolbarDivider} />
+          <button className={styles.btn} onClick={handleCleanDids} title="Strip all non-digit characters from the Direct Inward Dial column">
+            Clean DIDs
+          </button>
         </div>
         <div className={styles.toolbarDivider} />
         <div className={styles.toolbarGroup}>
@@ -130,7 +148,7 @@ export default function CopyUserExtensionsTab() {
 
       <ImportTable
         fields={COPY_USER_FIELDS}
-        headers={COPY_USER_HEADERS}
+        headers={DISPLAY_HEADERS}
         rows={rows as AnyRow[]}
         onChange={handleChange}
         onDeleteRow={handleDeleteRow}

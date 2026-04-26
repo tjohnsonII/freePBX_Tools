@@ -31,7 +31,7 @@ const WIDE_FIELDS = ['destination', 'description'] as const;
 export default function DidsTab() {
   const [rows, setRows] = useState<DidRow[]>(() => {
     const saved = loadStore('dids') as DidRow[] | null;
-    return saved?.length ? saved : Array(5).fill(null).map(emptyDidRow);
+    return saved?.length ? saved : Array(200).fill(null).map(emptyDidRow);
   });
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -41,9 +41,10 @@ export default function DidsTab() {
   }, [rows]);
 
   function handleChange(i: number, field: string, value: string) {
+    const cleaned = field === 'extension' ? value.replace(/\D/g, '') : value;
     setRows(prev => {
       const next = [...prev];
-      next[i] = { ...next[i], [field]: value };
+      next[i] = { ...next[i], [field]: cleaned };
       return next;
     });
   }
@@ -77,6 +78,7 @@ export default function DidsTab() {
         const imported = results.data.map(r => {
           const row = emptyDidRow();
           DIDS_FIELDS.forEach(f => { row[f] = r[f] ?? ''; });
+          row.extension = row.extension.replace(/\D/g, '');
           return row;
         });
         setRows(imported);
@@ -95,12 +97,9 @@ export default function DidsTab() {
     <div>
       <div className={styles.toolbar}>
         <div className={styles.toolbarGroup}>
-          <button className={styles.btnDanger} onClick={handleClearEditable}>
-            Clear Editable Fields
-          </button>
-          <button className={styles.btn} onClick={handleCleanExtensions}>
-            Clean Extensions
-          </button>
+          <button className={styles.btnDanger} onClick={handleClearEditable}>Clear</button>
+          <button className={styles.btnSuccess} onClick={handleExport}>Export DIDs</button>
+          <button className={styles.btn} onClick={handleCleanExtensions}>Clean DIDs</button>
         </div>
         <div className={styles.toolbarDivider} />
         <div className={styles.toolbarGroup}>
@@ -114,9 +113,6 @@ export default function DidsTab() {
               onChange={handleImport}
             />
           </label>
-          <button className={styles.btnSuccess} onClick={handleExport}>
-            Export CSV
-          </button>
         </div>
         {status && (
           <span className={status.ok ? styles.statusOk : styles.statusErr}>

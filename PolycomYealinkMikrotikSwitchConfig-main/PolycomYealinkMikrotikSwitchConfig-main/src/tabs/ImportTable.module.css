@@ -155,8 +155,26 @@
   background: var(--app-surface);
 }
 
-.cellInputWide  { composes: cellInput; min-width: 130px; }
-.cellInputNarrow { composes: cellInput; min-width: 60px; }
+.cellInputWide  { composes: cellInput; min-width: 120px; }
+.cellInputNarrow { composes: cellInput; min-width: 45px; }
+
+.cellSelect {
+  width: 100%;
+  min-width: 70px;
+  padding: 3px 4px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border: none;
+  background: transparent;
+  color: var(--app-fg);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.cellSelect:focus {
+  outline: 2px solid var(--brand-blue);
+  border-radius: 2px;
+  background: var(--app-surface);
+}
 
 .deleteBtn {
   padding: 1px 6px;
@@ -178,4 +196,144 @@
   text-align: center;
   color: var(--app-muted);
   font-size: 13px;
+}
+
+/* ── Responsive outer container ────────────────────────────────────────────── */
+.tableOuter {
+  width: 100%;
+  overflow-x: auto;   /* horizontal scroll on narrow screens */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── react-data-grid theme wrapper ─────────────────────────────────────────── */
+.rdgWrapper {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+
+  /* Drag the bottom-right corner to resize the grid height */
+  resize: vertical;
+  min-height: 160px;
+
+  /* ── Light mode colours ── */
+  --row-bg-even:     #ffffff;
+  --row-bg-odd:      #eef4ff;
+  --hdr-bg:          #dbeafe;
+  --hdr-fg:          #1e3a5f;
+
+  --rdg-color:                               var(--app-fg);
+  --rdg-border-color:                        var(--app-border);
+  --rdg-summary-border-color:                var(--app-border);
+  --rdg-background-color:                    var(--row-bg-even);
+  --rdg-header-background-color:             var(--hdr-bg);
+  --rdg-row-hover-background-color:          color-mix(in srgb, var(--brand-blue) 8%, var(--row-bg-even));
+  --rdg-row-selected-background-color:       color-mix(in srgb, var(--brand-blue) 14%, var(--row-bg-even));
+  --rdg-row-selected-hover-background-color: color-mix(in srgb, var(--brand-blue) 20%, var(--row-bg-even));
+  --rdg-checkbox-color:                      var(--brand-blue);
+  --rdg-checkbox-focus-color:                var(--brand-blue);
+  --rdg-selection-color:                     var(--brand-blue);
+  --rdg-font-size:                           13px;
+}
+
+/* ── Dark mode overrides ─────────────────────────────────────────────────── */
+[data-theme="dark"] .rdgWrapper {
+  --row-bg-even: #18202e;
+  --row-bg-odd:  #202840;
+  --hdr-bg:      #1e3a5f;   /* clearly lighter/bluer than the rows */
+  --hdr-fg:      #bfd4f0;   /* readable light-blue text */
+}
+
+/* ── Base grid font ──────────────────────────────────────────────────────── */
+.rdgWrapper :global(.rdg) {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+  border: none;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.rdgWrapper :global(.rdg-header-row) {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--app-border);
+}
+
+.rdgWrapper :global(.rdg-header-row .rdg-cell) {
+  background: var(--hdr-bg);
+  color: var(--hdr-fg);
+}
+
+/* ── Data cells ──────────────────────────────────────────────────────────── */
+.rdgWrapper :global(.rdg-cell) {
+  padding: 0 6px;
+  border-inline-end-color: var(--app-border);
+  border-block-end-color: var(--app-border);
+  color: var(--app-fg);
+}
+
+/* ── Alternating rows (applied via rowClass prop — works with virtual scroll) */
+.rowEven :global(.rdg-cell) { background: var(--row-bg-even); }
+.rowOdd  :global(.rdg-cell) { background: var(--row-bg-odd);  }
+
+/* ── Selected cell ───────────────────────────────────────────────────────── */
+.rdgWrapper :global(.rdg-cell[aria-selected='true']) {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: -2px;
+}
+
+/* ── Inline text editor ──────────────────────────────────────────────────── */
+.rdgWrapper :global(.rdg-text-editor) {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+  padding: 0 6px;
+  background: color-mix(in srgb, var(--brand-blue) 12%, var(--row-bg-even));
+  color: var(--app-fg);
+  border: none;
+  border-radius: 0;
+  outline: 2px solid var(--brand-blue);
+  outline-offset: -2px;
+}
+
+/* ── Inline select cells ─────────────────────────────────────────────────── */
+.gridSelect {
+  width: 100%;
+  height: 100%;
+  padding: 0 4px;
+  font-size: 13px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border: 1px solid var(--app-border);
+  border-radius: 3px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.gridSelect:focus {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: -1px;
+}
+
+[data-theme="dark"] .gridSelect {
+  background: #1e2d48;
+  color: #c8d9f0;
+  border-color: #3d5478;
+}
+
+/* ── Resize handle indicator ─────────────────────────────────────────────── */
+.rdgWrapper::-webkit-resizer {
+  background:
+    linear-gradient(135deg,
+      transparent 40%,
+      var(--app-border) 40%, var(--app-border) 47%,
+      transparent 47%,
+      transparent 53%,
+      var(--app-border) 53%, var(--app-border) 60%,
+      transparent 60%,
+      transparent 66%,
+      var(--app-border) 66%, var(--app-border) 73%,
+      transparent 73%
+    );
+  border-radius: 0 0 6px 0;
 }

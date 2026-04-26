@@ -74,10 +74,31 @@ function deviceToRow(d: DeviceConfig): VpbxRow {
 
 const WIDE_FIELDS = ['name', 'description', 'voicemail_email', 'voicemail_options', 'dial'] as const;
 
+const VPBX_MODELS = [
+  'VVX500', 'VVX400', 'VVX600',
+  'CP-7841-3PCC', 'CP-7832-3PCC', 'CP-7811-3PCC',
+  'CP-8832-K9', 'CP-8832-3PCC',
+  'SPA-122 ATA',
+  'SSIP6000', 'SSIP7000', 'SSIP7000-Mic', 'SSIP330',
+  'Stand Alone Softphone', 'SideCar Entry',
+  'D230',
+  'Trio 8500 Conference',
+  'T54W', 'T57W',
+  'CP960', 'CP920',
+  'SIP-T46S', 'SIP-T46U', 'SIP-T48S', 'SIP-T48U',
+  'Strike Door Strike',
+  '8188 IP Loud Ringer', '8181 Paging Server',
+  'W60P', 'W56H',
+  'ATA/ATAK',
+  '56h Dect w/ 60p Base', '56h Dect w/ 76p Base', '56h Dect Handset',
+];
+
+const VPBX_SELECT_OPTIONS = { model: VPBX_MODELS };
+
 export default function VpbxImportTab() {
   const [rows, setRows] = useState<VpbxRow[]>(() => {
     const saved = loadStore('vpbx') as VpbxRow[] | null;
-    return saved?.length ? saved : Array(5).fill(null).map(emptyVpbxRow);
+    return saved?.length ? saved : Array(200).fill(null).map(emptyVpbxRow);
   });
   const [handles, setHandles] = useState<VpbxRecord[]>([]);
   const [selectedHandle, setSelectedHandle] = useState('');
@@ -121,7 +142,7 @@ export default function VpbxImportTab() {
         setScraperStatus(null);
         return;
       }
-      setRows(devices.map(deviceToRow));
+      setRows(devices.map(d => { const r = deviceToRow(d); r.outboundcid = r.outboundcid.replace(/\D/g, ''); return r; }));
       setScraperStatus(`Loaded ${devices.length} device(s) from ${selectedHandle}`);
     } catch (e) {
       setScraperError(e instanceof Error ? e.message : String(e));
@@ -130,9 +151,10 @@ export default function VpbxImportTab() {
   }
 
   function handleChange(i: number, field: string, value: string) {
+    const cleaned = field === 'outboundcid' ? value.replace(/\D/g, '') : value;
     setRows(prev => {
       const next = [...prev];
-      next[i] = { ...next[i], [field]: value };
+      next[i] = { ...next[i], [field]: cleaned };
       return next;
     });
   }
@@ -147,7 +169,7 @@ export default function VpbxImportTab() {
 
   function handleClear() {
     if (!confirm('Clear all VPBX rows?')) return;
-    setRows(Array(5).fill(null).map(emptyVpbxRow));
+    setRows(Array(200).fill(null).map(emptyVpbxRow));
     setStatus({ msg: 'Cleared.', ok: true });
   }
 
@@ -173,6 +195,11 @@ export default function VpbxImportTab() {
 
   function handleExport() {
     exportCsv('vpbx_import.csv', VPBX_FIELDS, rows as AnyRow[]);
+  }
+
+  function handleCleanDids() {
+    setRows(prev => prev.map(r => ({ ...r, outboundcid: r.outboundcid.replace(/\D/g, '') })));
+    setStatus({ msg: 'Outbound CIDs cleaned — digits only.', ok: true });
   }
 
   function handleCleanMacs() {
@@ -273,14 +300,15 @@ export default function VpbxImportTab() {
         </div>
         <div className={tableStyles.toolbarDivider} />
         <div className={tableStyles.toolbarGroup}>
-          <button type="button" className={tableStyles.btn} onClick={handleCleanMacs}>Clean MACs</button>
-          <button type="button" className={tableStyles.btn} onClick={handleGenerateMacs}>Generate MACs</button>
+          <button type="button" className={tableStyles.btn} onClick={handleCleanDids}>Clean DID's</button>
+          <button type="button" className={tableStyles.btn} onClick={handleCleanMacs}>Clean MAC</button>
+          <button type="button" className={tableStyles.btn} onClick={handleGenerateMacs}>Generate MAC's</button>
           <button type="button" className={tableStyles.btn} onClick={handleGenerateSecrets}>Generate Secrets</button>
         </div>
         <div className={tableStyles.toolbarDivider} />
         <div className={tableStyles.toolbarGroup}>
           <button type="button" className={tableStyles.btnPrimary} onClick={handleLoadFromFpbx}>
-            ← Load from FPBX
+            Populate VPBX →
           </button>
         </div>
         {status && (
@@ -297,6 +325,7 @@ export default function VpbxImportTab() {
         onDeleteRow={handleDeleteRow}
         onAddRow={handleAddRow}
         wideFields={WIDE_FIELDS}
+        selectOptions={VPBX_SELECT_OPTIONS}
       />
     </div>
   );
