@@ -81,6 +81,9 @@
   color: var(--app-muted);
 }
 
+/* Hidden file input (used inside a <label> to trigger the native picker) */
+.hiddenInput { display: none; }
+
 .statusOk  { font-size: 12px; color: #16794a; }
 .statusErr { font-size: 12px; color: #b42318; }
 .statusInfo { font-size: 12px; color: var(--app-muted); }

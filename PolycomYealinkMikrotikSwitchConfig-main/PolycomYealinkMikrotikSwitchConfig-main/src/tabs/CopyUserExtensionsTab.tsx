@@ -117,13 +117,13 @@ export default function CopyUserExtensionsTab() {
         <div className={styles.toolbarGroup}>
           <button className={styles.btnDanger} onClick={handleClear}>Clear</button>
           <div className={styles.toolbarDivider} />
-          <label className={styles.btn} style={{ cursor: 'pointer' }}>
+          <label className={styles.btn}>
             Import CSV
             <input
               ref={fileRef}
               type="file"
               accept=".csv"
-              style={{ display: 'none' }}
+              className={styles.hiddenInput}
               onChange={handleImport}
             />
           </label>

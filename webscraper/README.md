@@ -21,7 +21,86 @@ Or via RESTART.sh:
 sudo ./RESTART.sh ticket-api
 ```
 
+### API endpoints
+
+#### Health / status
+
+- `GET /api/health` (also `/health`, `/healthz`)
+- `GET /api/system/status`
+- `GET /api/db/status`
+
+#### Scrape control
+
+- `POST /api/scrape/start` — launch a new scrape job (body: `{"resume_from_handle": "<HANDLE>|null"}`)
+- `POST /api/scrape/selenium_fallback` — alias for `/api/scrape/start` (backward compat)
+- `GET /api/scrape/state` — current scrape state snapshot
+
+#### Jobs
+
+- `GET /api/jobs` — list all scrape jobs
+- `GET /api/jobs/{job_id}` — single job status
+- `GET /api/jobs/{job_id}/events` — event log for a job
+
+#### Handles
+
+- `GET /api/handles` — list tracked handles
+- `GET /api/handles/all` — all handles with optional `?q=` filter and `?limit=` cap
+- `GET /api/handles/summary` — per-handle ticket counts
+- `GET /api/handles/{handle}/latest` — latest scrape result for handle
+- `GET /api/handles/{handle}/tickets` — tickets for a handle
+- `POST /api/handles` — add a handle
+- `DELETE /api/handles/{handle}` — remove a handle
+
+#### Tickets
+
+- `GET /api/tickets` — paginated ticket list
+- `GET /api/tickets/{ticket_id}` — single ticket
+
+#### Knowledge base
+
+- `GET /api/kb/tickets` — KB ticket search
+- `GET /api/kb/tickets/{ticket_id}` — single KB ticket
+- `GET /api/kb/handles` — handles in KB
+- `GET /api/kb/export` — export KB data
+
+#### Companies / timeline
+
+- `GET /api/companies/{handle}` — company record
+- `GET /api/companies/{handle}/tickets` — tickets for company
+- `GET /api/companies/{handle}/timeline` — event timeline for company
+- `POST /api/jobs/build-timeline` — build timeline for a handle
+
+#### VPBX
+
+- `GET /api/vpbx/records` — VPBX table records
+- `POST /api/vpbx/refresh` — refresh VPBX data
+- `GET /api/vpbx/device-configs` — device config records
+- `PUT /api/vpbx/device-configs/{device_id}/sidecar` — update sidecar config
+- `POST /api/vpbx/device-configs/refresh` — refresh device configs
+- `GET /api/vpbx/site-configs` — site config list
+- `GET /api/vpbx/site-configs/{handle}` — site config for handle
+- `POST /api/vpbx/site-configs/refresh` — refresh site configs
+
+#### NOC queue
+
+- `GET /api/noc-queue/records` — NOC queue records
+- `POST /api/noc-queue/refresh` — refresh NOC queue
+
+#### Logs
+
+Localhost only. Enabled automatically in dev environments; set `WEBSCRAPER_LOGS_ENABLED=1` in production.
+
+- `GET /api/logs/enabled` — check if log API is enabled
+- `GET /api/logs/list` — list log files
+- `GET /api/logs/tail` — tail a log file
+
+#### Artifacts / events
+
+- `GET /api/artifacts` — list scrape artifacts
+- `GET /api/events/latest` — latest system events
+
 ### Start the Scraper Worker
+
 ```bash
 # Via RESTART.sh (recommended — handles display env)
 sudo ./RESTART.sh worker

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import styles from './ConfigAuditTab.module.css';
 
 const SCRAPER_BASE = import.meta.env.VITE_SCRAPER_BASE || 'http://localhost:8788';
 
@@ -131,10 +132,8 @@ export default function ConfigAuditTab() {
     }));
   }, [devices, siteIp]);
 
-  const statusColor = (s: DiffLine['status']) =>
-    s === 'ok' ? '#16794a' : s === 'missing' ? '#b42318' : '#8a5a00';
-  const statusBg = (s: DiffLine['status']) =>
-    s === 'ok' ? '#e8f7ee' : s === 'missing' ? '#ffecec' : '#fff6e5';
+  const statusBadgeCls = (s: DiffLine['status']) =>
+    s === 'ok' ? styles.statusBadgeOk : s === 'missing' ? styles.statusBadgeMissing : styles.statusBadgeChanged;
 
   const summary = useMemo(() => {
     const all = auditResults.flatMap(r => r.lines);
@@ -150,24 +149,24 @@ export default function ConfigAuditTab() {
     : scraperOnline ? '● connected' : '○ offline';
 
   return (
-    <div style={{ maxWidth: 1100 }}>
+    <div className={styles.root}>
       <h2>Config Audit</h2>
-      <p style={{ color: '#555', fontSize: 13, marginBottom: 16 }}>
+      <p className={styles.description}>
         Compares live scraped provisioning configs against expected values — flags drift in
         registration, provisioner URL, auth credentials, and server addresses.
       </p>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: 12, color: scraperOnline ? '#16794a' : '#b42318' }}>
+      <div className={styles.filterBar}>
+        <span className={scraperOnline ? styles.connectedBadge : styles.offlineBadge}>
           {scraperBadge}
         </span>
-        <label htmlFor="audit-handle" style={{ fontWeight: 600, fontSize: 13 }}>Handle:</label>
+        <label htmlFor="audit-handle" className={styles.fieldLabel}>Handle:</label>
         <select
           id="audit-handle"
           value={selectedHandle}
           onChange={e => { setSelectedHandle(e.target.value); loadDevices(e.target.value); }}
           disabled={!scraperOnline}
-          style={{ minWidth: 220, padding: '4px 8px' }}
+          className={styles.handleSelect}
           title="Select a company handle to audit"
         >
           <option value="">— select handle —</option>
@@ -175,7 +174,7 @@ export default function ConfigAuditTab() {
             <option key={h.handle} value={h.handle}>{h.handle} — {h.name}</option>
           ))}
         </select>
-        <label htmlFor="audit-ip" style={{ fontWeight: 600, fontSize: 13 }}>PBX IP:</label>
+        <label htmlFor="audit-ip" className={styles.fieldLabel}>PBX IP:</label>
         <input
           id="audit-ip"
           type="text"
@@ -183,25 +182,25 @@ export default function ConfigAuditTab() {
           onChange={e => setSiteIp(e.target.value)}
           placeholder="auto-filled or override"
           title="PBX/SIP server IP for this site"
-          style={{ width: 160, padding: '4px 8px' }}
+          className={styles.ipInput}
         />
       </div>
 
-      {error && <p style={{ color: '#b42318', fontSize: 13 }}>{error}</p>}
-      {loading && <p style={{ color: '#555', fontSize: 13 }}>Loading…</p>}
+      {error && <p className={styles.errorText}>{error}</p>}
+      {loading && <p className={styles.loadingText}>Loading…</p>}
 
       {auditResults.length > 0 && (
         <>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div className={styles.summaryRow}>
             {[
-              { label: 'Total checks', value: summary.total, color: '#475467' },
-              { label: '✓ OK', value: summary.ok, color: '#16794a' },
-              { label: '✗ Missing', value: summary.missing, color: '#b42318' },
-              { label: '⚠ Changed', value: summary.changed, color: '#8a5a00' },
+              { label: 'Total checks', value: summary.total, cls: 'summaryCardValueTotal' },
+              { label: '✓ OK', value: summary.ok, cls: 'summaryCardValueOk' },
+              { label: '✗ Missing', value: summary.missing, cls: 'summaryCardValueMissing' },
+              { label: '⚠ Changed', value: summary.changed, cls: 'summaryCardValueChanged' },
             ].map(s => (
-              <div key={s.label} style={{ background: '#f7f8fa', border: '1px solid #e4e7ec', borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
-                <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: '#666' }}>{s.label}</div>
+              <div key={s.label} className={styles.summaryCard}>
+                <div className={`${styles.summaryCardValue} ${styles[s.cls]}`}>{s.value}</div>
+                <div className={styles.summaryCardLabel}>{s.label}</div>
               </div>
             ))}
           </div>
@@ -209,52 +208,45 @@ export default function ConfigAuditTab() {
           {auditResults.map(({ device, lines }) => {
             const issues = lines.filter(l => l.status !== 'ok').length;
             const isExpanded = expandedDevice === device.device_id;
+            const headerCls = `${styles.deviceHeader} ${issues === 0 ? styles.deviceHeaderClean : issues > 2 ? styles.deviceHeaderError : styles.deviceHeaderWarn}`;
             return (
-              <div key={device.device_id} style={{ border: '1px solid #e4e7ec', borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
+              <div key={device.device_id} className={styles.deviceRow}>
                 <div
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                    background: issues === 0 ? '#f0fdf4' : issues > 2 ? '#fff5f5' : '#fffbeb',
-                    cursor: 'pointer', userSelect: 'none',
-                  }}
+                  className={headerCls}
                   onClick={() => setExpandedDevice(isExpanded ? null : device.device_id)}
                 >
-                  <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13 }}>
+                  <span className={styles.deviceName}>
                     {device.directory_name || device.device_id}
                   </span>
-                  <span style={{ fontSize: 12, color: '#666' }}>
+                  <span className={styles.deviceInfo}>
                     {device.make} {device.model} · ext {device.extension || '?'} · {device.mac || 'no MAC'}
                   </span>
-                  <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: issues === 0 ? '#16794a' : '#b42318' }}>
+                  <span className={`${styles.deviceIssues} ${issues === 0 ? styles.issueClean : styles.issueDirty}`}>
                     {issues === 0 ? '✓ clean' : `${issues} issue${issues > 1 ? 's' : ''}`}
                   </span>
-                  <span style={{ fontSize: 12, color: '#888' }}>{isExpanded ? '▲' : '▼'}</span>
+                  <span className={styles.chevron}>{isExpanded ? '▲' : '▼'}</span>
                 </div>
 
                 {isExpanded && (
-                  <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <table className={styles.auditTable}>
                     <thead>
-                      <tr style={{ background: '#f4f4f4' }}>
-                        <th style={{ padding: '5px 12px', textAlign: 'left', borderBottom: '1px solid #eee' }}>Check</th>
-                        <th style={{ padding: '5px 12px', textAlign: 'left', borderBottom: '1px solid #eee' }}>Live Value</th>
-                        <th style={{ padding: '5px 12px', textAlign: 'left', borderBottom: '1px solid #eee' }}>Status</th>
+                      <tr>
+                        <th className={styles.th}>Check</th>
+                        <th className={styles.th}>Live Value</th>
+                        <th className={styles.th}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {lines.map((l, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                          <td style={{ padding: '4px 12px', fontFamily: 'monospace', color: '#333' }}>{l.key}</td>
-                          <td style={{ padding: '4px 12px', fontFamily: 'monospace', color: '#555', wordBreak: 'break-all' }}>
+                        <tr key={i} className={styles.tr}>
+                          <td className={styles.tdKey}>{l.key}</td>
+                          <td className={styles.tdValue}>
                             {l.key.toLowerCase().includes('password') && l.live && l.live !== '(not set)'
                               ? '••••••••'
                               : l.live}
                           </td>
-                          <td style={{ padding: '4px 12px' }}>
-                            <span style={{
-                              display: 'inline-block', padding: '1px 8px', borderRadius: 999,
-                              fontSize: 11, fontWeight: 700,
-                              background: statusBg(l.status), color: statusColor(l.status),
-                            }}>
+                          <td className={styles.tdStatus}>
+                            <span className={`${styles.statusBadge} ${statusBadgeCls(l.status)}`}>
                               {l.status}
                             </span>
                           </td>
@@ -270,7 +262,7 @@ export default function ConfigAuditTab() {
       )}
 
       {!loading && selectedHandle && devices.length === 0 && !error && (
-        <p style={{ color: '#888', fontSize: 13 }}>
+        <p className={styles.emptyText}>
           No device configs found for {selectedHandle}. Run the Phone Config Scraper in the webscraper first.
         </p>
       )}

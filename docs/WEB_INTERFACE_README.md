@@ -2,254 +2,131 @@
 
 # FreePBX Tools Manager - Web Interface — HISTORICAL
 
-🌐 Modern web-based interface for managing FreePBX tool deployments and analysis.
+Flask + SocketIO dashboard for FreePBX tool deployments, phone config analysis, VPBX queries, and webserver diagnostics.
 
 ## Features
 
-### 🚀 Deployment Management
-- **Single Server Deployment** - Deploy to one server with IP address
-- **Multi-Server Deployment** - Deploy to multiple servers (comma-separated IPs)
-- **Bulk Deployment** - Use server list files (ProductionServers.txt)
-- **Live Progress Monitoring** - Real-time deployment logs via WebSocket
-- **Multiple Actions**:
-  - Install tools
-  - Uninstall tools
-  - Clean reinstall (uninstall + install)
+### Deployment Management
 
-### 📱 Phone Configuration Analyzer
-- **Drag & Drop Interface** - Drop .cfg files directly into browser
-- **Instant Analysis** - Analyze Yealink/Polycom configs
-- **Security Scanning** - Check for weak passwords, default configs
-- **JSON Export** - Download analysis results
+- Deploy freepbx-tools to one or more servers via SSH
+- Server targets: single IP, comma-separated list, or a server list file (`ProductionServers.txt` / `server_ips.txt`)
+- Actions: Install, Uninstall, Clean reinstall (uninstall + install)
+- Real-time log streaming to the browser over WebSocket
 
-### 🗄️ VPBX Database Queries
-- **Pre-built Queries**:
-  - Companies with Yealink phones
-  - Search by phone model
-  - Vendor statistics
-  - Security issues
-- **Interactive Results** - Sortable tables with export options
-- **Custom Parameters** - Adjust limits, filters on the fly
+### Phone Configuration Analyzer
 
-### 📊 Status Dashboard
-- **Active Deployments** - Track running operations
-- **Historical Logs** - Review past deployments
-- **Quick Access** - Jump to deployment details
+- Upload a Yealink/Polycom `.cfg` file and run `phone_config_analyzer.py` against it
+- Returns JSON with SIP accounts, network config, and security findings
+
+### VPBX Database Queries
+
+Requires `vpbx_data.db` (built by `create_vpbx_database.py`). Supported query types:
+
+| `query_type` | Description |
+| --- | --- |
+| `yealink_companies` | Companies with Yealink phones (sorted by count) |
+| `model_search` | Search devices by model substring |
+| `vendor_stats` | Phone count grouped by vendor |
+| `security_issues` | Security issues grouped by site and severity |
+
+### Webserver Diagnostics
+
+- HTTP health check for a configurable list of vhost URLs
+- Run whitelisted Apache commands over SSH (`systemctl status apache2`, `apachectl -S`, `configtest`, `reload`, log tails)
+- Check individual vhosts via `/opt/vhost-tools/check-one-vhost.sh` over SSH
+
+### Traceroute Helper Push
+
+Push `scripts/traceroute_server_ctl.sh` to a remote host over SSH/SFTP.
 
 ## Installation
 
-### 1. Install Python Dependencies
+### 1. Install Python dependencies
 
-```bash
+```powershell
 pip install -r web_requirements.txt
 ```
 
-### 2. Start the Web Server
+Dependencies: `flask`, `flask-socketio`, `python-socketio`, `eventlet`.
 
-```bash
+For SSH-based features (deployment, webserver SSH commands, traceroute push), also install:
+
+```powershell
+pip install paramiko
+```
+
+### 2. Start the web server
+
+From the repo root:
+
+```powershell
 python web_manager.py
 ```
 
-### 3. Access the Interface
+The server listens on `http://0.0.0.0:5000`. Open `http://localhost:5000` in your browser.
 
-Open your browser to:
-```
-http://localhost:5000
-```
+## API endpoints
 
-Or from another machine on your network:
-```
-http://YOUR_IP_ADDRESS:5000
-```
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | Dashboard UI (`templates/index.html`) |
+| `GET` | `/api/servers` | List available server files (`ProductionServers.txt`, `server_ips.txt`) |
+| `POST` | `/api/deploy` | Start a deployment job; returns `deployment_id` |
+| `GET` | `/api/deployment/<id>` | Poll deployment status and log lines |
+| `POST` | `/api/phone-config/analyze` | Upload and analyze a phone `.cfg` file |
+| `POST` | `/api/vpbx/query` | Run a VPBX DB query (body: `{"query_type": "...", "params": {...}}`) |
+| `POST` | `/api/traceroute/push-helper` | Push traceroute helper script to a remote host |
+| `POST` | `/api/webserver/check-urls` | HTTP health check for a list of vhost URLs |
+| `POST` | `/api/webserver/ssh-run` | Run a whitelisted Apache command over SSH |
+| `POST` | `/api/webserver/check-one-vhost` | Run `check-one-vhost.sh` for a specific vhost |
 
-## Usage
+### WebSocket events (Socket.IO)
 
-### Deploying Tools
+| Event | Direction | Payload |
+| --- | --- | --- |
+| `log` | server → client | `{deployment_id, message}` |
+| `deployment_complete` | server → client | `{deployment_id, status, error?}` |
 
-1. **Select Server Target**:
-   - Single server: Enter IP address
-   - Multiple servers: Comma-separated IPs
-   - Server file: Choose from dropdown (ProductionServers.txt)
+## Security notes
 
-2. **Enter Credentials**:
-   - SSH username (default: 123net)
-   - SSH password
-   - Root password (optional if same as SSH)
-
-3. **Choose Action**:
-   - Install Tools
-   - Uninstall Tools
-   - Clean Reinstall
-
-4. **Monitor Progress**:
-   - Real-time logs appear in terminal window
-   - Status badge shows completion status
-
-### Analyzing Phone Configs
-
-1. **Export Config from Phone**:
-   - Access phone web interface
-   - Settings > Configuration
-   - Export "MAC-all.cfg" file
-
-2. **Upload to Analyzer**:
-   - Drag .cfg file to upload area
-   - Or click to browse for file
-
-3. **Review Results**:
-   - Security issues highlighted
-   - SIP account details
-   - Network configuration
-   - Feature status
-
-### Running VPBX Queries
-
-1. **Select Query Type**:
-   - Choose from dropdown menu
-
-2. **Set Parameters** (if applicable):
-   - Model name for search
-   - Result limit
-
-3. **View Results**:
-   - Interactive table
-   - Sortable columns
-   - Export to CSV
-
-## Architecture
-
-```
-web_manager.py          # Flask application
-├── /api/servers        # GET server list files
-├── /api/deploy         # POST start deployment
-├── /api/deployment/:id # GET deployment status
-├── /api/phone-config/analyze  # POST analyze config
-└── /api/vpbx/query     # POST database query
-
-templates/
-└── index.html          # Single-page application UI
-```
-
-### WebSocket Events
-
-```
-socket.emit('log', {deployment_id, message})
-socket.emit('deployment_complete', {deployment_id, status})
-```
-
-## Security Notes
-
-⚠️ **Important Security Considerations:**
-
-1. **Credentials Handling**:
-   - Passwords transmitted over HTTP (use HTTPS in production)
-   - Temporary config.py created with credentials (deleted after use)
-   - Never commit config.py to git
-
-2. **Network Access**:
-   - Web server binds to 0.0.0.0 (all interfaces)
-   - Consider firewall rules in production
-   - Use SSH tunneling for remote access
-
-3. **Production Deployment**:
-   ```bash
-   # Use HTTPS with SSL certificate
-   # Add authentication middleware
-   # Enable rate limiting
-   # Use environment variables for secrets
-   ```
-
-## Configuration
-
-### Change Port
-
-Edit `web_manager.py`:
-```python
-socketio.run(app, debug=True, host='0.0.0.0', port=5000)
-                                                    ^^^^ Change here
-```
-
-### Enable HTTPS
-
-```python
-socketio.run(app, 
-             host='0.0.0.0', 
-             port=5000,
-             certfile='cert.pem',
-             keyfile='key.pem')
-```
-
-### Add Authentication
-
-```python
-from flask_httpauth import HTTPBasicAuth
-auth = HTTPBasicAuth()
-
-@auth.verify_password
-def verify_password(username, password):
-    # Your auth logic here
-    return username == 'admin' and password == 'secret'
-
-@app.route('/')
-@auth.login_required
-def index():
-    return render_template('index.html')
-```
+- The server binds to `0.0.0.0` — restrict access with a firewall in production.
+- SSH credentials are passed in the POST body over HTTP. Use an SSH tunnel or HTTPS reverse proxy in production.
+- A temporary `config.py` is written to disk during deployment runs and contains credentials — it is not cleaned up automatically; do not commit it.
+- SSH commands via `/api/webserver/ssh-run` are restricted to a hardcoded whitelist (`_WEBSERVER_ALLOWED_COMMANDS`).
 
 ## Troubleshooting
 
-### Port Already in Use
-```bash
-# Change port in web_manager.py
-# Or kill existing process:
-lsof -ti:5000 | xargs kill
+### Port already in use
+
+```powershell
+# Windows: find and kill the process on port 5000
+netstat -ano | findstr :5000
+taskkill /PID <PID> /F
 ```
 
-### WebSocket Connection Failed
-- Check firewall settings
-- Ensure Socket.IO CDN is accessible
-- Try refreshing browser
+### WebSocket connection failed
 
-### Database Not Found
-```bash
-# Ensure vpbx_data.db exists:
+- Check that `eventlet` is installed (`pip install eventlet`).
+- Ensure no proxy is stripping WebSocket upgrade headers.
+- Try a hard browser refresh.
+
+### VPBX database not found
+
+```powershell
 python create_vpbx_database.py
 ```
 
-### Deployment Stuck
-- Check SSH connectivity to target servers
-- Verify credentials are correct
-- Review deployment logs for errors
+### paramiko not installed (SSH features unavailable)
 
-## Development
-
-### Run in Debug Mode
-
-```python
-socketio.run(app, debug=True)
+```powershell
+pip install paramiko
 ```
 
-### Add New Query Type
+### Deployment stuck / no logs
 
-1. Add option to HTML select:
-```html
-<option value="my_query">My Custom Query</option>
-```
-
-2. Add handler in `/api/vpbx/query`:
-```python
-elif query_type == 'my_query':
-    cursor.execute("""
-        SELECT * FROM sites WHERE ...
-    """)
-```
-
-### Customize UI
-
-Edit `templates/index.html`:
-- Modify CSS variables for colors
-- Add new tabs
-- Customize layout
+- Verify SSH connectivity to the target server manually.
+- Check that `ProductionServers.txt` or the entered IPs are reachable.
+- Review the log lines returned by `GET /api/deployment/<id>`.
 
 ## License
 
@@ -258,6 +135,7 @@ Part of the FreePBX Tools suite.
 ## Support
 
 For issues or questions:
+
 - Check logs in browser console (F12)
 - Review server logs in terminal
 - Verify all dependencies installed

@@ -103,13 +103,13 @@ export default function DidsTab() {
         </div>
         <div className={styles.toolbarDivider} />
         <div className={styles.toolbarGroup}>
-          <label className={styles.btn} style={{ cursor: 'pointer' }}>
+          <label className={styles.btn}>
             Import CSV
             <input
               ref={fileRef}
               type="file"
               accept=".csv"
-              style={{ display: 'none' }}
+              className={styles.hiddenInput}
               onChange={handleImport}
             />
           </label>
