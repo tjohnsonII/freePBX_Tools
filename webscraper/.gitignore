@@ -7,6 +7,7 @@ var/discovery/
 
 # Local settings
 configs/settings.yaml
+configs/handles/
 var/*.html
 
 # Chrome debug profile

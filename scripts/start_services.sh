@@ -8,7 +8,7 @@ DISPLAY_NUM=99
 
 cd "$REPO"
 
-# Load secrets from .env if present (never committed — contains INGEST_API_KEY etc.)
+# ── Load local environment (INGEST_API_KEY, etc.) ─────────────────────────────
 if [ -f "$REPO/.env" ]; then
     set -a
     # shellcheck source=/dev/null
@@ -46,8 +46,12 @@ for PORT in 3004 3005 3006 3011 5000 8787 8788; do
 done
 sleep 3
 
-# ── Reload Apache ─────────────────────────────────────────────────────────────
-systemctl reload apache2 2>/dev/null && echo "[start] Apache reloaded." || true
+# ── Ensure Apache is running (start if stopped, reload if already running) ────
+if systemctl is-active --quiet apache2; then
+    systemctl reload apache2 2>/dev/null && echo "[start] Apache reloaded." || true
+else
+    systemctl start apache2 2>/dev/null && echo "[start] Apache started." || echo "[WARN] Apache failed to start."
+fi
 
 # ── Start all services ────────────────────────────────────────────────────────
 echo "[start] Starting all services..."

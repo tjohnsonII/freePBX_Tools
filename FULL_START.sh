@@ -40,7 +40,7 @@ fi
 echo ""
 echo "[1/6] Pulling latest code..."
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
-CURRENT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "Server")
+CURRENT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "client")
 if ! git pull --rebase origin "$CURRENT_BRANCH"; then
     echo "[WARN] git pull failed — continuing with local code."
 fi
