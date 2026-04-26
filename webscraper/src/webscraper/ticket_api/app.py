@@ -85,10 +85,13 @@ def _append_event(
     meta: dict[str, Any] | None = None,
 ) -> None:
     ts = _iso_now()
-    db.add_event(db_path(), ts, level, handle, message, {"job_id": job_id, **(meta or {})})
-    if job_id:
-        db.add_scrape_event(db_path(), job_id, ts, level, "scrape.progress", message, {"handle": handle, **(meta or {})})
     LOGGER.info("[%s] %s", ts, message)
+    try:
+        db.add_event(db_path(), ts, level, handle, message, {"job_id": job_id, **(meta or {})})
+        if job_id:
+            db.add_scrape_event(db_path(), job_id, ts, level, "scrape.progress", message, {"handle": handle, **(meta or {})})
+    except Exception as _exc:
+        LOGGER.warning("append_event_failed msg=%s error=%s", message[:80], _exc)
 
 
 def _normalize_handle(handle: str) -> str:
@@ -120,9 +123,28 @@ def _missing_python_multipart_message() -> str:
 
 
 def _load_scrape_handles() -> list[str]:
-    handles = [str(h).strip().upper() for h in load_handles() if str(h).strip()]
-    deduped = sorted(set(handles))
-    LOGGER.info("scrape_handles_loaded count=%s", len(deduped))
+    # File-based handles (CSV / txt — may be empty if no file is present)
+    file_handles = [str(h).strip().upper() for h in load_handles() if str(h).strip()]
+
+    # VPBX-based handles from the database (local SQLite or remote server via db_client).
+    # These are authoritative — any handle on vpbx.cgi is automatically included here
+    # after a VPBX scrape, so the ticket scraper stays in sync without manual CSV updates.
+    vpbx_handles: list[str] = []
+    try:
+        vpbx_records = db.list_vpbx_records(db_path())
+        vpbx_handles = [
+            r["handle"].strip().upper()
+            for r in vpbx_records
+            if (r.get("handle") or "").strip()
+        ]
+    except Exception:
+        pass
+
+    deduped = sorted(set(file_handles) | set(vpbx_handles))
+    LOGGER.info(
+        "scrape_handles_loaded count=%s (file=%s vpbx_db=%s)",
+        len(deduped), len(file_handles), len(vpbx_handles),
+    )
     return deduped
 
 
@@ -2103,9 +2125,17 @@ def api_vpbx_refresh(request: Request):
                                              emit_fn=_emit)
             finished = _iso_now()
             db.upsert_vpbx_records(db_path(), records, finished)
+
+            # Sync newly discovered handles into the handles table so the ticket
+            # scraper automatically covers any handle that appears on vpbx.cgi.
+            # upsert_discovered_handles is INSERT OR IGNORE / ON CONFLICT UPDATE —
+            # existing handles are untouched; new ones are added.
+            new_in_handles = db.upsert_discovered_handles(db_path(), records)
+            _append_event("info", f"vpbx_handles_synced new={new_in_handles} total={len(records)}", job_id=job_id)
+
             _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
                                finished_utc=finished,
-                               result={"vpbx_count": len(records)})
+                               result={"vpbx_count": len(records), "handles_synced": new_in_handles})
             _append_event("info", f"vpbx_refresh_done count={len(records)}", job_id=job_id)
         except Exception as exc:
             LOGGER.exception("vpbx_refresh_failed job_id=%s", job_id)

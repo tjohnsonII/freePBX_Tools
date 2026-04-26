@@ -498,8 +498,7 @@ def _js_debug_arbitrary_table(driver: Any) -> str:
                         }
                     }
                     var html = tbl ? tbl.outerHTML : candidates[c].parentElement.outerHTML;
-                    return 'found_via:' + searchTags[s] + ' html_len=' + html.length
-                        + ' full=' + html;
+                    return 'found_via:' + searchTags[s] + ' html_len=' + html.length;
                 }
             }
         }
@@ -642,7 +641,27 @@ def _read_modal_textarea(driver: Any, emit_fn: Any, label: str) -> str:
     text = prev_text  # None if dialog never opened; '' if opened but empty; str if content found
 
     if text is None:
-        _log(f"{label}_no_dialog_opened")
+        # Capture a quick DOM snapshot to help diagnose what's on the page
+        try:
+            dom_info = driver.execute_script(r"""
+                var parts = [];
+                var dlg = document.querySelector('.ui-dialog');
+                if (dlg) {
+                    var r = dlg.getBoundingClientRect();
+                    parts.push('ui-dialog:' + (r.width>0?'visible':'hidden'));
+                }
+                var modals = document.querySelectorAll('.modal');
+                for (var i=0; i<modals.length; i++) {
+                    var r = modals[i].getBoundingClientRect();
+                    parts.push('modal[' + (modals[i].className||'') + ']:' + (r.width>0?'visible':'hidden'));
+                }
+                var textareas = document.querySelectorAll('textarea');
+                if (textareas.length) parts.push('textareas=' + textareas.length);
+                return parts.join(' | ') || 'nothing_visible';
+            """) or "js_error"
+        except Exception:
+            dom_info = "js_error"
+        _log(f"{label}_no_dialog_opened dom={dom_info}")
         return ""
 
     # Filter out known FreePBX placeholder strings

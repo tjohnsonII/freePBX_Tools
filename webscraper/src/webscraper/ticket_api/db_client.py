@@ -205,7 +205,7 @@ def add_event(
     message: str,
     meta: dict[str, Any] | None = None,
 ) -> None:
-    _post(
+    _post_queued(
         "/api/ingest/event",
         {"created_utc": created_utc, "level": level, "handle": handle, "message": message, "meta": meta},
     )
@@ -252,7 +252,7 @@ def update_scrape_job(
     error_message: str | None = None,
     result: dict[str, Any] | None = None,
 ) -> None:
-    _post(
+    _post_queued(
         "/api/ingest/job/update",
         {
             "job_id": job_id,
@@ -276,7 +276,7 @@ def add_scrape_event(
     message: str,
     data: dict[str, Any] | None = None,
 ) -> None:
-    _post(
+    _post_queued(
         "/api/ingest/job/event",
         {"job_id": job_id, "ts_utc": ts_utc, "level": level, "event": event, "message": message, "data": data},
     )

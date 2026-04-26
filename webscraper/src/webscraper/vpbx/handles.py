@@ -101,26 +101,42 @@ def fetch_handles_selenium(
         )
         _emit("login_confirmed")
 
-        # Paginate through all DataTables pages (100 rows each, no "Show All" option)
+        # Paginate through all DataTables pages.
+        # Try the table-specific ID first, then generic DataTables class selectors as fallback.
         all_records: dict[str, dict[str, str]] = {}
         page_num = 1
+
+        # Detect which table selector is live on this page (used for row-change detection)
+        _table_row_sel = "#vpbx_list tbody tr"
+        if not driver.find_elements(By.CSS_SELECTOR, _table_row_sel):
+            generic = driver.find_elements(By.CSS_SELECTOR, "table.dataTable tbody tr")
+            if generic:
+                _table_row_sel = "table.dataTable tbody tr"
+
         while True:
             page_records = _parse_vpbx_page_source(driver.page_source)
             for r in page_records:
                 all_records[r["handle"]] = r
             _emit(f"page={page_num} this_page={len(page_records)} total={len(all_records)}")
 
-            # Check for a non-disabled Next button (id="vpbx_list_next")
-            next_btns = driver.find_elements(By.ID, "vpbx_list_next")
+            # Locate the Next button — try multiple selectors so different table IDs work
+            next_btns = (
+                driver.find_elements(By.ID, "vpbx_list_next")
+                or driver.find_elements(By.CSS_SELECTOR, "[id$='_next'].paginate_button")
+                or driver.find_elements(By.CSS_SELECTOR, ".dataTables_paginate .next")
+                or driver.find_elements(By.CSS_SELECTOR, "a.next, li.next > a")
+            )
             if not next_btns:
+                _emit(f"pagination_end no_next_button page={page_num}")
                 break
             classes = next_btns[0].get_attribute("class") or ""
             if "disabled" in classes or "ui-state-disabled" in classes:
+                _emit(f"pagination_end next_disabled page={page_num}")
                 break
 
-            # Capture first row text to detect page change
+            # Capture first row text to detect page change after click
             first_row_text = ""
-            rows = driver.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")
+            rows = driver.find_elements(By.CSS_SELECTOR, _table_row_sel)
             if rows:
                 first_row_text = rows[0].text
 
@@ -135,8 +151,8 @@ def fetch_handles_selenium(
             try:
                 WebDriverWait(driver, 10).until(
                     lambda d: (
-                        d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr") and
-                        d.find_elements(By.CSS_SELECTOR, "#vpbx_list tbody tr")[0].text != first_row_text
+                        d.find_elements(By.CSS_SELECTOR, _table_row_sel) and
+                        d.find_elements(By.CSS_SELECTOR, _table_row_sel)[0].text != first_row_text
                     )
                 )
             except Exception:
