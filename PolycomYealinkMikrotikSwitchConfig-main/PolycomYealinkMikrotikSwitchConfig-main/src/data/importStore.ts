@@ -45,6 +45,21 @@ export type DidRow = {
   rvolume: string; indication_zone: string; callrecording: string;
 };
 
+export type ImDeviceRow = {
+  device_id: string; name: string; mac: string; model: string;
+  extension: string; site_code: string; description: string;
+};
+
+export type ImNumberRow = {
+  number: string; description: string; destination: string;
+  type: string; site_code: string; status: string;
+};
+
+export type ImUserRow = {
+  username: string; first_name: string; last_name: string;
+  email: string; extension: string; site_code: string; display_name: string;
+};
+
 // ─── Field lists ──────────────────────────────────────────────────────────────
 
 export const COPY_USER_FIELDS: (keyof CopyUserRow)[] = [
@@ -91,6 +106,18 @@ export const DIDS_FIELDS: (keyof DidRow)[] = [
   'indication_zone', 'callrecording',
 ];
 
+export const IM_DEVICE_FIELDS: (keyof ImDeviceRow)[] = [
+  'device_id', 'name', 'mac', 'model', 'extension', 'site_code', 'description',
+];
+
+export const IM_NUMBER_FIELDS: (keyof ImNumberRow)[] = [
+  'number', 'description', 'destination', 'type', 'site_code', 'status',
+];
+
+export const IM_USER_FIELDS: (keyof ImUserRow)[] = [
+  'username', 'first_name', 'last_name', 'email', 'extension', 'site_code', 'display_name',
+];
+
 // ─── Empty row factories ──────────────────────────────────────────────────────
 
 export function emptyCopyUserRow(): CopyUserRow {
@@ -111,6 +138,18 @@ export function emptyStrRow(): StrRow {
 
 export function emptyDidRow(): DidRow {
   return { cidnum: '', extension: '', destination: '', privacyman: '0', mohclass: 'default', description: '', grppre: '', delay_answer: '0', pricid: '', pmmaxretries: '0', pmminlength: '3', reversal: '0', rvolume: '0', indication_zone: '', callrecording: 'dontcare' };
+}
+
+export function emptyImDeviceRow(): ImDeviceRow {
+  return { device_id: '', name: '', mac: '', model: '', extension: '', site_code: '', description: '' };
+}
+
+export function emptyImNumberRow(): ImNumberRow {
+  return { number: '', description: '', destination: '', type: '', site_code: '', status: '' };
+}
+
+export function emptyImUserRow(): ImUserRow {
+  return { username: '', first_name: '', last_name: '', email: '', extension: '', site_code: '', display_name: '' };
 }
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────

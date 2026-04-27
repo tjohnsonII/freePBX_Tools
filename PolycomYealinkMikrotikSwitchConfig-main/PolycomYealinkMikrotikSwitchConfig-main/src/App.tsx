@@ -19,6 +19,9 @@ import PhoneConfigGeneratorTab from './tabs/PhoneConfigGeneratorTab';
 import FbpxImportTab from './tabs/FbpxImportTab';
 import CopyUserExtensionsTab from './tabs/CopyUserExtensionsTab';
 import DidsTab from './tabs/DidsTab';
+import ImDeviceImportTab from './tabs/ImDeviceImportTab';
+import ImNumberImportTab from './tabs/ImNumberImportTab';
+import ImUserImportTab from './tabs/ImUserImportTab';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -48,6 +51,9 @@ const TABS = [
   { key: 'mikrotik', label: 'Mikrotik Templates' },
   { key: 'switch', label: 'Switch Templates' },
   { key: 'ordertracker', label: 'Order Tracker' },
+  { key: 'im-device', label: 'IM Device Import' },
+  { key: 'im-number', label: 'IM Number Import' },
+  { key: 'im-user', label: 'IM User Import' },
 ];
 
 // --- Static config blocks for Yealink/Polycom ---
@@ -2211,6 +2217,9 @@ function App() {
         </div>
       )}
       {activeTab === 'streeto' && <StrettoImportExportTab />}
+      {activeTab === 'im-device' && <ImDeviceImportTab />}
+      {activeTab === 'im-number' && <ImNumberImportTab />}
+      {activeTab === 'im-user' && <ImUserImportTab />}
       {activeTab === 'diagnostics' && (
         <DiagnosticsTab />
       )}
