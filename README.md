@@ -6,13 +6,15 @@ A production monorepo running on an always-on Ubuntu server. It combines a VoIP 
 
 ## Branches
 
-| Branch | Purpose |
+| Branch | Contents |
 |--------|---------|
-| `main` | Source of truth — contains everything |
-| `server` | Server deployment — rebases from main |
-| `client` | Client (laptop) deployment — rebases from main |
+| `main` | Source of truth — the full monorepo, everything lives here |
+| `Server` | All server-side code — webscraper, manager API, deploy backend, HomeLab, systemd, nginx, scripts |
+| `client` | **React/Vite SPA only** — the Hosted Config Generator (`PolycomYealinkMikrotikSwitchConfig-main/`) deployed at [polycom.123hostedtools.com](https://polycom.123hostedtools.com) |
 
-Always develop on `main` and rebase `server`/`client` from it.
+Always develop on `main`. The `client` and `Server` branches are curated subsets — they are **not** simple rebases of main, they contain only the code relevant to their role.
+
+> **Note:** The `client` branch (React SPA) is separate from "client mode" (scraper running on a laptop and forwarding data to the server). See [Client / Server Split](#client--server-split) below.
 
 ---
 
