@@ -5,11 +5,14 @@ Scraping pipeline and ticket data API. Two things in one Python package:
 1. **Scraper** — Selenium browser automation that authenticates to the 123.net portal, iterates customer handles, and collects ticket history
 2. **Ticket API** — FastAPI service that stores ticket data in SQLite and serves it to the Ticket UI; also accepts ingest from the client scraper via HTTP
 
+Consumed by [ticket-ui](ticket-ui/README.md) and [webscraper_manager](../webscraper_manager/README.md).
+
 ---
 
 ## Quick Start
 
 ### Start the Ticket API (server mode — writes to local SQLite)
+
 ```bash
 # From repo root
 source .venv-webscraper/bin/activate
@@ -17,6 +20,7 @@ uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8788
 ```
 
 Or via RESTART.sh:
+
 ```bash
 sudo ./RESTART.sh ticket-api
 ```
@@ -111,9 +115,22 @@ python -m webscraper --mode headless
 ```
 
 ### Start in Client Mode (laptop → sends data to server)
+
 ```bash
 ./start_client.sh          # uses CLIENT_MODE=1 from .env
 ```
+
+---
+
+## Authentication
+
+The scraper authenticates to `secure.123.net` using browser-exported cookies:
+
+1. Log into `secure.123.net` in Chrome or Edge.
+2. Export cookies to `webscraper/cookies.json` (standard browser-export JSON array).
+3. The scraper loads this file and injects the cookies into every request.
+
+Cookie sync can also be done through [manager-ui](../manager-ui/README.md) → Auth page, which calls the webscraper_manager API (`POST /api/auth/sync/chrome` or `/edge`).
 
 ---
 
@@ -171,11 +188,13 @@ else:
 ```
 
 **Server mode** (default):
+
 - Reads `TICKETS_DB_PATH` or defaults to `webscraper/var/db/tickets.sqlite`
 - All writes go to local SQLite
 - Exposes `/api/ingest/*` for incoming client data
 
 **Client mode** (`CLIENT_MODE=1`):
+
 - Reads `INGEST_SERVER_URL` and `INGEST_API_KEY` from env
 - All writes → `POST INGEST_SERVER_URL/api/ingest/*` with `X-Ingest-Key` header
 - No local SQLite
@@ -183,22 +202,15 @@ else:
 
 ---
 
-## API Endpoints
+## Environment Variables
 
-```
-GET  /api/health
-GET  /api/handles           ?q=&limit=500&offset=0
-GET  /api/handles/{handle}
-GET  /api/tickets/{handle}
-GET  /api/jobs
-GET  /api/jobs/{job_id}
-POST /api/scrape/run        trigger scrape
-POST /api/scrape/run-e2e    trigger E2E scrape
-
-# Ingest (requires X-Ingest-Key from non-localhost)
-POST /api/ingest/tickets    body: {handle, tickets: [...]}
-POST /api/ingest/handles    body: {rows: [...]}
-```
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `TICKETS_DB_PATH` | `var/db/tickets.sqlite` | Override SQLite path |
+| `CLIENT_MODE` | unset | Set to `1` to forward writes to a remote ingest server |
+| `INGEST_SERVER_URL` | — | Remote ingest server base URL (client mode only) |
+| `INGEST_API_KEY` | — | HMAC key for ingest requests (client mode only) |
+| `WEBSCRAPER_LOGS_ENABLED` | auto | Set to `1` to enable log API in production |
 
 ---
 
@@ -240,6 +252,7 @@ if not hmac.compare_digest(key, provided):
 If `INGEST_API_KEY` env var is empty on the server, ingest is allowed from `127.0.0.1` / `::1` only (safe for local dev / same-machine operation).
 
 Generate a key:
+
 ```bash
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```

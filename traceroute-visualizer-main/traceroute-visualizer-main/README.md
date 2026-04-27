@@ -1,100 +1,87 @@
-# Traceroute Visualizer – Quick Start (Windows + FreeBSD)
+# Traceroute Visualizer
 
-This app visualizes traceroute paths collected from a remote FreeBSD host and renders the route and map in a Next.js UI.
+Next.js 15 app that runs traceroutes and displays the path as an interactive Leaflet map. Supports multi-probe comparisons, scenario-based policy detection, and evidence export for NOC tickets.
 
-## 1) Start the backend on FreeBSD
+---
 
-Run the Python 2 HTTP server (supports `/health`, ICMP/TCP, partial results):
+## Quick Start
 
-```sh
-/usr/local/bin/python /usr/home/tjohnson/traceroute_server.py
-# or keep running in background
-nohup /usr/local/bin/python /usr/home/tjohnson/traceroute_server.py \
-	>/usr/home/tjohnson/traceroute_server.log 2>&1 &
+```bash
+cd traceroute-visualizer-main/traceroute-visualizer-main
+npm install
+npm run dev
 ```
 
-Quick checks on the FreeBSD host:
+Opens at **<http://localhost:3000>** (Next.js default, Turbopack enabled).
 
-```sh
-sockstat -4l | grep 8000
-fetch -o - "http://localhost:8000/health"
-fetch -o - "http://localhost:8000/?target=8.8.8.8&mode=icmp"
-```
+---
 
-If TCP 8000 is blocked from Windows, either open the port (IPFW/PF) or use an SSH tunnel:
+## What It Does
 
-```sh
-ssh -o HostKeyAlgorithms=+ssh-dss -o PubkeyAcceptedAlgorithms=+ssh-dss \
-		-L 8000:localhost:8000 tjohnson@192.168.50.1
-```
+- Enter a destination hostname or IP — the app runs a traceroute via `POST /api/traceroute`
+- Hops are plotted on an interactive Leaflet map with IP ownership annotations
+- **Multi-probe**: run from multiple vantage points and compare merged hop views
+- **Scenario picker**: select a predefined policy scenario (OTT, On-Net DIA, etc.) — the app applies policy detection rules to classify the result
+- **Findings panel**: detected anomalies, routing assertions, and policy violations
+- **Evidence export**: copy or download findings formatted for NOC ticket notes
 
-## 2) Configure the frontend on Windows (E:\)
+---
 
-Create/edit `.env.local` in the app folder to point at the backend:
+## API Routes
 
-```powershell
-Push-Location "E:\DevTools\freepbx-tools\traceroute-visualizer-main\traceroute-visualizer-main"
-(Get-Content .env.local) -replace 'BACKEND_URL=.*','BACKEND_URL=http://192.168.50.1:8000' | Set-Content .env.local
-# If using SSH tunnel, instead use 127.0.0.1
-(Get-Content .env.local) -replace 'BACKEND_URL=.*','BACKEND_URL=http://127.0.0.1:8000' | Set-Content .env.local
-Pop-Location
-```
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/traceroute` | Run traceroute to `{target}`, returns hop list |
 
-## 3) Run the Next.js UI
+The traceroute executes server-side. Source address is `192.168.50.1` by default (local router gateway).
 
-```powershell
-Push-Location "E:\DevTools\freepbx-tools\traceroute-visualizer-main\traceroute-visualizer-main"
-npm.cmd install
-npm.cmd run dev
-```
+---
 
-Open http://localhost:3000 and:
-- Choose the Probe (ICMP recommended)
-- Enter a target (e.g., `192.168.50.24`, `8.8.8.8`)
-- View the hop cards and map
+## Pages and Components
 
-Quick health from Windows:
+| File | Purpose |
+| ---- | ------- |
+| `app/page.tsx` | Entry point — hosts the TracerouteVisualizer client component |
+| `app/traceroute_visualizer.tsx` | Main UI — target input, probe controls, results |
+| `app/components/TraceMap.tsx` | Leaflet map (dynamic import, SSR disabled) |
+| `app/components/ScenarioPicker.tsx` | Policy scenario selector |
+| `app/components/FindingsPanel.tsx` | Findings and policy violation display |
+| `app/components/EvidenceActions.tsx` | Copy / download evidence buttons |
 
-```powershell
-curl.exe -s "http://localhost:3000/api/health"
-curl.exe -s -X POST -H "Content-Type: application/json" -d "{\"target\":\"8.8.8.8\",\"mode\":\"icmp\"}" "http://localhost:3000/api/traceroute"
+---
+
+## Key Utilities
+
+| Module | Purpose |
+| ------ | ------- |
+| `utils/tracerouteClassification.ts` | Classify each hop (private, ISP, CDN, etc.) |
+| `utils/tracerouteInsights.ts` | Analyse a full trace for patterns and anomalies |
+| `utils/tracerouteComparison.ts` | Compare two traces hop-by-hop |
+| `utils/multiProbe.ts` | Run and merge results from multiple probe sources |
+| `utils/policyDetection.ts` | Apply scenario rules, derive findings, format ticket summaries |
+| `utils/targetValidation.ts` | Validate hostname/IP before sending |
+| `app/data/` | Static IP ownership lookup tables |
+
+---
+
+## Build
+
+```bash
+# Optional: rebuild IP ownership table from source data
+npm run build:ownership
+
+npm run build
+npm run start
 ```
 
 ---
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Dependencies
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Package | Purpose |
+| ------- | ------- |
+| `leaflet` + `react-leaflet` | Interactive hop map |
+| `lucide-react` | Icons |
+| `@radix-ui/react-slot` | Headless UI primitives |
+| `tailwindcss` | Styling |
+| `xlsx` | Evidence export to spreadsheet |
