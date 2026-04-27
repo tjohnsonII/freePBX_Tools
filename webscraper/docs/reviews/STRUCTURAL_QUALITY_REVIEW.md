@@ -1,4 +1,6 @@
-# Webscraper Structural + Quality Review (current state)
+> **HISTORICAL REVIEW (2026-04-27):** This review was written before the current package structure. Key corrections: (1) `webscraper/ultimate_scraper.py` and `webscraper/tickets_discovery.py` are now in `legacy/` — active code is under `src/webscraper/`. (2) Edge browser (`edge_driver.py`) replaced by Chrome. (3) Active scraper entry point is `python -m webscraper --mode headless`, not `ultimate_scraper.py`. See **webscraper/README.md** for current architecture.
+
+# Webscraper Structural + Quality Review — HISTORICAL
 
 ## 1) Module inventory grouped by role
 

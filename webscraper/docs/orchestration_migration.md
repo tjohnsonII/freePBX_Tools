@@ -1,3 +1,5 @@
+> **PORT CORRECTION (2026-04-27):** This document lists port 8787 as the ticket/scraper API. That is now wrong. **Port 8787 = Manager API** (`webscraper_manager/`). **Port 8788 = Ticket API** (`webscraper/ticket_api/`). All other content describing the orchestration lifecycle remains accurate.
+
 # Webscraper orchestration migration notes
 
 ## What changed

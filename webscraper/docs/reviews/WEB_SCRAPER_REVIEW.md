@@ -1,4 +1,6 @@
-# Webscraper Review (Domain-Safe / cmd-only)
+> **HISTORICAL REVIEW (2026-04-27):** References to root-level `webscraper/*.py` scripts (e.g., `ultimate_scraper.py`, `tickets_discovery.py`) are legacy paths. Active code is in `src/webscraper/`. See **webscraper/README.md** for current module layout.
+
+# Webscraper Review (Domain-Safe / cmd-only) — HISTORICAL
 
 ## Inventory (current + legacy)
 

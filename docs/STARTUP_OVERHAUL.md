@@ -1,6 +1,6 @@
-> **Status update (2026-03-19):** Canonical launcher is now `scripts/run_all_web_apps.py`. See `docs/startup.md` for current startup contract and VS Code tasks.
+> **SUPERSEDED (2026-04-27):** This document describes a transitional devctl.py architecture that no longer reflects current operation. Ports listed here are wrong — 8787 is now the Manager API, 8788 is the Ticket API. For current startup, see **RUNBOOK.md** and **docs/ARCHITECTURE.md**. This file is retained as historical context only.
 
-# Startup/Control Overhaul (devctl)
+# Startup/Control Overhaul (devctl) — HISTORICAL
 
 ## Architecture summary
 

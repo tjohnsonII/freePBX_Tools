@@ -1,4 +1,6 @@
-# Repository Organization
+> **SUPERSEDED (2026-04-27):** This document describes an old directory structure (`cli-tools/`, `web-app/`, `database/`) that no longer exists. For the current authoritative repo map, see **REPO_MAP.md**. This file is retained as historical context only.
+
+# Repository Organization — HISTORICAL
 
 ## Directory Structure
 

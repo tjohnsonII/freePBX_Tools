@@ -1,4 +1,6 @@
-# FreePBX-Tools Suite (Dev Workspace)
+> **SUPERSEDED (2026-04-27):** This document describes a Windows/VS Code Tasks development workflow that no longer applies. The suite now runs on an always-on Ubuntu Linux server managed by systemd and `FULL_START.sh`. For current dev workflow see **RUNBOOK.md**, **ENVIRONMENT.md**, and **docs/ARCHITECTURE.md**. This file is retained as historical context only.
+
+# FreePBX-Tools Suite (Dev Workspace) — HISTORICAL
 
 This repo is a **suite** of tools. Keep each subproject self-contained and use VS Code Tasks to run common workflows.
 

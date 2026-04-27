@@ -1,4 +1,6 @@
-# FreePBX Tools Manager - Web Interface
+> **SUPERSEDED (2026-04-27):** This document describes the old Flask-based deployment web UI (`web_manager.py`) with VPBX database queries and Windows PowerShell installation. The current management interface is the **Manager UI** (Next.js, port 3004) backed by the **Manager API** (FastAPI, port 8787). See **manager-ui/README.md** and **docs/ARCHITECTURE.md**. This file is retained as historical context only.
+
+# FreePBX Tools Manager - Web Interface — HISTORICAL
 
 🌐 Modern web-based interface for managing FreePBX tool deployments and analysis.
 

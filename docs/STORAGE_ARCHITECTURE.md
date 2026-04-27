@@ -1,4 +1,6 @@
-# Knowledge Base Storage - Complete Overview
+> **SUPERSEDED (2026-04-27):** This document describes a legacy per-customer SQLite + `knowledge_base/` architecture that is no longer in use. Current storage is a single unified SQLite database at `webscraper/var/db/tickets.sqlite`, served by the Ticket API on port 8788. See **docs/ARCHITECTURE.md** for the current data model. This file is retained as historical context only.
+
+# Knowledge Base Storage — HISTORICAL
 
 ## Storage Locations
 
