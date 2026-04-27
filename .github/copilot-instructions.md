@@ -1,98 +1,170 @@
-# FreePBX Tools - AI Agent Instructions
+# freePBX_Tools — AI Agent Instructions (Server Branch)
 
-## Project Overview
+## What this repo is
 
-This is a suite of diagnostic and visualization tools for FreePBX/Asterisk phone systems. The project has two main components:
+A suite of always-on web services running on an Ubuntu server at **123hostedtools.com**. The server branch is the deploy target — code runs as systemd services, served through Apache reverse proxies over HTTPS.
 
-1. **Core Tools** (`freepbx-tools/`): Installation package with utilities for FreePBX analysis
-2. **Orchestration Scripts** (root): Multi-server deployment and report aggregation tools
+This is **not** a script collection or call-flow analyzer. That description is stale. Ignore it.
+
+---
 
 ## Architecture
 
-### Data Flow Pattern
-All tools follow a consistent 3-stage pipeline:
-1. **Extract**: Query FreePBX MySQL database via CLI (no Python DB drivers)
-2. **Transform**: Normalize data across FreePBX schema versions
-3. **Output**: Generate JSON snapshots, SVG diagrams, or text reports
-
-### Key Components
-
-- **`freepbx_dump.py`**: Core data extractor - queries MySQL CLI to create normalized JSON snapshots
-- **`freepbx_callflow_graphV2.py`**: SVG diagram generator using Graphviz dot format
-- **`freepbx_callflow_menu.py`**: Interactive CLI menu wrapper for all tools
-- **`asterisk-full-diagnostic.sh`**: System diagnostics collector
-- **`version_check.py`**: Policy compliance checker against `version_policy.json`
-
-### Critical Dependencies
-
-- **Python 3.6+ compatibility**: Uses `universal_newlines=True` instead of `text=True` for subprocess
-- **MySQL CLI access**: All database queries use `mysql -NBe` command, not Python drivers
-- **Graphviz**: Required for SVG call-flow generation (`dot` command)
-- **Standard paths**: Tools install to `/usr/local/123net/freepbx-tools/`, output to `/home/123net/callflows/`
-
-## Development Patterns
-
-### Database Access Pattern
-```python
-# Always use subprocess.run with mysql CLI
-def q(sql, socket=None, user="root", password=None):
-    cmd = ["mysql", "-NBe", sql, "asterisk", "-u", user]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+```
+                        ┌─────────────────────────────────┐
+  client laptop ──VPN──▶│  Apache :443 (HTTPS)            │
+  (scraper runs here)   │  ├── polycom.123hostedtools.com  │
+                        │  ├── manager.123hostedtools.com  │
+                        │  ├── tickets.123hostedtools.com  │
+                        │  ├── traceroute.123hostedtools.com│
+                        │  └── homelab.123hostedtools.com  │
+                        │                                  │
+                        │  Internal services (127.0.0.1):  │
+                        │  :5000  Web Manager API          │
+                        │  :8787  Manager API (FastAPI)    │
+                        │  :8788  Ticket API (FastAPI)     │
+                        │  :8789  Client trigger API       │
+                        │  :3004  Manager UI (Next.js)     │
+                        │  :3005  Ticket UI (Next.js)      │
+                        │  :3006  Traceroute (Node)        │
+                        │  :3011  HomeLab (Next.js)        │
+                        └─────────────────────────────────┘
 ```
 
-### Schema Adaptation
-Tools handle FreePBX version differences by checking table/column existence:
-```python
-def has_table(t, **kw): return t in get_tables(**kw)
-def first_table(options, **kw): # find first existing table from list
-```
+All services bind to `127.0.0.1` — Apache proxies public traffic to them. Never expose internal ports directly.
 
-### Multi-Server Orchestration
-Root-level scripts deploy tools across server fleets:
-- **`run_all.sh`**: Parallel execution across hosts from `ProductionServers.txt`
-- **Pattern**: `scp` script → `ssh` execute → `scp` results back to `./reports/`
+---
 
-### Error Handling Convention
-All scripts use bash `set -euo pipefail` and Python graceful degradation (return empty lists/dicts on DB errors).
+## Services and their source directories
 
-## Key Workflows
+| Service | Port | Source | Venv / runtime |
+|---------|------|--------|----------------|
+| Web Manager API | 5000 | `webscraper_manager/` | `.venv-web-manager` |
+| Manager API | 8787 | `webscraper/src/webscraper/manager_api.py` | `.venv-webscraper` |
+| Ticket API | 8788 | `webscraper/src/webscraper/ticket_api.py` | `.venv-webscraper` |
+| Client trigger API | 8789 | `webscraper/src/webscraper/client_trigger_api.py` | `.venv-webscraper` |
+| Manager UI | 3004 | `manager-ui/` | Node (pm2) |
+| Ticket UI | 3005 | `webscraper/ticket-ui/` | Node (pm2) |
+| Traceroute | 3006 | `traceroute-visualizer-main/` | Node (pm2) |
+| HomeLab | 3011 | `HomeLab_NetworkMapping/` | Node (pm2) |
+| Polycom Config UI | static | `PolycomYealinkMikrotikSwitchConfig-main/dist/` | Apache static |
 
-### Installation
+---
+
+## Python venvs — three, isolated, not interchangeable
+
+| Venv | Path | Purpose |
+|------|------|---------|
+| General | `.venv/` | FreePBX CLI tools, scripts, ad-hoc |
+| Web Manager | `.venv-web-manager/` | `webscraper_manager/` Flask API only |
+| Webscraper | `.venv-webscraper/` | All FastAPI services + scraper modules |
+
+Never install packages into the wrong venv. Never use `pip install` without activating or using the venv's direct path.
+
+---
+
+## Client / server split
+
+The **client laptop** runs `start_client.sh` with `CLIENT_MODE=1` set. It:
+1. Launches `ultimate_scraper.py` against `secure.123.net` through VPN
+2. POSTs scraped data to `/api/ingest/*` on this server
+3. Auth: `X-Ingest-Key` header — HMAC-SHA256, constant-time compare in `ingest_routes.py`
+
+The **server** never scrapes. It receives data, stores to SQLite, and serves APIs.
+
+The `INGEST_API_KEY` lives in `.env` (gitignored). Generate with:
 ```bash
-sudo ./freepbx-tools/install.sh  # Installs deps, creates symlinks, runs smoke tests
+python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-### Single Host Analysis
+---
+
+## Secrets model
+
+- `.env` at repo root — gitignored, never commit, holds `INGEST_API_KEY`
+- `FREEPBX_USER` / `FREEPBX_PASSWORD` / `FREEPBX_ROOT_PASSWORD` — env vars, not in code
+- No hardcoded credentials anywhere
+- Pre-commit hooks run `detect-secrets` and `gitleaks` — do not bypass with `--no-verify`
+
+---
+
+## Startup
+
 ```bash
-freepbx-callflows           # Interactive menu
-freepbx-dump --out file.json # Raw data export
-freepbx-diagnostic          # Full system report
+# Full rebuild + restart (used after code changes):
+sudo bash FULL_START.sh
+
+# Targeted restart of a single service:
+sudo bash RESTART.sh ticket_api
+
+# systemd controls the initial boot:
+# /etc/systemd/system/freepbx-tools.service → scripts/start_services.sh
 ```
 
-### Fleet Operations
+`FULL_START.sh` uses MD5 hashes of source dirs to skip frontend rebuilds that aren't needed. If a frontend isn't rebuilding after a code change, delete its `.src_hash` file.
+
+---
+
+## Database
+
+- SQLite at `webscraper/db/tickets.db` (canonical path)
+- Accessed by Ticket API and Manager API — never by the scraper directly on server
+- Schema managed in `webscraper/src/webscraper/db.py`
+
 ```bash
-./run_all.sh ProductionServers.txt  # Deploy to all hosts
-./summarize.sh                       # Aggregate reports
+sqlite3 webscraper/db/tickets.db ".tables"
+sqlite3 webscraper/db/tickets.db "SELECT COUNT(*) FROM tickets;"
 ```
 
-## File Conventions
+---
 
-- **Executable naming**: All tools have both friendly names (`freepbx-*`) and legacy names (`asterisk-*`)
-- **Output locations**: JSON/SVG to `/home/123net/callflows/`, diagnostics to working directory
-- **Config files**: `version_policy.json` defines acceptable FreePBX/Asterisk major versions
-- **Host lists**: CSV/TSV files with IP addresses, first column is always the target host
+## Branch strategy
 
-## When Modifying Code
+| Branch | Purpose |
+|--------|---------|
+| `main` | Source of truth — merges from both server and client |
+| `server` | Deploy target for this machine — rebases from main |
+| `client` | Deploy target for scraper laptop — rebases from main |
 
-1. **Maintain Python 3.6 compatibility** - test on EL7 systems
-2. **Preserve MySQL CLI pattern** - don't introduce Python DB drivers
-3. **Handle schema variations** - FreePBX table structures change between versions
-4. **Test installation path** - scripts assume `/usr/local/123net/freepbx-tools/` structure
-5. **Validate on actual FreePBX** - tools interact with live phone system databases
+Deploy server changes:
+```bash
+git push --force-with-lease origin server
+# then on server:
+git pull --rebase origin server
+sudo bash FULL_START.sh
+```
 
-## Critical Files to Understand
+---
 
-- `freepbx_dump.py`: Master data model and schema handling
-- `install.sh`: Dependency management and EL7/8/9 compatibility
-- `version_policy.json`: Version compliance rules
-- `run_all.sh`: Multi-server deployment pattern
+## Frontend build notes
+
+- React/Next.js apps build with `npm run build` in their directory
+- Polycom Config UI (`PolycomYealinkMikrotikSwitchConfig-main/`) builds to `dist/` — Apache serves that statically, no Node process runs
+- Manager UI and Ticket UI run as pm2 processes after `npm run build && npm start`
+
+---
+
+## What NOT to do
+
+- Do not run `sudo npm install` or `sudo npm run build` — permission issues; run as your user
+- Do not touch `.env` or commit it
+- Do not bind services to `0.0.0.0` — always `127.0.0.1`
+- Do not install Python packages system-wide — always use the correct venv
+- Do not use `--no-verify` on commits
+- Do not push directly to `main` with `--force`
+
+---
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `RUNBOOK.md` | Exact commands for every operational task |
+| `docs/ARCHITECTURE.md` | Deep-dive on data flow, API routes, startup sequence |
+| `CODING_RULES.md` | Port registry, venv rules, secrets model, commit rules |
+| `KNOWN_ISSUES.md` | 12 known issues with exact fixes |
+| `webscraper/src/webscraper/ingest_routes.py` | Ingest API — HMAC auth, data ingestion |
+| `webscraper/src/webscraper/ticket_api.py` | Ticket API — FastAPI, port 8788 |
+| `webscraper/src/webscraper/manager_api.py` | Manager API — FastAPI, port 8787 |
+| `scripts/start_services.sh` | Boot script called by systemd |
+| `FULL_START.sh` | Full rebuild + restart script |
