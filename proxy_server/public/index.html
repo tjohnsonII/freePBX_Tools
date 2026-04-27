@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>123HostedTools Portal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+    background:#0f172a;
+    color:#e2e8f0;
+    font-family:'Segoe UI',Arial,sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+}
+.header{
+    text-align:center;
+    margin-bottom:40px;
+}
+.header h1{
+    font-size:2rem;
+    font-weight:700;
+    color:#f8fafc;
+    letter-spacing:-0.5px;
+}
+.header p{
+    color:#94a3b8;
+    margin-top:8px;
+    font-size:1rem;
+}
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:16px;
+    width:100%;
+    max-width:900px;
+}
+.card{
+    background:#1e293b;
+    border:1px solid #334155;
+    border-radius:12px;
+    padding:28px 24px;
+    text-decoration:none;
+    color:#e2e8f0;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:10px;
+    transition:background 0.15s,border-color 0.15s,transform 0.15s;
+}
+.card:hover{
+    background:#263348;
+    border-color:#4f8ef7;
+    transform:translateY(-2px);
+}
+.card-icon{
+    font-size:1.5rem;
+    line-height:1;
+}
+.card-title{
+    font-size:1.05rem;
+    font-weight:600;
+    color:#f1f5f9;
+}
+.card-desc{
+    font-size:0.82rem;
+    color:#64748b;
+    line-height:1.4;
+}
+.card-arrow{
+    margin-top:auto;
+    padding-top:12px;
+    color:#4f8ef7;
+    font-size:0.8rem;
+    font-weight:500;
+}
+footer{
+    margin-top:48px;
+    color:#475569;
+    font-size:0.8rem;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>123HostedTools Portal</h1>
+    <p>Internal tools and hosted PBX utilities</p>
+</div>
+
+<div class="grid">
+    <a class="card" href="https://tickets.123hostedtools.com">
+        <div class="card-icon">&#128203;</div>
+        <div class="card-title">Tickets</div>
+        <div class="card-desc">View and manage support tickets</div>
+        <div class="card-arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="https://polycom.123hostedtools.com">
+        <div class="card-icon">&#128222;</div>
+        <div class="card-title">Polycom Config Generator</div>
+        <div class="card-desc">Generate Polycom phone configuration files</div>
+        <div class="card-arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="https://manager.123hostedtools.com">
+        <div class="card-icon">&#9881;</div>
+        <div class="card-title">Manager</div>
+        <div class="card-desc">PBX deployment and management interface</div>
+        <div class="card-arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="https://typ.123hostedtools.com">
+        <div class="card-icon">&#128200;</div>
+        <div class="card-title">TYP</div>
+        <div class="card-desc">Provisioning and telco tools</div>
+        <div class="card-arrow">Open &rarr;</div>
+    </a>
+</div>
+
+<footer>123HostedTools.com</footer>
+
+</body>
+</html>
