@@ -1,0 +1,216 @@
+.root {
+  width: 100%;
+}
+
+.description {
+  font-size: 12px;
+  color: var(--app-muted);
+  margin: 0 0 12px;
+}
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.connectedBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.offlineBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--app-surface-2);
+  color: var(--app-muted);
+  border: 1px solid var(--app-border);
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-fg);
+}
+
+.handleSelect,
+.ipInput {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+}
+.handleSelect:focus,
+.ipInput:focus {
+  outline: 2px solid var(--brand-blue);
+}
+
+.errorText {
+  font-size: 12px;
+  color: #b42318;
+  margin: 0 0 8px;
+}
+
+.loadingText {
+  font-size: 12px;
+  color: var(--app-muted);
+  margin: 0 0 8px;
+}
+
+.summaryRow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.summaryCard {
+  flex: 1;
+  min-width: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface-2);
+  text-align: center;
+}
+
+.summaryCardValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--app-fg);
+}
+
+.summaryCardLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--app-muted);
+  margin-top: 2px;
+}
+
+/* summary card value color variants */
+.ok      { color: #16794a; }
+.missing { color: #b42318; }
+.changed { color: #b45309; }
+
+.deviceRow {
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.deviceHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  background: var(--app-surface-2);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.deviceHeaderClean { border-left: 3px solid #16794a; }
+.deviceHeaderWarn  { border-left: 3px solid #b45309; }
+.deviceHeaderError { border-left: 3px solid #b42318; }
+
+.deviceName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-fg);
+  flex: 1;
+}
+
+.deviceInfo {
+  font-size: 11px;
+  color: var(--app-muted);
+}
+
+.deviceIssues {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+.issueClean { background: #d1fae5; color: #065f46; }
+.issueDirty { background: #fee2e2; color: #991b1b; }
+
+.chevron {
+  font-size: 10px;
+  color: var(--app-muted);
+}
+
+.auditTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.th {
+  background: var(--app-surface-2);
+  padding: 5px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--app-muted);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.tr:nth-child(even) td { background: var(--app-surface-2); }
+
+.tdKey {
+  padding: 5px 10px;
+  font-weight: 600;
+  color: var(--app-fg);
+  border-bottom: 1px solid var(--app-border);
+  white-space: nowrap;
+}
+
+.tdValue {
+  padding: 5px 10px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: var(--app-fg);
+  border-bottom: 1px solid var(--app-border);
+  word-break: break-all;
+}
+
+.tdStatus {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--app-border);
+  white-space: nowrap;
+}
+
+.statusBadge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.statusBadgeOk      { background: #d1fae5; color: #065f46; }
+.statusBadgeMissing { background: #fee2e2; color: #991b1b; }
+.statusBadgeChanged { background: #fef3c7; color: #92400e; }
+
+.emptyText {
+  font-size: 13px;
+  color: var(--app-muted);
+  text-align: center;
+  padding: 32px 0;
+}

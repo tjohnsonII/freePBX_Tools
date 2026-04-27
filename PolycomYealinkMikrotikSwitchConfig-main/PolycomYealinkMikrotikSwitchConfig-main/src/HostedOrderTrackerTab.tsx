@@ -4,7 +4,7 @@ import styles from './HostedOrderTrackerTab.module.css';
 
 const DEFAULT_FIELDS = [
   'CUSTOMER ABBREV', 'CUSTOMER NAME', 'LOCATION', 'DEPLOY FROM (SF/GR)', 'PROJECT MANAGER',
-  'SURVEY DATE', 'KICKOFF DATE', 'INSTALL DATE', 'ON-NET or OTT', 'ORDER ID', 'PON',
+  'SURVEY DATE', 'KICKOFF DATE', 'DISPATCH DATE', 'INSTALL DATE', 'ON-NET or OTT', 'ORDER ID', 'PON',
   'LINK TO CONTRACT', '# SEATS MINIMUM', 'PBX TYPE', 'PBX IP ADDRESS', 'PHONE MODEL / QTY',
   'SWITCH / ASSET #', 'UPS / ASSET #', 'SIDECAR / ASSET #', 'MIKROTIK / ASSET #', 'MIKROTIK IP',
   'ATA / ASSET #', 'ALGO / ASSET #', 'Wall Mount | QTY', 'NOTES', 'ORDER TASKS',
@@ -40,7 +40,7 @@ const CHECKBOX_FIELDS = new Set([
 // Section-divider rows — read-only labels, not editable
 const SECTION_HEADER_FIELDS = new Set(['ORDER TASKS', 'TURN UP DAY TASKS']);
 
-const STORAGE_KEY = 'order_tracker_v1';
+const STORAGE_KEY = 'order_tracker_v2';
 const DEFAULT_PM = 'tjohnson';
 const ORDERS_ADMIN_URL = 'https://secure.123.net/cgi-bin/web_interface/admin/orders_web_admin.cgi';
 
@@ -183,8 +183,9 @@ const HostedOrderTrackerTab: React.FC = () => {
       newData['PROJECT MANAGER'][col]  = order.pm;
       newData['ORDER ID'][col]         = order.orderId;
       newData['LINK TO CONTRACT'][col] = ORDERS_ADMIN_URL;
-      if (order.billDate) newData['KICKOFF DATE'][col] = order.billDate;
-      if (order.billMrc)  newData['NOTES'][col]        = `MRC: $${order.billMrc}`;
+      if (order.billDate)   newData['KICKOFF DATE'][col]  = order.billDate;
+      if (order.closedDate) newData['INSTALL DATE'][col]  = order.closedDate;
+      if (order.billMrc)    newData['NOTES'][col]         = `MRC: $${order.billMrc}`;
     }
 
     update({ customers: newCustomers, data: newData });
