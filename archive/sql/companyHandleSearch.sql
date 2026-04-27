@@ -1,1 +1,0 @@
-SELECT * FROM sites WHERE company_name LIKE '%Medical%';
