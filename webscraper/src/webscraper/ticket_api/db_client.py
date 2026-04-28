@@ -250,6 +250,30 @@ def upsert_vpbx_site_configs(
     return int(r.get("inserted", 0))
 
 
+def upsert_orders(
+    db_path: str,  # noqa: ARG001
+    records: list[dict[str, Any]],
+    now_utc: str,
+) -> int:
+    if not records:
+        return 0
+    r = _post("/api/ingest/orders", {"records": records, "now_utc": now_utc})
+    return int(r.get("inserted", 0))
+
+
+def list_orders(
+    db_path: str,  # noqa: ARG001
+    assigned_to: str | None = None,
+    order_type: str | None = None,
+    from_date: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        r = _get("/api/orders", assigned_to=assigned_to, order_type=order_type, from_date=from_date)
+        return r.get("orders", r) if isinstance(r, dict) else (r or [])
+    except Exception:
+        return []
+
+
 # ── Auth cookies (stay local — used for scraping, not stored on server) ───────
 
 
