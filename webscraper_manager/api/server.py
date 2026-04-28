@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(webscraper.router)
     app.include_router(orders.router)
     app.include_router(services.router)
+    app.include_router(orders.router)
     return app
 
 
