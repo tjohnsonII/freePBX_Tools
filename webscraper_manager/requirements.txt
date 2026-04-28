@@ -4,3 +4,4 @@ psutil>=5.9
 packaging>=24.0
 fastapi>=0.115
 uvicorn[standard]>=0.30
+requests>=2.28
