@@ -363,6 +363,25 @@ def ensure_indexes(db_path: str) -> None:
             if "source" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN source TEXT")
 
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id      TEXT PRIMARY KEY,
+                    install_date  TEXT,
+                    customer_name TEXT,
+                    description   TEXT,
+                    order_type    TEXT,
+                    location      TEXT,
+                    assigned_json TEXT,
+                    detail_url    TEXT,
+                    scraped_utc   TEXT,
+                    last_seen_utc TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_orders_install_date ON orders(install_date);
+                CREATE INDEX IF NOT EXISTS idx_orders_last_seen ON orders(last_seen_utc);
+                """
+            )
+
 
 def ensure_handle_row(db_path: str, handle: str) -> None:
     with WRITE_LOCK:
@@ -1297,3 +1316,82 @@ def list_client_heartbeats(db_path: str) -> list[dict[str, Any]]:
             "SELECT * FROM client_heartbeats ORDER BY last_seen_utc DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Orders ────────────────────────────────────────────────────────────────────
+
+
+def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                order_id = (rec.get("order_id") or "").strip()
+                if not order_id:
+                    continue
+                assigned = rec.get("assigned", [])
+                assigned_json = json.dumps(assigned) if isinstance(assigned, list) else (assigned or "[]")
+                conn.execute(
+                    """
+                    INSERT INTO orders(order_id, install_date, customer_name, description, order_type,
+                        location, assigned_json, detail_url, scraped_utc, last_seen_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(order_id) DO UPDATE SET
+                        install_date=excluded.install_date,
+                        customer_name=excluded.customer_name,
+                        description=excluded.description,
+                        order_type=excluded.order_type,
+                        location=excluded.location,
+                        assigned_json=excluded.assigned_json,
+                        detail_url=excluded.detail_url,
+                        last_seen_utc=excluded.last_seen_utc
+                    """,
+                    (
+                        order_id,
+                        rec.get("install_date") or "",
+                        rec.get("customer_name") or "",
+                        rec.get("description") or "",
+                        rec.get("order_type") or "",
+                        rec.get("location") or "",
+                        assigned_json,
+                        rec.get("detail_url") or "",
+                        rec.get("scraped_utc") or now_utc,
+                        now_utc,
+                    ),
+                )
+    return len(records)
+
+
+def list_orders(
+    db_path: str,
+    assigned_to: str | None = None,
+    order_type: str | None = None,
+    from_date: str | None = None,
+) -> list[dict[str, Any]]:
+    conditions: list[str] = []
+    params: list[Any] = []
+    if assigned_to:
+        conditions.append('assigned_json LIKE ?')
+        params.append(f'%"{assigned_to}"%')
+    if order_type:
+        conditions.append("order_type LIKE ?")
+        params.append(f"%{order_type}%")
+    if from_date:
+        conditions.append("install_date >= ?")
+        params.append(from_date)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM orders {where} ORDER BY install_date ASC",
+            params,
+        ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["assigned"] = json.loads(d.pop("assigned_json", "[]"))
+        except (ValueError, TypeError):
+            d["assigned"] = []
+        result.append(d)
+    return result

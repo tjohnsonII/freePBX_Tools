@@ -260,6 +260,19 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     return {"inserted": n}
 
 
+class _OrdersBody(BaseModel):
+    records: list[dict[str, Any]]
+    now_utc: str
+
+
+@router.post("/orders")
+def ingest_orders(body: _OrdersBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    n = _db.upsert_orders(_dp(), body.records, body.now_utc)
+    return {"inserted": n}
+
+
+
 @router.post("/heartbeat")
 def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)

@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import auth, db, diagnostics, health, logs, manager, services, system, tickets, webscraper
+from .routes import auth, db, diagnostics, health, logs, manager, orders, services, system, tickets, webscraper
 from .services.auth_inspector import AuthInspector
 from .services.command_runner import CommandRunner
 from .services.db_inspector import DBInspector
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(diagnostics.router)
     app.include_router(webscraper.router)
     app.include_router(services.router)
+    app.include_router(orders.router)
     return app
 
 
