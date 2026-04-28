@@ -348,6 +348,26 @@ def ensure_indexes(db_path: str) -> None:
                     vpn_connected   INTEGER,
                     vpn_ip          TEXT
                 );
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id        TEXT PRIMARY KEY,
+                    customer_name   TEXT,
+                    customer_abbrev TEXT,
+                    dispatch_date   TEXT,
+                    install_type    TEXT,
+                    task            TEXT,
+                    assigned        TEXT,
+                    pm              TEXT,
+                    detail_url      TEXT,
+                    seats           TEXT,
+                    pbx_ip          TEXT,
+                    phone_model     TEXT,
+                    location        TEXT,
+                    pon             TEXT,
+                    on_net_ott      TEXT,
+                    scraped_utc     TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_orders_pm            ON orders(pm);
+                CREATE INDEX IF NOT EXISTS idx_orders_dispatch_date ON orders(dispatch_date);
                 """
             )
 
@@ -1309,7 +1329,19 @@ def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_ut
     return len(records)
 
 
-# ── Orders ────────────────────────────────────────────────────���───────────────
+# ── Orders ────────────────────────────────────────────────────────────────────────
+
+
+def list_orders(db_path: str, pm: str | None = None) -> list[dict[str, Any]]:
+    q = "SELECT * FROM orders"
+    params: list[Any] = []
+    if pm:
+        q += " WHERE pm=?"
+        params.append(pm)
+    q += " ORDER BY dispatch_date ASC, order_id ASC"
+    with get_conn(db_path) as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
@@ -1321,68 +1353,49 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                 order_id = (rec.get("order_id") or "").strip()
                 if not order_id:
                     continue
-                assigned = rec.get("assigned", [])
-                assigned_json = json.dumps(assigned) if isinstance(assigned, list) else (assigned or "[]")
                 conn.execute(
                     """
-                    INSERT INTO orders(order_id, install_date, customer_name, description, order_type,
-                        location, assigned_json, detail_url, scraped_utc, last_seen_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO orders
+                        (order_id, customer_name, customer_abbrev, dispatch_date,
+                         install_type, task, assigned, pm, detail_url,
+                         seats, pbx_ip, phone_model, location, pon, on_net_ott,
+                         scraped_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(order_id) DO UPDATE SET
-                        install_date=excluded.install_date,
                         customer_name=excluded.customer_name,
-                        description=excluded.description,
-                        order_type=excluded.order_type,
-                        location=excluded.location,
-                        assigned_json=excluded.assigned_json,
+                        customer_abbrev=excluded.customer_abbrev,
+                        dispatch_date=CASE WHEN excluded.dispatch_date != '' THEN excluded.dispatch_date ELSE dispatch_date END,
+                        install_type=CASE WHEN excluded.install_type != '' THEN excluded.install_type ELSE install_type END,
+                        task=excluded.task,
+                        assigned=excluded.assigned,
+                        pm=excluded.pm,
                         detail_url=excluded.detail_url,
-                        last_seen_utc=excluded.last_seen_utc
+                        seats=CASE WHEN excluded.seats != '' THEN excluded.seats ELSE seats END,
+                        pbx_ip=CASE WHEN excluded.pbx_ip != '' THEN excluded.pbx_ip ELSE pbx_ip END,
+                        phone_model=CASE WHEN excluded.phone_model != '' THEN excluded.phone_model ELSE phone_model END,
+                        location=CASE WHEN excluded.location != '' THEN excluded.location ELSE location END,
+                        pon=CASE WHEN excluded.pon != '' THEN excluded.pon ELSE pon END,
+                        on_net_ott=CASE WHEN excluded.on_net_ott != '' THEN excluded.on_net_ott ELSE on_net_ott END,
+                        scraped_utc=excluded.scraped_utc
                     """,
                     (
                         order_id,
-                        rec.get("install_date") or "",
                         rec.get("customer_name") or "",
-                        rec.get("description") or "",
-                        rec.get("order_type") or "",
-                        rec.get("location") or "",
-                        assigned_json,
+                        rec.get("customer_abbrev") or "",
+                        rec.get("dispatch_date") or "",
+                        rec.get("install_type") or "",
+                        rec.get("task") or "",
+                        rec.get("assigned") or "",
+                        rec.get("pm") or "",
                         rec.get("detail_url") or "",
+                        rec.get("seats") or "",
+                        rec.get("pbx_ip") or "",
+                        rec.get("phone_model") or "",
+                        rec.get("location") or "",
+                        rec.get("pon") or "",
+                        rec.get("on_net_ott") or "",
                         rec.get("scraped_utc") or now_utc,
-                        now_utc,
                     ),
                 )
     return len(records)
 
-
-def list_orders(
-    db_path: str,
-    assigned_to: str | None = None,
-    order_type: str | None = None,
-    from_date: str | None = None,
-) -> list[dict[str, Any]]:
-    conditions: list[str] = []
-    params: list[Any] = []
-    if assigned_to:
-        conditions.append('assigned_json LIKE ?')
-        params.append(f'%"{assigned_to}"%')
-    if order_type:
-        conditions.append("order_type LIKE ?")
-        params.append(f"%{order_type}%")
-    if from_date:
-        conditions.append("install_date >= ?")
-        params.append(from_date)
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    with get_conn(db_path) as conn:
-        rows = conn.execute(
-            f"SELECT * FROM orders {where} ORDER BY install_date ASC",
-            params,
-        ).fetchall()
-    result = []
-    for row in rows:
-        d = dict(row)
-        try:
-            d["assigned"] = json.loads(d.pop("assigned_json", "[]"))
-        except (ValueError, TypeError):
-            d["assigned"] = []
-        result.append(d)
-    return result

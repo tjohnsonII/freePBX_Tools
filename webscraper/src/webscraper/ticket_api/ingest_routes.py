@@ -117,6 +117,11 @@ class _VpbxSiteConfigsBody(BaseModel):
     now_utc: str
 
 
+class _OrdersBody(BaseModel):
+    records: list[dict[str, Any]]
+    now_utc: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 # db and db_path are injected at registration time to avoid circular imports.
 
@@ -249,9 +254,11 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     return {"inserted": n}
 
 
-class _OrdersBody(BaseModel):
-    records: list[dict[str, Any]]
-    now_utc: str
+@router.post("/orders")
+def ingest_orders(body: _OrdersBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    n = _db.upsert_orders(_dp(), body.records, body.now_utc)
+    return {"upserted": n}
 
 
 class _HeartbeatBody(BaseModel):
@@ -265,13 +272,6 @@ class _HeartbeatBody(BaseModel):
     ts_utc: str | None = None       # client-side timestamp (informational)
     vpn_connected: bool | None = None
     vpn_ip: str | None = None
-
-
-@router.post("/orders")
-def ingest_orders(body: _OrdersBody, request: Request) -> dict[str, Any]:
-    _require_ingest_auth(request)
-    n = _db.upsert_orders(_dp(), body.records, body.now_utc)
-    return {"inserted": n}
 
 
 @router.post("/heartbeat")

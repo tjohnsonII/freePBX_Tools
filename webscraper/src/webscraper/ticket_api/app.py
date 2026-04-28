@@ -872,6 +872,16 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
     raise HTTPException(status_code=501, detail="VPBX device config scraping is handled by the client. Use the client branch.")
 
 
+# ── Orders endpoints ──────────────────────────────────────────────────────────
+
+
+@app.get("/api/orders")
+def api_orders(pm: str | None = Query(None)):
+    """Return scraped orders from 123.net orders admin. Filter by pm= username."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_orders(db_path(), pm=pm)}
+
+
 # ── VPBX site-config endpoints ────────────────────────────────────────────────
 
 
