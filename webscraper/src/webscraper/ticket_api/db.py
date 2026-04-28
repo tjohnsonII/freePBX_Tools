@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from webscraper.ticket_api.db_core import WRITE_LOCK, build_last_activity_expr, get_conn, table_columns
@@ -378,25 +379,6 @@ def ensure_indexes(db_path: str) -> None:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN updated_at TEXT")
             if "source" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN source TEXT")
-
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS orders (
-                    order_id      TEXT PRIMARY KEY,
-                    install_date  TEXT,
-                    customer_name TEXT,
-                    description   TEXT,
-                    order_type    TEXT,
-                    location      TEXT,
-                    assigned_json TEXT,
-                    detail_url    TEXT,
-                    scraped_utc   TEXT,
-                    last_seen_utc TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_orders_install_date ON orders(install_date);
-                CREATE INDEX IF NOT EXISTS idx_orders_last_seen ON orders(last_seen_utc);
-                """
-            )
 
 
 def ensure_handle_row(db_path: str, handle: str) -> None:
