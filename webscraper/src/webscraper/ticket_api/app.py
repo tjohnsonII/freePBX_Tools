@@ -920,23 +920,6 @@ def api_clients():
     return {"items": rows}
 
 
-@app.get("/api/orders")
-def api_orders(
-    assigned_to: str | None = Query(None),
-    order_type: str | None = Query(None),
-    from_date: str | None = Query(None),
-):
-    """Return scraped orders from the orders table. Filter by assigned_to, order_type, or from_date."""
-    db.ensure_indexes(db_path())
-    orders = db.list_orders(
-        db_path(),
-        assigned_to=assigned_to or None,
-        order_type=order_type or None,
-        from_date=from_date or None,
-    )
-    return {"orders": orders, "count": len(orders)}
-
-
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 
