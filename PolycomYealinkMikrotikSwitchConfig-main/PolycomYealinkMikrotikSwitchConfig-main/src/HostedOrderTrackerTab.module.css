@@ -1,20 +1,27 @@
 /* HostedOrderTrackerTab.module.css */
 
 .container {
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
 }
 
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .toolbar {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
 
+.divider {
+  width: 1px;
+  height: 22px;
+  background: var(--app-border);
+  margin: 0 2px;
+}
+
 .btn {
-  padding: 4px 12px;
+  padding: 5px 13px;
   font-size: 12px;
   font-weight: 600;
   border-radius: 4px;
@@ -22,31 +29,61 @@
   background: var(--app-surface);
   color: var(--app-fg);
   cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
 }
-.btn:hover {
+.btn:hover:not(:disabled) {
   border-color: var(--brand-blue);
   color: var(--brand-blue);
 }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  composes: btn;
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: #fff;
+}
+.btnPrimary:hover:not(:disabled) {
+  background: #005a94;
+  border-color: #005a94;
+  color: #fff;
+}
+
+.btnDanger {
+  composes: btn;
+  border-color: var(--app-border);
+  color: var(--app-muted);
+}
+.btnDanger:hover:not(:disabled) {
+  border-color: #b42318;
+  color: #b42318;
+}
 
 .downloadLink { display: none; }
+.fileLabel    { cursor: pointer; }
 
-.fileLabel { cursor: pointer; }
-
+/* ── Table ───────────────────────────────────────────────────────────────── */
 .tableScroll {
   overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1000px;
+  min-width: 800px;
   font-size: 12px;
   background: var(--app-surface);
 }
 
 .thField {
   border: 1px solid var(--app-border);
-  padding: 4px 8px;
+  padding: 5px 8px;
   background: var(--app-surface-2);
   color: var(--app-muted);
   font-size: 11px;
@@ -55,17 +92,26 @@
   letter-spacing: 0.3px;
   white-space: nowrap;
   text-align: left;
+  min-width: 220px;
+  position: sticky;
+  left: 0;
+  z-index: 2;
 }
 
 .thCustomer {
   border: 1px solid var(--app-border);
   padding: 4px 6px;
   background: var(--app-surface-2);
-  position: relative;
-  min-width: 120px;
+  min-width: 140px;
 }
 
 .thCustomerInner {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.thCustomerTop {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,9 +119,11 @@
 }
 
 .handleInput {
-  width: 80px;
+  flex: 1;
+  min-width: 0;
   font-weight: 700;
   font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
   border: 1px solid var(--app-border);
   border-radius: 4px;
   padding: 2px 4px;
@@ -100,21 +148,33 @@
 }
 .deleteColBtn:hover { color: #b42318; }
 
+.progress {
+  font-size: 10px;
+  color: var(--brand-blue);
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+/* Row types */
 .tdField {
   border: 1px solid var(--app-border);
-  padding: 4px 6px;
+  padding: 3px 22px 3px 6px;
   background: var(--app-surface-2);
   color: var(--app-fg);
   font-size: 11px;
   font-weight: 600;
-  position: relative;
+  position: sticky;
+  left: 0;
+  z-index: 1;
   white-space: nowrap;
 }
 
 .deleteFieldBtn {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
   background: none;
   border: none;
   color: var(--app-muted);
@@ -122,20 +182,31 @@
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
+  padding: 0;
 }
 .deleteFieldBtn:hover { color: #b42318; }
 
 .tdCell {
   border: 1px solid var(--app-border);
   padding: 2px 4px;
+  text-align: center;
+}
+
+.sectionRow td {
+  background: color-mix(in srgb, var(--brand-blue) 10%, var(--app-surface-2)) !important;
+}
+.tdSection {
+  border: 1px solid var(--app-border);
+  padding: 3px 6px;
 }
 
 .cellInput {
   width: 100%;
   border: none;
-  border-radius: 4px;
-  padding: 3px 5px;
+  border-radius: 2px;
+  padding: 2px 4px;
   font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
   background: transparent;
   color: var(--app-fg);
   box-sizing: border-box;
@@ -144,4 +215,172 @@
   outline: 2px solid var(--brand-blue);
   background: var(--app-surface);
   border-radius: 2px;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+
+.modalTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-fg);
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--app-muted);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+.modalClose:hover { color: var(--app-fg); }
+
+.modalBody {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalInstructions {
+  font-size: 12px;
+  color: var(--app-fg);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.modalLink {
+  color: var(--brand-blue);
+}
+
+.code {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  background: var(--app-surface-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--app-border);
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-fg);
+  white-space: nowrap;
+}
+
+.filterInput {
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+  width: 160px;
+}
+.filterInput:focus {
+  outline: 2px solid var(--brand-blue);
+}
+
+.pasteArea {
+  width: 100%;
+  font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--app-surface-2);
+  color: var(--app-fg);
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+.pasteArea:focus {
+  outline: 2px solid var(--brand-blue);
+  background: var(--app-surface);
+}
+
+.statusOk  { font-size: 12px; color: #16794a; margin: 0; }
+.statusErr { font-size: 12px; color: #b42318; margin: 0; }
+.apiStatus { font-size: 12px; color: var(--app-fg-muted, #888); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Preview table */
+.previewWrap {
+  overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+.previewTable th {
+  background: var(--app-surface-2);
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--app-muted);
+  border-bottom: 2px solid var(--app-border);
+}
+.previewTable td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--app-border);
+}
+.previewTable tr:last-child td { border-bottom: none; }
+.previewTable tr:nth-child(even) td { background: var(--app-surface-2); }
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--app-border);
+  flex-shrink: 0;
 }

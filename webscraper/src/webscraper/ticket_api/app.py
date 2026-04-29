@@ -2558,6 +2558,53 @@ def api_orders(
     return {"orders": orders, "count": len(orders)}
 
 
+@app.post("/api/orders/refresh")
+def api_orders_refresh(request: Request):
+    """Scrape 123.net orders admin page and ingest. Returns job_id immediately."""
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="Orders refresh is localhost-only")
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode="orders",
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", "orders_refresh_queued", job_id=job_id)
+
+    cancel_event = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+
+    def _run() -> None:
+        try:
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            import sys as _sys  # noqa: PLC0415
+            scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
+            if scripts_dir not in _sys.path:
+                _sys.path.insert(0, scripts_dir)
+            from scrape_orders import fetch_orders, ingest_orders  # type: ignore[import]  # noqa: PLC0415
+            pm = os.getenv("ORDERS_123NET_PM") or os.getenv("ORDERS_123NET_USERNAME", "")
+            _append_event("info", f"orders_refresh_pm={pm}", job_id=job_id)
+            all_rows = fetch_orders(pm=pm or None)
+            dispatch = [o for o in all_rows if o.get("row_type") == "dispatch"]
+            n = ingest_orders(dispatch)
+            finished = _iso_now()
+            _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
+                               finished_utc=finished, result={"orders_count": n})
+            _append_event("info", f"orders_refresh_done count={n}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("orders_refresh_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=0, total=1,
+                               finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+
+    threading.Thread(target=_run, daemon=True, name=f"orders-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 
