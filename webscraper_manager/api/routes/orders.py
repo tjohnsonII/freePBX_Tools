@@ -49,3 +49,18 @@ async def get_orders(
     except Exception as exc:
         LOGGER.warning("Failed to fetch orders from ticket API: %s", exc)
         return {"ok": False, "error": str(exc), "orders": [], "count": 0}
+
+
+@router.post("/refresh")
+async def refresh_orders() -> dict:
+    """Trigger the client orders scraper via the ticket API."""
+    try:
+        resp = _req.post(
+            f"{_ticket_api_base()}/api/orders/refresh",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        LOGGER.warning("Failed to trigger orders refresh: %s", exc)
+        return {"ok": False, "error": str(exc)}

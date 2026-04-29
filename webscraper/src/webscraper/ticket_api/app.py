@@ -927,6 +927,12 @@ def api_orders(
     return {"orders": orders, "count": len(orders)}
 
 
+@app.post("/api/orders/refresh")
+def api_orders_refresh(request: Request):
+    """Orders scraping runs on the client. Data arrives via /api/ingest/orders."""
+    raise HTTPException(status_code=501, detail="Orders scraping is handled by the client. Use the client branch.")
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 

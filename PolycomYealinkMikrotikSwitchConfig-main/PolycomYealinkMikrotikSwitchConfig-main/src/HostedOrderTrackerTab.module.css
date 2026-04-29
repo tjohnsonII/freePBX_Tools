@@ -343,6 +343,7 @@
 
 .statusOk  { font-size: 12px; color: #16794a; margin: 0; }
 .statusErr { font-size: 12px; color: #b42318; margin: 0; }
+.apiStatus { font-size: 12px; color: var(--app-fg-muted, #888); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Preview table */
 .previewWrap {

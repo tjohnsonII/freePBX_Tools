@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as Papa from 'papaparse';
 import styles from './HostedOrderTrackerTab.module.css';
+
+const MANAGER_API = 'http://localhost:8787';
 
 const DEFAULT_FIELDS = [
   'CUSTOMER ABBREV', 'CUSTOMER NAME', 'LOCATION', 'DEPLOY FROM (SF/GR)', 'PROJECT MANAGER',
@@ -103,6 +105,18 @@ function parseManhourSummary(text: string, pm: string): ParsedOrder[] {
   return results;
 }
 
+interface ApiOrder {
+  order_id: string;
+  install_date: string;
+  customer_name: string;
+  description: string;
+  order_type: string;
+  location: string;
+  assigned: string[];
+  detail_url: string;
+  scraped_utc: string;
+}
+
 const HostedOrderTrackerTab: React.FC = () => {
   const [state, setState] = useState<TrackerState>(loadState);
   const { fields, customers, data } = state;
@@ -112,6 +126,10 @@ const HostedOrderTrackerTab: React.FC = () => {
   const [pasteFilter, setPasteFilter] = useState(DEFAULT_PM);
   const [pastePreview, setPastePreview] = useState<ParsedOrder[]>([]);
   const [pasteStatus, setPasteStatus] = useState('');
+
+  const [apiStatus, setApiStatus] = useState('');
+  const [apiLoading, setApiLoading] = useState(false);
+  const [refreshLoading, setRefreshLoading] = useState(false);
 
   const downloadRef = useRef<HTMLAnchorElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -126,6 +144,80 @@ const HostedOrderTrackerTab: React.FC = () => {
 
   function update(patch: Partial<TrackerState>) {
     setState(prev => ({ ...prev, ...patch }));
+  }
+
+  // ── API fetch ──────────────────────────────────────────────────────────────
+
+  const applyApiOrders = useCallback((apiOrders: ApiOrder[]) => {
+    if (!apiOrders.length) return 0;
+
+    const existingOrderIds = new Set(customers.filter(c => !c.match(/^CUST\d+$/)));
+    const toAdd = apiOrders.filter(o => !existingOrderIds.has(o.order_id));
+    if (!toAdd.length) return 0;
+
+    const nonEmptyCustomers = customers.filter(c => {
+      if (!c.match(/^CUST\d+$/)) return true;
+      return fields.some(f => (data[f]?.[c] || '').trim() !== '');
+    });
+
+    const newCustomers = [...nonEmptyCustomers, ...toAdd.map(o => o.order_id)];
+    const newData: CellMap = {};
+    for (const f of fields) newData[f] = { ...(data[f] || {}) };
+
+    for (const order of toAdd) {
+      const col = order.order_id;
+      newData['CUSTOMER NAME'][col]    = order.customer_name || '';
+      newData['CUSTOMER ABBREV'][col]  = order.order_id.split('-')[0] || '';
+      newData['ORDER ID'][col]         = order.order_id;
+      newData['INSTALL DATE'][col]     = order.install_date || '';
+      newData['LOCATION'][col]         = order.location || '';
+      newData['LINK TO CONTRACT'][col] = order.detail_url || ORDERS_ADMIN_URL;
+      if (order.assigned?.length) {
+        newData['PROJECT MANAGER'][col] = order.assigned.join(', ');
+      }
+    }
+
+    setState(prev => ({ ...prev, customers: newCustomers, data: newData }));
+    return toAdd.length;
+  }, [customers, fields, data]);
+
+  async function handleApiFetch() {
+    setApiLoading(true);
+    setApiStatus('Fetching orders from API...');
+    try {
+      const resp = await fetch(`${MANAGER_API}/api/orders?assigned_to=${DEFAULT_PM}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const apiOrders: ApiOrder[] = json.orders || [];
+      if (!apiOrders.length) {
+        setApiStatus('No orders found in the database. Try "Scrape Now" first.');
+        return;
+      }
+      const added = applyApiOrders(apiOrders);
+      setApiStatus(added
+        ? `Added ${added} order${added !== 1 ? 's' : ''} from API (${apiOrders.length} total in DB).`
+        : `All ${apiOrders.length} orders already in tracker.`);
+    } catch (err) {
+      setApiStatus(`API fetch failed: ${err}. Is the manager running on port 8787?`);
+    } finally {
+      setApiLoading(false);
+    }
+  }
+
+  async function handleApiRefresh() {
+    setRefreshLoading(true);
+    setApiStatus('Triggering scrape on client...');
+    try {
+      const resp = await fetch(`${MANAGER_API}/api/orders/refresh`, { method: 'POST' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      if (json.ok === false) throw new Error(json.error || 'Unknown error');
+      setApiStatus(`Scrape queued (job ${json.job_id?.slice(0, 8) || '?'}). Fetch from API in ~30s.`);
+    } catch (err) {
+      setApiStatus(`Scrape trigger failed: ${err}`);
+    } finally {
+      setRefreshLoading(false);
+    }
   }
 
   // ── Paste modal ────────────────────────────────────────────────────────────
@@ -311,9 +403,30 @@ const HostedOrderTrackerTab: React.FC = () => {
         <button
           type="button"
           className={`${styles.btn} ${styles.btnPrimary}`}
+          disabled={apiLoading}
+          onClick={handleApiFetch}
+        >
+          {apiLoading ? 'Loading...' : 'Load from API'}
+        </button>
+        <button
+          type="button"
+          className={styles.btn}
+          disabled={refreshLoading}
+          title="Trigger a fresh scrape of 123.net (requires ORDERS_123NET_PASSWORD in .env)"
+          onClick={handleApiRefresh}
+        >
+          {refreshLoading ? 'Queuing...' : 'Scrape Now'}
+        </button>
+        {apiStatus && (
+          <span className={styles.apiStatus}>{apiStatus}</span>
+        )}
+        <div className={styles.divider} />
+        <button
+          type="button"
+          className={styles.btn}
           onClick={() => setShowPasteModal(true)}
         >
-          Load from 123.net
+          Paste Import
         </button>
         <div className={styles.divider} />
         <label className={`${styles.btn} ${styles.fileLabel}`}>
