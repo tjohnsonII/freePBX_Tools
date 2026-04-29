@@ -201,6 +201,10 @@ webscraper/**/output/
 **/\$null
 webscraper/ticket-ui/F5
 
+# terminal session recordings (created by the Unix `script` command)
+typescript
+**/typescript
+
 # webscraper-manager runtime state
 .webscraper_manager/
 webscraper/var/auth/imported_cookies.json
