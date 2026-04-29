@@ -272,6 +272,14 @@ def list_orders(
         return []
 
 
+def get_client_heartbeats(db_path: str) -> list[dict[str, Any]]:  # noqa: ARG001
+    try:
+        r = _get("/api/clients")
+        return r.get("items", []) if isinstance(r, dict) else []
+    except Exception:
+        return []
+
+
 # ── Auth cookies (stay local — used for scraping, not stored on server) ───────
 
 
