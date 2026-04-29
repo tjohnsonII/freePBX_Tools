@@ -49,6 +49,7 @@ _SCRAPERS: list[dict] = [
         "key":          "phone_configs",
         "label":        "Phone Configs",
         "api_start":    "/api/vpbx/device-configs/refresh",
+        "api_state":    "/api/vpbx/device-configs/state",
         "event_prefix": "vpbx_device_configs:",
         "login_hint":   "Chrome will open — log in to secure.123.net when prompted.",
     },
@@ -56,6 +57,7 @@ _SCRAPERS: list[dict] = [
         "key":          "site_config",
         "label":        "Site Config",
         "api_start":    "/api/vpbx/site-configs/refresh",
+        "api_state":    "/api/vpbx/site-configs/state",
         "event_prefix": "vpbx_site_configs:",
         "login_hint":   "Chrome will open — log in to secure.123.net when prompted.",
     },
@@ -643,6 +645,9 @@ class ScrapeManagerApp(ctk.CTk):
         if extra_controls_fn:
             extra_controls_fn(ctrl, w, next_col)
 
+        cfg_for_key = next((c for c in _SCRAPERS if c["key"] == key), {})
+        has_resume = bool(cfg_for_key.get("api_state"))
+
         col = next_col[0]
         w["btn_start"] = ctk.CTkButton(
             ctrl, text="▶  Scrape",
@@ -653,6 +658,17 @@ class ScrapeManagerApp(ctk.CTk):
         padx_left = 12 if col == 0 else 6
         w["btn_start"].grid(row=0, column=col, padx=(padx_left, 6), pady=10)
         col += 1
+
+        if has_resume:
+            w["btn_resume_last"] = ctk.CTkButton(
+                ctrl, text="↺  Resume",
+                fg_color="#2980b9", hover_color="#1f6391",
+                width=120, height=36, font=ctk.CTkFont(size=13),
+                state="disabled",
+                command=lambda k=key: self._on_scraper_resume_last(k),
+            )
+            w["btn_resume_last"].grid(row=0, column=col, padx=6, pady=10)
+            col += 1
 
         w["btn_pause"] = ctk.CTkButton(
             ctrl, text="⏸  Pause",
@@ -971,6 +987,36 @@ class ScrapeManagerApp(ctk.CTk):
             self._run_in_thread(self._do_scraper_resume, key=key, job_id=jid)
         else:
             self._run_in_thread(self._do_scraper_pause, key=key, job_id=jid)
+
+    def _on_scraper_resume_last(self, key: str) -> None:
+        if not self._connected:
+            messagebox.showerror("Not Connected", "Server is still starting up.")
+            return
+        if self._scraper[key]["running"]:
+            messagebox.showinfo("Already Running", "A scrape job is already in progress.")
+            return
+        self._run_in_thread(self._do_scraper_resume_last, key=key)
+
+    def _do_scraper_resume_last(self, key: str) -> None:
+        cfg = next((c for c in _SCRAPERS if c["key"] == key), {})
+        state_api = cfg.get("api_state")
+        if not state_api:
+            return
+        try:
+            state = _get(state_api)
+            last = (state or {}).get("last_completed_handle")
+            if not last:
+                self.after(0, lambda: messagebox.showinfo(
+                    "No Resume Point",
+                    f"No previous {cfg.get('label', key)} scrape found.\nUse Scrape to start fresh.",
+                ))
+                return
+            payload = self._build_scraper_payload(key)
+            payload["resume_from_handle"] = last
+            self._scraper_append_event(key, f"Resuming from handle: {last}", "info")
+            self._do_scraper_start(key=key, payload=payload)
+        except Exception as exc:
+            self._scraper_append_event(key, f"Resume error: {exc}", "error")
 
     def _on_scraper_stop(self, key: str) -> None:
         s = self._scraper[key]
@@ -1412,6 +1458,19 @@ class ScrapeManagerApp(ctk.CTk):
                 w = self._scraper_w.get(cfg["key"], {})
                 if w.get("btn_start") and not self._scraper[cfg["key"]]["running"]:
                     w["btn_start"].configure(state="normal")
+                # Populate resume button label on first connect
+                state_api = cfg.get("api_state")
+                if state_api and w.get("btn_resume_last") and not prev:
+                    def _init_resume(api=state_api, btn=w["btn_resume_last"]) -> None:
+                        try:
+                            s = _get(api)
+                            last = (s or {}).get("last_completed_handle")
+                            label = f"↺  Resume from {last}" if last else "↺  Resume"
+                            btn_state = "normal" if last else "disabled"
+                            self.after(0, lambda: btn.configure(text=label, state=btn_state))
+                        except Exception:
+                            pass
+                    self._run_in_thread(_init_resume)
         else:
             if prev:
                 self._queue_log(f"Lost connection to {API_BASE} — retrying…", "warning")
@@ -1427,6 +1486,8 @@ class ScrapeManagerApp(ctk.CTk):
                     w["btn_stop"].configure(state="disabled", fg_color="#5d1f1a", hover_color="#5d1f1a")
                 if w.get("btn_pause"):
                     w["btn_pause"].configure(state="disabled")
+                if w.get("btn_resume_last"):
+                    w["btn_resume_last"].configure(state="disabled")
 
     def _update_vpn(self, connected: bool, ip: str | None) -> None:
         prev = self._vpn_connected
@@ -1512,8 +1573,10 @@ class ScrapeManagerApp(ctk.CTk):
             elif state != "paused" and self._scraper[key].get("paused"):
                 self._scraper[key]["paused"] = False
                 w["btn_pause"].configure(text="⏸  Pause", fg_color="#8e44ad", hover_color="#6c3483")
+        if w.get("btn_resume_last"):
+            w["btn_resume_last"].configure(state="disabled" if is_active else "normal")
 
-        # Re-enable Start button when terminal
+        # Re-enable Start button when terminal; refresh Resume button label from state
         if state in _TERMINAL:
             self._scraper[key]["running"] = False
             self._scraper[key]["paused"] = False
@@ -1526,6 +1589,21 @@ class ScrapeManagerApp(ctk.CTk):
                 )
             if hint:
                 hint.grid_remove()
+            # Update resume button with last completed handle
+            if w.get("btn_resume_last"):
+                cfg_key = next((c for c in _SCRAPERS if c["key"] == key), {})
+                state_api = cfg_key.get("api_state")
+                if state_api and self._connected:
+                    def _fetch_resume_label(k=key, api=state_api, btn=w["btn_resume_last"]) -> None:
+                        try:
+                            s = _get(api)
+                            last = (s or {}).get("last_completed_handle")
+                            label = f"↺  Resume from {last}" if last else "↺  Resume"
+                            btn_state = "normal" if last else "disabled"
+                            self.after(0, lambda: btn.configure(text=label, state=btn_state))
+                        except Exception:
+                            pass
+                    self._run_in_thread(_fetch_resume_label)
 
         # Append new events (deduplicated by id)
         s = self._scraper[key]

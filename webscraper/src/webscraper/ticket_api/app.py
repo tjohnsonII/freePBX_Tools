@@ -2153,6 +2153,7 @@ class _VpbxDeviceConfigsRefreshBody(BaseModel):
     handles: list[str] | None = None  # limit to specific handles; omit for all
     force: bool = False               # True → ignore existing data, re-scrape everything
     incomplete_only: bool = False     # True → re-scrape devices with blank/single-line view_config
+    resume_from_handle: str | None = None  # skip handles <= this value (alphabetically)
 
 
 @app.get("/api/vpbx/device-configs")
@@ -2194,8 +2195,8 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="VPBX device config refresh is localhost-only")
 
-    handles = [h.upper() for h in body.handles] if body.handles else None
-    mode = f"vpbx_device_configs:{','.join(handles)}" if handles else "vpbx_device_configs"
+    _explicit_handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_device_configs:{','.join(_explicit_handles)}" if _explicit_handles else "vpbx_device_configs"
 
     job_id = str(uuid.uuid4())
     now = _iso_now()
@@ -2204,7 +2205,8 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
         db_path(), job_id=job_id, handle=None, mode=mode,
         ticket_limit=None, status="queued", created_utc=now,
     )
-    _append_event("info", f"vpbx_device_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
+    _queued_handles_desc = ",".join(_explicit_handles) if _explicit_handles else (body.resume_from_handle or "all")
+    _append_event("info", f"vpbx_device_configs_refresh_queued handles={_queued_handles_desc}", job_id=job_id)
 
     cancel_event = threading.Event()
     pause_event  = threading.Event()
@@ -2219,6 +2221,17 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
 
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_device_configs:{msg}", job_id=job_id)
+
+        # Compute effective handle list (explicit > resume > all)
+        if _explicit_handles:
+            handles = _explicit_handles
+        elif body.resume_from_handle:
+            rh = body.resume_from_handle.strip().upper()
+            all_h = sorted(set(_load_scrape_handles()))
+            handles = [h for h in all_h if h > rh]
+            _emit(f"resume_from={rh} handles_remaining={len(handles)}")
+        else:
+            handles = None  # fetch_device_configs loads all from vpbx.cgi
 
         # Build device-level existing config dict for comparison inside fetch_device_configs.
         # Keyed by (device_id, vpbx_id) → concatenation of all four stored config fields.
@@ -2280,6 +2293,15 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
             now = _iso_now()
             db.upsert_vpbx_device_configs(db_path(), records, now)
             total_saved += len(records)
+            # Persist resume checkpoint
+            try:
+                state_path = kb_dir() / "device_configs_state.json"
+                state_path.write_text(
+                    json.dumps({"last_completed_handle": handle, "updated_utc": now}),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
             _update_scrape_job(job_id=job_id, status="running",
                                completed=total_saved, total=total_saved + 1)
             # Pause/cancel checkpoint between handles
@@ -2336,11 +2358,24 @@ def api_vpbx_device_configs_refresh(body: _VpbxDeviceConfigsRefreshBody, request
     return {"job_id": job_id, "status": "queued"}
 
 
+@app.get("/api/vpbx/device-configs/state")
+def api_vpbx_device_configs_state():
+    """Return the last completed handle from the most recent device-configs scrape."""
+    state_path = kb_dir() / "device_configs_state.json"
+    if not state_path.exists():
+        return {"last_completed_handle": None, "updated_utc": None}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read device-configs state: {exc}") from exc
+
+
 # ── VPBX site-config endpoints ────────────────────────────────────────────────
 
 
 class _VpbxSiteConfigsRefreshBody(BaseModel):
     handles: list[str] | None = None  # limit to specific handles; omit for all
+    resume_from_handle: str | None = None  # skip handles <= this value (alphabetically)
 
 
 @app.get("/api/vpbx/site-configs")
@@ -2371,8 +2406,8 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
     if not _is_localhost_request(request):
         raise HTTPException(status_code=403, detail="VPBX site config refresh is localhost-only")
 
-    handles = [h.upper() for h in body.handles] if body.handles else None
-    mode = f"vpbx_site_configs:{','.join(handles)}" if handles else "vpbx_site_configs"
+    _explicit_site_handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_site_configs:{','.join(_explicit_site_handles)}" if _explicit_site_handles else "vpbx_site_configs"
 
     job_id = str(uuid.uuid4())
     now = _iso_now()
@@ -2381,7 +2416,8 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
         db_path(), job_id=job_id, handle=None, mode=mode,
         ticket_limit=None, status="queued", created_utc=now,
     )
-    _append_event("info", f"vpbx_site_configs_refresh_queued handles={handles or 'all'}", job_id=job_id)
+    _queued_site_desc = ",".join(_explicit_site_handles) if _explicit_site_handles else (body.resume_from_handle or "all")
+    _append_event("info", f"vpbx_site_configs_refresh_queued handles={_queued_site_desc}", job_id=job_id)
 
     cancel_event = threading.Event()
     pause_event  = threading.Event()
@@ -2396,6 +2432,17 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
 
         def _emit(msg: str) -> None:
             _append_event("info", f"vpbx_site_configs:{msg}", job_id=job_id)
+
+        # Compute effective handle list (explicit > resume > all)
+        if _explicit_site_handles:
+            handles = _explicit_site_handles
+        elif body.resume_from_handle:
+            rh = body.resume_from_handle.strip().upper()
+            all_h = sorted(set(_load_scrape_handles()))
+            handles = [h for h in all_h if h > rh]
+            _emit(f"resume_from={rh} handles_remaining={len(handles)}")
+        else:
+            handles = None
 
         # Build handle-level existing config dict for comparison inside fetch_site_configs.
         # Keyed by handle (uppercase) → stored site_config text.
@@ -2414,8 +2461,18 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
 
         def _on_handle_done(h: str, records: list) -> None:
             nonlocal total_saved
-            db.upsert_vpbx_site_configs(db_path(), records, _iso_now())
+            now_h = _iso_now()
+            db.upsert_vpbx_site_configs(db_path(), records, now_h)
             total_saved += len(records)
+            # Persist resume checkpoint
+            try:
+                state_path = kb_dir() / "site_configs_state.json"
+                state_path.write_text(
+                    json.dumps({"last_completed_handle": h, "updated_utc": now_h}),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
             _update_scrape_job(job_id=job_id, status="running",
                                completed=total_saved, total=total_saved + 1)
             # Pause/cancel checkpoint between handles
@@ -2470,6 +2527,18 @@ def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Re
 
     threading.Thread(target=_run, daemon=True, name=f"vpbx-siteconf-{job_id[:8]}").start()
     return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/api/vpbx/site-configs/state")
+def api_vpbx_site_configs_state():
+    """Return the last completed handle from the most recent site-configs scrape."""
+    state_path = kb_dir() / "site_configs_state.json"
+    if not state_path.exists():
+        return {"last_completed_handle": None, "updated_utc": None}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read site-configs state: {exc}") from exc
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────

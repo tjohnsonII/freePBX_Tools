@@ -812,16 +812,42 @@ def _capture_device_page_data(driver: Any, edit_url: str, emit_fn: Any = None) -
 
     if view_btn:
         try:
+            # Log button attributes so we know what mechanism it uses
+            btn_tag   = view_btn.tag_name or "?"
+            btn_class = (view_btn.get_attribute("class") or "")[:80]
+            btn_href  = (view_btn.get_attribute("href") or view_btn.get_attribute("data-url") or "")[:80]
+            btn_onclick = (view_btn.get_attribute("onclick") or "")[:80]
+            _log(f"view_config_btn tag={btn_tag} class={btn_class!r} href={btn_href!r} onclick={btn_onclick!r}")
+
+            handles_before = set(driver.window_handles)
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", view_btn)
             time.sleep(0.3)
             try:
                 view_btn.click()
             except Exception:
                 driver.execute_script("arguments[0].click();", view_btn)
-            view_text = _read_modal_textarea(driver, emit_fn, "view_config")
-            result["view_config"] = view_text
-            _close_modal(driver)
-            time.sleep(0.3)
+
+            # Check if a new window/tab opened
+            time.sleep(0.5)
+            handles_after = set(driver.window_handles)
+            new_windows = handles_after - handles_before
+            if new_windows:
+                _log(f"view_config_new_window count={len(new_windows)} — switching to read content")
+                orig_handle = driver.current_window_handle
+                for new_win in new_windows:
+                    driver.switch_to.window(new_win)
+                    time.sleep(0.5)
+                    page_text = driver.find_element(By.TAG_NAME, "body").text[:2000].strip()
+                    if page_text:
+                        result["view_config"] = page_text
+                        _log(f"view_config_captured_from_popup len={len(page_text)}")
+                    driver.close()
+                driver.switch_to.window(orig_handle)
+            else:
+                view_text = _read_modal_textarea(driver, emit_fn, "view_config")
+                result["view_config"] = view_text
+                _close_modal(driver)
+                time.sleep(0.3)
         except Exception as exc:
             _log(f"view_config_click_failed err={exc}")
     else:
@@ -1003,8 +1029,25 @@ def fetch_device_configs(
                     f"device {dev_idx + 1}/{len(devices)}: {name} (id={device_id})"
                 )
 
-                # Capture all four config fields in a single page visit
-                data = _capture_device_page_data(driver, device["edit_url"], emit_fn=emit_fn)
+                # Capture all four config fields in a single page visit.
+                # Retry once on WebDriverException (Chrome tab crash, navigation error).
+                try:
+                    data = _capture_device_page_data(driver, device["edit_url"], emit_fn=emit_fn)
+                except Exception as _dev_exc:
+                    exc_msg = str(_dev_exc)
+                    if "tab crashed" in exc_msg or "no such window" in exc_msg or "invalid session" in exc_msg.lower():
+                        _emit(f"device_tab_crashed handle={handle} device={device_id} — retrying once")
+                        try:
+                            time.sleep(2)
+                            driver.get("about:blank")
+                            time.sleep(1)
+                            data = _capture_device_page_data(driver, device["edit_url"], emit_fn=emit_fn)
+                        except Exception as _retry_exc:
+                            _emit(f"device_tab_crashed_retry_failed handle={handle} device={device_id} err={_retry_exc}")
+                            continue
+                    else:
+                        _emit(f"device_capture_failed handle={handle} device={device_id} err={_dev_exc}")
+                        continue
 
                 dp = data["device_properties"]
                 aa = data["arbitrary_attributes"]
