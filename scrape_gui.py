@@ -68,6 +68,13 @@ _SCRAPERS: list[dict] = [
         "event_prefix": "noc_queue:",
         "login_hint":   "Chrome will open — log in to noc-tickets.123.net when prompted.",
     },
+    {
+        "key":          "orders",
+        "label":        "Orders",
+        "api_start":    "/api/orders/refresh",
+        "event_prefix": "orders_refresh:",
+        "login_hint":   "Uses ORDERS_123NET_USERNAME/PASSWORD from .env — no browser needed.",
+    },
 ]
 
 # ── VPN detection ─────────────────────────────────────────────────────────────
