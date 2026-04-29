@@ -1321,9 +1321,14 @@ class ScrapeManagerApp(ctk.CTk):
             self.after_cancel(self._poll_after_id)
         active = self._active_job and self._active_job.get("current_state") in _ACTIVE
         any_scraper_active = any(s["running"] for s in self._scraper.values())
-        ms = delay_ms if delay_ms is not None else (
-            POLL_FAST_MS if (active or any_scraper_active) else POLL_SLOW_MS
-        )
+        if delay_ms is not None:
+            ms = delay_ms
+        elif not self._connected:
+            ms = 2_000   # retry quickly while server is starting up
+        elif active or any_scraper_active:
+            ms = POLL_FAST_MS
+        else:
+            ms = POLL_SLOW_MS
         self._poll_after_id = self.after(ms, self._run_poll)
 
     def _run_poll(self) -> None:
