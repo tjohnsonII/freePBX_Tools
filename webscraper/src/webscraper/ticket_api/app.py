@@ -1661,6 +1661,19 @@ def api_db_status():
 @app.get("/api/health")
 @app.get("/health")
 def api_health():
+    client_mode = os.getenv("CLIENT_MODE", "").strip() == "1"
+    if client_mode:
+        # In CLIENT_MODE db.get_stats() hits the remote server — skip it so
+        # the health check stays fast and the Scrape Manager stays Online.
+        return {
+            "ok": True,
+            "status": "ok",
+            "version": app.version,
+            "db_path": db_path(),
+            "db_exists": True,
+            "total_handles": 0,
+            "total_tickets": 0,
+        }
     stats = db.get_stats(db_path())
     return {
         "ok": True,
