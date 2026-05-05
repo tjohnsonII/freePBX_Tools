@@ -38,7 +38,7 @@ def _headers() -> dict[str, str]:
     return h
 
 
-def _post(path: str, body: dict[str, Any], *, timeout: int = 30) -> dict[str, Any]:
+def _post(path: str, body: dict[str, Any], *, timeout: int = 6) -> dict[str, Any]:
     url = f"{_server_url()}{path}"
     try:
         resp = _requests.post(url, json=body, headers=_headers(), timeout=timeout)
@@ -49,7 +49,7 @@ def _post(path: str, body: dict[str, Any], *, timeout: int = 30) -> dict[str, An
         raise
 
 
-def _post_queued(path: str, body: dict[str, Any], *, timeout: int = 30) -> dict[str, Any]:
+def _post_queued(path: str, body: dict[str, Any], *, timeout: int = 6) -> dict[str, Any]:
     """POST to server; on failure queue payload locally and return {} without raising."""
     try:
         return _post(path, body, timeout=timeout)
@@ -58,7 +58,7 @@ def _post_queued(path: str, body: dict[str, Any], *, timeout: int = 30) -> dict[
         return {}
 
 
-def _get(path: str, *, timeout: int = 30, **params: Any) -> Any:
+def _get(path: str, *, timeout: int = 6, **params: Any) -> Any:
     url = f"{_server_url()}{path}"
     clean = {k: v for k, v in params.items() if v is not None}
     try:
@@ -225,7 +225,7 @@ def create_scrape_job(
     ticket_id: str | None = None,
     handles: list[str] | None = None,
 ) -> None:
-    _post(
+    _post_queued(
         "/api/ingest/job/create",
         {
             "job_id": job_id,
@@ -336,7 +336,7 @@ def upsert_orders(
 ) -> int:
     if not records:
         return 0
-    r = _post("/api/ingest/orders", {"records": records, "now_utc": now_utc})
+    r = _post_queued("/api/ingest/orders", {"records": records, "now_utc": now_utc})
     return int(r.get("inserted", 0))
 
 
