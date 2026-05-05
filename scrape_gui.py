@@ -372,6 +372,7 @@ class ScrapeManagerApp(ctk.CTk):
         phone_tab   = self._top_tabs.add("Phone Configs")
         site_tab    = self._top_tabs.add("Site Config")
         noc_tab     = self._top_tabs.add("NOC Queue")
+        orders_tab  = self._top_tabs.add("Orders")
         log_tab     = self._top_tabs.add("Server Log")
 
         self._build_tickets_tab(tickets_tab)
@@ -379,6 +380,7 @@ class ScrapeManagerApp(ctk.CTk):
         self._build_phone_configs_tab(phone_tab)
         self._build_site_config_tab(site_tab)
         self._build_noc_queue_tab(noc_tab)
+        self._build_orders_tab(orders_tab)
         self._build_log_tab(log_tab)
 
     # ── Tickets tab ───────────────────────────────────────────────────────────
@@ -831,6 +833,11 @@ class ScrapeManagerApp(ctk.CTk):
             next_col[0] = c
 
         self._build_scraper_panel(tab, "noc_queue", extra_controls_fn=_extra)
+
+    # ── Orders tab ───────────────────────────────────────────────────────────
+
+    def _build_orders_tab(self, tab: Any) -> None:
+        self._build_scraper_panel(tab, "orders")
 
     # ── Server log tail ───────────────────────────────────────────────────────
 
