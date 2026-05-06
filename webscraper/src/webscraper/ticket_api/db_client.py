@@ -346,7 +346,7 @@ def list_orders(
 ) -> list[dict[str, Any]]:
     try:
         r = _get("/api/orders", pm=pm)
-        return r.get("orders", r) if isinstance(r, dict) else (r or [])
+        return r.get("items", r) if isinstance(r, dict) else (r or [])
     except Exception:
         return []
 

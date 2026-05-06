@@ -188,7 +188,7 @@ const HostedOrderTrackerTab: React.FC = () => {
       const resp = await fetch(`${SCRAPER_BASE}/api/orders?pm=${DEFAULT_PM}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
-      const apiOrders: ApiOrder[] = json.orders || [];
+      const apiOrders: ApiOrder[] = json.items || [];
       if (!apiOrders.length) {
         setApiStatus('No orders found in the database. Run the scraper first.');
         return;
