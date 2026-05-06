@@ -1320,10 +1320,26 @@ def list_orders(db_path: str, pm: str | None = None) -> list[dict[str, Any]]:
     if pm:
         q += " WHERE pm=?"
         params.append(pm)
-    q += " ORDER BY dispatch_date ASC, order_id ASC"
+    q += (
+        " ORDER BY"
+        " CASE WHEN dispatch_date IS NULL OR dispatch_date = '' THEN 2"
+        "      WHEN dispatch_date >= DATE('now') THEN 0"
+        "      ELSE 1 END ASC,"
+        " dispatch_date ASC,"
+        " order_id ASC"
+    )
     with get_conn(db_path) as conn:
         rows = conn.execute(q, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def _str(v: Any) -> str:
+    """Coerce a value to str — joins lists, passes strings through, converts None to ''."""
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return " ".join(str(x) for x in v if x)
+    return str(v)
 
 
 def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
@@ -1332,7 +1348,7 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             for rec in records:
-                order_id = (rec.get("order_id") or "").strip()
+                order_id = _str(rec.get("order_id")).strip()
                 if not order_id:
                     continue
                 conn.execute(
@@ -1362,21 +1378,21 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                     """,
                     (
                         order_id,
-                        rec.get("customer_name") or "",
-                        rec.get("customer_abbrev") or "",
-                        rec.get("dispatch_date") or "",
-                        rec.get("install_type") or "",
-                        rec.get("task") or "",
-                        rec.get("assigned") or "",
-                        rec.get("pm") or "",
-                        rec.get("detail_url") or "",
-                        rec.get("seats") or "",
-                        rec.get("pbx_ip") or "",
-                        rec.get("phone_model") or "",
-                        rec.get("location") or "",
-                        rec.get("pon") or "",
-                        rec.get("on_net_ott") or "",
-                        rec.get("scraped_utc") or now_utc,
+                        _str(rec.get("customer_name")),
+                        _str(rec.get("customer_abbrev")),
+                        _str(rec.get("dispatch_date")),
+                        _str(rec.get("install_type")),
+                        _str(rec.get("task")),
+                        _str(rec.get("assigned")),
+                        _str(rec.get("pm")),
+                        _str(rec.get("detail_url")),
+                        _str(rec.get("seats")),
+                        _str(rec.get("pbx_ip")),
+                        _str(rec.get("phone_model")),
+                        _str(rec.get("location")),
+                        _str(rec.get("pon")),
+                        _str(rec.get("on_net_ott")),
+                        _str(rec.get("scraped_utc")) or now_utc,
                     ),
                 )
     return len(records)
