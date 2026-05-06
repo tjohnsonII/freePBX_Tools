@@ -235,7 +235,7 @@ def main() -> int:
     add_common_args(parser)
     parser.add_argument("--mode", choices=["worker", "ui", "api", "combined"], default="worker")
     parser.add_argument("--readiness-timeout", type=int, default=45)
-    parser.add_argument("--api-host", default="127.0.0.1")
+    parser.add_argument("--api-host", default="0.0.0.0")
     parser.add_argument("--api-port", type=int, default=8788)
     parser.add_argument("--ui-host", default="127.0.0.1")
     parser.add_argument("--ui-port", type=int, default=3005)

@@ -48,7 +48,7 @@ _RESTART_FALLBACKS: dict[str, dict[str, Any]] = {
         "script": "scripts/run_manager_ui_app.py", "args": [],
     },
     "webscraper_ticket_api": {
-        "script": "scripts/run_all_web_apps.py", "args": ["--webscraper-mode", "api"],
+        "script": "scripts/run_webscraper_app.py", "args": ["--mode", "api", "--api-host", "0.0.0.0"],
     },
     "webscraper_ticket_ui": {
         "script": "scripts/run_all_web_apps.py", "args": ["--webscraper-mode", "ui"],
@@ -340,14 +340,15 @@ async def restart_service(name: str, request: Request) -> dict:
         _kill_port_pids(port)
         time.sleep(0.5)
 
-    # Build command
-    if cmd_stored and cwd_stored:
-        cmd = cmd_stored
-        cwd = Path(cwd_stored)
-    elif name in _RESTART_FALLBACKS:
+    # Build command — prefer explicit fallbacks (they encode the correct flags)
+    # over stale stored commands which may have been launched differently.
+    if name in _RESTART_FALLBACKS:
         defn = _RESTART_FALLBACKS[name]
         cmd = [sys.executable, str(repo_root / defn["script"])] + defn["args"]
         cwd = repo_root
+    elif cmd_stored and cwd_stored:
+        cmd = cmd_stored
+        cwd = Path(cwd_stored)
     else:
         raise HTTPException(status_code=404, detail=f"No restart command known for: {name}")
 
