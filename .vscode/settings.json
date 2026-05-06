@@ -42,7 +42,8 @@
         "**/.next": true,
         "**/.turbo": true,
         "**/dist": true,
-        "**/build": true
+        "**/build": true,
+        "webscraper/var/**": true
     },
     "search.exclude": {
         "**/*.log": true,

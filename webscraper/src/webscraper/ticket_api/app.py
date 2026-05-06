@@ -2597,12 +2597,11 @@ def api_orders_refresh(request: Request):
             scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
             if scripts_dir not in _sys.path:
                 _sys.path.insert(0, scripts_dir)
-            from scrape_orders import fetch_orders, ingest_orders  # type: ignore[import]  # noqa: PLC0415
+            from scrape_orders import fetch_all_enriched, ingest_orders  # type: ignore[import]  # noqa: PLC0415
             pm = os.getenv("ORDERS_123NET_PM") or os.getenv("ORDERS_123NET_USERNAME", "")
             _append_event("info", f"orders_refresh_pm={pm}", job_id=job_id)
-            all_rows = fetch_orders(pm=pm or None)
-            dispatch = [o for o in all_rows if o.get("row_type") == "dispatch"]
-            n = ingest_orders(dispatch)
+            enriched = fetch_all_enriched(pm=pm or None)
+            n = ingest_orders(enriched)
             finished = _iso_now()
             _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,
                                finished_utc=finished, result={"orders_count": n})

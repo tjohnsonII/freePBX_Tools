@@ -336,8 +336,16 @@ def upsert_orders(
 ) -> int:
     if not records:
         return 0
-    r = _post_queued("/api/ingest/orders", {"records": records, "now_utc": now_utc})
-    return int(r.get("upserted", 0))
+    _LOG.info("upsert_orders: posting %d records to server", len(records))
+    try:
+        r = _post("/api/ingest/orders", {"records": records, "now_utc": now_utc}, timeout=120)
+        n = int(r.get("inserted", 0))
+        _LOG.info("upsert_orders: server accepted %d records", n)
+        return n
+    except Exception as exc:
+        _LOG.error("upsert_orders: POST failed (%s) — queuing locally", exc)
+        _queue_locally("/api/ingest/orders", {"records": records, "now_utc": now_utc})
+        return 0
 
 
 def list_orders(

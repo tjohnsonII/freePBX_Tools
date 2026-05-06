@@ -366,19 +366,146 @@ def ensure_indexes(db_path: str) -> None:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS orders (
-                    order_id      TEXT PRIMARY KEY,
-                    install_date  TEXT,
-                    customer_name TEXT,
-                    description   TEXT,
-                    order_type    TEXT,
-                    location      TEXT,
-                    assigned_json TEXT,
-                    detail_url    TEXT,
-                    scraped_utc   TEXT,
-                    last_seen_utc TEXT
+                    order_id             TEXT PRIMARY KEY,
+                    install_date         TEXT,
+                    customer_name        TEXT,
+                    description          TEXT,
+                    order_type           TEXT,
+                    location             TEXT,
+                    assigned_json        TEXT,
+                    detail_url           TEXT,
+                    scraped_utc          TEXT,
+                    last_seen_utc        TEXT,
+                    -- Phase 1 DETABLE inline enrichment
+                    last_modified        TEXT,
+                    bill_mrc             TEXT,
+                    bill_nrc             TEXT,
+                    assigned_tech        TEXT,
+                    log_count            INTEGER,
+                    last_log_entry       TEXT,
+                    contract_number      TEXT,
+                    forecast_date        TEXT,
+                    customer_email       TEXT,
+                    salesperson          TEXT,
+                    qty_term             TEXT,
+                    -- Phase 2 account enrichment
+                    account_handle       TEXT,
+                    account_company      TEXT,
+                    account_address      TEXT,
+                    account_address2     TEXT,
+                    account_city         TEXT,
+                    account_state        TEXT,
+                    account_zip          TEXT,
+                    account_type         TEXT,
+                    account_billing_ref  TEXT,
+                    account_white_glove  TEXT,
+                    account_past_due     TEXT,
+                    account_balance      TEXT,
+                    account_net_terms    TEXT,
+                    account_phone        TEXT,
+                    account_contact      TEXT,
+                    account_email        TEXT,
+                    account_status_detail TEXT,
+                    account_raw_json     TEXT,
+                    account_scraped_utc  TEXT,
+                    -- Phase 3 dispatch enrichment
+                    dispatch_pm          TEXT,
+                    dispatch_bill_date   TEXT,
+                    dispatch_closed_date TEXT,
+                    dispatch_bill_mrc    TEXT,
+                    dispatch_calendar_context TEXT,
+                    dispatch_tech        TEXT,
+                    dispatch_date        TEXT,
+                    dispatch_time        TEXT,
+                    dispatch_status      TEXT,
+                    dispatch_notes       TEXT,
+                    dispatch_raw_json    TEXT,
+                    dispatch_scraped_utc TEXT,
+                    -- Phase 2 JSON API enrichment (contracts.cgi + resources_json.cgi)
+                    pon                    TEXT,
+                    ckt_id                 TEXT,
+                    sip_trunk              TEXT,
+                    sip_trunk_billby       TEXT,
+                    contract_bill_start    TEXT,
+                    contract_mrc           TEXT,
+                    contract_term_end      TEXT,
+                    account_contracts_json TEXT
                 );
-                CREATE INDEX IF NOT EXISTS idx_orders_install_date ON orders(install_date);
-                CREATE INDEX IF NOT EXISTS idx_orders_last_seen ON orders(last_seen_utc);
+                """
+            )
+
+            # Migrate pre-existing orders tables that lack the enrichment columns
+            # NOTE: indexes on new columns are created AFTER this migration so they
+            # work on both fresh tables and tables that just had columns ALTERed in.
+            orders_columns = table_columns(conn, "orders")
+            for _col, _ddl in [
+                # DETABLE inline
+                ("last_modified",        "TEXT"),
+                ("bill_mrc",             "TEXT"),
+                ("bill_nrc",             "TEXT"),
+                ("assigned_tech",        "TEXT"),
+                ("log_count",            "INTEGER"),
+                ("last_log_entry",       "TEXT"),
+                ("contract_number",      "TEXT"),
+                ("forecast_date",        "TEXT"),
+                ("customer_email",       "TEXT"),
+                ("salesperson",          "TEXT"),
+                ("qty_term",             "TEXT"),
+                # Account
+                ("account_handle",       "TEXT"),
+                ("account_company",      "TEXT"),
+                ("account_address",      "TEXT"),
+                ("account_address2",     "TEXT"),
+                ("account_city",         "TEXT"),
+                ("account_state",        "TEXT"),
+                ("account_zip",          "TEXT"),
+                ("account_type",         "TEXT"),
+                ("account_billing_ref",  "TEXT"),
+                ("account_white_glove",  "TEXT"),
+                ("account_past_due",     "TEXT"),
+                ("account_balance",      "TEXT"),
+                ("account_net_terms",    "TEXT"),
+                ("account_phone",        "TEXT"),
+                ("account_contact",      "TEXT"),
+                ("account_email",        "TEXT"),
+                ("account_status_detail","TEXT"),
+                ("account_raw_json",     "TEXT"),
+                ("account_scraped_utc",  "TEXT"),
+                # Dispatch
+                ("dispatch_pm",              "TEXT"),
+                ("dispatch_bill_date",       "TEXT"),
+                ("dispatch_closed_date",     "TEXT"),
+                ("dispatch_bill_mrc",        "TEXT"),
+                ("dispatch_calendar_context","TEXT"),
+                ("dispatch_tech",            "TEXT"),
+                ("dispatch_date",            "TEXT"),
+                ("dispatch_time",            "TEXT"),
+                ("dispatch_status",          "TEXT"),
+                ("dispatch_notes",           "TEXT"),
+                ("dispatch_raw_json",        "TEXT"),
+                ("dispatch_scraped_utc",     "TEXT"),
+                # JSON API enrichment
+                ("pon",                      "TEXT"),
+                ("ckt_id",                   "TEXT"),
+                ("sip_trunk",                "TEXT"),
+                ("sip_trunk_billby",         "TEXT"),
+                ("contract_bill_start",      "TEXT"),
+                ("contract_mrc",             "TEXT"),
+                ("contract_term_end",        "TEXT"),
+                ("account_contracts_json",   "TEXT"),
+            ]:
+                if _col not in orders_columns:
+                    conn.execute(f"ALTER TABLE orders ADD COLUMN {_col} {_ddl}")
+
+            # Create indexes after migration so columns are guaranteed to exist
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_orders_install_date   ON orders(install_date);
+                CREATE INDEX IF NOT EXISTS idx_orders_last_seen       ON orders(last_seen_utc);
+                CREATE INDEX IF NOT EXISTS idx_orders_dispatch_date   ON orders(dispatch_date);
+                CREATE INDEX IF NOT EXISTS idx_orders_account_handle  ON orders(account_handle);
+                CREATE INDEX IF NOT EXISTS idx_orders_bill_mrc        ON orders(bill_mrc);
+                CREATE INDEX IF NOT EXISTS idx_orders_forecast_date   ON orders(forecast_date);
                 """
             )
 
@@ -1334,9 +1461,35 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                 assigned_json = json.dumps(assigned) if isinstance(assigned, list) else (assigned or "[]")
                 conn.execute(
                     """
-                    INSERT INTO orders(order_id, install_date, customer_name, description, order_type,
-                        location, assigned_json, detail_url, scraped_utc, last_seen_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO orders(
+                        order_id, install_date, customer_name, description, order_type,
+                        location, assigned_json, detail_url, scraped_utc, last_seen_utc,
+                        last_modified, bill_mrc, bill_nrc, assigned_tech, log_count,
+                        last_log_entry, contract_number, forecast_date, customer_email,
+                        salesperson, qty_term,
+                        account_handle, account_company, account_address, account_address2,
+                        account_city, account_state, account_zip, account_type,
+                        account_billing_ref, account_white_glove,
+                        account_past_due, account_balance, account_net_terms,
+                        account_phone, account_contact, account_email,
+                        account_status_detail, account_raw_json, account_scraped_utc,
+                        dispatch_pm, dispatch_bill_date, dispatch_closed_date, dispatch_bill_mrc,
+                        dispatch_calendar_context,
+                        dispatch_tech, dispatch_date, dispatch_time, dispatch_status,
+                        dispatch_notes, dispatch_raw_json, dispatch_scraped_utc,
+                        pon, ckt_id, sip_trunk, sip_trunk_billby,
+                        contract_bill_start, contract_mrc, contract_term_end,
+                        account_contracts_json
+                    )
+                    VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     ON CONFLICT(order_id) DO UPDATE SET
                         install_date=excluded.install_date,
                         customer_name=excluded.customer_name,
@@ -1345,7 +1498,57 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         location=excluded.location,
                         assigned_json=excluded.assigned_json,
                         detail_url=excluded.detail_url,
-                        last_seen_utc=excluded.last_seen_utc
+                        last_seen_utc=excluded.last_seen_utc,
+                        last_modified=COALESCE(excluded.last_modified, orders.last_modified),
+                        bill_mrc=COALESCE(excluded.bill_mrc, orders.bill_mrc),
+                        bill_nrc=COALESCE(excluded.bill_nrc, orders.bill_nrc),
+                        assigned_tech=COALESCE(excluded.assigned_tech, orders.assigned_tech),
+                        log_count=COALESCE(excluded.log_count, orders.log_count),
+                        last_log_entry=COALESCE(excluded.last_log_entry, orders.last_log_entry),
+                        contract_number=COALESCE(excluded.contract_number, orders.contract_number),
+                        forecast_date=COALESCE(excluded.forecast_date, orders.forecast_date),
+                        customer_email=COALESCE(excluded.customer_email, orders.customer_email),
+                        salesperson=COALESCE(excluded.salesperson, orders.salesperson),
+                        qty_term=COALESCE(excluded.qty_term, orders.qty_term),
+                        account_handle=COALESCE(excluded.account_handle, orders.account_handle),
+                        account_company=COALESCE(excluded.account_company, orders.account_company),
+                        account_address=COALESCE(excluded.account_address, orders.account_address),
+                        account_address2=COALESCE(excluded.account_address2, orders.account_address2),
+                        account_city=COALESCE(excluded.account_city, orders.account_city),
+                        account_state=COALESCE(excluded.account_state, orders.account_state),
+                        account_zip=COALESCE(excluded.account_zip, orders.account_zip),
+                        account_type=COALESCE(excluded.account_type, orders.account_type),
+                        account_billing_ref=COALESCE(excluded.account_billing_ref, orders.account_billing_ref),
+                        account_white_glove=COALESCE(excluded.account_white_glove, orders.account_white_glove),
+                        account_past_due=COALESCE(excluded.account_past_due, orders.account_past_due),
+                        account_balance=COALESCE(excluded.account_balance, orders.account_balance),
+                        account_net_terms=COALESCE(excluded.account_net_terms, orders.account_net_terms),
+                        account_phone=COALESCE(excluded.account_phone, orders.account_phone),
+                        account_contact=COALESCE(excluded.account_contact, orders.account_contact),
+                        account_email=COALESCE(excluded.account_email, orders.account_email),
+                        account_status_detail=COALESCE(excluded.account_status_detail, orders.account_status_detail),
+                        account_raw_json=COALESCE(excluded.account_raw_json, orders.account_raw_json),
+                        account_scraped_utc=COALESCE(excluded.account_scraped_utc, orders.account_scraped_utc),
+                        dispatch_pm=COALESCE(excluded.dispatch_pm, orders.dispatch_pm),
+                        dispatch_bill_date=COALESCE(excluded.dispatch_bill_date, orders.dispatch_bill_date),
+                        dispatch_closed_date=COALESCE(excluded.dispatch_closed_date, orders.dispatch_closed_date),
+                        dispatch_bill_mrc=COALESCE(excluded.dispatch_bill_mrc, orders.dispatch_bill_mrc),
+                        dispatch_calendar_context=COALESCE(excluded.dispatch_calendar_context, orders.dispatch_calendar_context),
+                        dispatch_tech=COALESCE(excluded.dispatch_tech, orders.dispatch_tech),
+                        dispatch_date=COALESCE(excluded.dispatch_date, orders.dispatch_date),
+                        dispatch_time=COALESCE(excluded.dispatch_time, orders.dispatch_time),
+                        dispatch_status=COALESCE(excluded.dispatch_status, orders.dispatch_status),
+                        dispatch_notes=COALESCE(excluded.dispatch_notes, orders.dispatch_notes),
+                        dispatch_raw_json=COALESCE(excluded.dispatch_raw_json, orders.dispatch_raw_json),
+                        dispatch_scraped_utc=COALESCE(excluded.dispatch_scraped_utc, orders.dispatch_scraped_utc),
+                        pon=COALESCE(excluded.pon, orders.pon),
+                        ckt_id=COALESCE(excluded.ckt_id, orders.ckt_id),
+                        sip_trunk=COALESCE(excluded.sip_trunk, orders.sip_trunk),
+                        sip_trunk_billby=COALESCE(excluded.sip_trunk_billby, orders.sip_trunk_billby),
+                        contract_bill_start=COALESCE(excluded.contract_bill_start, orders.contract_bill_start),
+                        contract_mrc=COALESCE(excluded.contract_mrc, orders.contract_mrc),
+                        contract_term_end=COALESCE(excluded.contract_term_end, orders.contract_term_end),
+                        account_contracts_json=COALESCE(excluded.account_contracts_json, orders.account_contracts_json)
                     """,
                     (
                         order_id,
@@ -1358,6 +1561,60 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         rec.get("detail_url") or "",
                         rec.get("scraped_utc") or now_utc,
                         now_utc,
+                        # DETABLE inline
+                        rec.get("last_modified") or None,
+                        rec.get("bill_mrc") or None,
+                        rec.get("bill_nrc") or None,
+                        rec.get("assigned_tech") or None,
+                        rec.get("log_count") or None,
+                        rec.get("last_log_entry") or None,
+                        rec.get("contract_number") or None,
+                        rec.get("forecast_date") or None,
+                        rec.get("customer_email") or None,
+                        rec.get("salesperson") or None,
+                        rec.get("qty_term") or None,
+                        # account enrichment
+                        rec.get("account_handle") or None,
+                        rec.get("account_company") or None,
+                        rec.get("account_address") or None,
+                        rec.get("account_address2") or None,
+                        rec.get("account_city") or None,
+                        rec.get("account_state") or None,
+                        rec.get("account_zip") or None,
+                        rec.get("account_type") or None,
+                        rec.get("account_billing_ref") or None,
+                        rec.get("account_white_glove") or None,
+                        rec.get("account_past_due") or None,
+                        rec.get("account_balance") or None,
+                        rec.get("account_net_terms") or None,
+                        rec.get("account_phone") or None,
+                        rec.get("account_contact") or None,
+                        rec.get("account_email") or None,
+                        rec.get("account_status_detail") or None,
+                        rec.get("account_raw_json") or None,
+                        rec.get("account_scraped_utc") or None,
+                        # dispatch enrichment
+                        rec.get("dispatch_pm") or None,
+                        rec.get("dispatch_bill_date") or None,
+                        rec.get("dispatch_closed_date") or None,
+                        rec.get("dispatch_bill_mrc") or None,
+                        rec.get("dispatch_calendar_context") or None,
+                        rec.get("dispatch_tech") or None,
+                        rec.get("dispatch_date") or None,
+                        rec.get("dispatch_time") or None,
+                        rec.get("dispatch_status") or None,
+                        rec.get("dispatch_notes") or None,
+                        rec.get("dispatch_raw_json") or None,
+                        rec.get("dispatch_scraped_utc") or None,
+                        # JSON API enrichment
+                        rec.get("pon") or None,
+                        rec.get("ckt_id") or None,
+                        rec.get("sip_trunk") or None,
+                        rec.get("sip_trunk_billby") or None,
+                        rec.get("contract_bill_start") or None,
+                        rec.get("contract_mrc") or None,
+                        rec.get("contract_term_end") or None,
+                        rec.get("account_contracts_json") or None,
                     ),
                 )
     return len(records)
@@ -1383,7 +1640,14 @@ def list_orders(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            f"SELECT * FROM orders {where} ORDER BY install_date ASC",
+            f"""SELECT * FROM orders {where}
+                ORDER BY
+                    CASE
+                        WHEN install_date IS NULL OR install_date = '' THEN 2
+                        WHEN install_date >= DATE('now') THEN 0
+                        ELSE 1
+                    END ASC,
+                    install_date ASC""",
             params,
         ).fetchall()
     result = []
