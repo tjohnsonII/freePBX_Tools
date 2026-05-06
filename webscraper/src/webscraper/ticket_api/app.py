@@ -892,6 +892,29 @@ def api_orders(pm: str | None = Query(None)):
     return {"items": db.list_orders(db_path(), pm=pm)}
 
 
+@app.post("/api/orders/refresh")
+def api_orders_refresh():
+    """Scrape 123.net orders directly on the server and store in SQLite."""
+    _script = Path(__file__).resolve().parents[3] / "scripts" / "scrape_orders.py"
+    spec = importlib.util.spec_from_file_location("scrape_orders", _script)
+    _mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        all_rows = _mod.fetch_orders()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Scrape failed: {exc}") from exc
+
+    dispatch = [r for r in all_rows if r.get("row_type") == "dispatch"]
+    if not dispatch:
+        return {"ok": True, "count": 0, "total_rows": len(all_rows)}
+
+    db.ensure_indexes(db_path())
+    n = db.upsert_orders(db_path(), dispatch, now_utc)
+    return {"ok": True, "count": n, "total_rows": len(all_rows)}
+
+
 # ── VPBX site-config endpoints ────────────────────────────────────────────────
 
 

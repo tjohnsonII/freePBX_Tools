@@ -178,20 +178,28 @@ def _parse_orders(html: str) -> list[dict[str, Any]]:
         link = cells[1].find("a")
         detail_url = link["href"] if link else ""
 
-        assigned = [u.strip() for u in col4.split() if u.strip()]
+        assigned_str = col4.strip()
+        order_type = _extract_order_type(col3)
 
         rows.append(
             {
-                "row_type": row_type,
-                "install_date": install_date,
-                "order_id": col1,
-                "customer_name": col2,
-                "description": col3,
-                "order_type": _extract_order_type(col3),
-                "location": _extract_location(col3),
-                "assigned": assigned,
-                "detail_url": detail_url,
-                "scraped_utc": now_utc,
+                "row_type":       row_type,
+                "order_id":       col1,
+                "customer_name":  col2,
+                "customer_abbrev": col1.split("-")[0],
+                "dispatch_date":  install_date or "",
+                "install_type":   order_type,
+                "task":           col3,
+                "assigned":       assigned_str,
+                "pm":             os.environ.get("ORDERS_123NET_PM", os.environ.get("ORDERS_123NET_USERNAME", "")),
+                "detail_url":     detail_url,
+                "location":       _extract_location(col3),
+                "on_net_ott":     "OTT" if "ott" in order_type.lower() else "ON-NET",
+                "seats":          "",
+                "pbx_ip":         "",
+                "phone_model":    "",
+                "pon":            "",
+                "scraped_utc":    now_utc,
             }
         )
 

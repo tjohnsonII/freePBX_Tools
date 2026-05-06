@@ -43,6 +43,23 @@ const SECTION_HEADER_FIELDS = new Set(['ORDER TASKS', 'TURN UP DAY TASKS']);
 const STORAGE_KEY = 'order_tracker_v2';
 const DEFAULT_PM = 'tjohnson';
 const ORDERS_ADMIN_URL = 'https://secure.123.net/cgi-bin/web_interface/admin/orders_web_admin.cgi';
+const SCRAPER_BASE = (import.meta as any).env?.VITE_SCRAPER_BASE || 'http://localhost:8788';
+
+interface ApiOrder {
+  order_id: string;
+  customer_abbrev: string;
+  customer_name: string;
+  dispatch_date: string;
+  location: string;
+  on_net_ott: string;
+  pm: string;
+  pon: string;
+  seats: string;
+  pbx_ip: string;
+  phone_model: string;
+  detail_url: string;
+  install_type: string;
+}
 
 type CellMap = { [field: string]: { [customer: string]: string } };
 
@@ -112,6 +129,8 @@ const HostedOrderTrackerTab: React.FC = () => {
   const [pasteFilter, setPasteFilter] = useState(DEFAULT_PM);
   const [pastePreview, setPastePreview] = useState<ParsedOrder[]>([]);
   const [pasteStatus, setPasteStatus] = useState('');
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiStatus, setApiStatus] = useState('');
 
   const downloadRef = useRef<HTMLAnchorElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -126,6 +145,59 @@ const HostedOrderTrackerTab: React.FC = () => {
 
   function update(patch: Partial<TrackerState>) {
     setState(prev => ({ ...prev, ...patch }));
+  }
+
+  // ── API fetch ──────────────────────────────────────────────────────────────
+
+  async function handleLoadFromApi() {
+    setApiLoading(true);
+    setApiStatus('');
+    try {
+      const url = `${SCRAPER_BASE}/api/orders?pm=${encodeURIComponent(pasteFilter)}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const apiOrders: ApiOrder[] = json.items ?? [];
+      if (!apiOrders.length) {
+        setApiStatus(`No orders found for PM "${pasteFilter}" in the database. Make sure the scraper has run.`);
+        setApiLoading(false);
+        return;
+      }
+      const existingOrders = new Set(customers.filter(c => !c.match(/^CUST\d+$/)));
+      const toAdd = apiOrders.filter(o => !existingOrders.has(o.order_id));
+      if (!toAdd.length) {
+        setApiStatus('All found orders are already in the tracker.');
+        setApiLoading(false);
+        return;
+      }
+      const nonEmptyCustomers = customers.filter(c => {
+        if (!c.match(/^CUST\d+$/)) return true;
+        return fields.some(f => (data[f]?.[c] || '').trim() !== '');
+      });
+      const newCustomers = [...nonEmptyCustomers, ...toAdd.map(o => o.order_id)];
+      const newData: CellMap = {};
+      for (const f of fields) newData[f] = { ...(data[f] || {}) };
+      for (const o of toAdd) {
+        const col = o.order_id;
+        newData['ORDER ID'][col]         = o.order_id;
+        newData['CUSTOMER ABBREV'][col]  = o.customer_abbrev || o.order_id.split('-')[0];
+        newData['CUSTOMER NAME'][col]    = o.customer_name || '';
+        newData['PROJECT MANAGER'][col]  = o.pm || pasteFilter;
+        newData['DISPATCH DATE'][col]    = o.dispatch_date || '';
+        newData['LOCATION'][col]         = o.location || '';
+        newData['ON-NET or OTT'][col]    = o.on_net_ott || '';
+        newData['LINK TO CONTRACT'][col] = o.detail_url || ORDERS_ADMIN_URL;
+        if (o.pon)         newData['PON'][col]               = o.pon;
+        if (o.seats)       newData['# SEATS MINIMUM'][col]   = o.seats;
+        if (o.pbx_ip)      newData['PBX IP ADDRESS'][col]    = o.pbx_ip;
+        if (o.phone_model) newData['PHONE MODEL / QTY'][col] = o.phone_model;
+      }
+      update({ customers: newCustomers, data: newData });
+      setApiStatus(`Added ${toAdd.length} order${toAdd.length !== 1 ? 's' : ''} from API.`);
+    } catch (err: any) {
+      setApiStatus(`API unreachable (${err.message}). Use "Paste CSV" to import manually.`);
+    }
+    setApiLoading(false);
   }
 
   // ── Paste modal ────────────────────────────────────────────────────────────
@@ -309,13 +381,37 @@ const HostedOrderTrackerTab: React.FC = () => {
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
+        <input
+          type="text"
+          className={styles.filterInput}
+          value={pasteFilter}
+          onChange={e => setPasteFilter(e.target.value)}
+          placeholder="PM username"
+          title="PM username to filter orders"
+          style={{ width: 100 }}
+        />
         <button
           type="button"
           className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={() => setShowPasteModal(true)}
+          onClick={handleLoadFromApi}
+          disabled={apiLoading}
+          title="Fetch orders from the ticket API database"
         >
-          Load from 123.net
+          {apiLoading ? 'Loading…' : 'Load from 123.net'}
         </button>
+        <button
+          type="button"
+          className={styles.btn}
+          onClick={() => setShowPasteModal(true)}
+          title="Manually paste Man-Hour Summary CSV"
+        >
+          Paste CSV
+        </button>
+        {apiStatus && (
+          <span style={{ fontSize: 12, color: apiStatus.includes('Added') ? '#16a34a' : '#dc2626' }}>
+            {apiStatus}
+          </span>
+        )}
         <div className={styles.divider} />
         <label className={`${styles.btn} ${styles.fileLabel}`}>
           Import CSV
