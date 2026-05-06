@@ -337,17 +337,15 @@ def upsert_orders(
     if not records:
         return 0
     r = _post_queued("/api/ingest/orders", {"records": records, "now_utc": now_utc})
-    return int(r.get("inserted", 0))
+    return int(r.get("upserted", 0))
 
 
 def list_orders(
     db_path: str,  # noqa: ARG001
-    assigned_to: str | None = None,
-    order_type: str | None = None,
-    from_date: str | None = None,
+    pm: str | None = None,
 ) -> list[dict[str, Any]]:
     try:
-        r = _get("/api/orders", assigned_to=assigned_to, order_type=order_type, from_date=from_date)
+        r = _get("/api/orders", pm=pm)
         return r.get("orders", r) if isinstance(r, dict) else (r or [])
     except Exception:
         return []

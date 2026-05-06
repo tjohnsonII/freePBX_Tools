@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as Papa from 'papaparse';
 import styles from './HostedOrderTrackerTab.module.css';
 
-const MANAGER_API = 'http://localhost:8787';
+const SCRAPER_BASE = import.meta.env.VITE_SCRAPER_BASE || 'http://localhost:8788';
 
 const DEFAULT_FIELDS = [
   'CUSTOMER ABBREV', 'CUSTOMER NAME', 'LOCATION', 'DEPLOY FROM (SF/GR)', 'PROJECT MANAGER',
@@ -181,16 +181,16 @@ const HostedOrderTrackerTab: React.FC = () => {
     return toAdd.length;
   }, [customers, fields, data]);
 
-  async function handleApiFetch() {
+  async function handleLoadFromApi() {
     setApiLoading(true);
     setApiStatus('Fetching orders from API...');
     try {
-      const resp = await fetch(`${MANAGER_API}/api/orders?assigned_to=${DEFAULT_PM}`);
+      const resp = await fetch(`${SCRAPER_BASE}/api/orders?pm=${DEFAULT_PM}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       const apiOrders: ApiOrder[] = json.orders || [];
       if (!apiOrders.length) {
-        setApiStatus('No orders found in the database. Try "Scrape Now" first.');
+        setApiStatus('No orders found in the database. Run the scraper first.');
         return;
       }
       const added = applyApiOrders(apiOrders);
@@ -198,7 +198,7 @@ const HostedOrderTrackerTab: React.FC = () => {
         ? `Added ${added} order${added !== 1 ? 's' : ''} from API (${apiOrders.length} total in DB).`
         : `All ${apiOrders.length} orders already in tracker.`);
     } catch (err) {
-      setApiStatus(`API fetch failed: ${err}. Is the manager running on port 8787?`);
+      setApiStatus(`API fetch failed: ${err}. Is the server reachable at ${SCRAPER_BASE}?`);
     } finally {
       setApiLoading(false);
     }
@@ -208,7 +208,7 @@ const HostedOrderTrackerTab: React.FC = () => {
     setRefreshLoading(true);
     setApiStatus('Triggering scrape on client...');
     try {
-      const resp = await fetch(`${MANAGER_API}/api/orders/refresh`, { method: 'POST' });
+      const resp = await fetch(`${SCRAPER_BASE}/api/orders/refresh`, { method: 'POST' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       if (json.ok === false) throw new Error(json.error || 'Unknown error');
@@ -404,7 +404,7 @@ const HostedOrderTrackerTab: React.FC = () => {
           type="button"
           className={`${styles.btn} ${styles.btnPrimary}`}
           disabled={apiLoading}
-          onClick={handleApiFetch}
+          onClick={handleLoadFromApi}
         >
           {apiLoading ? 'Loading...' : 'Load from API'}
         </button>
