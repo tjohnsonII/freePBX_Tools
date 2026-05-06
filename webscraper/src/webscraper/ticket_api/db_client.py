@@ -339,8 +339,8 @@ def upsert_orders(
     _LOG.info("upsert_orders: posting %d records to server", len(records))
     try:
         r = _post("/api/ingest/orders", {"records": records, "now_utc": now_utc}, timeout=120)
-        n = int(r.get("inserted", 0))
-        _LOG.info("upsert_orders: server accepted %d records", n)
+        n = int(r.get("upserted") or r.get("inserted") or 0)
+        _LOG.info("upsert_orders: server accepted %d records (raw response: %s)", n, r)
         return n
     except Exception as exc:
         _LOG.error("upsert_orders: POST failed (%s) — queuing locally", exc)

@@ -25,7 +25,8 @@ Required env vars:
   ORDERS_123NET_PASSWORD  — 123.net admin password
 
 Optional:
-  ORDERS_123NET_PM    — filter PM/engineer (defaults to USERNAME)
+  ORDERS_123NET_ENGINEER — engineer login name to filter on (defaults to USERNAME)
+  ORDERS_123NET_PM       — legacy alias for ORDERS_123NET_ENGINEER
   ORDERS_WORKERS      — concurrent workers for Phase 2 (default: 4, max: 10)
   ORDERS_PHASE2       — set to 0 to skip account_edit phase
   ORDERS_PHASE3       — set to 0 to skip dispatch phase
@@ -385,7 +386,7 @@ def _fetch_orders_with_session(session: requests.Session, pm: str) -> list[dict[
         "web_last_note":       "summary",
         "web_sort":            "standard",
     }
-    LOGGER.info("Phase 1: POST %s (pm=%s)", ORDERS_URL, pm)
+    LOGGER.info("Phase 1: POST %s (engineer=%s)", ORDERS_URL, pm)
     post_resp = session.post(ORDERS_URL, data=payload, timeout=60)
     post_resp.raise_for_status()
 
@@ -400,7 +401,9 @@ def fetch_orders(pm: str | None = None) -> list[dict[str, Any]]:
     """Backward-compatible: Phase 1 only (summary rows + inline DETABLE)."""
     session = _build_session()
     if not pm:
-        pm = os.environ.get("ORDERS_123NET_PM", os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
+        pm = (os.environ.get("ORDERS_123NET_ENGINEER")
+              or os.environ.get("ORDERS_123NET_PM")
+              or os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
     return _fetch_orders_with_session(session, pm)
 
 
@@ -724,16 +727,18 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
     """
     session = _build_session()
     if not pm:
-        pm = os.environ.get("ORDERS_123NET_PM", os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
+        pm = (os.environ.get("ORDERS_123NET_ENGINEER")
+              or os.environ.get("ORDERS_123NET_PM")
+              or os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
     if not pm:
-        raise RuntimeError("Set ORDERS_123NET_PM or ORDERS_123NET_USERNAME env var.")
+        raise RuntimeError("Set ORDERS_123NET_ENGINEER or ORDERS_123NET_USERNAME env var.")
 
     run_phase2 = os.environ.get("ORDERS_PHASE2", "1").strip() != "0"
     run_phase3 = os.environ.get("ORDERS_PHASE3", "1").strip() != "0"
     workers    = max(1, min(int(os.environ.get("ORDERS_WORKERS", "4")), 10))
 
     # ── Phase 1 ──────────────────────────────────────────────────────────────
-    LOGGER.info("=== Phase 1: orders list + inline DETABLE (pm=%s) ===", pm)
+    LOGGER.info("=== Phase 1: orders list + inline DETABLE (engineer=%s) ===", pm)
     all_rows      = _fetch_orders_with_session(session, pm)
     dispatch_rows = [r for r in all_rows if r.get("row_type") == "dispatch"]
     LOGGER.info(
@@ -745,18 +750,34 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
         sum(1 for r in all_rows if r.get("log_count", 0) > 0),
     )
 
-    # Include all rows (task + dispatch) — Phase 3 will supply install dates for
-    # orders that show as "N days" in the Phase 1 engineer view.
-    enriched: dict[str, dict[str, Any]] = {r["order_id"]: dict(r) for r in all_rows}
+    # Only keep orders owned by this engineer (Phase 1 scope).
+    # Phase 3 calendar covers all engineers — we use it to enrich these orders
+    # only, never to add new ones.
+    #
+    # Multiple rows can share the same order_id (one dispatch row with a date +
+    # one or more task rows without a date).  Sort dispatch rows first so the
+    # dated record becomes the base; task rows then fill in any missing fields.
+    phase1_ids: set[str] = {r["order_id"] for r in all_rows}
+    enriched: dict[str, dict[str, Any]] = {}
+    for r in sorted(all_rows, key=lambda x: 0 if x["row_type"] == "dispatch" else 1):
+        oid = r["order_id"]
+        if oid not in enriched:
+            enriched[oid] = dict(r)
+        else:
+            for k, v in r.items():
+                if k not in ("order_id", "row_type") and v and not enriched[oid].get(k):
+                    enriched[oid][k] = v
+
+    unique_orders = list(enriched.values())
 
     # ── Phase 2: Account detail (concurrent) ─────────────────────────────────
-    if run_phase2 and all_rows:
-        LOGGER.info("=== Phase 2: account detail (%d orders, %d workers) ===", len(all_rows), workers)
+    if run_phase2 and unique_orders:
+        LOGGER.info("=== Phase 2: account detail (%d orders, %d workers) ===", len(unique_orders), workers)
         done = 0
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="acct") as pool:
             futures = {
                 pool.submit(_fetch_account_for_order, session, row): row["order_id"]
-                for row in all_rows
+                for row in unique_orders
             }
             for future in as_completed(futures):
                 oid = futures[future]
@@ -771,7 +792,7 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
                     LOGGER.warning("Phase 2 error order=%s: %s", oid, exc)
                 done += 1
                 if done % 5 == 0:
-                    LOGGER.info("Phase 2: %d/%d accounts fetched", done, len(all_rows))
+                    LOGGER.info("Phase 2: %d/%d accounts fetched", done, len(unique_orders))
         LOGGER.info("Phase 2 done: %d accounts processed", done)
     elif not run_phase2:
         LOGGER.info("Phase 2: skipped (ORDERS_PHASE2=0)")
@@ -791,13 +812,7 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
                         if k not in ("order_id", "row_type") and not enriched[oid].get(k):
                             enriched[oid][k] = v
                     matched += 1
-                else:
-                    # Closed order not in Phase 1 listing (already dispatched)
-                    enriched[oid] = {
-                        **drec,
-                        "row_type":    "dispatch",
-                        "scraped_utc": drec.get("dispatch_scraped_utc", _now_utc()),
-                    }
+                # else: other engineer's calendar entry — skip
             LOGGER.info(
                 "Phase 3 done: %d dispatch records, %d matched to Phase 1",
                 len(dispatch_records), matched,
@@ -807,23 +822,45 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
     else:
         LOGGER.info("Phase 3: skipped (ORDERS_PHASE3=0)")
 
-    # Drop task-only rows that Phase 3 never matched — they have no date
-    # and would show up in the UI with blank install/dispatch dates.
-    # Dispatch-type Phase 1 rows always have install_date; task rows that
-    # appeared in the Phase 3 calendar have dispatch_date or dispatch_bill_date.
-    pre_filter = len(enriched)
-    result = [
-        r for r in enriched.values()
-        if r.get("install_date") or r.get("dispatch_date") or r.get("dispatch_bill_date")
-    ]
-    dropped = pre_filter - len(result)
-    if dropped:
-        LOGGER.info("Dropped %d task-only rows with no date (not yet scheduled)", dropped)
-    LOGGER.info("=== Total enriched orders: %d ===", len(result))
+    # Result is exactly the Phase 1 set — enriched with Phase 2/3 data where available.
+    result = list(enriched.values())
+    LOGGER.info("=== Total enriched orders: %d (all Phase 1, Phase 3 matched %d) ===",
+                len(result), sum(1 for r in result if r.get("dispatch_date")))
     return result
 
 
 # ── Ingest ─────────────────────────────────────────────────────────────────────
+
+
+def _remap_for_server(rec: dict[str, Any]) -> dict[str, Any]:
+    """Translate client-side field names to the column names the server stores.
+
+    Client name          Server column
+    ─────────────────    ─────────────────
+    install_date      →  dispatch_date   (Phase 1 scheduled date; Phase 3 date wins if present)
+    description       →  task
+    order_type        →  install_type
+    assigned (list)   →  assigned (str)
+    """
+    r = dict(rec)
+
+    if "install_date" in r:
+        # Phase 3 dispatch_date takes priority; fall back to Phase 1 install_date
+        if not r.get("dispatch_date"):
+            r["dispatch_date"] = r["install_date"]
+        del r["install_date"]
+
+    if "description" in r:
+        r["task"] = r.pop("description")
+
+    if "order_type" in r:
+        r["install_type"] = r.pop("order_type")
+
+    assigned = r.get("assigned")
+    if isinstance(assigned, list):
+        r["assigned"] = ", ".join(str(a) for a in assigned) if assigned else None
+
+    return r
 
 
 def ingest_orders(records: list[dict[str, Any]]) -> int:
@@ -845,7 +882,8 @@ def ingest_orders(records: list[dict[str, Any]]) -> int:
     if not client_mode:
         db_mod.ensure_indexes(db_path)
 
-    return db_mod.upsert_orders(db_path, records, now)
+    mapped = [_remap_for_server(r) for r in records]
+    return db_mod.upsert_orders(db_path, mapped, now)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -854,9 +892,11 @@ def ingest_orders(records: list[dict[str, Any]]) -> int:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    pm = os.environ.get("ORDERS_123NET_PM", os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
+    pm = (os.environ.get("ORDERS_123NET_ENGINEER")
+          or os.environ.get("ORDERS_123NET_PM")
+          or os.environ.get("ORDERS_123NET_USERNAME", "")).strip()
     if not pm:
-        print("Set ORDERS_123NET_USERNAME env var.", file=sys.stderr)
+        print("Set ORDERS_123NET_ENGINEER or ORDERS_123NET_USERNAME env var.", file=sys.stderr)
         sys.exit(1)
 
     enriched = fetch_all_enriched(pm=pm)
