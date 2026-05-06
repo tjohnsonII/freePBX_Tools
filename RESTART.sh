@@ -127,7 +127,7 @@ do_ticket_api() {
     _kill_service_pid webscraper_ticket_api
     _kill_port 8788
     .venv-webscraper/bin/python -m uvicorn webscraper.ticket_api.app:app \
-        --host 127.0.0.1 --port 8788 \
+        --host 0.0.0.0 --port 8788 \
         >> /var/www/freePBX_Tools/var/web-app-launcher/logs/webscraper_ticket_api.log 2>&1 &
     _wait_port "ticket-api" 8788 /api/health
 }
