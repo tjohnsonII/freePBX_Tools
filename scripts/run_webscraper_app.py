@@ -142,6 +142,10 @@ def _start_api(root: Path, args: argparse.Namespace) -> dict[str, object]:
         "WEBSCRAPER_AUTH_TIMEOUT_SEC": "300",
         "HOME": "/home/tim2",
     }
+    for key in ("INGEST_API_KEY", "INGEST_SERVER_URL", "ORDERS_123NET_USERNAME", "ORDERS_123NET_PASSWORD"):
+        val = os.environ.get(key)
+        if val:
+            api_env[key] = val
     entry = start_detached(root=root, service_name="webscraper_ticket_api", cmd=api_cmd, cwd=root,
                            env_overrides=api_env)
     save_service_state(root, entry)

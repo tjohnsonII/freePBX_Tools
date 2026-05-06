@@ -20,6 +20,13 @@ fi
 cd "$REPO"
 export DISPLAY=":${DISPLAY_NUM}"
 
+if [ -f "$REPO/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO/.env"
+    set +a
+fi
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 _port_status() {
     # returns "UP" or "DOWN"
@@ -126,8 +133,9 @@ do_ticket_api() {
     echo -e "${BOLD}[RESTART]${RESET} Ticket API (port 8788)..."
     _kill_service_pid webscraper_ticket_api
     _kill_port 8788
+    INGEST_API_KEY="${INGEST_API_KEY:-}" \
     .venv-webscraper/bin/python -m uvicorn webscraper.ticket_api.app:app \
-        --host 0.0.0.0 --port 8788 \
+        --host 0.0.0.0 --port 8788 --app-dir webscraper/src \
         >> /var/www/freePBX_Tools/var/web-app-launcher/logs/webscraper_ticket_api.log 2>&1 &
     _wait_port "ticket-api" 8788 /api/health
 }

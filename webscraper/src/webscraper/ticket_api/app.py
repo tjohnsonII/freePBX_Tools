@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
+# Load .env from the repo root (4 levels up from this file) so that
+# INGEST_API_KEY etc. are available regardless of how uvicorn was launched.
+_repo_env = Path(__file__).resolve().parents[4] / ".env"
+if _repo_env.exists():
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _load_dotenv(_repo_env, override=False)
+    except ImportError:
+        pass
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
