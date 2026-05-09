@@ -3,7 +3,7 @@ import * as Papa from 'papaparse';
 import styles from './HostedOrderTrackerTab.module.css';
 
 const DEFAULT_FIELDS = [
-  'CUSTOMER ABBREV', 'CUSTOMER NAME', 'LOCATION', 'DEPLOY FROM (SF/GR)', 'PROJECT MANAGER',
+  'CUSTOMER ABBREV', 'CUSTOMER NAME', 'LOCATION', 'DEPLOY FROM (SF/GR)', 'ENGINEER',
   'SURVEY DATE', 'KICKOFF DATE', 'INSTALL DATE', 'ON-NET or OTT', 'ORDER ID', 'PON',
   'LINK TO CONTRACT', '# SEATS MINIMUM', 'PBX TYPE', 'PBX IP ADDRESS', 'PHONE MODEL / QTY',
   'SWITCH / ASSET #', 'UPS / ASSET #', 'SIDECAR / ASSET #', 'MIKROTIK / ASSET #', 'MIKROTIK IP',
@@ -41,7 +41,7 @@ const CHECKBOX_FIELDS = new Set([
 const SECTION_HEADER_FIELDS = new Set(['ORDER TASKS', 'TURN UP DAY TASKS']);
 
 const STORAGE_KEY = 'order_tracker_v1';
-const DEFAULT_PM = 'tjohnson';
+const DEFAULT_ENGINEER = 'tjohnson';
 const ORDERS_ADMIN_URL = 'https://secure.123.net/cgi-bin/web_interface/admin/orders_web_admin.cgi';
 
 type CellMap = { [field: string]: { [customer: string]: string } };
@@ -83,7 +83,7 @@ interface ParsedOrder {
 function parseManhourSummary(text: string, pm: string): ParsedOrder[] {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   // Find the CSV header line
-  const headerIdx = lines.findIndex(l => /^PM[\s,]/i.test(l) && /Order\s*ID/i.test(l));
+  const headerIdx = lines.findIndex(l => /^(PM|Engineer)[\s,]/i.test(l) && /Order\s*ID/i.test(l));
   if (headerIdx === -1) return [];
   const dataLines = lines.slice(headerIdx + 1);
   const results: ParsedOrder[] = [];
@@ -109,7 +109,7 @@ const HostedOrderTrackerTab: React.FC = () => {
 
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const [pasteFilter, setPasteFilter] = useState(DEFAULT_PM);
+  const [pasteFilter, setPasteFilter] = useState(DEFAULT_ENGINEER);
   const [pastePreview, setPastePreview] = useState<ParsedOrder[]>([]);
   const [pasteStatus, setPasteStatus] = useState('');
 
@@ -136,8 +136,8 @@ const HostedOrderTrackerTab: React.FC = () => {
     const orders = parseManhourSummary(text, pasteFilter);
     setPastePreview(orders);
     setPasteStatus(orders.length
-      ? `Found ${orders.length} order${orders.length !== 1 ? 's' : ''} for PM "${pasteFilter}".`
-      : `No orders found for PM "${pasteFilter}" in this data.`);
+      ? `Found ${orders.length} order${orders.length !== 1 ? 's' : ''} for Engineer "${pasteFilter}".`
+      : `No orders found for Engineer "${pasteFilter}" in this data.`);
   }
 
   function handleFilterChange(pm: string) {
@@ -146,8 +146,8 @@ const HostedOrderTrackerTab: React.FC = () => {
     const orders = parseManhourSummary(pasteText, pm);
     setPastePreview(orders);
     setPasteStatus(orders.length
-      ? `Found ${orders.length} order${orders.length !== 1 ? 's' : ''} for PM "${pm}".`
-      : `No orders found for PM "${pm}" in this data.`);
+      ? `Found ${orders.length} order${orders.length !== 1 ? 's' : ''} for Engineer "${pm}".`
+      : `No orders found for Engineer "${pm}" in this data.`);
   }
 
   function applyParsedOrders() {
@@ -180,7 +180,7 @@ const HostedOrderTrackerTab: React.FC = () => {
       const abbrev = order.orderId.split('-')[0] || order.orderId;
 
       newData['CUSTOMER ABBREV'][col]  = abbrev;
-      newData['PROJECT MANAGER'][col]  = order.pm;
+      newData['ENGINEER'][col]          = order.pm;
       newData['ORDER ID'][col]         = order.orderId;
       newData['LINK TO CONTRACT'][col] = ORDERS_ADMIN_URL;
       if (order.billDate) newData['KICKOFF DATE'][col] = order.billDate;
@@ -420,12 +420,12 @@ const HostedOrderTrackerTab: React.FC = () => {
                 <br />
                 2. Select all the text on that page, copy it, and paste it below.
                 <br />
-                3. Only orders where <strong>PM = </strong>
+                3. Only orders where <strong>Engineer = </strong>
                 <code className={styles.code}>{pasteFilter}</code> will be imported.
               </p>
 
               <div className={styles.filterRow}>
-                <label className={styles.filterLabel}>Filter PM username:</label>
+                <label className={styles.filterLabel}>Filter Engineer username:</label>
                 <input
                   type="text"
                   className={styles.filterInput}
@@ -438,7 +438,7 @@ const HostedOrderTrackerTab: React.FC = () => {
               <textarea
                 ref={textareaRef}
                 className={styles.pasteArea}
-                placeholder={`Paste the Man-Hour Summary text here...\n\nExpected format:\nPM,Order ID,Bill Date, Closed Date, Bill MRC\ntjohnson,WS7-XXXXXXXX,2026-04-01,2026-04-15,500.00`}
+                placeholder={`Paste the Man-Hour Summary text here...\n\nExpected format:\nEngineer,Order ID,Bill Date, Closed Date, Bill MRC\ntjohnson,WS7-XXXXXXXX,2026-04-01,2026-04-15,500.00`}
                 value={pasteText}
                 onChange={e => handlePasteTextChange(e.target.value)}
                 rows={12}

@@ -262,6 +262,18 @@ class _HeartbeatBody(BaseModel):
     vpn_ip: str | None = None
 
 
+class _OrdersIngestBody(BaseModel):
+    records: list[dict[str, Any]]
+
+
+@router.post("/orders")
+def ingest_orders(body: _OrdersIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    count = _db.upsert_orders(_dp(), body.records, now_utc)
+    return {"ok": True, "upserted": count}
+
+
 @router.post("/heartbeat")
 def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)

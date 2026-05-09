@@ -359,6 +359,110 @@ def ensure_indexes(db_path: str) -> None:
             if "source" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN source TEXT")
 
+            # ── Orders ────────────────────────────────────────────────────────
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id        TEXT PRIMARY KEY,
+                    customer_name   TEXT,
+                    customer_abbrev TEXT,
+                    dispatch_date   TEXT,
+                    install_type    TEXT,
+                    task            TEXT,
+                    assigned        TEXT,
+                    engineer        TEXT,
+                    detail_url      TEXT,
+                    seats           TEXT,
+                    pbx_ip          TEXT,
+                    phone_model     TEXT,
+                    location        TEXT,
+                    pon             TEXT,
+                    on_net_ott      TEXT,
+                    scraped_utc     TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_orders_dispatch_date ON orders(dispatch_date);
+                CREATE INDEX IF NOT EXISTS idx_orders_scraped ON orders(scraped_utc DESC);
+
+                CREATE TABLE IF NOT EXISTS orders_suggested (
+                    order_id        TEXT PRIMARY KEY,
+                    customer_name   TEXT,
+                    customer_abbrev TEXT,
+                    dispatch_date   TEXT,
+                    install_type    TEXT,
+                    task            TEXT,
+                    assigned        TEXT,
+                    engineer        TEXT,
+                    detail_url      TEXT,
+                    seats           TEXT,
+                    pbx_ip          TEXT,
+                    phone_model     TEXT,
+                    location        TEXT,
+                    pon             TEXT,
+                    on_net_ott      TEXT,
+                    suggested_utc   TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS enrichment_log (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id        TEXT NOT NULL,
+                    field           TEXT NOT NULL,
+                    old_value       TEXT,
+                    suggested_value TEXT,
+                    confidence      REAL,
+                    source          TEXT,
+                    status          TEXT NOT NULL DEFAULT 'pending',
+                    reviewed_by     TEXT,
+                    reviewed_utc    TEXT,
+                    created_utc     TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_enrichment_order ON enrichment_log(order_id);
+                CREATE INDEX IF NOT EXISTS idx_enrichment_status ON enrichment_log(status);
+                """
+            )
+
+            # Migrate: rename pm → engineer for existing databases.
+            # executescript issues an implicit COMMIT, ensuring the rename is
+            # visible to the subsequent index and view creation.
+            orders_columns = table_columns(conn, "orders")
+            if "pm" in orders_columns and "engineer" not in orders_columns:
+                conn.executescript("ALTER TABLE orders RENAME COLUMN pm TO engineer;")
+
+            # Engineer index must be created after the migration in case the
+            # table predates this change and still had a 'pm' column.
+            conn.executescript(
+                "CREATE INDEX IF NOT EXISTS idx_orders_engineer ON orders(engineer);"
+            )
+
+            # Completeness view: counts non-empty values across the 12 data fields
+            conn.executescript(
+                """
+                DROP VIEW IF EXISTS orders_completeness;
+                CREATE VIEW orders_completeness AS
+                SELECT
+                    order_id,
+                    customer_name,
+                    customer_abbrev,
+                    dispatch_date,
+                    engineer,
+                    (
+                        (CASE WHEN customer_name  != '' AND customer_name  IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN customer_abbrev != '' AND customer_abbrev IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN dispatch_date  != '' AND dispatch_date  IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN install_type   != '' AND install_type   IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN assigned       != '' AND assigned       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN engineer       != '' AND engineer       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN seats          != '' AND seats          IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN pbx_ip         != '' AND pbx_ip         IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN phone_model    != '' AND phone_model    IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN location       != '' AND location       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN pon            != '' AND pon            IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN on_net_ott     != '' AND on_net_ott     IS NOT NULL THEN 1 ELSE 0 END)
+                    ) AS fields_complete,
+                    12 AS fields_total
+                FROM orders;
+                """
+            )
+
 
 def ensure_handle_row(db_path: str, handle: str) -> None:
     with WRITE_LOCK:
@@ -1293,7 +1397,7 @@ def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_ut
 # ── Orders ────────────────────────────────────────────────────────────────────────
 
 
-def list_orders(db_path: str, pm: str | None = None) -> list[dict[str, Any]]:
+def list_orders(db_path: str, engineer: str | None = None) -> list[dict[str, Any]]:
     sort = (
         " ORDER BY"
         " CASE WHEN dispatch_date IS NULL OR dispatch_date = '' THEN 2"
@@ -1304,11 +1408,11 @@ def list_orders(db_path: str, pm: str | None = None) -> list[dict[str, Any]]:
     )
     # Only return real Phase 1 orders (have a customer name) — excludes Phase 3
     # calendar stubs from other engineers that slipped in via the dispatch scrape.
-    name_filter = " AND customer_name != ''" if pm else " WHERE customer_name != ''"
+    name_filter = " AND customer_name != ''" if engineer else " WHERE customer_name != ''"
     with get_conn(db_path) as conn:
-        if pm:
+        if engineer:
             rows = conn.execute(
-                "SELECT * FROM orders WHERE pm=?" + name_filter + sort, [pm]
+                "SELECT * FROM orders WHERE engineer=?" + name_filter + sort, [engineer]
             ).fetchall()
             if not rows:
                 rows = conn.execute(
@@ -1352,7 +1456,7 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                     """
                     INSERT INTO orders
                         (order_id, customer_name, customer_abbrev, dispatch_date,
-                         install_type, task, assigned, pm, detail_url,
+                         install_type, task, assigned, engineer, detail_url,
                          seats, pbx_ip, phone_model, location, pon, on_net_ott,
                          scraped_utc)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1363,7 +1467,7 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         install_type=CASE WHEN excluded.install_type != '' THEN excluded.install_type ELSE install_type END,
                         task=CASE WHEN excluded.task != '' THEN excluded.task ELSE task END,
                         assigned=CASE WHEN excluded.assigned != '' THEN excluded.assigned ELSE assigned END,
-                        pm=CASE WHEN excluded.pm != '' THEN excluded.pm ELSE pm END,
+                        engineer=CASE WHEN excluded.engineer != '' THEN excluded.engineer ELSE engineer END,
                         detail_url=CASE WHEN excluded.detail_url != '' THEN excluded.detail_url ELSE detail_url END,
                         seats=CASE WHEN excluded.seats != '' THEN excluded.seats ELSE seats END,
                         pbx_ip=CASE WHEN excluded.pbx_ip != '' THEN excluded.pbx_ip ELSE pbx_ip END,
@@ -1381,7 +1485,7 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         _pick("install_type", "order_type"),
                         _pick("task", "description"),
                         _pick("assigned", "assigned_tech", "dispatch_tech"),
-                        _pick("pm"),
+                        _pick("engineer", "pm"),
                         _pick("detail_url"),
                         _pick("seats"),
                         _pick("pbx_ip"),

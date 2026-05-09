@@ -798,6 +798,60 @@ def api_handle_delete(handle: str, request: Request):
 # ── NOC Queue endpoints ───────────────────────────────────────────────────────
 
 
+@app.get("/api/orders")
+def api_orders(engineer: str | None = Query(None)):
+    """Return orders, optionally filtered by engineer username."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_orders(db_path(), engineer=engineer)}
+
+
+@app.get("/api/orders/incomplete")
+def api_orders_incomplete(field: str | None = Query(None)):
+    """Return orders missing a specific field, or all orders with any empty key field."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        if field:
+            safe_fields = {
+                "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+                "assigned", "engineer", "seats", "pbx_ip", "phone_model",
+                "location", "pon", "on_net_ott",
+            }
+            if field not in safe_fields:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail=f"Unknown field: {field}")
+            rows = conn.execute(
+                f"SELECT * FROM orders WHERE ({field} IS NULL OR {field} = '') AND customer_name != '' ORDER BY dispatch_date ASC, order_id ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM orders WHERE customer_name != '' AND (
+                    dispatch_date IS NULL OR dispatch_date = '' OR
+                    assigned IS NULL OR assigned = '' OR
+                    pbx_ip IS NULL OR pbx_ip = '' OR
+                    pon IS NULL OR pon = ''
+                ) ORDER BY dispatch_date ASC, order_id ASC
+                """
+            ).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/api/orders/{order_id}")
+def api_order_detail(order_id: str):
+    """Return a single order by ID."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Order not found")
+    return dict(row)
+
+
 @app.get("/api/noc-queue/records")
 def api_noc_queue_records(view: str | None = Query(None)):
     """Return cached NOC queue tickets. Optionally filter by view: hosted|noc|all|local."""
