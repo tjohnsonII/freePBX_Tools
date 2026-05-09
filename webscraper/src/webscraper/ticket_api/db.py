@@ -1288,3 +1288,108 @@ def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_ut
                     ),
                 )
     return len(records)
+
+
+# ── Orders ────────────────────────────────────────────────────────────────────────
+
+
+def list_orders(db_path: str, pm: str | None = None) -> list[dict[str, Any]]:
+    sort = (
+        " ORDER BY"
+        " CASE WHEN dispatch_date IS NULL OR dispatch_date = '' THEN 2"
+        "      WHEN dispatch_date >= DATE('now') THEN 0"
+        "      ELSE 1 END ASC,"
+        " dispatch_date ASC,"
+        " order_id ASC"
+    )
+    # Only return real Phase 1 orders (have a customer name) — excludes Phase 3
+    # calendar stubs from other engineers that slipped in via the dispatch scrape.
+    name_filter = " AND customer_name != ''" if pm else " WHERE customer_name != ''"
+    with get_conn(db_path) as conn:
+        if pm:
+            rows = conn.execute(
+                "SELECT * FROM orders WHERE pm=?" + name_filter + sort, [pm]
+            ).fetchall()
+            if not rows:
+                rows = conn.execute(
+                    "SELECT * FROM orders WHERE customer_name != ''" + sort
+                ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM orders WHERE customer_name != ''" + sort
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _str(v: Any) -> str:
+    """Coerce a value to str — joins lists, passes strings through, converts None to ''."""
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return " ".join(str(x) for x in v if x)
+    return str(v)
+
+
+def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+
+    def _pick(*keys: str) -> str:
+        """Return the first non-empty value across multiple possible field names."""
+        for k in keys:
+            v = _str(rec.get(k))
+            if v:
+                return v
+        return ""
+
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                order_id = _str(rec.get("order_id")).strip()
+                if not order_id:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO orders
+                        (order_id, customer_name, customer_abbrev, dispatch_date,
+                         install_type, task, assigned, pm, detail_url,
+                         seats, pbx_ip, phone_model, location, pon, on_net_ott,
+                         scraped_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(order_id) DO UPDATE SET
+                        customer_name=CASE WHEN excluded.customer_name != '' THEN excluded.customer_name ELSE customer_name END,
+                        customer_abbrev=CASE WHEN excluded.customer_abbrev != '' THEN excluded.customer_abbrev ELSE customer_abbrev END,
+                        dispatch_date=CASE WHEN excluded.dispatch_date != '' THEN excluded.dispatch_date ELSE dispatch_date END,
+                        install_type=CASE WHEN excluded.install_type != '' THEN excluded.install_type ELSE install_type END,
+                        task=CASE WHEN excluded.task != '' THEN excluded.task ELSE task END,
+                        assigned=CASE WHEN excluded.assigned != '' THEN excluded.assigned ELSE assigned END,
+                        pm=CASE WHEN excluded.pm != '' THEN excluded.pm ELSE pm END,
+                        detail_url=CASE WHEN excluded.detail_url != '' THEN excluded.detail_url ELSE detail_url END,
+                        seats=CASE WHEN excluded.seats != '' THEN excluded.seats ELSE seats END,
+                        pbx_ip=CASE WHEN excluded.pbx_ip != '' THEN excluded.pbx_ip ELSE pbx_ip END,
+                        phone_model=CASE WHEN excluded.phone_model != '' THEN excluded.phone_model ELSE phone_model END,
+                        location=CASE WHEN excluded.location != '' THEN excluded.location ELSE location END,
+                        pon=CASE WHEN excluded.pon != '' THEN excluded.pon ELSE pon END,
+                        on_net_ott=CASE WHEN excluded.on_net_ott != '' THEN excluded.on_net_ott ELSE on_net_ott END,
+                        scraped_utc=excluded.scraped_utc
+                    """,
+                    (
+                        order_id,
+                        _pick("customer_name", "company_name", "account_company"),
+                        _pick("customer_abbrev", "account_handle") or order_id.split("-")[0],
+                        _pick("dispatch_date", "install_date"),
+                        _pick("install_type", "order_type"),
+                        _pick("task", "description"),
+                        _pick("assigned", "assigned_tech", "dispatch_tech"),
+                        _pick("pm"),
+                        _pick("detail_url"),
+                        _pick("seats"),
+                        _pick("pbx_ip"),
+                        _pick("phone_model"),
+                        _pick("location"),
+                        _pick("pon"),
+                        _pick("on_net_ott"),
+                        _str(rec.get("scraped_utc")) or now_utc,
+                    ),
+                )
+    return len(records)
