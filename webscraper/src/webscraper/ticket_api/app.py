@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import importlib.util
 import json
 import os
@@ -61,6 +62,24 @@ def db_path() -> str:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+_LOCALHOST = {"127.0.0.1", "::1"}
+
+
+def _require_ingest_auth(request: Request) -> None:
+    key = os.getenv("INGEST_API_KEY", "").strip()
+    client_host = (request.client.host if request.client else "") or ""
+    if not key:
+        if client_host not in _LOCALHOST:
+            raise HTTPException(
+                status_code=403,
+                detail="Set INGEST_API_KEY on the server to allow remote access.",
+            )
+        return
+    provided = request.headers.get("X-Ingest-Key", "")
+    if not hmac.compare_digest(key, provided):
+        raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
 def _append_event(
@@ -838,18 +857,173 @@ def api_orders_incomplete(field: str | None = Query(None)):
     return {"items": [dict(r) for r in rows]}
 
 
+@app.get("/api/orders/incomplete/summary")
+def api_orders_incomplete_summary():
+    """Return count of orders missing each key field."""
+    db.ensure_indexes(db_path())
+    return db.get_completeness_summary(db_path())
+
+
 @app.get("/api/orders/{order_id}")
 def api_order_detail(order_id: str):
-    """Return a single order by ID."""
+    """Return a single order by ID, merged with any pending suggestions."""
     db.ensure_indexes(db_path())
     import sqlite3
     with sqlite3.connect(db_path()) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
     if not row:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Order not found")
-    return dict(row)
+    result = dict(row)
+    suggested = db.get_order_suggested(db_path(), order_id) or {}
+    result["_suggested"] = {k: v for k, v in suggested.items() if k != "order_id" and v}
+    return result
+
+
+@app.get("/api/orders/{order_id}/dispatch")
+def api_order_dispatch(order_id: str):
+    """Return dispatch-relevant fields plus correlated vpbx/handles data for this order."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        order = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        o = dict(order)
+        handle = o.get("customer_abbrev", "").upper()
+
+        dispatch_fields = {
+            "order_id":      o["order_id"],
+            "dispatch_date": o.get("dispatch_date") or "",
+            "assigned":      o.get("assigned") or "",
+            "location":      o.get("location") or "",
+            "task":          o.get("task") or "",
+            "install_type":  o.get("install_type") or "",
+            "customer_name": o.get("customer_name") or "",
+        }
+
+        # Correlate vpbx_records by handle (customer_abbrev)
+        vpbx = conn.execute(
+            "SELECT * FROM vpbx_records WHERE handle=?", (handle,)
+        ).fetchone()
+        dispatch_fields["vpbx"] = dict(vpbx) if vpbx else None
+
+    return dispatch_fields
+
+
+@app.get("/api/orders/{order_id}/account")
+def api_order_account(order_id: str):
+    """Return account/configuration fields plus correlated vpbx and handles data."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        order = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        o = dict(order)
+        handle = o.get("customer_abbrev", "").upper()
+
+        account_fields = {
+            "order_id":        o["order_id"],
+            "customer_name":   o.get("customer_name") or "",
+            "customer_abbrev": o.get("customer_abbrev") or "",
+            "pbx_ip":          o.get("pbx_ip") or "",
+            "seats":           o.get("seats") or "",
+            "phone_model":     o.get("phone_model") or "",
+            "pon":             o.get("pon") or "",
+            "on_net_ott":      o.get("on_net_ott") or "",
+            "detail_url":      o.get("detail_url") or "",
+        }
+
+        vpbx = conn.execute(
+            "SELECT * FROM vpbx_records WHERE handle=?", (handle,)
+        ).fetchone()
+        account_fields["vpbx"] = dict(vpbx) if vpbx else None
+
+        acct = conn.execute(
+            "SELECT * FROM handles WHERE handle=?", (handle,)
+        ).fetchone()
+        account_fields["account"] = dict(acct) if acct else None
+
+    return account_fields
+
+
+# ── Orders — agent write endpoints ───────────────────────────────────────────
+
+
+class _SuggestBody(BaseModel):
+    field: str
+    value: str
+    confidence: float = 0.8
+    source: str = "agent"
+
+
+class _FlagBody(BaseModel):
+    field: str
+    reason: str
+
+
+class _ConfirmBody(BaseModel):
+    field: str
+    reviewed_by: str
+
+
+def _require_human_confirm(request: Request) -> None:
+    key = os.getenv("HUMAN_CONFIRM_KEY", "").strip()
+    client_host = (request.client.host if request.client else "") or ""
+    if not key:
+        if client_host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Set HUMAN_CONFIRM_KEY on the server to allow remote confirms.",
+            )
+        return
+    provided = request.headers.get("X-Human-Confirm", "")
+    if not hmac.compare_digest(key, provided):
+        raise HTTPException(status_code=403, detail="Invalid confirm key.")
+
+
+@app.post("/api/orders/{order_id}/suggest")
+def api_order_suggest(order_id: str, body: _SuggestBody, request: Request):
+    """Agent writes a field suggestion to orders_suggested (never touches orders)."""
+    _require_ingest_auth(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        db.upsert_order_suggested(db_path(), order_id, body.field, body.value,
+                                   body.confidence, body.source, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "order_id": order_id, "field": body.field, "value": body.value}
+
+
+@app.post("/api/orders/{order_id}/flag")
+def api_order_flag(order_id: str, body: _FlagBody, request: Request):
+    """Agent flags a field as needing human review."""
+    _require_ingest_auth(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        db.flag_order_field(db_path(), order_id, body.field, body.reason, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "order_id": order_id, "field": body.field, "flagged": True}
+
+
+@app.post("/api/orders/{order_id}/confirm")
+def api_order_confirm(order_id: str, body: _ConfirmBody, request: Request):
+    """Human-only: promote a suggested value into the production orders table."""
+    _require_human_confirm(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        result = db.confirm_order_suggestion(db_path(), order_id, body.field,
+                                              body.reviewed_by, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 @app.get("/api/noc-queue/records")

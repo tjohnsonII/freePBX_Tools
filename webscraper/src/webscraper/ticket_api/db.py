@@ -1497,3 +1497,148 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                     ),
                 )
     return len(records)
+
+
+# ── Orders — agent tool layer ──────────────────────────────────────────────────
+
+_ORDER_FIELDS = {
+    "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+    "task", "assigned", "engineer", "detail_url", "seats", "pbx_ip",
+    "phone_model", "location", "pon", "on_net_ott",
+}
+
+
+def get_order_suggested(db_path: str, order_id: str) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM orders_suggested WHERE order_id=?", (order_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_order_suggested(
+    db_path: str,
+    order_id: str,
+    field: str,
+    value: str,
+    confidence: float,
+    source: str,
+    now_utc: str,
+) -> None:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            # Get current production value for the log
+            row = conn.execute(
+                "SELECT * FROM orders WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Order not found: {order_id!r}")
+            old_value = dict(row).get(field, "")
+
+            # Upsert the suggested field into orders_suggested
+            conn.execute(
+                f"""
+                INSERT INTO orders_suggested (order_id, {field}, suggested_utc)
+                VALUES (?, ?, ?)
+                ON CONFLICT(order_id) DO UPDATE SET
+                    {field}=excluded.{field},
+                    suggested_utc=excluded.suggested_utc
+                """,
+                (order_id, value, now_utc),
+            )
+
+            # Log to enrichment_log
+            conn.execute(
+                """
+                INSERT INTO enrichment_log
+                    (order_id, field, old_value, suggested_value, confidence,
+                     source, status, created_utc)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (order_id, field, old_value or "", value, confidence, source, now_utc),
+            )
+
+
+def flag_order_field(
+    db_path: str,
+    order_id: str,
+    field: str,
+    reason: str,
+    now_utc: str,
+) -> None:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM orders WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Order not found: {order_id!r}")
+            old_value = dict(row).get(field, "")
+            conn.execute(
+                """
+                INSERT INTO enrichment_log
+                    (order_id, field, old_value, suggested_value, confidence,
+                     source, status, created_utc)
+                VALUES (?, ?, ?, NULL, NULL, ?, 'flagged', ?)
+                """,
+                (order_id, field, old_value or "", reason, now_utc),
+            )
+
+
+def confirm_order_suggestion(
+    db_path: str,
+    order_id: str,
+    field: str,
+    reviewed_by: str,
+    now_utc: str,
+) -> dict[str, Any]:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            suggested_row = conn.execute(
+                "SELECT * FROM orders_suggested WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not suggested_row or dict(suggested_row).get(field) is None:
+                raise ValueError(f"No suggestion found for {order_id!r}.{field}")
+            value = dict(suggested_row)[field]
+
+            # Promote to production
+            conn.execute(
+                f"UPDATE orders SET {field}=? WHERE order_id=?",
+                (value, order_id),
+            )
+
+            # Mark enrichment_log entries for this field as confirmed
+            conn.execute(
+                """
+                UPDATE enrichment_log SET status='confirmed', reviewed_by=?, reviewed_utc=?
+                WHERE order_id=? AND field=? AND status='pending'
+                """,
+                (reviewed_by, now_utc, order_id, field),
+            )
+
+            return {"order_id": order_id, "field": field, "confirmed_value": value}
+
+
+def get_completeness_summary(db_path: str) -> dict[str, Any]:
+    with get_conn(db_path) as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE customer_name != ''"
+        ).fetchone()[0]
+        fields = [
+            "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+            "assigned", "engineer", "seats", "pbx_ip", "phone_model",
+            "location", "pon", "on_net_ott",
+        ]
+        missing: dict[str, int] = {}
+        for f in fields:
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM orders WHERE customer_name != '' AND ({f} IS NULL OR {f} = '')"
+            ).fetchone()[0]
+            missing[f] = count
+    return {"total_orders": total, "missing_by_field": missing}
