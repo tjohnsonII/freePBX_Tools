@@ -2602,7 +2602,11 @@ def api_orders_refresh(request: Request):
                         or os.getenv("ORDERS_123NET_PM")
                         or os.getenv("ORDERS_123NET_USERNAME", ""))
             _append_event("info", f"orders_refresh_engineer={engineer}", job_id=job_id)
-            enriched = fetch_all_enriched(pm=engineer or None)
+
+            def _orders_emit(msg: str) -> None:
+                _append_event("info", msg, job_id=job_id)
+
+            enriched = fetch_all_enriched(pm=engineer or None, emit=_orders_emit)
             n = ingest_orders(enriched)
             finished = _iso_now()
             _update_scrape_job(job_id=job_id, status="done", completed=1, total=1,

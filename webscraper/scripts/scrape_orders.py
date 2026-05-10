@@ -83,11 +83,25 @@ _ACCOUNT_ID_MAP: dict[str, str] = {
     "bill_refnum_p3":   "account_billing_ref",
     "company_type":     "account_type",
     "white_glove":      "account_white_glove",
+    # Contact / phone — try common IDs; silently skipped if absent
+    "phone":            "account_phone",
+    "company_phone":    "account_phone",
+    "contact_phone":    "account_phone",
+    "contact_name":     "account_contact",
+    "primary_contact":  "account_contact",
+    "contact_1_name":   "account_contact",
+    "email":            "account_email",
+    "company_email":    "account_email",
+    "contact_email":    "account_email",
 }
 _ACCOUNT_DIV_MAP: dict[str, str] = {
-    "past_due":       "account_past_due",
+    "past_due":        "account_past_due",
     "account_balance": "account_balance",
-    "net_terms":      "account_net_terms",
+    "net_terms":       "account_net_terms",
+    # Status / notes
+    "account_status":  "account_status_detail",
+    "status_detail":   "account_status_detail",
+    "account_notes":   "account_status_detail",
 }
 
 _ORDER_TYPE_PREFIXES = (
@@ -419,8 +433,10 @@ def _parse_account_page(html: str, source_url: str) -> dict[str, Any]:
     soup   = BeautifulSoup(html, "html.parser")
     result: dict[str, Any] = {}
 
-    # Input/select fields
+    # Input/select fields (multiple elem_ids can map to the same field; first match wins)
     for elem_id, field in _ACCOUNT_ID_MAP.items():
+        if field in result:
+            continue  # already found via an earlier element ID
         el = soup.find(id=elem_id)
         if not el:
             continue
@@ -432,8 +448,10 @@ def _parse_account_page(html: str, source_url: str) -> dict[str, Any]:
         if val:
             result[field] = val
 
-    # Div/span text fields
+    # Div/span text fields (first match wins)
     for elem_id, field in _ACCOUNT_DIV_MAP.items():
+        if field in result:
+            continue
         el = soup.find(id=elem_id)
         if el:
             val = el.get_text(strip=True)
@@ -453,16 +471,19 @@ _JSON_HEADERS = {
 }
 
 
+_ACCOUNT_DEBUG_SAVED: set[str] = set()
+
+
 def _fetch_account_for_order(
     session: requests.Session,
     order: dict[str, Any],
     rate_limit: float = 0.25,
 ) -> dict[str, Any]:
     """
-    Phase 2: enrich one order with account data from two JSON endpoints.
+    Phase 2: enrich one order with account data from three sources:
 
-    Handle = first 3 chars of order_id (e.g. CTR-68128AFA → CTR).
-
+    account_edit.cgi        GET ?handle=HANDLE
+        → account_company, account_address, account_phone, account_contact, etc.
     json/contracts.cgi      POST company_handle=HANDLE
         → pon, ckt_id, contract_bill_start, contract_mrc, contract_term_end
     json/resources_json.cgi POST term=HANDLE
@@ -475,6 +496,29 @@ def _fetch_account_for_order(
         return {}
 
     result: dict[str, Any] = {}
+    time.sleep(rate_limit)
+
+    # ── account_edit.cgi → company / address / contact / phone / etc. ───────
+    try:
+        acct_url = ACCOUNT_URL + f"?handle={handle}"
+        acct_resp = session.get(acct_url, timeout=20)
+        acct_resp.raise_for_status()
+
+        # Save the first account page as a debug file to discover element IDs
+        if handle not in _ACCOUNT_DEBUG_SAVED:
+            _ACCOUNT_DEBUG_SAVED.add(handle)
+            dbg = _debug_dir()
+            (dbg / f"account_debug_{handle}.html").write_bytes(acct_resp.content)
+            LOGGER.info("Phase 2: saved account page debug → account_debug_%s.html", handle)
+
+        acct_data = _parse_account_page(acct_resp.text, acct_url)
+        if acct_data:
+            result.update({k: v for k, v in acct_data.items() if not k.startswith("_")})
+        LOGGER.debug("Phase 2: order=%s account → company=%s city=%s",
+                     order_id, result.get("account_company"), result.get("account_city"))
+    except Exception as exc:
+        LOGGER.warning("Phase 2: account_edit.cgi order=%s handle=%s err=%s", order_id, handle, exc)
+
     time.sleep(rate_limit)
 
     # ── contracts.cgi → PON / CKT_ID / billing ─────────────────────────────
@@ -508,7 +552,7 @@ def _fetch_account_for_order(
 
     time.sleep(rate_limit)
 
-    # ── resources_json.cgi → SIP trunk group ───────────────────────────────
+    # ── resources_json.cgi → SIP trunk group + all resources raw ───────────
     try:
         resp2 = session.post(
             _ADMIN_BASE + "json/resources_json.cgi",
@@ -529,6 +573,8 @@ def _fetch_account_for_order(
             if sip:
                 result["sip_trunk"]        = sip.get("description") or None
                 result["sip_trunk_billby"] = sip.get("bill_by") or None
+            if resources:
+                result["account_raw_json"] = json.dumps(resources, default=str)
         LOGGER.debug("Phase 2: order=%s sip_trunk=%s", order_id, result.get("sip_trunk"))
     except Exception as exc:
         LOGGER.warning("Phase 2: resources_json.cgi order=%s handle=%s err=%s", order_id, handle, exc)
@@ -629,17 +675,62 @@ def _parse_calendar_html(html: str) -> list[dict[str, Any]]:
             if word:
                 people.append(word)
 
-        # Scheduled date: first token of cell[1] (format: YYYY-MM-DD - DAY N Weekday ...)
+        # Scheduled: cell[1] = "YYYY-MM-DD - DAY N Weekday [time] [street address]"
         sched_tokens = texts[1].split()
         sched_date = sched_tokens[0] if sched_tokens and _DATE_RE.match(sched_tokens[0]) else None
+
+        # Extract time (e.g. "9:00 AM" or "09:00") and site address from remaining tokens
+        _TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?(\s*(AM|PM))?$", re.IGNORECASE)
+        sched_time = None
+        addr_tokens: list[str] = []
+        skip_next = False
+        for i, tok in enumerate(sched_tokens[1:], 1):
+            if tok == "-" or tok.upper() == "DAY":
+                skip_next = True
+                continue
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.upper() in ("MON","TUE","WED","THU","FRI","SAT","SUN",
+                               "MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"):
+                continue
+            if tok.isdigit() and int(tok) < 32:
+                continue
+            if _TIME_RE.match(tok):
+                sched_time = tok
+                # absorb AM/PM if next token
+                nxt = sched_tokens[i + 1] if i + 1 < len(sched_tokens) else ""
+                if nxt.upper() in ("AM", "PM"):
+                    sched_time = f"{tok} {nxt}"
+                continue
+            if tok.upper() in ("AM", "PM") and sched_time:
+                sched_time = f"{sched_time} {tok}" if not sched_time.upper().endswith(tok.upper()) else sched_time
+                continue
+            addr_tokens.append(tok)
+        site_address = " ".join(addr_tokens).strip() or None
+
+        # Pack extra calendar cells into dispatch_raw_json
+        extra = {}
+        if texts[4]:
+            extra["bandwidth"]   = texts[4][:100]
+        if texts[6]:
+            extra["call_ahead"]  = texts[6][:200]
+        if texts[7]:
+            extra["man_hours"]   = texts[7][:50]
+        if texts[9]:
+            extra["cpe_status"]  = texts[9][:100]
+        if site_address:
+            extra["site_address"] = site_address
 
         records.append({
             "order_id":                  order_token,
             "dispatch_date":             sched_date,
+            "dispatch_time":             sched_time,
             "dispatch_tech":             ", ".join(people) if people else None,
             "dispatch_calendar_context": texts[0][:120],
             "dispatch_notes":            texts[5][:300] if texts[5] else None,
             "dispatch_status":           texts[8] if texts[8] else None,
+            "dispatch_raw_json":         json.dumps(extra) if extra else None,
             "dispatch_scraped_utc":      now,
         })
 
@@ -712,7 +803,10 @@ def fetch_dispatch_data(session: requests.Session) -> list[dict[str, Any]]:
 # ── Orchestrator ───────────────────────────────────────────────────────────────
 
 
-def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
+def fetch_all_enriched(
+    pm: str | None = None,
+    emit: "Any | None" = None,
+) -> list[dict[str, Any]]:
     """
     Full three-phase scrape. Returns enriched dispatch-type order records.
 
@@ -724,7 +818,11 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
       ORDERS_PHASE2=0   skip account_edit phase
       ORDERS_PHASE3=0   skip dispatch phase
       ORDERS_WORKERS=N  concurrent workers for Phase 2 (default 4, max 10)
+
+    emit: optional callable(str) — called with progress messages for the UI.
     """
+    _emit = emit if callable(emit) else (lambda _msg: None)
+
     session = _build_session()
     if not pm:
         pm = (os.environ.get("ORDERS_123NET_ENGINEER")
@@ -739,6 +837,7 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
 
     # ── Phase 1 ──────────────────────────────────────────────────────────────
     LOGGER.info("=== Phase 1: orders list + inline DETABLE (engineer=%s) ===", pm)
+    _emit(f"orders:phase1 fetching orders for engineer={pm} …")
     all_rows      = _fetch_orders_with_session(session, pm)
     dispatch_rows = [r for r in all_rows if r.get("row_type") == "dispatch"]
     LOGGER.info(
@@ -759,20 +858,39 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
     # dated record becomes the base; task rows then fill in any missing fields.
     phase1_ids: set[str] = {r["order_id"] for r in all_rows}
     enriched: dict[str, dict[str, Any]] = {}
+    # extra_descriptions accumulates additional task descriptions (e.g. multiple
+    # circuit/site rows for the same order with different IP blocks / addresses).
+    extra_descriptions: dict[str, list[str]] = {}
+
     for r in sorted(all_rows, key=lambda x: 0 if x["row_type"] == "dispatch" else 1):
         oid = r["order_id"]
         if oid not in enriched:
             enriched[oid] = dict(r)
+            extra_descriptions[oid] = []
         else:
+            # Accumulate extra descriptions so they're not silently dropped
+            extra_desc = r.get("description") or ""
+            primary    = enriched[oid].get("description") or ""
+            if extra_desc and extra_desc != primary:
+                extra_descriptions[oid].append(extra_desc)
             for k, v in r.items():
-                if k not in ("order_id", "row_type") and v and not enriched[oid].get(k):
+                if k not in ("order_id", "row_type", "description") and v and not enriched[oid].get(k):
                     enriched[oid][k] = v
 
+    # Store extra descriptions as JSON so the Order Tracker / OpenClaw can see them
+    for oid, extras in extra_descriptions.items():
+        if extras:
+            enriched[oid]["extra_descriptions_json"] = json.dumps(extras)
+
     unique_orders = list(enriched.values())
+    n_dispatch = len(dispatch_rows)
+    n_task     = len(all_rows) - n_dispatch
+    _emit(f"orders:phase1 {len(all_rows)} rows → {len(unique_orders)} unique orders  ({n_dispatch} dispatch, {n_task} task)")
 
     # ── Phase 2: Account detail (concurrent) ─────────────────────────────────
     if run_phase2 and unique_orders:
         LOGGER.info("=== Phase 2: account detail (%d orders, %d workers) ===", len(unique_orders), workers)
+        _emit(f"orders:phase2 fetching account detail for {len(unique_orders)} orders …")
         done = 0
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="acct") as pool:
             futures = {
@@ -794,12 +912,23 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
                 if done % 5 == 0:
                     LOGGER.info("Phase 2: %d/%d accounts fetched", done, len(unique_orders))
         LOGGER.info("Phase 2 done: %d accounts processed", done)
+        _emit(f"orders:phase2 {done}/{len(unique_orders)} accounts fetched")
     elif not run_phase2:
         LOGGER.info("Phase 2: skipped (ORDERS_PHASE2=0)")
+
+    # Emit per-order detail after Phase 2 (account data now available).
+    for r in sorted(unique_orders, key=lambda x: x.get("install_date") or "9999"):
+        oid   = r.get("order_id", "")
+        date  = r.get("install_date") or r.get("dispatch_date") or ""
+        cust  = (r.get("customer_name") or "")[:35]
+        task  = (r.get("description") or "")[:45]
+        rtype = r.get("row_type", "")
+        _emit(f"  {oid:<22} {date:<12} {cust:<35} {task}  [{rtype}]")
 
     # ── Phase 3: Dispatch man-hour summary + calendar ─────────────────────────
     if run_phase3:
         LOGGER.info("=== Phase 3: dispatch man-hour summary + calendar ===")
+        _emit("orders:phase3 fetching dispatch calendar …")
         try:
             dispatch_records = fetch_dispatch_data(session)
             matched = 0
@@ -817,15 +946,19 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
                 "Phase 3 done: %d dispatch records, %d matched to Phase 1",
                 len(dispatch_records), matched,
             )
+            _emit(f"orders:phase3 {matched}/{len(unique_orders)} orders matched in dispatch calendar")
         except Exception as exc:
             LOGGER.warning("Phase 3 failed (non-fatal): %s", exc)
+            _emit(f"orders:phase3 failed (non-fatal): {exc}")
     else:
         LOGGER.info("Phase 3: skipped (ORDERS_PHASE3=0)")
 
     # Result is exactly the Phase 1 set — enriched with Phase 2/3 data where available.
     result = list(enriched.values())
-    LOGGER.info("=== Total enriched orders: %d (all Phase 1, Phase 3 matched %d) ===",
-                len(result), sum(1 for r in result if r.get("dispatch_date")))
+    with_date = sum(1 for r in result if r.get("install_date") or r.get("dispatch_date"))
+    LOGGER.info("=== Total enriched orders: %d (%d with date, Phase 3 matched %d) ===",
+                len(result), with_date,
+                sum(1 for r in result if r.get("dispatch_date")))
     return result
 
 
@@ -833,28 +966,50 @@ def fetch_all_enriched(pm: str | None = None) -> list[dict[str, Any]]:
 
 
 def _remap_for_server(rec: dict[str, Any]) -> dict[str, Any]:
-    """Translate client-side field names to the column names the server stores.
+    """Augment the record with server-side derived fields.
 
-    Client name          Server column
-    ─────────────────    ─────────────────
-    install_date      →  dispatch_date   (Phase 1 scheduled date; Phase 3 date wins if present)
-    description       →  task
-    order_type        →  install_type
-    assigned (list)   →  assigned (str)
+    Field names are preserved so db.upsert_orders can store them in the
+    matching columns. Derived aliases are added alongside originals:
+      install_date → also stored in dispatch_date if Phase 3 didn't set one
+      description  → also stored in task (tracker display alias)
+      order_type   → also stored in install_type; on_net_ott derived from it
+      assigned (list) → joined to str
     """
     r = dict(rec)
 
-    if "install_date" in r:
-        # Phase 3 dispatch_date takes priority; fall back to Phase 1 install_date
-        if not r.get("dispatch_date"):
-            r["dispatch_date"] = r["install_date"]
-        del r["install_date"]
+    # Keep install_date for the install_date column; also populate dispatch_date
+    # from it when Phase 3 didn't provide a calendar date.
+    if "install_date" in r and not r.get("dispatch_date"):
+        r["dispatch_date"] = r["install_date"]
 
-    if "description" in r:
-        r["task"] = r.pop("description")
+    # task is the display alias for description — keep both
+    if "description" in r and not r.get("task"):
+        r["task"] = r["description"]
 
     if "order_type" in r:
-        r["install_type"] = r.pop("order_type")
+        ot = r["order_type"] or ""
+        r["install_type"] = ot
+        # Derive on_net_ott from order type / description
+        ot_up = ot.upper()
+        desc_up = (r.get("description") or "").upper()
+        if "OTT" in ot_up or "OTT" in desc_up:
+            r["on_net_ott"] = "OTT"
+        elif any(k in ot_up for k in ("HOSTED", "UCAAS", "SIP")):
+            r["on_net_ott"] = "On-Net"
+        else:
+            r["on_net_ott"] = None
+
+    # Extract seat count from qty_term ("QTY:N TERM:...") or description
+    if not r.get("seat_count"):
+        qt = r.get("qty_term") or ""
+        m = re.search(r"QTY:(\d+)", qt, re.IGNORECASE)
+        if m:
+            r["seat_count"] = int(m.group(1))
+        else:
+            desc = r.get("description") or ""
+            ms = re.search(r"(\d+)\s+seat", desc, re.IGNORECASE)
+            if ms:
+                r["seat_count"] = int(ms.group(1))
 
     assigned = r.get("assigned")
     if isinstance(assigned, list):

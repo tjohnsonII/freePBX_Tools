@@ -269,7 +269,7 @@ class _OrdersBody(BaseModel):
 def ingest_orders(body: _OrdersBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)
     n = _db.upsert_orders(_dp(), body.records, body.now_utc)
-    return {"inserted": n}
+    return {"upserted": n, "inserted": n}
 
 
 

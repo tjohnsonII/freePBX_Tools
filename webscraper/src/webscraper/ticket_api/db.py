@@ -493,6 +493,10 @@ def ensure_indexes(db_path: str) -> None:
                 ("contract_mrc",             "TEXT"),
                 ("contract_term_end",        "TEXT"),
                 ("account_contracts_json",   "TEXT"),
+                # Derived fields
+                ("on_net_ott",              "TEXT"),
+                ("seat_count",              "INTEGER"),
+                ("extra_descriptions_json", "TEXT"),
             ]:
                 if _col not in orders_columns:
                     conn.execute(f"ALTER TABLE orders ADD COLUMN {_col} {_ddl}")
@@ -1479,7 +1483,8 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         dispatch_notes, dispatch_raw_json, dispatch_scraped_utc,
                         pon, ckt_id, sip_trunk, sip_trunk_billby,
                         contract_bill_start, contract_mrc, contract_term_end,
-                        account_contracts_json
+                        account_contracts_json,
+                        on_net_ott, seat_count, extra_descriptions_json
                     )
                     VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -1488,7 +1493,8 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?
                     )
                     ON CONFLICT(order_id) DO UPDATE SET
                         install_date=excluded.install_date,
@@ -1548,7 +1554,10 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         contract_bill_start=COALESCE(excluded.contract_bill_start, orders.contract_bill_start),
                         contract_mrc=COALESCE(excluded.contract_mrc, orders.contract_mrc),
                         contract_term_end=COALESCE(excluded.contract_term_end, orders.contract_term_end),
-                        account_contracts_json=COALESCE(excluded.account_contracts_json, orders.account_contracts_json)
+                        account_contracts_json=COALESCE(excluded.account_contracts_json, orders.account_contracts_json),
+                        on_net_ott=COALESCE(excluded.on_net_ott, orders.on_net_ott),
+                        seat_count=COALESCE(excluded.seat_count, orders.seat_count),
+                        extra_descriptions_json=COALESCE(excluded.extra_descriptions_json, orders.extra_descriptions_json)
                     """,
                     (
                         order_id,
@@ -1615,6 +1624,10 @@ def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> 
                         rec.get("contract_mrc") or None,
                         rec.get("contract_term_end") or None,
                         rec.get("account_contracts_json") or None,
+                        # derived fields
+                        rec.get("on_net_ott") or None,
+                        rec.get("seat_count") or None,
+                        rec.get("extra_descriptions_json") or None,
                     ),
                 )
     return len(records)
