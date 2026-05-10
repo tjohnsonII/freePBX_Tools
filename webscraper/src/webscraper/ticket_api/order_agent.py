@@ -33,6 +33,8 @@ API_BASE = os.getenv("TICKET_API_URL", "http://127.0.0.1:8788").rstrip("/")
 INGEST_KEY = os.getenv("INGEST_API_KEY", "")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 MODEL = "claude-sonnet-4-6"
+MAX_TOKENS = 8192
+BATCH_SIZE = 5  # orders processed per --incomplete run
 
 _HEADERS: dict[str, str] = {}
 if INGEST_KEY:
@@ -311,7 +313,7 @@ def run_agent(task: str, verbose: bool = True) -> str:
     while True:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
             tools=TOOLS,  # type: ignore[arg-type]
             messages=messages,  # type: ignore[arg-type]
@@ -329,6 +331,8 @@ def run_agent(task: str, verbose: bool = True) -> str:
             return final
 
         if response.stop_reason != "tool_use":
+            if verbose:
+                print(f"\n[agent] Stopped: stop_reason={response.stop_reason!r} (likely hit max_tokens)")
             break
 
         # Process all tool calls in this turn
@@ -370,6 +374,8 @@ def main() -> None:
                        help="Show completeness summary and exit")
     group.add_argument("--query", help="Free-text question about orders")
     parser.add_argument("--quiet", action="store_true", help="Suppress tool call trace")
+    parser.add_argument("--batch", type=int, default=BATCH_SIZE,
+                        help=f"Max orders to process per --incomplete run (default {BATCH_SIZE})")
     args = parser.parse_args()
 
     if not ANTHROPIC_KEY:
@@ -390,10 +396,12 @@ def main() -> None:
         )
     elif args.incomplete:
         run_agent(
-            "Call get_completeness_summary first, then process the orders with the most "
-            "critical missing fields. For each incomplete order, inspect it and either "
-            "suggest a value or flag the field. Work through as many as you can, "
-            "prioritizing upcoming dispatch dates.",
+            f"Call get_completeness_summary first to understand the landscape. "
+            f"Then call get_incomplete_orders for the most critical missing field. "
+            f"Pick the {args.batch} orders with the most urgent upcoming dispatch dates "
+            f"and work through each one: call get_order_dispatch and get_order_account, "
+            f"then suggest values or flag fields you cannot determine. "
+            f"After finishing those {args.batch} orders, stop and report what you did.",
             verbose=verbose,
         )
     elif args.query:

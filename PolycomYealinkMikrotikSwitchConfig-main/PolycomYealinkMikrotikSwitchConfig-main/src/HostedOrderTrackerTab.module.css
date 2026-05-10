@@ -383,3 +383,121 @@
   border-top: 1px solid var(--app-border);
   flex-shrink: 0;
 }
+
+/* ── Phase 4: API / AI additions ─────────────────────────────────────────── */
+
+/* Toolbar status indicators */
+.apiStatus {
+  font-size: 11px;
+  color: var(--app-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.apiStatusErr {
+  font-size: 11px;
+  color: #b42318;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* Completeness bar */
+.completenessBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 5px 10px;
+  margin-bottom: 8px;
+  background: var(--app-surface-2);
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.completenessTitle {
+  font-weight: 700;
+  color: var(--app-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.completenessField {
+  color: var(--app-fg);
+  white-space: nowrap;
+}
+
+.completenessField strong {
+  color: #b42318;
+}
+
+/* Column header highlight when it has pending AI suggestions */
+.thHasSuggestions {
+  border-bottom: 2px solid var(--brand-blue) !important;
+}
+
+/* Cell with an AI suggestion below the input */
+.suggestionCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestionOverlay {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 3px;
+  background: color-mix(in srgb, var(--brand-blue) 8%, var(--app-surface));
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 28%, transparent);
+  border-radius: 3px;
+}
+
+.suggestionBadge {
+  font-size: 8px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--brand-blue);
+  border-radius: 2px;
+  padding: 1px 3px;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.suggestionValue {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--brand-blue);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.acceptBtn {
+  background: none;
+  border: none;
+  color: #16794a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.acceptBtn:hover { color: #0f5132; }
+
+.dismissBtn {
+  background: none;
+  border: none;
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.dismissBtn:hover { color: #b42318; }
