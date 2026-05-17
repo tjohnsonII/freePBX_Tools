@@ -191,15 +191,19 @@ export default function App() {
           {needsServers && (
             <div className="field">
               <label htmlFor="deploy-servers">
-                Servers (newline / comma / space separated) <FaServer className="labelIcon" />
+                Servers <FaServer className="labelIcon" />
               </label>
               <textarea
                 id="deploy-servers"
                 value={servers}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setServers(e.target.value)}
                 spellCheck={false}
-                title="Server addresses, one per line or comma-separated"
+                placeholder={"69.39.69.102\n69.39.69.103:differentpassword"}
+                title="Server addresses, one per line or comma-separated. Append :password to override SSH password for that server."
               />
+              <small style={{color:'#888',marginTop:'3px',display:'block'}}>
+                One per line. Append <code>:password</code> to override SSH password for a specific server.
+              </small>
             </div>
           )}
 
@@ -240,7 +244,7 @@ export default function App() {
               />
             </div>
             <div className="field">
-              <label htmlFor="deploy-root-password">Root Password (for su root)</label>
+              <label htmlFor="deploy-root-password">Root Password (shared — all servers)</label>
               <input
                 id="deploy-root-password"
                 type="password"

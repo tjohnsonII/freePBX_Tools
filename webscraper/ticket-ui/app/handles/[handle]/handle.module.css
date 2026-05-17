@@ -103,66 +103,174 @@
 
 /* ── Timeline ──────────────────────────────────────────────────────────────── */
 
-.timeline {
+.tlList {
   list-style: none;
-  padding: 0;
+  padding: 0 0 0 28px;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  position: relative;
 }
 
-.timelineItem {
+/* Vertical spine */
+.tlList::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #30363d;
+}
+
+.tlItem {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+/* Dot on spine — center aligns with spine (spine center = 7px from list left) */
+.tlDot {
+  position: absolute;
+  left: -27px;
+  top: 11px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #0d1117;
+  border: 2px solid #8b949e;
+  z-index: 1;
+}
+
+.tlDotProblem  { border-color: #f85149; background: #f85149; }
+.tlDotResolved { border-color: #3fb950; background: #3fb950; }
+.tlDotChange   { border-color: #58a6ff; background: #58a6ff; }
+.tlDotMaint    { border-color: #e3b341; background: #e3b341; }
+.tlDotDefault  { border-color: #8b949e; background: #21262d; }
+.tlDotOpen     { border-color: #e3b341; background: #e3b341; }
+
+/* Card */
+.tlCard {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-left: 3px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.tlCardProblem     { border-left-color: #f85149; background: rgba(248, 81, 73, 0.07); }
+.tlCardResolved    { border-left-color: #3fb950; background: rgba(63, 185, 80, 0.07); }
+.tlCardChange      { border-left-color: #58a6ff; }
+.tlCardMaintenance { border-left-color: #e3b341; }
+.tlCardRequest     { border-left-color: #3fb950; }
+.tlCardDefault     {}
+.tlCardOpen        { border-left-color: #e3b341; background: rgba(227, 179, 65, 0.07); }
+
+/* Top row inside card */
+.tlCardTop {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 0.82rem;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
-  padding: 4px 0;
-  border-bottom: 1px solid #21262d;
 }
 
-.timelineDate {
+.tlDate {
   font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.78rem;
   color: #8b949e;
-  min-width: 88px;
   flex-shrink: 0;
+  min-width: 86px;
 }
 
-.timelineCat {
-  font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 0.72rem;
+/* Badge */
+.tlBadge {
+  font-size: 0.63rem;
   font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  min-width: 90px;
+  padding: 2px 7px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
-.catIncident  { color: #f85149; }
-.catOutage    { color: #f85149; }
-.catChange    { color: #58a6ff; }
-.catRequest   { color: #3fb950; }
-.catMaintenance { color: #e3b341; }
-.catResolved  { color: #8b949e; }
+.tlBadgeProblem     { background: rgba(248, 81, 73, 0.2);  color: #f85149; border: 1px solid rgba(248, 81, 73, 0.5); }
+.tlBadgeResolved    { background: rgba(63, 185, 80, 0.2);  color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.5); }
+.tlBadgeChange      { background: rgba(88, 166, 255, 0.2); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.5); }
+.tlBadgeMaintenance { background: rgba(227, 179, 65, 0.2); color: #e3b341; border: 1px solid rgba(227, 179, 65, 0.5); }
+.tlBadgeRequest     { background: rgba(63, 185, 80, 0.15); color: #56d364; border: 1px solid rgba(63, 185, 80, 0.3); }
+.tlBadgeDefault     { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+.tlBadgeOpen        { background: rgba(227, 179, 65, 0.2); color: #e3b341; border: 1px solid rgba(227, 179, 65, 0.5); }
 
-.timelineTitle {
+.tlTitle {
+  font-size: 0.86rem;
   color: #e6edf3;
+  font-weight: 500;
   flex: 1;
 }
 
-.timelineTicketId {
+.tlTicketId {
   font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #58a6ff;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+.tlTicketId:hover { text-decoration: underline; }
+
+.tlDetail {
+  font-size: 0.73rem;
+  color: #8b949e;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid #21262d;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* ── Section header with inline filter ────────────────────────────────────── */
+
+/* Arrow between OPENED and RESOLVED badges */
+.tlArrow {
+  color: #6e7681;
+  font-size: 0.7rem;
   flex-shrink: 0;
 }
 
-.timelineDetails {
-  width: 100%;
-  font-size: 0.75rem;
+/* Duration chip (e.g. "same day", "3 days") */
+.tlDuration {
+  font-size: 0.65rem;
   color: #8b949e;
-  padding-left: 200px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+/* Paired open/close notes */
+.tlPairNotes {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid #21262d;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tlPairNote {
+  font-size: 0.73rem;
+  color: #8b949e;
   font-style: italic;
+  line-height: 1.4;
+}
+
+.tlPairLabel {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6e7681;
+  margin-right: 5px;
 }
 
 /* ── Section header with inline filter ────────────────────────────────────── */

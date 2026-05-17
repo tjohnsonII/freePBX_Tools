@@ -127,6 +127,18 @@ def load_credentials():
 _creds = load_credentials()
 DEFAULT_USER = _creds["user"]
 DEFAULT_PASSWORD = _creds["password"]
+
+
+def load_password_map() -> dict:
+    """Load per-server SSH password overrides from FREEPBX_PASSWORD_MAP env var (JSON {ip: password})."""
+    raw = os.getenv("FREEPBX_PASSWORD_MAP", "").strip()
+    if not raw:
+        return {}
+    try:
+        import json as _json
+        return _json.loads(raw)
+    except Exception:
+        return {}
 ROOT_PASSWORD = _creds["root_password"]
 
 # Configuration
@@ -765,6 +777,7 @@ def deploy_parallel(
     dry_run=False,
     connect_only=False,
     upload_only=False,
+    password_map=None,
 ):
     """
     Deploy to multiple servers in parallel using ThreadPoolExecutor.
@@ -781,12 +794,13 @@ def deploy_parallel(
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all deployment tasks
+        _pw_map = password_map or {}
         future_to_server = {
             executor.submit(
                 deploy_to_server,
                 server,
                 username,
-                password,
+                _pw_map.get(server, password),  # per-server override, else global
                 root_password,
                 files,
                 dry_run,
@@ -936,6 +950,7 @@ Examples:
         args.dry_run,
         args.connect_only,
         args.upload_only,
+        password_map=load_password_map(),
     )
     elapsed = time.time() - start_time
     # Print summary

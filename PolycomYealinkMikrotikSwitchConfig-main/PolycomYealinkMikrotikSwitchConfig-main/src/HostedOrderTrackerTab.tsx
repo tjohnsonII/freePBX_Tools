@@ -183,59 +183,49 @@ const HostedOrderTrackerTab: React.FC = () => {
     if (showPasteModal) setTimeout(() => textareaRef.current?.focus(), 50);
   }, [showPasteModal]);
 
-  // Load orders and suggestions from API on mount
-  useEffect(() => {
-    let cancelled = false;
+  // Load orders and suggestions from API — callable on mount and by the refresh button
+  const loadFromApi = React.useCallback(async () => {
+    setApiLoading(true);
+    setApiError(null);
+    try {
+      const listRes = await fetch(
+        `${SCRAPER_BASE}/api/orders?engineer=${encodeURIComponent(DEFAULT_ENGINEER)}`
+      );
+      if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
+      const { items } = await listRes.json() as { items: Record<string, string>[] };
+      setState(prev => mergeApiOrders(prev, items));
 
-    async function load() {
-      setApiLoading(true);
-      setApiError(null);
-      try {
-        // Fetch order list
-        const listRes = await fetch(
-          `${SCRAPER_BASE}/api/orders?engineer=${encodeURIComponent(DEFAULT_ENGINEER)}`
-        );
-        if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
-        const { items } = await listRes.json() as { items: Record<string, string>[] };
-        if (!cancelled) setState(prev => mergeApiOrders(prev, items));
-
-        // Fetch individual orders in parallel to get _suggested data
-        const orderIds = items.map(o => o.order_id).filter(Boolean);
-        const detailResults = await Promise.allSettled(
-          orderIds.map(id =>
-            fetch(`${SCRAPER_BASE}/api/orders/${encodeURIComponent(id)}`).then(r => r.json())
-          )
-        );
-        if (!cancelled) {
-          const newSuggestions: SuggestionMap = {};
-          for (const res of detailResults) {
-            if (res.status !== 'fulfilled') continue;
-            const order = res.value as Record<string, unknown>;
-            const orderId = order.order_id as string;
-            const suggested = order._suggested as Record<string, string> | undefined;
-            if (suggested && orderId) {
-              const valid = Object.fromEntries(
-                Object.entries(suggested).filter(([k]) => k in DB_TO_UI)
-              );
-              if (Object.keys(valid).length) newSuggestions[orderId] = valid;
-            }
-          }
-          setApiSuggestions(newSuggestions);
+      const orderIds = items.map(o => o.order_id).filter(Boolean);
+      const detailResults = await Promise.allSettled(
+        orderIds.map(id =>
+          fetch(`${SCRAPER_BASE}/api/orders/${encodeURIComponent(id)}`).then(r => r.json())
+        )
+      );
+      const newSuggestions: SuggestionMap = {};
+      for (const res of detailResults) {
+        if (res.status !== 'fulfilled') continue;
+        const order = res.value as Record<string, unknown>;
+        const orderId = order.order_id as string;
+        const suggested = order._suggested as Record<string, string> | undefined;
+        if (suggested && orderId) {
+          const valid = Object.fromEntries(
+            Object.entries(suggested).filter(([k]) => k in DB_TO_UI)
+          );
+          if (Object.keys(valid).length) newSuggestions[orderId] = valid;
         }
-
-        // Fetch completeness summary
-        const summaryRes = await fetch(`${SCRAPER_BASE}/api/orders/incomplete/summary`);
-        if (summaryRes.ok && !cancelled) setCompletenessStats(await summaryRes.json());
-      } catch (e) {
-        if (!cancelled) setApiError(String(e));
-      } finally {
-        if (!cancelled) setApiLoading(false);
       }
-    }
+      setApiSuggestions(newSuggestions);
 
-    load();
-    return () => { cancelled = true; };
+      const summaryRes = await fetch(`${SCRAPER_BASE}/api/orders/incomplete/summary`);
+      if (summaryRes.ok) setCompletenessStats(await summaryRes.json());
+    } catch (e) {
+      setApiError(String(e));
+    } finally {
+      setApiLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadFromApi(); }, [loadFromApi]);
 
   function update(patch: Partial<TrackerState>) {
     setState(prev => ({ ...prev, ...patch }));
@@ -474,11 +464,20 @@ const HostedOrderTrackerTab: React.FC = () => {
         <button
           type="button"
           className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={() => setShowPasteModal(true)}
+          onClick={() => loadFromApi()}
+          disabled={apiLoading}
         >
-          Load from 123.net
+          {apiLoading ? 'Loading…' : 'Load from 123.net'}
         </button>
         <div className={styles.divider} />
+        <button
+          type="button"
+          className={styles.btn}
+          onClick={() => setShowPasteModal(true)}
+          title="Manually paste Man-Hour Summary text to import orders"
+        >
+          Paste Import
+        </button>
         <label className={`${styles.btn} ${styles.fileLabel}`}>
           Import CSV
           <input type="file" accept=".csv" title="Import order tracker CSV"

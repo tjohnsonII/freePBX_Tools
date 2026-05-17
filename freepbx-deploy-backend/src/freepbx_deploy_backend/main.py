@@ -23,37 +23,53 @@ from pydantic import BaseModel, Field
 Action = Literal["deploy", "uninstall", "clean_deploy", "connect_only", "upload_only", "bundle", "remote_run"]
 
 
-def _find_repo_root() -> Path:
-    here = Path(__file__).resolve()
-    for parent in [here] + list(here.parents):
-        if (parent / "deploy_freepbx_tools.py").exists() and (parent / "deploy_uninstall_tools.py").exists():
-            return parent
-        if (parent / "archive" / "fleet" / "deploy_freepbx_tools.py").exists():
-            return parent / "archive" / "fleet"
-    raise RuntimeError("Could not locate repo root (deploy scripts not found)")
+DEPLOY_SCRIPT_DIR = Path("/var/www/freePBX_Tools/archive/fleet")
 
 
-REPO_ROOT = _find_repo_root()
+def _split_server_entry(entry: str) -> tuple[str, Optional[str]]:
+    """Split 'ip:password' into (ip, password). Returns (entry, None) if no password suffix."""
+    if ":" not in entry:
+        return entry, None
+    ip, _, maybe_pass = entry.rpartition(":")
+    # If the part after the last colon looks like a plain port number, don't treat it as a password.
+    if maybe_pass.isdigit() and 1 <= int(maybe_pass) <= 65535:
+        return entry, None
+    return ip.strip(), maybe_pass if maybe_pass else None
 
 
 def _parse_servers(raw: str) -> List[str]:
+    """Return list of IPs only (strips any :password suffix)."""
     if not raw:
         return []
-    # Accept newline, comma, tab, and space separated.
     tokens: List[str] = []
     for line in raw.replace(",", "\n").splitlines():
         for part in line.strip().split():
             p = part.strip()
             if p:
-                tokens.append(p)
-    # De-dupe, preserve order
-    seen = set()
+                ip, _ = _split_server_entry(p)
+                tokens.append(ip)
+    seen: set[str] = set()
     out: List[str] = []
     for t in tokens:
         if t not in seen:
             seen.add(t)
             out.append(t)
     return out
+
+
+def _build_server_password_map(raw: str) -> Dict[str, str]:
+    """Return {ip: password} for every server entry that has an explicit :password."""
+    result: Dict[str, str] = {}
+    if not raw:
+        return result
+    for line in raw.replace(",", "\n").splitlines():
+        for part in line.strip().split():
+            p = part.strip()
+            if p:
+                ip, pw = _split_server_entry(p)
+                if pw:
+                    result[ip] = pw
+    return result
 
 
 class JobCreate(BaseModel):
@@ -112,6 +128,7 @@ class Job:
     password: str
     root_password: str
     bundle_name: str
+    server_password_map: Dict[str, str] = field(default_factory=dict)  # {ip: ssh_password}
     menu_choice: str = ""   # populated for remote_run action
     grab_dump: bool = False  # populated for remote_run action
     sub_choice: str = ""    # optional sub-menu choice for remote_run
@@ -194,6 +211,8 @@ def _build_env(job: Job) -> Dict[str, str]:
     if job.root_password:
         # Avoid accidental CRLF/newline characters from UI copy/paste.
         env["FREEPBX_ROOT_PASSWORD"] = job.root_password.rstrip("\r\n")
+    if job.server_password_map:
+        env["FREEPBX_PASSWORD_MAP"] = json.dumps(job.server_password_map)
 
     # Make Python output deterministic for decode.
     env.setdefault("PYTHONIOENCODING", "utf-8")
@@ -254,7 +273,7 @@ async def _run_one(job: Job, args: List[str], title: str) -> int:
     def _run_blocking() -> int:
         proc = subprocess.Popen(
             args,
-            cwd=str(REPO_ROOT),
+            cwd=str(DEPLOY_SCRIPT_DIR),
             env=_build_env(job),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -322,7 +341,7 @@ async def _run_job(job: Job) -> None:
         elif job.action == "remote_run":
             if not job.servers:
                 raise RuntimeError("No server provided for remote_run")
-            script = REPO_ROOT / "scripts" / "remote_run_tool.py"
+            script = DEPLOY_SCRIPT_DIR / "scripts" / "remote_run_tool.py"
             if not script.exists():
                 raise RuntimeError("remote_run_tool.py not found at {}".format(script))
             if job.menu_choice not in _ALLOWED_MENU_CHOICES:
@@ -368,7 +387,7 @@ async def _run_job(job: Job) -> None:
 def health() -> Dict[str, Any]:
     return {
         "ok": True,
-        "repo_root": str(REPO_ROOT),
+        "repo_root": str(DEPLOY_SCRIPT_DIR),
     }
 
 
@@ -379,7 +398,7 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any] 
     Runs a local helper script which SSHes into the FreePBX host and emits JSON.
     """
 
-    script = REPO_ROOT / "scripts" / "remote_freepbx_diagnostics.py"
+    script = DEPLOY_SCRIPT_DIR / "scripts" / "remote_freepbx_diagnostics.py"
     if not script.exists():
         raise HTTPException(status_code=500, detail="Diagnostics script not found")
 
@@ -427,7 +446,7 @@ async def diagnostics_summary(req: DiagnosticsSummaryRequest) -> Dict[str, Any] 
     def _run() -> Dict[str, Any]:
         p = subprocess.run(
             args,
-            cwd=str(REPO_ROOT),
+            cwd=str(DEPLOY_SCRIPT_DIR),
             env={
                 **os.environ,
                 "PYTHONIOENCODING": "utf-8",
@@ -571,6 +590,7 @@ async def create_job(req: JobCreate) -> JobInfo:
         password=req.password,
         root_password=req.root_password,
         bundle_name=req.bundle_name,
+        server_password_map=_build_server_password_map(req.servers),
     )
 
     async with JOBS_LOCK:
@@ -628,6 +648,6 @@ async def job_ws(ws: WebSocket, job_id: str) -> None:
 
 
 # Optional: serve built frontend if present.
-_dist = (REPO_ROOT / "freepbx-deploy-ui" / "dist")
+_dist = (DEPLOY_SCRIPT_DIR / "freepbx-deploy-ui" / "dist")
 if _dist.exists():
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="ui")
