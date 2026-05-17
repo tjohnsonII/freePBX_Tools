@@ -899,31 +899,20 @@ def _capture_site_config(driver: Any, detail_url: str) -> str:
             return ""
 
     try:
-        site_btn.click()
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", site_btn)
+        time.sleep(0.3)
+        try:
+            site_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", site_btn)
     except Exception:
         return ""
 
-    # Wait for the config textarea to appear
-    try:
-        textarea = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea"))
-        )
-        config_text = textarea.get_attribute("value") or textarea.text or ""
-    except Exception:
-        config_text = ""
+    config_text = _read_modal_textarea(driver, None, "site_config")
+    _close_modal(driver)
+    time.sleep(0.3)
 
-    # Close the modal by clicking Cancel
-    try:
-        cancel = driver.find_element(
-            By.XPATH,
-            "//button[normalize-space()='Cancel'] | //input[@value='Cancel']",
-        )
-        cancel.click()
-        time.sleep(0.3)
-    except Exception:
-        pass
-
-    return config_text.strip()
+    return config_text
 
 
 def fetch_device_configs(

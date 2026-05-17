@@ -931,17 +931,36 @@ def fetch_all_enriched(
         _emit("orders:phase3 fetching dispatch calendar …")
         try:
             dispatch_records = fetch_dispatch_data(session)
+            # Known company handles from Phase 1 (first 3 chars of order_id)
+            phase1_handles: set[str] = {oid[:3].upper() for oid in enriched}
             matched = 0
             for drec in dispatch_records:
                 oid = drec.get("order_id", "")
                 if not oid:
                     continue
+                handle = oid[:3].upper()
+                tech   = drec.get("dispatch_tech") or ""
+                is_my_tech = pm.lower() in tech.lower()
+
                 if oid in enriched:
+                    # Primary: order captured in Phase 1 — enrich with dispatch data
                     for k, v in drec.items():
                         if k not in ("order_id", "row_type") and not enriched[oid].get(k):
                             enriched[oid][k] = v
                     matched += 1
-                # else: other engineer's calendar entry — skip
+                elif is_my_tech and handle in phase1_handles:
+                    # Secondary: calendar entry where pm is listed as a tech for a
+                    # company handle already present in Phase 1.  The order_id may
+                    # differ (different sub-order for the same account) but the
+                    # dispatch date still belongs to this engineer's workload.
+                    new_rec = {**drec, "account_handle": handle, "row_type": "dispatch"}
+                    enriched[oid] = new_rec
+                    matched += 1
+                    LOGGER.info(
+                        "Phase 3: secondary match order=%s handle=%s tech=%s",
+                        oid, handle, tech,
+                    )
+                # else: another engineer's calendar entry for an unrelated company
             LOGGER.info(
                 "Phase 3 done: %d dispatch records, %d matched to Phase 1",
                 len(dispatch_records), matched,
