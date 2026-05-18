@@ -40,6 +40,11 @@ import subprocess  # For running deployment scripts
 import threading  # For background thread management
 import time  # For timing and delays
 import secrets  # For generating secure tokens
+from pathlib import Path
+
+REPO_ROOT         = Path("/var/www/freePBX_Tools")
+DEPLOY_SCRIPT_DIR = REPO_ROOT / "archive" / "fleet"
+DEPLOY_PYTHON     = str(REPO_ROOT / ".venv-web-manager" / "bin" / "python3")
 
 
 def _try_import_paramiko():
@@ -249,31 +254,33 @@ FREEPBX_ROOT_PASSWORD = "{root_password}"
             active_deployments[deployment_id] = 'running'  # Mark as running
             # Determine which script to run based on action
             if action == 'deploy':
-                script = 'deploy_freepbx_tools.py'
+                script = str(DEPLOY_SCRIPT_DIR / 'deploy_freepbx_tools.py')
             elif action == 'uninstall':
-                script = 'deploy_uninstall_tools.py'
+                script = str(DEPLOY_SCRIPT_DIR / 'deploy_uninstall_tools.py')
             elif action == 'redeploy':
                 # Redeploy: uninstall first, then install
                 socketio.emit('log', {
                     'deployment_id': deployment_id,
                     'message': '🔄 Phase 1: Uninstalling existing tools...'
                 })
-                subprocess.run(['python', 'deploy_uninstall_tools.py', '--servers', servers],
-                             capture_output=True, text=True)
-                
+                subprocess.run(
+                    [DEPLOY_PYTHON, str(DEPLOY_SCRIPT_DIR / 'deploy_uninstall_tools.py'), '--servers', servers],
+                    capture_output=True, text=True, cwd=str(REPO_ROOT),
+                )
 
                 socketio.emit('log', {
                     'deployment_id': deployment_id,
                     'message': '🔄 Phase 2: Installing tools...'
                 })
-                script = 'deploy_freepbx_tools.py'
+                script = str(DEPLOY_SCRIPT_DIR / 'deploy_freepbx_tools.py')
             # Start the deployment script as a subprocess
             process = subprocess.Popen(
-                ['python', script, '--servers', servers],
+                [DEPLOY_PYTHON, script, '--servers', servers],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # merge stderr into stdout
                 text=True,
                 bufsize=1,
+                cwd=str(REPO_ROOT),
                 env={**os.environ, 'PYTHONUNBUFFERED': '1'},
             )
 

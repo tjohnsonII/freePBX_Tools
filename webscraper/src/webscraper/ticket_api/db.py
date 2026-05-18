@@ -328,6 +328,25 @@ def ensure_indexes(db_path: str) -> None:
 
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS circuits (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle          TEXT NOT NULL,
+                    pon             TEXT,
+                    type            TEXT,
+                    circuit_id      TEXT,
+                    service_address TEXT,
+                    scraped_utc     TEXT,
+                    UNIQUE(handle, pon)
+                );
+                CREATE INDEX IF NOT EXISTS idx_circuits_handle ON circuits(handle);
+
+                CREATE TABLE IF NOT EXISTS callflow_diagrams (
+                    handle          TEXT PRIMARY KEY,
+                    svg             TEXT,
+                    generated_utc   TEXT,
+                    freepbx_ip      TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS vpbx_site_configs (
                     handle       TEXT PRIMARY KEY,
                     vpbx_id      TEXT,
@@ -1623,6 +1642,80 @@ def confirm_order_suggestion(
             )
 
             return {"order_id": order_id, "field": field, "confirmed_value": value}
+
+
+# ── Circuits ──────────────────────────────────────────────────────────────────
+
+_ON_NET_TYPES = {"dia", "loop"}
+
+
+def upsert_circuits(db_path: str, handle: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    handle = handle.upper()
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                pon = (rec.get("pon") or "").strip()
+                conn.execute(
+                    """
+                    INSERT INTO circuits(handle, pon, type, circuit_id, service_address, scraped_utc)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(handle, pon) DO UPDATE SET
+                        type=excluded.type,
+                        circuit_id=excluded.circuit_id,
+                        service_address=excluded.service_address,
+                        scraped_utc=excluded.scraped_utc
+                    """,
+                    (
+                        handle,
+                        pon,
+                        (rec.get("type") or "").strip(),
+                        (rec.get("circuit_id") or "").strip(),
+                        (rec.get("service_address") or "").strip(),
+                        now_utc,
+                    ),
+                )
+    return len(records)
+
+
+def get_circuits(db_path: str, handle: str) -> dict[str, Any]:
+    handle = handle.upper()
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT pon, type, circuit_id, service_address, scraped_utc FROM circuits WHERE handle=? ORDER BY type ASC, pon ASC",
+            (handle,),
+        ).fetchall()
+    items = [dict(r) for r in rows]
+    on_net = any(r["type"].lower() in _ON_NET_TYPES for r in items if r.get("type"))
+    return {"items": items, "on_net": on_net}
+
+
+def upsert_callflow_diagram(db_path: str, handle: str, svg: str, freepbx_ip: str | None, now_utc: str) -> None:
+    handle = handle.upper()
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO callflow_diagrams(handle, svg, generated_utc, freepbx_ip)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(handle) DO UPDATE SET
+                    svg=excluded.svg,
+                    generated_utc=excluded.generated_utc,
+                    freepbx_ip=COALESCE(excluded.freepbx_ip, callflow_diagrams.freepbx_ip)
+                """,
+                (handle, svg, now_utc, freepbx_ip),
+            )
+
+
+def get_callflow_diagram(db_path: str, handle: str) -> dict[str, Any] | None:
+    handle = handle.upper()
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT handle, svg, generated_utc, freepbx_ip FROM callflow_diagrams WHERE handle=?",
+            (handle,),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def get_completeness_summary(db_path: str) -> dict[str, Any]:

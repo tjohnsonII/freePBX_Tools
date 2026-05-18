@@ -20,6 +20,14 @@ fi
 cd "$REPO"
 export DISPLAY=":${DISPLAY_NUM}"
 
+# ── Load environment variables (.env) ─────────────────────────────────────────
+if [ -f "$REPO/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO/.env"
+    set +a
+fi
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 _port_status() {
     # returns "UP" or "DOWN"
@@ -101,6 +109,15 @@ except: pass
         sleep 1
         kill -9 "$PID" 2>/dev/null || true
     fi
+}
+
+do_web_manager() {
+    echo -e "${BOLD}[RESTART]${RESET} Web Manager / Deploy Tools (port 5000)..."
+    _kill_service_pid freepbx_web_manager
+    _kill_port 5000
+    .venv-web-manager/bin/python web_manager.py \
+        >> /var/www/freePBX_Tools/var/web-app-launcher/logs/freepbx_web_manager.log 2>&1 &
+    _wait_port "web-manager" 5000 /
 }
 
 do_manager_api() {
@@ -301,6 +318,7 @@ do_desktop() {
 if [ -n "${1:-}" ]; then
     case "$1" in
         all|full-start)  do_full_start ;;
+        web-manager)     do_web_manager ;;
         manager-api)     do_manager_api ;;
         manager-ui)      do_manager_ui ;;
         ticket-api)      do_ticket_api ;;
@@ -313,7 +331,7 @@ if [ -n "${1:-}" ]; then
         desktop)         do_desktop ;;
         *)
             echo -e "${RED}[ERROR]${RESET} Unknown service: $1"
-            echo "Valid: all | manager-api | manager-ui | ticket-api | ticket-ui | worker | apache | vpn | vnc | crd | desktop"
+            echo "Valid: all | web-manager | manager-api | manager-ui | ticket-api | ticket-ui | worker | apache | vpn | vnc | crd | desktop"
             exit 1
             ;;
     esac

@@ -275,6 +275,90 @@
 
 /* ── Section header with inline filter ────────────────────────────────────── */
 
+/* ── Handle title row (title + On-Net/OTT badge) ──────────────────────────── */
+
+.handleTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.badgeOnNet {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+
+.badgeOtt {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: #21262d;
+  color: #8b949e;
+  border: 1px solid #30363d;
+}
+
+/* ── Circuit table ─────────────────────────────────────────────────────────── */
+
+.circuitTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.circuitTable th {
+  text-align: left;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+  padding: 4px 10px 6px 0;
+}
+
+.circuitTable td {
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid #21262d;
+  color: #e6edf3;
+  vertical-align: middle;
+}
+
+.circuitTable tr:last-child td {
+  border-bottom: none;
+}
+
+.circuitMono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.circuitTypeBadge {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.circuitTypeDia     { background: rgba(63, 185, 80, 0.15);  color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.4); }
+.circuitTypeLoop    { background: rgba(88, 166, 255, 0.15); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.4); }
+.circuitTypeSip     { background: rgba(139, 148, 158, 0.15); color: #8b949e; border: 1px solid #30363d; }
+.circuitTypePri     { background: rgba(227, 179, 65, 0.15); color: #e3b341; border: 1px solid rgba(227, 179, 65, 0.4); }
+.circuitTypeDefault { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+
+/* ── Section header with inline filter ────────────────────────────────────── */
+
 .sectionHeader {
   display: flex;
   align-items: center;

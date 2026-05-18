@@ -39,6 +39,19 @@ type CompanyDetail = {
   latest: HandleLatest | null;
 };
 
+type Circuit = {
+  pon: string;
+  type: string;
+  circuit_id: string;
+  service_address: string;
+  scraped_utc: string | null;
+};
+
+type CircuitsResult = {
+  items: Circuit[];
+  on_net: boolean;
+};
+
 // ── Pairing types ──────────────────────────────────────────────────────────────
 
 type PairedEntry    = { kind: 'paired';     openEv: TimelineItem; closeEv: TimelineItem | null };
@@ -156,6 +169,7 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
   const [detail, setDetail] = useState<CompanyDetail | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [circuits, setCircuits] = useState<CircuitsResult | null>(null);
   const [ticketFilter, setTicketFilter] = useState("");
   const [building, setBuilding] = useState(false);
   const [buildMsg, setBuildMsg] = useState<string | null>(null);
@@ -171,6 +185,9 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
     apiGet<{ items: TimelineItem[] }>(`/api/companies/${encodeURIComponent(handle)}/timeline?limit=200`)
       .then((r) => setTimeline(Array.isArray(r?.items) ? r.items : []))
       .catch(() => setTimeline([]));
+    apiGet<CircuitsResult>(`/api/companies/${encodeURIComponent(handle)}/circuits`)
+      .then(setCircuits)
+      .catch(() => setCircuits(null));
   };
 
   useEffect(() => { load(); }, [handle]);
@@ -198,6 +215,8 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
 
   const latest      = detail?.latest ?? null;
   const openCount   = tickets.filter((t) => t.status?.toLowerCase() === "open").length;
+  const onNet       = circuits?.on_net ?? null;
+  const hasCircuits = circuits !== null && circuits.items.length > 0;
   const tlEntries   = pairTimeline(timeline);
   const filteredTickets = tickets.filter((t) => {
     if (!ticketFilter.trim()) return true;
@@ -220,7 +239,11 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
       {/* ── Summary card ───────────────────────────────────────────────── */}
       <section className={styles.kbSection}>
         <div className={handleStyles.summaryHeader}>
-          <h2 className={handleStyles.handleTitle}>{handle}</h2>
+          <div className={handleStyles.handleTitleRow}>
+            <h2 className={handleStyles.handleTitle}>{handle}</h2>
+            {onNet === true  && <span className={handleStyles.badgeOnNet}>ON-NET</span>}
+            {onNet === false && <span className={handleStyles.badgeOtt}>OTT</span>}
+          </div>
           <div className={handleStyles.buildRow}>
             {buildMsg && <span className={styles.subtle}>{buildMsg}</span>}
             <button
@@ -251,6 +274,10 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
             <div className={handleStyles.statMono}>
               {latest?.finished_utc ? latest.finished_utc.slice(0, 19).replace("T", " ") : "—"}
             </div>
+          </div>
+          <div className={handleStyles.statTile}>
+            <div className={handleStyles.statLabel}>Circuits</div>
+            <div className={handleStyles.statValue}>{circuits ? circuits.items.length : "—"}</div>
           </div>
         </div>
       </section>
@@ -358,6 +385,45 @@ export default function HandleDetailPage({ params }: { params: { handle: string 
               );
             })}
           </ol>
+        )}
+      </section>
+
+      {/* ── Circuits ───────────────────────────────────────────────────── */}
+      <section className={styles.kbSection}>
+        <h2>Network Circuits</h2>
+        {!circuits ? (
+          <p className={styles.subtle}>No circuit data scraped yet.</p>
+        ) : !hasCircuits ? (
+          <p className={styles.subtle}>No circuits found for this customer.</p>
+        ) : (
+          <table className={handleStyles.circuitTable}>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>PON</th>
+                <th>Circuit ID</th>
+                <th>Service Address</th>
+              </tr>
+            </thead>
+            <tbody>
+              {circuits.items.map((c, i) => (
+                <tr key={i}>
+                  <td>
+                    <span className={`${handleStyles.circuitTypeBadge} ${
+                      c.type?.toLowerCase() === 'dia'  ? handleStyles.circuitTypeDia :
+                      c.type?.toLowerCase() === 'loop' ? handleStyles.circuitTypeLoop :
+                      c.type?.toLowerCase() === 'sip'  ? handleStyles.circuitTypeSip :
+                      c.type?.toLowerCase() === 'pri'  ? handleStyles.circuitTypePri :
+                      handleStyles.circuitTypeDefault
+                    }`}>{c.type || '—'}</span>
+                  </td>
+                  <td className={handleStyles.circuitMono}>{c.pon || '—'}</td>
+                  <td className={handleStyles.circuitMono}>{c.circuit_id || '—'}</td>
+                  <td>{c.service_address || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </section>
 

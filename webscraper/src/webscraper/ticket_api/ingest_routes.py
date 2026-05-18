@@ -274,6 +274,33 @@ def ingest_orders(body: _OrdersIngestBody, request: Request) -> dict[str, Any]:
     return {"ok": True, "upserted": count}
 
 
+class _CircuitsIngestBody(BaseModel):
+    handle: str
+    records: list[dict[str, Any]]
+
+
+@router.post("/circuits")
+def ingest_circuits(body: _CircuitsIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    count = _db.upsert_circuits(_dp(), body.handle, body.records, now_utc)
+    return {"ok": True, "upserted": count}
+
+
+class _CallflowIngestBody(BaseModel):
+    handle: str
+    svg: str
+    freepbx_ip: str | None = None
+
+
+@router.post("/callflow")
+def ingest_callflow(body: _CallflowIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    _db.upsert_callflow_diagram(_dp(), body.handle, body.svg, body.freepbx_ip, now_utc)
+    return {"ok": True}
+
+
 @router.post("/heartbeat")
 def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)

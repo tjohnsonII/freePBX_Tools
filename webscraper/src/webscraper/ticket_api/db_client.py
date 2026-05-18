@@ -542,3 +542,70 @@ def safe_artifact_path(requested_path: str, output_root: str):
     if root == candidate or root in candidate.parents:
         return candidate
     return None
+
+
+# ── Stubs for server-only read functions ─────────────────────────────────────
+# CLIENT_MODE clients never need these — all reads go through the server API.
+
+def get_client_heartbeats(db_path: str) -> list[dict[str, Any]]:  # noqa: ARG001
+    return []
+
+
+def list_orders(db_path: str, engineer: str | None = None) -> list[dict[str, Any]]:  # noqa: ARG001
+    return []
+
+
+def get_completeness_summary(db_path: str) -> dict[str, Any]:  # noqa: ARG001
+    return {"total_orders": 0, "missing_by_field": {}}
+
+
+def get_order_suggested(db_path: str, order_id: str) -> dict[str, Any] | None:  # noqa: ARG001
+    return None
+
+
+def upsert_order_suggested(  # noqa: ARG001
+    db_path: str,
+    order_id: str,
+    field: str,
+    value: str,
+    confidence: float,
+    source: str,
+    now_utc: str,
+) -> None:
+    pass
+
+
+def flag_order_field(  # noqa: ARG001
+    db_path: str,
+    order_id: str,
+    field: str,
+    reason: str,
+    now_utc: str,
+) -> None:
+    pass
+
+
+def confirm_order_suggestion(  # noqa: ARG001
+    db_path: str,
+    order_id: str,
+    field: str,
+    reviewed_by: str,
+    now_utc: str,
+) -> dict[str, Any]:
+    return {}
+
+
+def upsert_circuits(db_path: str, handle: str, records: list[dict[str, Any]], now_utc: str) -> int:  # noqa: ARG001
+    return _post("/api/ingest/circuits", {"handle": handle, "records": records, "now_utc": now_utc}).get("upserted", 0)
+
+
+def get_circuits(db_path: str, handle: str) -> dict[str, Any]:  # noqa: ARG001
+    return {"items": [], "on_net": False}
+
+
+def upsert_callflow_diagram(db_path: str, handle: str, svg: str, freepbx_ip: str | None, now_utc: str) -> None:  # noqa: ARG001
+    _post("/api/ingest/callflow", {"handle": handle, "svg": svg, "freepbx_ip": freepbx_ip, "now_utc": now_utc})
+
+
+def get_callflow_diagram(db_path: str, handle: str) -> dict[str, Any] | None:  # noqa: ARG001
+    return None

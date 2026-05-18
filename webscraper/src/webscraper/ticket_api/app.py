@@ -740,6 +740,20 @@ def api_company_timeline(handle: str, limit: int = Query(default=200, ge=1, le=5
     return company_timeline(handle, limit=limit)
 
 
+@app.get("/api/companies/{handle}/circuits")
+def api_company_circuits(handle: str):
+    result = db.get_circuits(db_path(), handle)
+    return result
+
+
+@app.get("/api/companies/{handle}/callflow")
+def api_company_callflow(handle: str):
+    row = db.get_callflow_diagram(db_path(), handle)
+    if not row:
+        return {"svg": None, "generated_utc": None}
+    return row
+
+
 @app.post("/api/jobs/build-timeline")
 def api_jobs_build_timeline(payload: dict[str, Any]):
     return jobs_build_timeline(payload)
