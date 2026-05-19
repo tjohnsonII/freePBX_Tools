@@ -2122,6 +2122,28 @@ class ScrapeManagerApp(ctk.CTk):
         action_label = w["action_var"].get()
         action = next((a for a, l in _DEPLOY_ACTIONS if l == action_label), "deploy")
         is_bundle = (action == "bundle")
+
+        workers_str = w["workers_var"].get().strip()
+        workers = int(workers_str) if workers_str.isdigit() and int(workers_str) > 0 else 1
+        bundle_name = w["bundle_entry"].get().strip() if is_bundle else "freepbx-tools-bundle.zip"
+
+        # Multi-credential CSV deploy: fire one job per credential group
+        groups = w.get("csv_server_groups")
+        if groups and w.get("vpbx_mode_manual") and not is_bundle:
+            w["csv_server_groups"] = None
+            for g in groups:
+                self._run_in_thread(
+                    self._do_deploy_start,
+                    action=action,
+                    servers="\n".join(g["ips"]),
+                    workers=min(len(g["ips"]), workers),
+                    username=g["username"],
+                    password=g["password"],
+                    root_password=g["root_password"],
+                    bundle_name=bundle_name,
+                )
+            return
+
         if is_bundle:
             servers = ""
         elif w.get("vpbx_mode_manual"):
@@ -2132,18 +2154,33 @@ class ScrapeManagerApp(ctk.CTk):
                 messagebox.showwarning("No Sites Selected",
                     "Select at least one site from the list, or click ⌨ Manual IPs to enter IPs directly.")
                 return
-            ips = [w["vpbx_filtered"][i]["ip"] for i in sel
-                   if w["vpbx_filtered"][i].get("ip")]
-            if not ips:
+            recs = [w["vpbx_filtered"][i] for i in sel]
+            form_pass = w["password_entry"].get()
+            root_password = w["root_password_entry"].get()
+            username = w["username_entry"].get().strip() or "123net"
+            # Group by ftp_pass; fall back to form password for sites without stored credentials
+            groups_by_pass: dict[str, list[str]] = {}
+            for rec in recs:
+                ip = rec.get("ip") or ""
+                if not ip:
+                    continue
+                key = (rec.get("ftp_pass") or "").strip() or form_pass
+                groups_by_pass.setdefault(key, []).append(ip)
+            if not any(groups_by_pass.values()):
                 messagebox.showwarning("No IPs", "Selected sites have no IP addresses.")
                 return
-            servers = "\n".join(ips)
-        workers_str = w["workers_var"].get().strip()
-        workers = int(workers_str) if workers_str.isdigit() and int(workers_str) > 0 else 1
+            for pass_key, ips in groups_by_pass.items():
+                self._run_in_thread(
+                    self._do_deploy_start,
+                    action=action, servers="\n".join(ips),
+                    workers=min(len(ips), workers),
+                    username=username, password=pass_key,
+                    root_password=root_password, bundle_name=bundle_name,
+                )
+            return
         username = w["username_entry"].get().strip() or "123net"
         password = w["password_entry"].get()
         root_password = w["root_password_entry"].get()
-        bundle_name = w["bundle_entry"].get().strip() if is_bundle else "freepbx-tools-bundle.zip"
         self._run_in_thread(
             self._do_deploy_start,
             action=action, servers=servers, workers=workers,
@@ -2228,33 +2265,84 @@ class ScrapeManagerApp(ctk.CTk):
         )
         if not path:
             return
-        servers: list[str] = []
+
+        w = self._deploy_w
+        # Build handle→IP lookup from already-loaded VPBX records
+        handle_map: dict[str, str] = {
+            (r.get("handle") or "").upper(): (r.get("ip") or "")
+            for r in w.get("vpbx_records", []) if r.get("ip")
+        }
+
+        # CSV format: handle_or_ip, username, password, root_user, root_password
+        # Columns 2 and 4 (username, root_user) are accepted but never required — defaults: 123net / root
+        rows: list[tuple[str, str, str, str]] = []  # (ip, username, password, root_password)
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
-                    # Accept CSV/TSV — first column is the IP
-                    ip = line.replace("\t", ",").split(",")[0].strip()
-                    if ip:
-                        servers.append(ip)
+                    parts = [p.strip() for p in line.replace("\t", ",").split(",")]
+                    raw = parts[0] if parts else ""
+                    if not raw:
+                        continue
+                    # Resolve handle → IP if not already an IP address
+                    if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', raw):
+                        ip = raw
+                    else:
+                        ip = handle_map.get(raw.upper(), "")
+                        if not ip:
+                            continue  # unknown handle — skip
+                    username     = parts[1] if len(parts) > 1 and parts[1] else "123net"
+                    password     = parts[2] if len(parts) > 2 else ""
+                    root_password = parts[4] if len(parts) > 4 else ""
+                    rows.append((ip, username, password, root_password))
         except Exception as exc:
             messagebox.showerror("Read Error", f"Could not read file:\n{exc}")
             return
-        if not servers:
-            messagebox.showwarning("Empty File", "No server IPs found in the selected file.")
+
+        if not rows:
+            messagebox.showwarning(
+                "Empty File",
+                "No servers resolved.\n\n"
+                "Column 1 must be an IP address or a known VPBX handle.\n"
+                "Make sure the VPBX data has loaded (↻ Refresh) if using handles.",
+            )
             return
+
+        # Group by credentials — each unique credential set becomes its own deploy job
+        groups: dict[tuple[str, str, str], list[str]] = {}
+        for ip, username, password, root_password in rows:
+            key = (username, password, root_password)
+            groups.setdefault(key, []).append(ip)
+
+        w["csv_server_groups"] = [
+            {"ips": ips, "username": uname, "password": pwd, "root_password": rpwd}
+            for (uname, pwd, rpwd), ips in groups.items()
+        ]
+
+        all_ips = [ip for g in w["csv_server_groups"] for ip in g["ips"]]
         self._deploy_switch_to_manual_mode()
-        w = self._deploy_w
         w["servers_text"].delete("1.0", "end")
-        w["servers_text"].insert("end", "\n".join(servers))
+        w["servers_text"].insert("end", "\n".join(all_ips))
         self._update_deploy_server_count()
-        w["workers_var"].set(str(min(len(servers), 10)))
+        w["workers_var"].set(str(min(len(all_ips), 10)))
+
+        # Pre-fill credentials from the first group
+        first = w["csv_server_groups"][0]
+        w["username_entry"].delete(0, "end")
+        w["username_entry"].insert(0, first["username"])
+        w["password_entry"].delete(0, "end")
+        w["password_entry"].insert(0, first["password"])
+        w["root_password_entry"].delete(0, "end")
+        w["root_password_entry"].insert(0, first["root_password"])
+
+        fname = Path(path).name
+        n_groups = len(w["csv_server_groups"])
+        grp_note = f"  —  {n_groups} credential groups" if n_groups > 1 else ""
         if w.get("lbl_status"):
-            fname = Path(path).name
             w["lbl_status"].configure(
-                text=f"Loaded {len(servers)} server{'s' if len(servers) != 1 else ''} from {fname}  —  workers set to {w['workers_var'].get()}",
+                text=f"Loaded {len(all_ips)} server{'s' if len(all_ips) != 1 else ''} from {fname}{grp_note}",
                 text_color="#3498db",
             )
 
@@ -2276,6 +2364,7 @@ class ScrapeManagerApp(ctk.CTk):
             return
         self._deploy_switch_to_manual_mode()
         w = self._deploy_w
+        w["csv_server_groups"] = None
         w["servers_text"].delete("1.0", "end")
         w["servers_text"].insert("end", "\n".join(servers))
         self._update_deploy_server_count()
@@ -2298,9 +2387,9 @@ class ScrapeManagerApp(ctk.CTk):
             w["workers_var"].set(str(min(n, 10)))
             if not w["password_entry"].get():
                 first = w["vpbx_filtered"][sel[0]]
-                handle = (first.get("handle") or "").upper()
-                if handle:
-                    self._run_in_thread(self._do_vpbx_fetch_password, handle=handle)
+                ftp_pass = (first.get("ftp_pass") or "").strip()
+                if ftp_pass:
+                    self._deploy_vpbx_fill_password(ftp_pass)
 
     def _vpbx_picker_refresh(self) -> None:
         w = self._deploy_w
@@ -2381,6 +2470,7 @@ class ScrapeManagerApp(ctk.CTk):
     def _deploy_switch_to_vpbx_mode(self) -> None:
         w = self._deploy_w
         w["vpbx_mode_manual"] = False
+        w["csv_server_groups"] = None
         try: w["servers_text"].grid_remove()
         except Exception: pass
         w["picker_frm"].grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
@@ -2554,22 +2644,14 @@ class ScrapeManagerApp(ctk.CTk):
                   command=dlg.destroy).pack(side="right")
 
     def _do_vpbx_fetch_password(self, handle: str) -> None:
-        """Fetch site config for handle and extract ftp_pass (= SSH password for 123net)."""
-        try:
-            r = requests.get(f"{API_BASE}/api/vpbx/site-configs/{handle}", timeout=10)
-            if r.status_code == 404:
+        """Look up ftp_pass from already-loaded VPBX records (= SSH password for 123net)."""
+        w = self._deploy_w
+        for rec in w.get("vpbx_records", []):
+            if (rec.get("handle") or "").upper() == handle.upper():
+                ftp_pass = (rec.get("ftp_pass") or "").strip()
+                if ftp_pass:
+                    self.after(0, lambda p=ftp_pass: self._deploy_vpbx_fill_password(p))
                 return
-            r.raise_for_status()
-            cfg = r.json().get("site_config") or ""
-            # Try both HTML attribute orderings
-            m = re.search(r'name=["\']ftp_pass["\'][^>]*value=["\']([^"\']*)["\']', cfg, re.IGNORECASE)
-            if not m:
-                m = re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']ftp_pass["\']', cfg, re.IGNORECASE)
-            if m:
-                pwd = m.group(1)
-                self.after(0, lambda p=pwd: self._deploy_vpbx_fill_password(p))
-        except Exception:
-            pass
 
     def _deploy_vpbx_fill_password(self, password: str) -> None:
         w = self._deploy_w

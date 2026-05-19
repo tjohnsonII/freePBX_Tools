@@ -2554,6 +2554,97 @@ def api_vpbx_site_configs_state():
         raise HTTPException(status_code=500, detail=f"Failed to read site-configs state: {exc}") from exc
 
 
+class _VpbxCredentialsRefreshBody(BaseModel):
+    handles: list[str] = []  # empty = all handles
+
+
+@app.post("/api/vpbx/credentials/refresh")
+def api_vpbx_credentials_refresh(body: _VpbxCredentialsRefreshBody, request: Request):
+    """Start a Selenium job to scrape ftp_pass and credential fields from each vpbx_detail page.
+
+    Visits every handle's detail page and extracts ftp_pass (= SSH password for 123net),
+    ftp_host, ftp_user, rest_pass, then stores them in vpbx_records.
+    Pass {"handles": ["ACG"]} to limit to specific handles; omit for all.
+    """
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX credentials refresh is localhost-only")
+
+    _explicit_handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_credentials:{','.join(_explicit_handles)}" if _explicit_handles else "vpbx_credentials"
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode=mode,
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", f"vpbx_credentials_refresh_queued handles={_explicit_handles or 'all'}", job_id=job_id)
+
+    cancel_event = threading.Event()
+    pause_event  = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+    _SCRAPE_PAUSE_EVENTS[job_id]  = pause_event
+
+    def _run() -> None:
+        from webscraper.vpbx.device_configs import fetch_vpbx_credentials  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+        total_saved = 0
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx_credentials:{msg}", job_id=job_id)
+
+        def _on_handle_done(handle: str, records: list) -> None:
+            nonlocal total_saved
+            db.upsert_vpbx_credentials(db_path(), records)
+            total_saved += len(records)
+
+        try:
+            if cancel_event.is_set():
+                _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                   finished_utc=_iso_now())
+                _append_event("info", "vpbx_credentials_cancelled_before_start", job_id=job_id)
+                return
+            while pause_event.is_set():
+                if cancel_event.is_set():
+                    _update_scrape_job(job_id=job_id, status="cancelled", completed=0, total=1,
+                                       finished_utc=_iso_now())
+                    return
+                time.sleep(0.5)
+
+            _update_scrape_job(job_id=job_id, status="running", completed=0, total=1,
+                               started_utc=_iso_now())
+            records = fetch_vpbx_credentials(
+                base_url,
+                handles=_explicit_handles,
+                on_handle_done=_on_handle_done,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
+            # Final flush for any records not yet saved via on_handle_done
+            remaining = [r for r in records if r not in records[:total_saved]]
+            if remaining:
+                db.upsert_vpbx_credentials(db_path(), remaining)
+
+            finished = _iso_now()
+            _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
+                               finished_utc=finished,
+                               result={"credentials_count": len(records)})
+            _append_event("info", f"vpbx_credentials_done count={len(records)}", job_id=job_id)
+        except Exception as exc:
+            LOGGER.exception("vpbx_credentials_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="error", completed=total_saved, total=total_saved,
+                               finished_utc=_iso_now(), error_message=str(exc))
+        finally:
+            _SCRAPE_CANCEL_EVENTS.pop(job_id, None)
+            _SCRAPE_PAUSE_EVENTS.pop(job_id, None)
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-creds-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued"}
+
+
 @app.get("/api/orders")
 def api_orders(
     assigned_to: str | None = Query(None),

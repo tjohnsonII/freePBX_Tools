@@ -326,6 +326,11 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            vpbx_record_columns = table_columns(conn, "vpbx_records")
+            for _col in ["ftp_pass", "ftp_host", "ftp_user", "rest_pass"]:
+                if _col not in vpbx_record_columns:
+                    conn.execute(f"ALTER TABLE vpbx_records ADD COLUMN {_col} TEXT")
+
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS vpbx_site_configs (
@@ -1213,7 +1218,8 @@ def upsert_noc_queue_tickets(db_path: str, records: list[dict[str, Any]], now_ut
 def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            "SELECT handle, name, account_status, ip, web_order, deployment_id, switch, devices, last_seen_utc"
+            "SELECT handle, name, account_status, ip, web_order, deployment_id, switch, devices,"
+            " last_seen_utc, ftp_pass, ftp_host, ftp_user, rest_pass"
             " FROM vpbx_records ORDER BY handle ASC"
         ).fetchall()
     return [dict(row) for row in rows]
@@ -1263,6 +1269,38 @@ def upsert_vpbx_records(db_path: str, records: list[dict[str, Any]], now_utc: st
                     ),
                 )
     return len(records)
+
+
+def upsert_vpbx_credentials(db_path: str, records: list[dict[str, Any]]) -> int:
+    """Update credential fields (ftp_pass, ftp_host, ftp_user, rest_pass) for existing vpbx_records rows.
+
+    Never inserts new rows — only updates handles that already exist from a prior vpbx refresh.
+    Skips records where ftp_pass is empty so a failed scrape doesn't wipe good data.
+    """
+    if not records:
+        return 0
+    updated = 0
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                handle = (rec.get("handle") or "").strip()
+                ftp_pass = (rec.get("ftp_pass") or "").strip()
+                if not handle or not ftp_pass:
+                    continue
+                cur = conn.execute(
+                    """UPDATE vpbx_records
+                       SET ftp_pass=?, ftp_host=?, ftp_user=?, rest_pass=?
+                       WHERE handle=?""",
+                    (
+                        ftp_pass,
+                        (rec.get("ftp_host") or "").strip(),
+                        (rec.get("ftp_user") or "").strip(),
+                        (rec.get("rest_pass") or "").strip(),
+                        handle,
+                    ),
+                )
+                updated += cur.rowcount
+    return updated
 
 
 def list_vpbx_device_configs(db_path: str, handle: str | None = None) -> list[dict[str, Any]]:

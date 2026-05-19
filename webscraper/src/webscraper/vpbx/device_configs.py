@@ -954,6 +954,116 @@ def _capture_site_config(driver: Any, detail_url: str, emit_fn: Any = None) -> s
     return config_text
 
 
+def _extract_vpbx_detail_form_fields(page_source: str) -> dict[str, str]:
+    """Extract credential fields from a vpbx_detail page HTML form.
+
+    Looks for <input name="ftp_pass" value="...">, ftp_host, ftp_user, rest_pass, rest_user.
+    Returns a dict with whatever fields were found; missing fields are absent from the dict.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(page_source, "lxml")
+    result: dict[str, str] = {}
+    for name in ("ftp_pass", "ftp_host", "ftp_user", "rest_pass", "rest_user"):
+        inp = soup.find("input", {"name": name})
+        if inp:
+            val = (inp.get("value") or "").strip()
+            if val:
+                result[name] = val
+    return result
+
+
+def fetch_vpbx_credentials(
+    base_url: str,
+    *,
+    handles: list[str] | None = None,
+    on_handle_done: Any = None,
+    login_timeout_seconds: int = 300,
+    emit_fn: Any = None,
+) -> list[dict[str, str]]:
+    """Scrape ftp_pass and other credential fields from vpbx_detail pages.
+
+    Visits each handle's detail page and extracts form inputs (ftp_pass, ftp_host,
+    ftp_user, rest_pass). ftp_pass is the SSH password for the 123net user.
+    """
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    def _emit(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
+
+    target_url = _vpbx_cgi_url(base_url)
+    handle_filter = {h.upper() for h in handles} if handles else None
+
+    options = Options()
+    options.add_argument("--start-maximized")
+    driver = webdriver.Chrome(options=options)
+
+    all_records: list[dict[str, str]] = []
+
+    try:
+        driver.get(target_url)
+        _emit("waiting_for_login")
+
+        WebDriverWait(driver, login_timeout_seconds, poll_frequency=1.0).until(
+            lambda d: "vpbx.cgi" in (d.current_url or "")
+            and len(d.find_elements(By.XPATH, "//a[contains(@href,'command=vpbx_detail')]")) > 0
+        )
+        _emit("login_confirmed")
+
+        vpbx_list = _collect_all_vpbx_ids_by_paging(driver, base_url, emit_fn=_emit)
+        _emit(f"found_vpbx_entries count={len(vpbx_list)}")
+
+        if handle_filter:
+            vpbx_list = [v for v in vpbx_list if v["handle"].upper() in handle_filter]
+            _emit(f"filtered_to count={len(vpbx_list)}")
+
+        total = len(vpbx_list)
+        for idx, vpbx_entry in enumerate(vpbx_list):
+            handle = vpbx_entry["handle"]
+            detail_url = vpbx_entry["detail_url"]
+            _emit(f"[{idx + 1}/{total}] {handle} — fetching credentials")
+
+            driver.get(detail_url)
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "table"))
+                )
+            except Exception:
+                _emit(f"[{idx + 1}/{total}] {handle} — no table found, skipping")
+                continue
+
+            fields = _extract_vpbx_detail_form_fields(driver.page_source)
+            ftp_pass = fields.get("ftp_pass") or ""
+            if not ftp_pass:
+                _emit(f"[{idx + 1}/{total}] {handle} — ftp_pass not found")
+                continue
+
+            record = {
+                "handle": handle,
+                "ftp_pass": ftp_pass,
+                "ftp_host": fields.get("ftp_host") or "",
+                "ftp_user": fields.get("ftp_user") or "",
+                "rest_pass": fields.get("rest_pass") or "",
+                "last_seen_utc": _iso_now(),
+            }
+            all_records.append(record)
+            _emit(f"[{idx + 1}/{total}] {handle} — ftp_pass captured len={len(ftp_pass)}")
+
+            if on_handle_done:
+                on_handle_done(handle, [record])
+
+    finally:
+        driver.quit()
+
+    _emit(f"complete total_handles={len(all_records)}")
+    return all_records
+
+
 def fetch_device_configs(
     base_url: str,
     *,
