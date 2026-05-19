@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -76,6 +77,56 @@ _SCRAPERS: list[dict] = [
         "login_hint":   "Uses ORDERS_123NET_USERNAME/PASSWORD from .env — no browser needed.",
     },
 ]
+
+# ── Deploy backend (FreePBX Tools) ────────────────────────────────────────────
+
+_DEPLOY_PORT = os.getenv("DEPLOY_PORT", "8002")
+DEPLOY_API_BASE = f"http://localhost:{_DEPLOY_PORT}"
+
+_DEPLOY_ACTIONS = [
+    ("deploy",       "Deploy"),
+    ("uninstall",    "Uninstall"),
+    ("clean_deploy", "Clean Deploy (uninstall + install)"),
+    ("connect_only", "Connect-only (test SSH)"),
+    ("upload_only",  "Upload-only (no install)"),
+    ("bundle",       "Build offline bundle (.zip)"),
+]
+
+_REMOTE_RUN_MENU = [
+    ("1",  "1 — List callflows"),
+    ("2",  "2 — Export all callflows"),
+    ("6",  "6 — Dump JSON"),
+    ("12", "12 — TC status"),
+    ("13", "13 — Show extensions"),
+    ("14", "14 — Show DIDs"),
+    ("15", "15 — Show queues"),
+    ("16", "16 — Show IVRs"),
+    ("17", "17 — Show time conditions"),
+    ("18", "18 — Show ring groups"),
+]
+
+
+def _deploy_get(path: str, **kw: Any) -> Any:
+    r = requests.get(f"{DEPLOY_API_BASE}{path}", timeout=15, **kw)
+    r.raise_for_status()
+    return r.json()
+
+
+def _deploy_post(path: str, **kw: Any) -> Any:
+    r = requests.post(f"{DEPLOY_API_BASE}{path}", timeout=30, **kw)
+    r.raise_for_status()
+    return r.json()
+
+
+def _deploy_state_color(status: str) -> str:
+    return {
+        "succeeded": "#2ecc71",
+        "running":   "#3498db",
+        "queued":    "#f39c12",
+        "failed":    "#e74c3c",
+        "cancelled": "#95a5a6",
+    }.get(status, "#ecf0f1")
+
 
 # ── VPN detection ─────────────────────────────────────────────────────────────
 
@@ -190,6 +241,15 @@ class ScrapeManagerApp(ctk.CTk):
         }
         self._scraper_w: dict[str, dict] = {}   # widget refs keyed by scraper key
 
+        # Diagnostics / Deploy tab state
+        self._deploy_w: dict = {}
+        self._rrun_w: dict = {}
+        self._sdiag_w: dict = {}
+        self._deploy_active_job: dict | None = None
+        self._deploy_jobs: list[dict] = []
+        self._rrun_active_job: dict | None = None
+        self._deploy_backend_ok = False
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # Set taskbar + title-bar icon on Windows.
@@ -226,6 +286,7 @@ class ScrapeManagerApp(ctk.CTk):
         threading.Thread(target=self._heartbeat_loop, daemon=True, name="heartbeat").start()
         self._log_file_pos = 0
         threading.Thread(target=self._tail_log_loop, daemon=True, name="log-tail").start()
+        threading.Thread(target=self._deploy_poll_loop, daemon=True, name="deploy-poll").start()
         self._schedule_poll(delay_ms=3_500)
 
     # ── Server lifecycle ──────────────────────────────────────────────────────
@@ -383,6 +444,9 @@ class ScrapeManagerApp(ctk.CTk):
         self._build_orders_tab(orders_tab)
         self._build_log_tab(log_tab)
 
+        diag_tab = self._top_tabs.add("Diagnostics")
+        self._build_diagnostics_tab(diag_tab)
+
     # ── Tickets tab ───────────────────────────────────────────────────────────
 
     def _build_tickets_tab(self, tab: Any) -> None:
@@ -400,7 +464,7 @@ class ScrapeManagerApp(ctk.CTk):
         btn_cfg = dict(width=120, height=36, font=ctk.CTkFont(size=13))
 
         self._btn_start = ctk.CTkButton(
-            row, text="▶  Start", fg_color="#27ae60", hover_color="#1e8449",
+            row, text="▶  Deploy", fg_color="#27ae60", hover_color="#1e8449",
             command=self._on_start, **btn_cfg,
         )
         self._btn_start.grid(row=0, column=0, padx=(12, 6), pady=10)
@@ -1450,6 +1514,19 @@ class ScrapeManagerApp(ctk.CTk):
                 elif cmd == "scraper_update":
                     _, key, job, evts = item
                     self._refresh_scraper_tab(key, job, evts)
+                elif cmd == "deploy_job_update":
+                    _, job, tail = item
+                    self._deploy_active_job = job
+                    self._refresh_deploy_tab(job, tail)
+                elif cmd == "deploy_jobs":
+                    self._refresh_deploy_jobs_list(item[1])
+                elif cmd == "rrun_job_update":
+                    _, job, tail = item
+                    self._rrun_active_job = job
+                    self._refresh_rrun_tab(job, tail)
+                elif cmd == "sdiag_result":
+                    _, data, error = item
+                    self._display_sdiag_result(data, error)
                 elif cmd == "refresh":
                     self._run_poll()
                 elif cmd == "schedule":
@@ -1757,6 +1834,1277 @@ class ScrapeManagerApp(ctk.CTk):
         self._events_text.delete("1.0", "end")
         self._events_text.configure(state="disabled")
         self._event_ids.clear()
+
+
+    # ── Diagnostics tab ───────────────────────────────────────────────────────
+
+    def _build_diagnostics_tab(self, tab: Any) -> None:
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(0, weight=1)
+
+        sub = ctk.CTkTabview(tab)
+        sub.grid(row=0, column=0, sticky="nsew")
+
+        self._build_deploy_sub_tab(sub.add("Deploy Tools"))
+        self._build_rrun_sub_tab(sub.add("Remote Run"))
+        self._build_sdiag_sub_tab(sub.add("Server Diagnostics"))
+
+    # ── Deploy Tools sub-tab ─────────────────────────────────────────────────
+
+    def _build_deploy_sub_tab(self, tab: Any) -> None:
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        w = self._deploy_w
+
+        # ── Form ─────────────────────────────────────────────────────────────
+        form = ctk.CTkFrame(tab, corner_radius=8)
+        form.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        # Row 0: action / workers / credentials
+        ctk.CTkLabel(form, text="Action:", font=ctk.CTkFont(size=12)).grid(
+            row=0, column=0, padx=(12, 4), pady=10, sticky="w"
+        )
+        w["action_var"] = tk.StringVar(value="Clean Deploy (uninstall + install)")
+        ctk.CTkOptionMenu(
+            form, variable=w["action_var"],
+            values=[lbl for _, lbl in _DEPLOY_ACTIONS],
+            width=260, height=34,
+            command=self._on_deploy_action_changed,
+        ).grid(row=0, column=1, padx=(0, 12), pady=10, sticky="w")
+
+        ctk.CTkLabel(form, text="Workers:", font=ctk.CTkFont(size=12)).grid(
+            row=0, column=2, padx=(12, 4), pady=10, sticky="w"
+        )
+        w["workers_var"] = tk.StringVar(value="1")
+        ctk.CTkEntry(form, textvariable=w["workers_var"], width=48, height=34).grid(
+            row=0, column=3, padx=(0, 12), pady=10
+        )
+
+        ctk.CTkLabel(form, text="SSH User:", font=ctk.CTkFont(size=12)).grid(
+            row=0, column=4, padx=(12, 4), pady=10, sticky="w"
+        )
+        w["username_entry"] = ctk.CTkEntry(form, width=100, height=34)
+        w["username_entry"].insert(0, "123net")
+        w["username_entry"].grid(row=0, column=5, padx=(0, 12), pady=10)
+
+        ctk.CTkLabel(form, text="SSH Pass:", font=ctk.CTkFont(size=12)).grid(
+            row=0, column=6, padx=(12, 4), pady=10, sticky="w"
+        )
+        w["password_entry"] = ctk.CTkEntry(form, show="●", width=120, height=34)
+        w["password_entry"].grid(row=0, column=7, padx=(0, 12), pady=10)
+
+        ctk.CTkLabel(form, text="Root Pass:", font=ctk.CTkFont(size=12)).grid(
+            row=0, column=8, padx=(12, 4), pady=10, sticky="w"
+        )
+        w["root_password_entry"] = ctk.CTkEntry(form, show="●", width=120, height=34)
+        w["root_password_entry"].grid(row=0, column=9, padx=(0, 16), pady=10)
+
+        # Row 1: embedded VPBX site picker (VPBX mode) or servers textbox (manual mode)
+        w["servers_label"] = ctk.CTkLabel(form, text="Sites:", font=ctk.CTkFont(size=12))
+        w["servers_label"].grid(row=1, column=0, padx=(12, 4), pady=(0, 10), sticky="nw")
+
+        form.grid_columnconfigure(1, weight=1)
+        w["vpbx_mode_manual"] = False
+
+        # ── Embedded VPBX site picker ─────────────────────────────────────────
+        _pbg = "#0f172a"
+        picker_frm = tk.Frame(form, bg=_pbg, highlightbackground="#1e293b", highlightthickness=1)
+        picker_frm.grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
+        w["picker_frm"] = picker_frm
+
+        filter_row = tk.Frame(picker_frm, bg=_pbg)
+        filter_row.pack(fill="x", padx=4, pady=(4, 2))
+
+        w["vpbx_status_var"] = tk.StringVar(value="production_billed")
+        w["vpbx_status_cb"] = ttk.Combobox(
+            filter_row, textvariable=w["vpbx_status_var"],
+            values=["All", "production_billed", "testing", "decomissioned", "provisioning"],
+            width=18, state="readonly",
+        )
+        w["vpbx_status_cb"].pack(side="left", padx=(0, 6))
+
+        tk.Label(filter_row, text="Search:", bg=_pbg, fg="#94a3b8",
+                 font=("Segoe UI", 9)).pack(side="left")
+        w["vpbx_search_var"] = tk.StringVar()
+        tk.Entry(
+            filter_row, textvariable=w["vpbx_search_var"], width=18,
+            bg="#1e293b", fg="#e2e8f0", insertbackground="#e2e8f0",
+            relief="flat", font=("Segoe UI", 9),
+        ).pack(side="left", padx=(3, 8))
+
+        w["vpbx_count_lbl"] = tk.Label(filter_row, text="loading…",
+                                        bg=_pbg, fg="#64748b", font=("Segoe UI", 9))
+        w["vpbx_count_lbl"].pack(side="left")
+
+        tk.Button(
+            filter_row, text="↻ Refresh", bg="#1e3a5f", fg="#93c5fd",
+            relief="flat", font=("Segoe UI", 8), padx=6,
+            command=self._on_deploy_vpbx_refresh,
+        ).pack(side="right")
+
+        lb_frm = tk.Frame(picker_frm, bg="#0d1117")
+        lb_frm.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+        vsb_p = ttk.Scrollbar(lb_frm, orient="vertical")
+        vsb_p.pack(side="right", fill="y")
+        w["vpbx_listbox"] = tk.Listbox(
+            lb_frm, selectmode="extended",
+            bg="#0d1117", fg="#e2e8f0", font=("Courier New", 9),
+            selectbackground="#1d4ed8", selectforeground="#ffffff",
+            yscrollcommand=vsb_p.set, activestyle="none",
+            bd=0, highlightthickness=0, height=4,
+        )
+        vsb_p.config(command=w["vpbx_listbox"].yview)
+        w["vpbx_listbox"].pack(side="left", fill="both", expand=True)
+
+        w["vpbx_records"] = []
+        w["vpbx_filtered"] = []
+
+        w["vpbx_status_cb"].bind("<<ComboboxSelected>>", lambda _: self._vpbx_picker_refresh())
+        w["vpbx_search_var"].trace_add("write", lambda *_: self._vpbx_picker_refresh())
+        w["vpbx_listbox"].bind("<<ListboxSelect>>", self._on_vpbx_listbox_select)
+
+        # Manual fallback textbox (hidden by default, shown when user toggles)
+        w["servers_text"] = ctk.CTkTextbox(form, height=56, corner_radius=6)
+
+        w["bundle_label"] = ctk.CTkLabel(form, text="Bundle name:", font=ctk.CTkFont(size=12))
+        w["bundle_entry"] = ctk.CTkEntry(form, width=280, height=34)
+        w["bundle_entry"].insert(0, "freepbx-tools-bundle.zip")
+
+        # Server count label
+        w["lbl_server_count"] = ctk.CTkLabel(
+            form, text="", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["lbl_server_count"].grid(row=1, column=6, columnspan=4, padx=(4, 0), pady=(0, 4), sticky="w")
+
+        btn_row = ctk.CTkFrame(form, fg_color="transparent")
+        btn_row.grid(row=2, column=6, columnspan=4, padx=(0, 16), pady=(0, 10), sticky="ew")
+        btn_row.grid_columnconfigure((0, 1), weight=1)
+
+        w["btn_start"] = ctk.CTkButton(
+            btn_row, text="▶  Deploy",
+            fg_color="#27ae60", hover_color="#1e8449",
+            height=34, font=ctk.CTkFont(size=13),
+            command=self._on_deploy_start,
+        )
+        w["btn_start"].grid(row=0, column=0, padx=(0, 4), pady=(0, 4), sticky="ew")
+
+        w["btn_cancel"] = ctk.CTkButton(
+            btn_row, text="■  Cancel",
+            fg_color="#c0392b", hover_color="#922b21",
+            height=34, font=ctk.CTkFont(size=13),
+            state="disabled",
+            command=self._on_deploy_cancel,
+        )
+        w["btn_cancel"].grid(row=0, column=1, padx=(4, 0), pady=(0, 4), sticky="ew")
+
+        w["btn_manual"] = ctk.CTkButton(
+            btn_row, text="⌨  Manual IPs",
+            fg_color="#374151", hover_color="#4b5563",
+            height=30, font=ctk.CTkFont(size=12),
+            command=self._on_deploy_toggle_manual,
+        )
+        w["btn_manual"].grid(row=1, column=0, padx=(0, 4), pady=(0, 4), sticky="ew")
+
+        w["btn_paste"] = ctk.CTkButton(
+            btn_row, text="📋  Paste IPs",
+            fg_color="#2c3e50", hover_color="#1a252f",
+            height=30, font=ctk.CTkFont(size=12),
+            command=self._on_deploy_paste_servers,
+        )
+        w["btn_paste"].grid(row=1, column=1, padx=(4, 0), pady=(0, 4), sticky="ew")
+
+        w["btn_browse"] = ctk.CTkButton(
+            btn_row, text="📂  Browse CSV / TXT",
+            fg_color="#6c3483", hover_color="#5b2c6f",
+            height=30, font=ctk.CTkFont(size=12),
+            command=self._on_deploy_browse_csv,
+        )
+        w["btn_browse"].grid(row=2, column=0, columnspan=2, pady=(0, 4), sticky="ew")
+
+        w["lbl_status"] = ctk.CTkLabel(
+            form, text="Deploy backend: checking…",
+            font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["lbl_status"].grid(row=3, column=0, columnspan=10, padx=12, pady=(0, 8), sticky="w")
+
+        # ── Split: job list (left) + output (right) ───────────────────────────
+        split = ctk.CTkFrame(tab, corner_radius=0, fg_color="transparent")
+        split.grid(row=2, column=0, sticky="nsew")
+        split.grid_columnconfigure(1, weight=1)
+        split.grid_rowconfigure(0, weight=1)
+
+        # Recent jobs
+        jobs_frame = ctk.CTkFrame(split, corner_radius=8, width=230)
+        jobs_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        jobs_frame.grid_rowconfigure(1, weight=1)
+        jobs_frame.grid_propagate(False)
+
+        ctk.CTkLabel(
+            jobs_frame, text="Recent Jobs",
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).grid(row=0, column=0, padx=10, pady=(8, 4), sticky="w")
+
+        w["jobs_list"] = tk.Listbox(
+            jobs_frame,
+            bg="#1a1a2e", fg="#ecf0f1",
+            font=("Consolas", 9),
+            selectbackground="#2980b9",
+            relief="flat", borderwidth=0,
+            activestyle="none",
+        )
+        w["jobs_list"].grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 6))
+        jobs_frame.grid_columnconfigure(0, weight=1)
+        w["jobs_list"].bind("<<ListboxSelect>>", self._on_deploy_job_select)
+
+        # Live output
+        out_frame = ctk.CTkFrame(split, corner_radius=8)
+        out_frame.grid(row=0, column=1, sticky="nsew")
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["output"] = tk.Text(
+            out_frame,
+            bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 10),
+            state="disabled", relief="flat", wrap="none",
+            padx=8, pady=8,
+        )
+        w["output"].grid(row=0, column=0, sticky="nsew")
+
+        xsb = ctk.CTkScrollbar(out_frame, orientation="horizontal", command=w["output"].xview)
+        xsb.grid(row=1, column=0, sticky="ew")
+        ysb = ctk.CTkScrollbar(out_frame, command=w["output"].yview)
+        ysb.grid(row=0, column=1, sticky="ns")
+        w["output"].configure(xscrollcommand=xsb.set, yscrollcommand=ysb.set)
+
+        for tag, color in [
+            ("ok",      "#2ecc71"),
+            ("error",   "#e74c3c"),
+            ("warning", "#f39c12"),
+            ("info",    "#c9d1d9"),
+        ]:
+            w["output"].tag_configure(tag, foreground=color)
+
+        ctk.CTkButton(
+            tab, text="Clear Output", width=100, height=28,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=lambda: self._clear_text_widget(w.get("output")),
+        ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+
+        # Auto-load VPBX site list on tab build
+        self._run_in_thread(self._do_vpbx_fetch_for_picker)
+
+    def _on_deploy_action_changed(self, label: str) -> None:
+        w = self._deploy_w
+        is_bundle = (label == "Build offline bundle (.zip)")
+        if is_bundle:
+            w["servers_label"].grid_remove()
+            try: w["picker_frm"].grid_remove()
+            except Exception: pass
+            try: w["servers_text"].grid_remove()
+            except Exception: pass
+            w["bundle_label"].grid(row=1, column=0, padx=(12, 4), pady=(0, 10), sticky="w")
+            w["bundle_entry"].grid(row=1, column=1, columnspan=3, padx=(0, 12), pady=(0, 10))
+        else:
+            try: w["bundle_label"].grid_remove()
+            except Exception: pass
+            try: w["bundle_entry"].grid_remove()
+            except Exception: pass
+            w["servers_label"].grid(row=1, column=0, padx=(12, 4), pady=(0, 10), sticky="nw")
+            if w.get("vpbx_mode_manual"):
+                w["servers_text"].grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
+            else:
+                w["picker_frm"].grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
+
+    def _on_deploy_start(self) -> None:
+        w = self._deploy_w
+        action_label = w["action_var"].get()
+        action = next((a for a, l in _DEPLOY_ACTIONS if l == action_label), "deploy")
+        is_bundle = (action == "bundle")
+        if is_bundle:
+            servers = ""
+        elif w.get("vpbx_mode_manual"):
+            servers = w["servers_text"].get("1.0", "end").strip()
+        else:
+            sel = w["vpbx_listbox"].curselection()
+            if not sel:
+                messagebox.showwarning("No Sites Selected",
+                    "Select at least one site from the list, or click ⌨ Manual IPs to enter IPs directly.")
+                return
+            ips = [w["vpbx_filtered"][i]["ip"] for i in sel
+                   if w["vpbx_filtered"][i].get("ip")]
+            if not ips:
+                messagebox.showwarning("No IPs", "Selected sites have no IP addresses.")
+                return
+            servers = "\n".join(ips)
+        workers_str = w["workers_var"].get().strip()
+        workers = int(workers_str) if workers_str.isdigit() and int(workers_str) > 0 else 1
+        username = w["username_entry"].get().strip() or "123net"
+        password = w["password_entry"].get()
+        root_password = w["root_password_entry"].get()
+        bundle_name = w["bundle_entry"].get().strip() if is_bundle else "freepbx-tools-bundle.zip"
+        self._run_in_thread(
+            self._do_deploy_start,
+            action=action, servers=servers, workers=workers,
+            username=username, password=password,
+            root_password=root_password, bundle_name=bundle_name,
+        )
+
+    def _do_deploy_start(
+        self, action: str, servers: str, workers: int,
+        username: str, password: str, root_password: str, bundle_name: str,
+    ) -> None:
+        w = self._deploy_w
+        self.after(0, lambda: w["btn_start"].configure(state="disabled", text="Running…"))
+        self.after(0, lambda: w["btn_cancel"].configure(state="normal"))
+        try:
+            data = _deploy_post("/api/jobs", json={
+                "action": action, "servers": servers, "workers": workers,
+                "username": username, "password": password,
+                "root_password": root_password, "bundle_name": bundle_name,
+            })
+            self._deploy_active_job = data
+            jid = data.get("id", "")
+            self._deploy_append_output(f"Job started: {jid[:8]}\n", "info")
+            self.after(0, lambda: w["lbl_status"].configure(
+                text=f"Job {jid[:8]}  —  running", text_color="#3498db",
+            ))
+        except requests.HTTPError as exc:
+            self._deploy_append_output(f"[ERROR] {exc.response.text}\n", "error")
+            self.after(0, lambda: w["btn_start"].configure(state="normal", text="▶  Deploy"))
+            self.after(0, lambda: w["btn_cancel"].configure(state="disabled"))
+        except Exception as exc:
+            self._deploy_append_output(f"[ERROR] Deploy backend unreachable: {exc}\n", "error")
+            self.after(0, lambda: w["btn_start"].configure(state="normal", text="▶  Deploy"))
+            self.after(0, lambda: w["btn_cancel"].configure(state="disabled"))
+
+    def _on_deploy_cancel(self) -> None:
+        job = self._deploy_active_job
+        if not job:
+            return
+        self._run_in_thread(self._do_deploy_cancel, job_id=job.get("id", ""))
+
+    def _do_deploy_cancel(self, job_id: str) -> None:
+        try:
+            _deploy_post(f"/api/jobs/{job_id}/cancel")
+            self._deploy_append_output("[CANCELLED] Cancel requested.\n", "warning")
+        except Exception as exc:
+            self._deploy_append_output(f"[ERROR] Cancel failed: {exc}\n", "error")
+
+    def _update_deploy_server_count(self) -> None:
+        w = self._deploy_w
+        lbl = w.get("lbl_server_count")
+        if not lbl:
+            return
+        if w.get("vpbx_mode_manual"):
+            txt = w.get("servers_text")
+            if not txt:
+                return
+            raw = txt.get("1.0", "end").strip()
+            servers = [
+                part.strip()
+                for line in raw.replace(",", "\n").replace(";", "\n").splitlines()
+                for part in line.split()
+                if part.strip() and not part.strip().startswith("#")
+            ]
+            n = len(servers)
+        else:
+            lb = w.get("vpbx_listbox")
+            n = len(lb.curselection()) if lb else 0
+        if n == 0:
+            lbl.configure(text="", text_color="#7f8c8d")
+        else:
+            lbl.configure(text=f"{n} server{'s' if n != 1 else ''}", text_color="#3498db")
+
+    def _on_deploy_browse_csv(self) -> None:
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Select server list file",
+            filetypes=[
+                ("CSV / text files", "*.csv *.txt *.tsv"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        servers: list[str] = []
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    # Accept CSV/TSV — first column is the IP
+                    ip = line.replace("\t", ",").split(",")[0].strip()
+                    if ip:
+                        servers.append(ip)
+        except Exception as exc:
+            messagebox.showerror("Read Error", f"Could not read file:\n{exc}")
+            return
+        if not servers:
+            messagebox.showwarning("Empty File", "No server IPs found in the selected file.")
+            return
+        self._deploy_switch_to_manual_mode()
+        w = self._deploy_w
+        w["servers_text"].delete("1.0", "end")
+        w["servers_text"].insert("end", "\n".join(servers))
+        self._update_deploy_server_count()
+        w["workers_var"].set(str(min(len(servers), 10)))
+        if w.get("lbl_status"):
+            fname = Path(path).name
+            w["lbl_status"].configure(
+                text=f"Loaded {len(servers)} server{'s' if len(servers) != 1 else ''} from {fname}  —  workers set to {w['workers_var'].get()}",
+                text_color="#3498db",
+            )
+
+    def _on_deploy_paste_servers(self) -> None:
+        try:
+            clip = self.clipboard_get()
+        except Exception:
+            return
+        if not clip.strip():
+            return
+        servers: list[str] = []
+        for line in clip.replace(",", "\n").replace(";", "\n").splitlines():
+            for part in line.split():
+                p = part.strip()
+                if p and not p.startswith("#"):
+                    servers.append(p)
+        if not servers:
+            messagebox.showwarning("Nothing Found", "No IPs or hostnames found in clipboard.")
+            return
+        self._deploy_switch_to_manual_mode()
+        w = self._deploy_w
+        w["servers_text"].delete("1.0", "end")
+        w["servers_text"].insert("end", "\n".join(servers))
+        self._update_deploy_server_count()
+        if w.get("lbl_status"):
+            n = len(servers)
+            w["lbl_status"].configure(
+                text=f"Pasted {n} server{'s' if n != 1 else ''} from clipboard",
+                text_color="#3498db",
+            )
+
+    def _on_vpbx_listbox_select(self, _event=None) -> None:
+        self._update_deploy_server_count()
+        w = self._deploy_w
+        lb = w.get("vpbx_listbox")
+        if not lb:
+            return
+        sel = lb.curselection()
+        n = len(sel)
+        if n > 0:
+            w["workers_var"].set(str(min(n, 10)))
+            if not w["password_entry"].get():
+                first = w["vpbx_filtered"][sel[0]]
+                handle = (first.get("handle") or "").upper()
+                if handle:
+                    self._run_in_thread(self._do_vpbx_fetch_password, handle=handle)
+
+    def _vpbx_picker_refresh(self) -> None:
+        w = self._deploy_w
+        lb = w.get("vpbx_listbox")
+        if lb is None:
+            return
+        flt = w["vpbx_status_var"].get()
+        q = w["vpbx_search_var"].get().lower()
+        filtered = [
+            r for r in w["vpbx_records"]
+            if (flt == "All" or r.get("account_status") == flt)
+            and (not q or q in (r.get("handle") or "").lower()
+                        or q in (r.get("name") or "").lower()
+                        or q in (r.get("ip") or "").lower())
+        ]
+        filtered.sort(key=lambda r: (r.get("name") or r.get("handle") or "").lower())
+        w["vpbx_filtered"] = filtered
+        lb.delete(0, "end")
+        for r in filtered:
+            h = (r.get("handle") or "").upper()
+            ip = r.get("ip") or "—"
+            name = (r.get("name") or "")[:32]
+            lb.insert("end", f"{h:<5}  {ip:<17}  {name}")
+        count_lbl = w.get("vpbx_count_lbl")
+        if count_lbl:
+            count_lbl.config(text=f"{len(filtered)} sites")
+        self._update_deploy_server_count()
+
+    def _on_deploy_vpbx_refresh(self) -> None:
+        w = self._deploy_w
+        count_lbl = w.get("vpbx_count_lbl")
+        if count_lbl:
+            count_lbl.config(text="loading…")
+        self._run_in_thread(self._do_vpbx_fetch_for_picker)
+
+    def _do_vpbx_fetch_for_picker(self) -> None:
+        try:
+            r = requests.get(f"{API_BASE}/api/vpbx/records", timeout=10)
+            r.raise_for_status()
+            records = r.json().get("items", [])
+            self.after(0, lambda recs=records: self._on_deploy_vpbx_loaded(recs))
+        except Exception as exc:
+            def _err(e=exc):
+                w = self._deploy_w
+                count_lbl = w.get("vpbx_count_lbl")
+                if count_lbl:
+                    count_lbl.config(text=f"offline")
+            self.after(0, _err)
+
+    def _on_deploy_vpbx_loaded(self, records: list[dict]) -> None:
+        w = self._deploy_w
+        w["vpbx_records"] = records
+        statuses_seen = sorted({(r.get("account_status") or "") for r in records if r.get("account_status")})
+        status_cb = w.get("vpbx_status_cb")
+        if status_cb:
+            status_cb.configure(values=["All"] + statuses_seen)
+        self._vpbx_picker_refresh()
+
+    def _on_deploy_toggle_manual(self) -> None:
+        w = self._deploy_w
+        if w.get("vpbx_mode_manual"):
+            self._deploy_switch_to_vpbx_mode()
+        else:
+            self._deploy_switch_to_manual_mode()
+
+    def _deploy_switch_to_manual_mode(self) -> None:
+        w = self._deploy_w
+        w["vpbx_mode_manual"] = True
+        try: w["picker_frm"].grid_remove()
+        except Exception: pass
+        w["servers_text"].grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
+        w["servers_label"].configure(text="Servers:")
+        btn = w.get("btn_manual")
+        if btn:
+            btn.configure(text="🗂  VPBX Sites", fg_color="#1a5276", hover_color="#154360")
+        self._update_deploy_server_count()
+
+    def _deploy_switch_to_vpbx_mode(self) -> None:
+        w = self._deploy_w
+        w["vpbx_mode_manual"] = False
+        try: w["servers_text"].grid_remove()
+        except Exception: pass
+        w["picker_frm"].grid(row=1, column=1, columnspan=5, padx=(0, 12), pady=(0, 10), sticky="ew")
+        w["servers_label"].configure(text="Sites:")
+        btn = w.get("btn_manual")
+        if btn:
+            btn.configure(text="⌨  Manual IPs", fg_color="#374151", hover_color="#4b5563")
+        self._update_deploy_server_count()
+
+    def _on_deploy_import_vpbx(self) -> None:
+        w = self._deploy_w
+        if w.get("lbl_status"):
+            w["lbl_status"].configure(text="Fetching VPBX records…", text_color="#f39c12")
+        self._run_in_thread(self._do_vpbx_fetch)
+
+    def _do_vpbx_fetch(self) -> None:
+        try:
+            r = requests.get(f"{API_BASE}/api/vpbx/records", timeout=10)
+            r.raise_for_status()
+            records = r.json().get("items", [])
+            self.after(0, lambda recs=records: self._open_vpbx_picker(recs))
+        except Exception as exc:
+            def _err(e=exc):
+                w = self._deploy_w
+                if w.get("lbl_status"):
+                    w["lbl_status"].configure(
+                        text=f"VPBX fetch failed: {e}", text_color="#e74c3c"
+                    )
+            self.after(0, _err)
+
+    def _open_vpbx_picker(self, records: list[dict]) -> None:
+        if not records:
+            messagebox.showwarning("No Data", "No VPBX records found. Run the VPBX scraper first.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Import Servers from VPBX")
+        dlg.geometry("900x580")
+        dlg.configure(bg="#1a1a2e")
+        dlg.resizable(True, True)
+        dlg.grab_set()
+
+        # ── Filter bar ────────────────────────────────────────────────────────
+        filter_frm = tk.Frame(dlg, bg="#1a1a2e")
+        filter_frm.pack(fill="x", padx=8, pady=(8, 2))
+
+        tk.Label(filter_frm, text="Status:", bg="#1a1a2e", fg="#bdc3c7",
+                 font=("Segoe UI", 10)).pack(side="left")
+        all_statuses = sorted({(r.get("account_status") or "") for r in records
+                                if r.get("account_status")})
+        statuses = ["All"] + all_statuses
+        default_status = "production_billed" if "production_billed" in statuses else "All"
+        status_var = tk.StringVar(value=default_status)
+        status_cb = ttk.Combobox(filter_frm, textvariable=status_var, values=statuses,
+                                  width=22, state="readonly")
+        status_cb.pack(side="left", padx=(4, 16))
+
+        tk.Label(filter_frm, text="Search:", bg="#1a1a2e", fg="#bdc3c7",
+                 font=("Segoe UI", 10)).pack(side="left")
+        search_var = tk.StringVar()
+        tk.Entry(filter_frm, textvariable=search_var, width=22,
+                 bg="#2c2c3e", fg="#ecf0f1", insertbackground="#ecf0f1",
+                 relief="flat").pack(side="left", padx=(4, 0))
+
+        count_lbl = tk.Label(filter_frm, text="", bg="#1a1a2e", fg="#7f8c8d",
+                              font=("Segoe UI", 10))
+        count_lbl.pack(side="right")
+
+        # ── Column header ─────────────────────────────────────────────────────
+        tk.Label(dlg, text=f"  {'HDL':<5}  {'IP':<18}  {'Company':<38}  Status",
+                 bg="#0d0d1a", fg="#7f8c8d", font=("Courier New", 10),
+                 anchor="w", pady=2).pack(fill="x", padx=8)
+
+        # ── Listbox ───────────────────────────────────────────────────────────
+        list_frm = tk.Frame(dlg, bg="#0d0d1a")
+        list_frm.pack(fill="both", expand=True, padx=8, pady=2)
+
+        vsb = ttk.Scrollbar(list_frm, orient="vertical")
+        vsb.pack(side="right", fill="y")
+        listbox = tk.Listbox(
+            list_frm, selectmode="extended",
+            bg="#0d0d1a", fg="#ecf0f1", font=("Courier New", 10),
+            selectbackground="#2980b9", selectforeground="#ffffff",
+            yscrollcommand=vsb.set, activestyle="none",
+            bd=0, highlightthickness=0,
+        )
+        vsb.config(command=listbox.yview)
+        listbox.pack(side="left", fill="both", expand=True)
+
+        filtered_records: list[dict] = []
+
+        def _refresh(*_) -> None:
+            nonlocal filtered_records
+            flt = status_var.get()
+            q = search_var.get().lower()
+            filtered_records = [
+                r for r in records
+                if (flt == "All" or r.get("account_status") == flt)
+                and (not q or q in (r.get("handle") or "").lower()
+                            or q in (r.get("name") or "").lower()
+                            or q in (r.get("ip") or "").lower())
+            ]
+            listbox.delete(0, "end")
+            for r in filtered_records:
+                h = (r.get("handle") or "").upper()
+                ip = r.get("ip") or ""
+                name = (r.get("name") or "")[:38]
+                st = r.get("account_status") or ""
+                listbox.insert("end", f"  {h:<5}  {ip:<18}  {name:<38}  {st}")
+            count_lbl.configure(text=f"{len(filtered_records)} sites")
+
+        _refresh()
+        status_cb.bind("<<ComboboxSelected>>", _refresh)
+        search_var.trace_add("write", _refresh)
+
+        # ── Select controls + password option ─────────────────────────────────
+        ctrl_frm = tk.Frame(dlg, bg="#1a1a2e")
+        ctrl_frm.pack(fill="x", padx=8, pady=4)
+
+        tk.Button(ctrl_frm, text="Select All", bg="#27ae60", fg="white",
+                  relief="flat", padx=8,
+                  command=lambda: listbox.selection_set(0, "end")).pack(side="left", padx=(0, 4))
+        tk.Button(ctrl_frm, text="Deselect All", bg="#7f8c8d", fg="white",
+                  relief="flat", padx=8,
+                  command=lambda: listbox.selection_clear(0, "end")).pack(side="left")
+
+        pass_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            ctrl_frm, text="Auto-fill SSH password from site config",
+            variable=pass_var, bg="#1a1a2e", fg="#ecf0f1",
+            selectcolor="#2c3e50", activebackground="#1a1a2e",
+            activeforeground="#ecf0f1",
+        ).pack(side="right")
+
+        # ── Bottom buttons ────────────────────────────────────────────────────
+        btn_frm = tk.Frame(dlg, bg="#1a1a2e")
+        btn_frm.pack(fill="x", padx=8, pady=(2, 8))
+
+        def _do_import() -> None:
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("Nothing Selected", "Select at least one server.")
+                return
+            chosen = [filtered_records[i] for i in sel]
+            ips = [r["ip"] for r in chosen if r.get("ip")]
+            if not ips:
+                messagebox.showwarning("No IPs", "Selected records have no IP addresses.")
+                return
+            w = self._deploy_w
+            w["servers_text"].delete("1.0", "end")
+            w["servers_text"].insert("end", "\n".join(ips))
+            self._update_deploy_server_count()
+            w["workers_var"].set(str(min(len(ips), 10)))
+            if pass_var.get():
+                first_handle = (chosen[0].get("handle") or "").upper()
+                if first_handle:
+                    self._run_in_thread(self._do_vpbx_fetch_password, handle=first_handle)
+            if w.get("lbl_status"):
+                n = len(ips)
+                w["lbl_status"].configure(
+                    text=f"Imported {n} server{'s' if n != 1 else ''} from VPBX  —  workers → {w['workers_var'].get()}",
+                    text_color="#3498db",
+                )
+            dlg.destroy()
+
+        tk.Button(btn_frm, text="▶  Import Selected", bg="#27ae60", fg="white",
+                  font=("Segoe UI", 11, "bold"), relief="flat", padx=12, pady=4,
+                  command=_do_import).pack(side="left")
+        tk.Button(btn_frm, text="Cancel", bg="#2c3e50", fg="#ecf0f1",
+                  relief="flat", padx=12, pady=4,
+                  command=dlg.destroy).pack(side="right")
+
+    def _do_vpbx_fetch_password(self, handle: str) -> None:
+        """Fetch site config for handle and extract ftp_pass (= SSH password for 123net)."""
+        try:
+            r = requests.get(f"{API_BASE}/api/vpbx/site-configs/{handle}", timeout=10)
+            if r.status_code == 404:
+                return
+            r.raise_for_status()
+            cfg = r.json().get("site_config") or ""
+            # Try both HTML attribute orderings
+            m = re.search(r'name=["\']ftp_pass["\'][^>]*value=["\']([^"\']*)["\']', cfg, re.IGNORECASE)
+            if not m:
+                m = re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']ftp_pass["\']', cfg, re.IGNORECASE)
+            if m:
+                pwd = m.group(1)
+                self.after(0, lambda p=pwd: self._deploy_vpbx_fill_password(p))
+        except Exception:
+            pass
+
+    def _deploy_vpbx_fill_password(self, password: str) -> None:
+        w = self._deploy_w
+        entry = w.get("password_entry")
+        if entry and password:
+            entry.delete(0, "end")
+            entry.insert(0, password)
+            if w.get("lbl_status"):
+                current = w["lbl_status"].cget("text")
+                w["lbl_status"].configure(
+                    text=current + "  ✓ SSH password auto-filled",
+                    text_color="#2ecc71",
+                )
+
+    def _on_deploy_job_select(self, _event: Any) -> None:
+        w = self._deploy_w
+        sel = w["jobs_list"].curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        if idx < len(self._deploy_jobs):
+            job = self._deploy_jobs[idx]
+            self._deploy_active_job = job
+            self._run_in_thread(self._do_deploy_load_job, job_id=job.get("id", ""))
+
+    def _do_deploy_load_job(self, job_id: str) -> None:
+        try:
+            data = _deploy_get(f"/api/jobs/{job_id}")
+            self._ui_queue.put(("deploy_job_update", data["job"], data["tail"]))
+        except Exception as exc:
+            self._deploy_append_output(f"[ERROR] Load job failed: {exc}\n", "error")
+
+    def _deploy_append_output(self, text: str, level: str = "info") -> None:
+        w = self._deploy_w
+        txt = w.get("output")
+        if not txt:
+            return
+        l = text.lower()
+        tag = "ok"      if ("[ok]" in l or "successful" in l) else \
+              "error"   if ("[error]" in l or "[failed]" in l) else \
+              "warning" if ("[warning]" in l or "warning" in l) else \
+              level if level in ("ok", "error", "warning") else "info"
+        def _do() -> None:
+            txt.configure(state="normal")
+            txt.insert("end", text, tag)
+            txt.see("end")
+            txt.configure(state="disabled")
+        self.after(0, _do)
+
+    def _refresh_deploy_tab(self, job: dict, tail: list[str]) -> None:
+        w = self._deploy_w
+        if not w:
+            return
+        status = job.get("status", "unknown")
+        jid    = job.get("id", "")
+        color  = _deploy_state_color(status)
+        if w.get("lbl_status"):
+            w["lbl_status"].configure(
+                text=f"Job {jid[:8]}  —  {status}", text_color=color,
+            )
+        txt = w.get("output")
+        if txt:
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+            for line in tail:
+                l = line.lower()
+                tag = "ok"      if ("[ok]" in l or "successful" in l) else \
+                      "error"   if ("[error]" in l or "[failed]" in l) else \
+                      "warning" if ("[warning]" in l or "warning" in l) else "info"
+                txt.insert("end", line, tag)
+            txt.see("end")
+            txt.configure(state="disabled")
+        if status in ("succeeded", "failed", "cancelled"):
+            if w.get("btn_start"):
+                w["btn_start"].configure(state="normal", text="▶  Deploy")
+            if w.get("btn_cancel"):
+                w["btn_cancel"].configure(state="disabled")
+
+    def _refresh_deploy_jobs_list(self, jobs: list[dict]) -> None:
+        w = self._deploy_w
+        lb = w.get("jobs_list")
+        if not lb:
+            return
+        self._deploy_jobs = jobs
+        lb.delete(0, "end")
+        for j in jobs:
+            status = j.get("status", "?")
+            action = j.get("action", "?")
+            jid    = j.get("id", "")[:8]
+            servers = j.get("servers", [])
+            srv  = servers[0] if servers else "–"
+            icon = "✓" if status == "succeeded" else \
+                   "✗" if status in ("failed", "cancelled") else "●"
+            lb.insert("end", f"{icon} {jid}  {action[:11]:<11}  {srv}")
+            color = "#2ecc71" if status == "succeeded" else \
+                    "#e74c3c" if status == "failed"    else \
+                    "#f39c12" if status in ("queued", "running") else "#95a5a6"
+            lb.itemconfig("end", fg=color)
+
+    # ── Remote Run sub-tab ───────────────────────────────────────────────────
+
+    def _build_rrun_sub_tab(self, tab: Any) -> None:
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        w = self._rrun_w
+
+        form = ctk.CTkFrame(tab, corner_radius=8)
+        form.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        # Row 0: connection fields
+        for col, (lbl, key, kw) in enumerate([
+            ("Server:",    "server_entry",        {"width": 180, "placeholder_text": "IP or hostname"}),
+            ("User:",      "username_entry",       {"width": 100}),
+            ("SSH Pass:",  "password_entry",       {"width": 120, "show": "●"}),
+            ("Root Pass:", "root_password_entry",  {"width": 120, "show": "●"}),
+        ]):
+            ctk.CTkLabel(form, text=lbl, font=ctk.CTkFont(size=12)).grid(
+                row=0, column=col * 2, padx=(12 if col == 0 else 8, 4), pady=10, sticky="w"
+            )
+            ent = ctk.CTkEntry(form, height=34, **kw)
+            if key == "username_entry":
+                ent.insert(0, "123net")
+            ent.grid(row=0, column=col * 2 + 1, padx=(0, 8), pady=10)
+            w[key] = ent
+
+        # Row 1: menu choice + grab dump + buttons
+        ctk.CTkLabel(form, text="Menu Choice:", font=ctk.CTkFont(size=12)).grid(
+            row=1, column=0, padx=(12, 4), pady=(0, 10), sticky="w"
+        )
+        w["menu_var"] = tk.StringVar(value=_REMOTE_RUN_MENU[0][1])
+        ctk.CTkOptionMenu(
+            form, variable=w["menu_var"],
+            values=[lbl for _, lbl in _REMOTE_RUN_MENU],
+            width=280, height=34,
+        ).grid(row=1, column=1, columnspan=3, padx=(0, 12), pady=(0, 10), sticky="w")
+
+        w["grab_dump_var"] = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(form, text="Grab dump JSON", variable=w["grab_dump_var"]).grid(
+            row=1, column=4, padx=(8, 12), pady=(0, 10)
+        )
+
+        w["btn_run"] = ctk.CTkButton(
+            form, text="▶  Run",
+            fg_color="#2980b9", hover_color="#1f6391",
+            width=120, height=36, font=ctk.CTkFont(size=13),
+            command=self._on_rrun_start,
+        )
+        w["btn_run"].grid(row=1, column=5, padx=(0, 8), pady=(0, 10))
+
+        w["btn_cancel"] = ctk.CTkButton(
+            form, text="■  Cancel",
+            fg_color="#c0392b", hover_color="#922b21",
+            width=110, height=36, font=ctk.CTkFont(size=13),
+            state="disabled",
+            command=self._on_rrun_cancel,
+        )
+        w["btn_cancel"].grid(row=1, column=6, padx=(0, 12), pady=(0, 10))
+
+        w["lbl_status"] = ctk.CTkLabel(
+            form, text="", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["lbl_status"].grid(row=2, column=0, columnspan=7, padx=12, pady=(0, 8), sticky="w")
+
+        # Output
+        out_frame = ctk.CTkFrame(tab, corner_radius=8)
+        out_frame.grid(row=2, column=0, sticky="nsew")
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["output"] = tk.Text(
+            out_frame,
+            bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 10),
+            state="disabled", relief="flat", wrap="none",
+            padx=8, pady=8,
+        )
+        w["output"].grid(row=0, column=0, sticky="nsew")
+        xsb = ctk.CTkScrollbar(out_frame, orientation="horizontal", command=w["output"].xview)
+        xsb.grid(row=1, column=0, sticky="ew")
+        ysb = ctk.CTkScrollbar(out_frame, command=w["output"].yview)
+        ysb.grid(row=0, column=1, sticky="ns")
+        w["output"].configure(xscrollcommand=xsb.set, yscrollcommand=ysb.set)
+
+        for tag, color in [("ok","#2ecc71"),("error","#e74c3c"),("warning","#f39c12"),("info","#c9d1d9")]:
+            w["output"].tag_configure(tag, foreground=color)
+
+        ctk.CTkButton(
+            tab, text="Clear Output", width=100, height=28,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=lambda: self._clear_text_widget(w.get("output")),
+        ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+
+    def _on_rrun_start(self) -> None:
+        w = self._rrun_w
+        server = w["server_entry"].get().strip()
+        if not server:
+            messagebox.showerror("Missing Server", "Enter a server IP or hostname.")
+            return
+        menu_val    = w["menu_var"].get()
+        menu_choice = menu_val.split("—")[0].strip()
+        self._run_in_thread(
+            self._do_rrun_start,
+            server=server,
+            username=w["username_entry"].get().strip() or "123net",
+            password=w["password_entry"].get(),
+            root_password=w["root_password_entry"].get(),
+            menu_choice=menu_choice,
+            grab_dump=w["grab_dump_var"].get(),
+        )
+
+    def _do_rrun_start(
+        self, server: str, username: str, password: str,
+        root_password: str, menu_choice: str, grab_dump: bool,
+    ) -> None:
+        w = self._rrun_w
+        self.after(0, lambda: w["btn_run"].configure(state="disabled", text="Running…"))
+        self.after(0, lambda: w["btn_cancel"].configure(state="normal"))
+        try:
+            data = _deploy_post("/api/remote/run", json={
+                "server": server, "username": username,
+                "password": password, "root_password": root_password,
+                "menu_choice": menu_choice, "grab_dump": grab_dump,
+            })
+            self._rrun_active_job = data
+            jid = data.get("id", "")
+            self._rrun_append(f"Remote run job started: {jid[:8]}\n", "info")
+            self.after(0, lambda: w["lbl_status"].configure(
+                text=f"Job {jid[:8]}  —  running", text_color="#3498db",
+            ))
+        except requests.HTTPError as exc:
+            self._rrun_append(f"[ERROR] {exc.response.text}\n", "error")
+            self.after(0, lambda: w["btn_run"].configure(state="normal", text="▶  Run"))
+            self.after(0, lambda: w["btn_cancel"].configure(state="disabled"))
+        except Exception as exc:
+            self._rrun_append(f"[ERROR] Deploy backend unreachable: {exc}\n", "error")
+            self.after(0, lambda: w["btn_run"].configure(state="normal", text="▶  Run"))
+            self.after(0, lambda: w["btn_cancel"].configure(state="disabled"))
+
+    def _on_rrun_cancel(self) -> None:
+        job = self._rrun_active_job
+        if not job:
+            return
+        self._run_in_thread(self._do_rrun_cancel, job_id=job.get("id", ""))
+
+    def _do_rrun_cancel(self, job_id: str) -> None:
+        try:
+            _deploy_post(f"/api/jobs/{job_id}/cancel")
+            self._rrun_append("[CANCELLED] Cancel requested.\n", "warning")
+        except Exception as exc:
+            self._rrun_append(f"[ERROR] Cancel failed: {exc}\n", "error")
+
+    def _rrun_append(self, text: str, level: str = "info") -> None:
+        w = self._rrun_w
+        txt = w.get("output")
+        if not txt:
+            return
+        l = text.lower()
+        tag = "ok"      if ("[ok]" in l or "successful" in l) else \
+              "error"   if ("[error]" in l or "[failed]" in l) else \
+              "warning" if ("[warning]" in l or "warning" in l) else "info"
+        def _do() -> None:
+            txt.configure(state="normal")
+            txt.insert("end", text, tag)
+            txt.see("end")
+            txt.configure(state="disabled")
+        self.after(0, _do)
+
+    def _refresh_rrun_tab(self, job: dict, tail: list[str]) -> None:
+        w = self._rrun_w
+        if not w:
+            return
+        status = job.get("status", "unknown")
+        jid    = job.get("id", "")
+        color  = _deploy_state_color(status)
+        if w.get("lbl_status"):
+            w["lbl_status"].configure(text=f"Job {jid[:8]}  —  {status}", text_color=color)
+        txt = w.get("output")
+        if txt:
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+            for line in tail:
+                l = line.lower()
+                tag = "ok"      if ("[ok]" in l or "successful" in l) else \
+                      "error"   if ("[error]" in l or "[failed]" in l) else \
+                      "warning" if ("[warning]" in l or "warning" in l) else "info"
+                txt.insert("end", line, tag)
+            txt.see("end")
+            txt.configure(state="disabled")
+        if status in ("succeeded", "failed", "cancelled"):
+            if w.get("btn_run"):
+                w["btn_run"].configure(state="normal", text="▶  Run")
+            if w.get("btn_cancel"):
+                w["btn_cancel"].configure(state="disabled")
+
+    # ── Server Diagnostics sub-tab ───────────────────────────────────────────
+
+    def _build_sdiag_sub_tab(self, tab: Any) -> None:
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        w = self._sdiag_w
+
+        form = ctk.CTkFrame(tab, corner_radius=8)
+        form.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        for col, (lbl, key, kw) in enumerate([
+            ("Server:",    "server_entry",       {"width": 180, "placeholder_text": "IP or hostname"}),
+            ("User:",      "username_entry",     {"width": 100}),
+            ("SSH Pass:",  "password_entry",     {"width": 120, "show": "●"}),
+            ("Root Pass:", "root_pw_entry",      {"width": 120, "show": "●"}),
+            ("Timeout:",   "timeout_entry",      {"width": 50}),
+        ]):
+            ctk.CTkLabel(form, text=lbl, font=ctk.CTkFont(size=12)).grid(
+                row=0, column=col * 2, padx=(12 if col == 0 else 8, 4), pady=10, sticky="w"
+            )
+            ent = ctk.CTkEntry(form, height=34, **kw)
+            if key == "username_entry":
+                ent.insert(0, "123net")
+            if key == "timeout_entry":
+                ent.insert(0, "15")
+            ent.grid(row=0, column=col * 2 + 1, padx=(0, 8), pady=10)
+            w[key] = ent
+
+        w["btn_run"] = ctk.CTkButton(
+            form, text="🔍  Diagnose",
+            fg_color="#2980b9", hover_color="#1f6391",
+            width=130, height=36, font=ctk.CTkFont(size=13),
+            command=self._on_sdiag_run,
+        )
+        w["btn_run"].grid(row=0, column=10, padx=(4, 12), pady=10)
+
+        w["lbl_status"] = ctk.CTkLabel(
+            form, text="SSH into a FreePBX server and collect diagnostic info.",
+            font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["lbl_status"].grid(row=1, column=0, columnspan=11, padx=12, pady=(0, 8), sticky="w")
+
+        # Results
+        out_frame = ctk.CTkFrame(tab, corner_radius=8)
+        out_frame.grid(row=2, column=0, sticky="nsew")
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["output"] = tk.Text(
+            out_frame,
+            bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 10),
+            state="disabled", relief="flat", wrap="word",
+            padx=8, pady=8,
+        )
+        w["output"].grid(row=0, column=0, sticky="nsew")
+        ysb = ctk.CTkScrollbar(out_frame, command=w["output"].yview)
+        ysb.grid(row=0, column=1, sticky="ns")
+        w["output"].configure(yscrollcommand=ysb.set)
+
+        for tag, color in [
+            ("ok",    "#2ecc71"), ("key",   "#3498db"),
+            ("error", "#e74c3c"), ("value", "#ecf0f1"),
+            ("hint",  "#f39c12"),
+        ]:
+            w["output"].tag_configure(tag, foreground=color)
+
+        ctk.CTkButton(
+            tab, text="Clear", width=80, height=28,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=lambda: self._clear_text_widget(w.get("output")),
+        ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+
+    def _on_sdiag_run(self) -> None:
+        w = self._sdiag_w
+        server = w["server_entry"].get().strip()
+        if not server:
+            messagebox.showerror("Missing Server", "Enter a server IP or hostname.")
+            return
+        try:
+            timeout = float(w["timeout_entry"].get().strip() or "15")
+        except ValueError:
+            timeout = 15.0
+        self._run_in_thread(
+            self._do_sdiag_run,
+            server=server,
+            username=w["username_entry"].get().strip() or "123net",
+            password=w["password_entry"].get(),
+            root_password=w["root_pw_entry"].get(),
+            timeout=timeout,
+        )
+
+    def _do_sdiag_run(
+        self, server: str, username: str, password: str,
+        root_password: str, timeout: float,
+    ) -> None:
+        w = self._sdiag_w
+        self.after(0, lambda: w["btn_run"].configure(state="disabled", text="Running…"))
+        self.after(0, lambda: w["lbl_status"].configure(
+            text=f"Connecting to {server}…", text_color="#f39c12",
+        ))
+        try:
+            data = _deploy_post("/api/diagnostics/summary", json={
+                "server": server, "username": username,
+                "password": password,
+                "root_password": root_password or password,
+                "timeout_seconds": timeout,
+            })
+            self._ui_queue.put(("sdiag_result", data, None))
+        except requests.HTTPError as exc:
+            try:
+                err_data = exc.response.json()
+            except Exception:
+                err_data = {"error": exc.response.text}
+            self._ui_queue.put(("sdiag_result", err_data, str(exc)))
+        except Exception as exc:
+            self._ui_queue.put(("sdiag_result", {"error": str(exc)}, str(exc)))
+        finally:
+            self.after(0, lambda: w["btn_run"].configure(state="normal", text="🔍  Diagnose"))
+
+    def _display_sdiag_result(self, data: dict, error: str | None) -> None:
+        w = self._sdiag_w
+        txt = w.get("output")
+        if not txt:
+            return
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+
+        if error or not data.get("ok", True):
+            msg  = data.get("error") or error or "Diagnostics failed"
+            hint = data.get("_hint", "")
+            txt.insert("end", f"[ERROR] {msg}\n\n", "error")
+            if hint:
+                txt.insert("end", f"{hint}\n", "hint")
+            if w.get("lbl_status"):
+                short = str(msg)[:70]
+                w["lbl_status"].configure(text=f"Failed — {short}", text_color="#e74c3c")
+        else:
+            srv = data.get("server", "")
+            if w.get("lbl_status"):
+                w["lbl_status"].configure(
+                    text=f"✓ Diagnostics complete — {srv}", text_color="#2ecc71",
+                )
+
+            def _render(obj: Any, indent: int = 0) -> None:
+                pad = "  " * indent
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if str(k).startswith("_"):
+                            continue
+                        if isinstance(v, (dict, list)):
+                            txt.insert("end", f"{pad}{k}:\n", "key")
+                            _render(v, indent + 1)
+                        else:
+                            sv = str(v)
+                            ok_val  = v is True  or sv.lower() in ("ok", "true",  "yes", "installed", "found")
+                            err_val = v is False or sv.lower() in ("false", "no", "missing", "not installed", "not found")
+                            vtag    = "ok" if ok_val else "error" if err_val else "value"
+                            txt.insert("end", f"{pad}{k}: ", "key")
+                            txt.insert("end", f"{sv}\n", vtag)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, (dict, list)):
+                            _render(item, indent)
+                        else:
+                            txt.insert("end", f"{pad}• {item}\n", "value")
+                else:
+                    txt.insert("end", f"{pad}{obj}\n", "value")
+
+            _render(data)
+
+        txt.see("1.0")
+        txt.configure(state="disabled")
+
+    # ── Deploy background poll ────────────────────────────────────────────────
+
+    def _deploy_poll_loop(self) -> None:
+        last_list_t = 0.0
+        while not self._closing:
+            now = time.time()
+
+            # Poll active deploy job at 500 ms
+            job = self._deploy_active_job
+            if job and job.get("status") in ("queued", "running"):
+                try:
+                    data = _deploy_get(f"/api/jobs/{job['id']}")
+                    self._ui_queue.put(("deploy_job_update", data["job"], data["tail"]))
+                except Exception:
+                    pass
+
+            # Poll active remote-run job at 500 ms
+            rjob = self._rrun_active_job
+            if rjob and rjob.get("status") in ("queued", "running"):
+                try:
+                    data = _deploy_get(f"/api/jobs/{rjob['id']}")
+                    self._ui_queue.put(("rrun_job_update", data["job"], data["tail"]))
+                except Exception:
+                    pass
+
+            # Refresh job list every 4 s
+            if now - last_list_t > 4.0:
+                try:
+                    jobs = _deploy_get("/api/jobs")
+                    jobs_sorted = sorted(jobs, key=lambda j: j.get("created_at", ""), reverse=True)
+                    self._ui_queue.put(("deploy_jobs", jobs_sorted))
+                    last_list_t = now
+                    self._deploy_backend_ok = True
+                    w = self._deploy_w
+                    if w.get("lbl_status") and not (
+                        self._deploy_active_job and
+                        self._deploy_active_job.get("status") in ("queued", "running")
+                    ):
+                        self.after(0, lambda: w["lbl_status"].configure(
+                            text=f"Deploy backend ready  (port {_DEPLOY_PORT})",
+                            text_color="#2ecc71",
+                        ))
+                except Exception:
+                    self._deploy_backend_ok = False
+                    last_list_t = now
+                    w = self._deploy_w
+                    if w.get("lbl_status") and not (
+                        self._deploy_active_job and
+                        self._deploy_active_job.get("status") in ("queued", "running")
+                    ):
+                        self.after(0, lambda: w["lbl_status"].configure(
+                            text=f"Deploy backend offline  (port {_DEPLOY_PORT})",
+                            text_color="#e74c3c",
+                        ))
+
+            time.sleep(0.5)
+
+    # ── Generic helper ────────────────────────────────────────────────────────
+
+    def _clear_text_widget(self, txt: Any) -> None:
+        if not txt:
+            return
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        txt.configure(state="disabled")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -135,6 +135,8 @@ app = FastAPI(title="FreePBX Tools Deploy UI Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3004",
+        "http://127.0.0.1:3004",
         "http://localhost:3003",
         "http://127.0.0.1:3003",
         "http://localhost:3002",

@@ -856,7 +856,7 @@ def _capture_device_page_data(driver: Any, edit_url: str, emit_fn: Any = None) -
     return result
 
 
-def _capture_site_config(driver: Any, detail_url: str) -> str:
+def _capture_site_config(driver: Any, detail_url: str, emit_fn: Any = None) -> str:
     """Navigate to a vpbx_detail page, click Site Specific Config, return the config text.
 
     The button is: <button id="site_editor_button" class="site_editor_button">Site Specific Config</button>
@@ -867,6 +867,10 @@ def _capture_site_config(driver: Any, detail_url: str) -> str:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.support.ui import WebDriverWait
 
+    def _log(msg: str) -> None:
+        if emit_fn:
+            emit_fn(msg)
+
     driver.get(detail_url)
 
     try:
@@ -874,6 +878,7 @@ def _capture_site_config(driver: Any, detail_url: str) -> str:
             EC.presence_of_element_located((By.TAG_NAME, "table"))
         )
     except Exception:
+        _log("site_config_page_no_table")
         return ""
 
     # Find the Site Specific Config button by id/class (primary), then fall back to XPath text
@@ -896,7 +901,13 @@ def _capture_site_config(driver: Any, detail_url: str) -> str:
                 " | //input[@value='Site Specific Config']",
             )
         except Exception:
+            _log("site_config_btn_not_found")
             return ""
+
+    btn_tag = site_btn.tag_name or "?"
+    btn_id = (site_btn.get_attribute("id") or "")[:40]
+    btn_class = (site_btn.get_attribute("class") or "")[:60]
+    _log(f"site_config_btn_found tag={btn_tag} id={btn_id!r} class={btn_class!r}")
 
     try:
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", site_btn)
@@ -905,10 +916,38 @@ def _capture_site_config(driver: Any, detail_url: str) -> str:
             site_btn.click()
         except Exception:
             driver.execute_script("arguments[0].click();", site_btn)
-    except Exception:
+    except Exception as exc:
+        _log(f"site_config_btn_click_failed err={exc}")
         return ""
 
-    config_text = _read_modal_textarea(driver, None, "site_config")
+    # Wait for the Ace editor element to be present after the button click.
+    try:
+        WebDriverWait(driver, 12).until(
+            EC.presence_of_element_located((By.ID, "site_editor"))
+        )
+    except Exception:
+        _log("site_config_site_editor_not_found")
+        _close_modal(driver)
+        return ""
+
+    # Poll the Ace API until substantive content appears (AJAX may still be loading).
+    # A real config is 1000+ chars; the short placeholder Ace shows before AJAX
+    # returns is typically < 100 chars — skip it.
+    content = ""
+    for _ in range(30):
+        content = driver.execute_script(
+            "return ace.edit(document.getElementById('site_editor')).getValue()"
+        )
+        if content and len(content.strip()) > 100:
+            break
+        time.sleep(0.5)
+
+    config_text = content.strip() if content else ""
+    if config_text:
+        _log(f"site_config_captured len={len(config_text)} lines={len(config_text.splitlines())}")
+    else:
+        _log("site_config_empty_or_timeout")
+
     _close_modal(driver)
     time.sleep(0.3)
 
@@ -1118,6 +1157,8 @@ def _extract_site_config_from_html(html: str) -> str:
     return ""
 
 
+
+
 def fetch_site_configs(
     base_url: str,
     *,
@@ -1192,7 +1233,7 @@ def fetch_site_configs(
             detail_url = vpbx_entry["detail_url"]
             _emit(f"site_config handle={handle} vpbx_id={vpbx_id}")
 
-            config_text = _capture_site_config(driver, detail_url)
+            config_text = _capture_site_config(driver, detail_url, emit_fn=_emit)
             _emit(f"site_config_done handle={handle} lines={len(config_text.splitlines())}")
 
             # Handle-level comparison: skip DB write if scraped == stored (normalized).
