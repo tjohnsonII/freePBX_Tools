@@ -23,6 +23,7 @@ const nav: { href: string; label: string; }[] = [
   { href: '/database',   label: 'Database' },
   { href: '/system',     label: 'System' },
   { href: '/logs',       label: 'Logs' },
+  { href: '/diagnostic', label: '🔧 Diagnostic' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

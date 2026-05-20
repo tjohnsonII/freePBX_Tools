@@ -326,6 +326,17 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            # Migrate vpbx_records to add credential columns
+            vpbx_record_columns = table_columns(conn, "vpbx_records")
+            for col, ddl in [
+                ("ftp_pass",  "TEXT"),
+                ("ftp_host",  "TEXT"),
+                ("ftp_user",  "TEXT"),
+                ("rest_pass", "TEXT"),
+            ]:
+                if col not in vpbx_record_columns:
+                    conn.execute(f"ALTER TABLE vpbx_records ADD COLUMN {col} {ddl}")
+
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS circuits (
@@ -1227,10 +1238,44 @@ def upsert_noc_queue_tickets(db_path: str, records: list[dict[str, Any]], now_ut
 def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            "SELECT handle, name, account_status, ip, web_order, deployment_id, switch, devices, last_seen_utc"
+            "SELECT handle, name, account_status, ip, web_order, deployment_id, switch, devices,"
+            " last_seen_utc, ftp_pass, ftp_host, ftp_user, rest_pass"
             " FROM vpbx_records ORDER BY handle ASC"
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def upsert_vpbx_credentials(
+    db_path: str,
+    handle: str,
+    ftp_pass: str,
+    ftp_host: str,
+    ftp_user: str,
+    rest_pass: str,
+    now_utc: str,
+) -> bool:
+    """Update credential columns on an existing vpbx_records row.
+
+    Only updates rows that already exist (never inserts).
+    Skips the update if ftp_pass is empty/None.
+    Returns True if a row was updated.
+    """
+    if not ftp_pass:
+        return False
+    handle = handle.strip().upper()
+    if not handle:
+        return False
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            cur = conn.execute(
+                """
+                UPDATE vpbx_records
+                   SET ftp_pass=?, ftp_host=?, ftp_user=?, rest_pass=?, last_seen_utc=?
+                 WHERE handle=?
+                """,
+                (ftp_pass, ftp_host or "", ftp_user or "", rest_pass or "", now_utc, handle),
+            )
+    return cur.rowcount > 0
 
 
 def delete_handle(db_path: str, handle: str) -> bool:

@@ -8,7 +8,9 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +55,10 @@ TIMELINE_CATEGORIES: tuple[str, ...] = (
 
 LOGGER = setup_logging("ticket_api")
 
+# Background job cancellation events keyed by job_id
+_SCRAPE_CANCEL_EVENTS: dict[str, threading.Event] = {}
+_SCRAPE_PAUSE_EVENTS: dict[str, threading.Event] = {}
+
 # ── DB / time helpers ────────────────────────────────────────────────────────
 
 
@@ -80,6 +86,27 @@ def _require_ingest_auth(request: Request) -> None:
     provided = request.headers.get("X-Ingest-Key", "")
     if not hmac.compare_digest(key, provided):
         raise HTTPException(status_code=403, detail="Invalid API key.")
+
+
+def _update_scrape_job(
+    job_id: str,
+    *,
+    status: str,
+    progress_completed: int = 0,
+    progress_total: int = 0,
+    result: dict[str, Any] | None = None,
+) -> None:
+    now = _iso_now()
+    db.update_scrape_job(
+        db_path(),
+        job_id,
+        status=status,
+        progress_completed=progress_completed,
+        progress_total=progress_total,
+        started_utc=now if status == "running" else None,
+        finished_utc=now if status in ("done", "failed", "cancelled") else None,
+        result=result,
+    )
 
 
 def _append_event(
@@ -1143,6 +1170,88 @@ def api_vpbx_site_config_by_handle(handle: str):
 def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Request):
     """VPBX site config scraping runs on the client. Data arrives via /api/ingest/vpbx/site-configs."""
     raise HTTPException(status_code=501, detail="VPBX site config scraping is handled by the client. Use the client branch.")
+
+
+# ── VPBX credential scraping ──────────────────────────────────────────────────
+
+
+class _VpbxCredentialsRefreshBody(BaseModel):
+    handles: list[str] | None = None  # limit to specific handles; omit for all
+
+
+@app.post("/api/vpbx/credentials/refresh")
+def api_vpbx_credentials_refresh(body: _VpbxCredentialsRefreshBody, request: Request):
+    """Start a background Selenium job to scrape FTP/REST credentials from vpbx_detail pages.
+
+    Visits each handle's vpbx_detail page and extracts ftp_pass, ftp_host, ftp_user, rest_pass.
+    Only updates existing vpbx_records rows — never inserts. Skips handles with no ftp_pass.
+
+    Localhost-only. Pass {"handles": ["ACG", "NTR"]} to limit to specific handles.
+    """
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX credentials refresh is localhost-only")
+
+    _explicit_handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_credentials:{','.join(_explicit_handles)}" if _explicit_handles else "vpbx_credentials"
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode=mode,
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", f"vpbx_credentials_refresh_queued handles={_explicit_handles or 'all'}", job_id=job_id)
+
+    cancel_event = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+
+    def _run() -> None:
+        from webscraper.vpbx.device_configs import fetch_vpbx_credentials  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx_credentials:{msg}", job_id=job_id)
+
+        def _on_handle_done(handle: str, record: dict) -> None:
+            finished = _iso_now()
+            updated = db.upsert_vpbx_credentials(
+                db_path(),
+                handle=record["handle"],
+                ftp_pass=record.get("ftp_pass", ""),
+                ftp_host=record.get("ftp_host", ""),
+                ftp_user=record.get("ftp_user", ""),
+                rest_pass=record.get("rest_pass", ""),
+                now_utc=finished,
+            )
+            if updated:
+                _emit(f"saved credentials for {handle}")
+            else:
+                _emit(f"skipped {handle} — no matching vpbx_records row or empty ftp_pass")
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running")
+            records = fetch_vpbx_credentials(
+                base_url,
+                handles=_explicit_handles,
+                on_handle_done=_on_handle_done,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
+            _update_scrape_job(
+                job_id=job_id, status="done",
+                result={"credentials_saved": len(records)},
+            )
+            _append_event("info", f"vpbx_credentials_done count={len(records)}", job_id=job_id)
+        except Exception:
+            LOGGER.exception("vpbx_credentials_refresh_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="failed")
+            _append_event("error", "vpbx_credentials_refresh_failed", job_id=job_id)
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-creds-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued", "mode": mode}
 
 
 @app.get("/api/clients")

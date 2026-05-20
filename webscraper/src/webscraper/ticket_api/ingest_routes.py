@@ -249,6 +249,24 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     return {"inserted": n}
 
 
+class _VpbxCredentialsBody(BaseModel):
+    handle: str
+    ftp_pass: str
+    ftp_host: str = ""
+    ftp_user: str = ""
+    rest_pass: str = ""
+    now_utc: str
+
+
+@router.post("/vpbx/credentials")
+def ingest_vpbx_credentials(body: _VpbxCredentialsBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    updated = _db.upsert_vpbx_credentials(
+        _dp(), body.handle, body.ftp_pass, body.ftp_host, body.ftp_user, body.rest_pass, body.now_utc
+    )
+    return {"updated": updated}
+
+
 class _HeartbeatBody(BaseModel):
     client_id: str                  # e.g. hostname or a stable UUID
     status: str                     # "idle" | "scraping" | "paused" | "error"

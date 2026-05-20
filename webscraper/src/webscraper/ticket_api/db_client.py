@@ -250,6 +250,29 @@ def upsert_vpbx_site_configs(
     return int(r.get("inserted", 0))
 
 
+def upsert_vpbx_credentials(
+    db_path: str,  # noqa: ARG001
+    handle: str,
+    ftp_pass: str,
+    ftp_host: str,
+    ftp_user: str,
+    rest_pass: str,
+    now_utc: str,
+) -> bool:
+    r = _post(
+        "/api/ingest/vpbx/credentials",
+        {
+            "handle": handle,
+            "ftp_pass": ftp_pass,
+            "ftp_host": ftp_host,
+            "ftp_user": ftp_user,
+            "rest_pass": rest_pass,
+            "now_utc": now_utc,
+        },
+    )
+    return bool(r.get("updated", False))
+
+
 # ── Auth cookies (stay local — used for scraping, not stored on server) ───────
 
 
