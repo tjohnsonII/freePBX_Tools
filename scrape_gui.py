@@ -1943,6 +1943,13 @@ class ScrapeManagerApp(ctk.CTk):
             command=self._on_deploy_vpbx_refresh,
         ).pack(side="right")
 
+        w["btn_scrape_creds_deploy"] = tk.Button(
+            filter_row, text="🔑 Scrape Passwords", bg="#1a3a1a", fg="#4ade80",
+            relief="flat", font=("Segoe UI", 8), padx=6,
+            command=self._on_deploy_scrape_creds,
+        )
+        w["btn_scrape_creds_deploy"].pack(side="right", padx=(0, 4))
+
         lb_frm = tk.Frame(picker_frm, bg="#0d1117")
         lb_frm.pack(fill="both", expand=True, padx=4, pady=(0, 4))
         vsb_p = ttk.Scrollbar(lb_frm, orient="vertical")
@@ -2424,6 +2431,79 @@ class ScrapeManagerApp(ctk.CTk):
         if count_lbl:
             count_lbl.config(text="loading…")
         self._run_in_thread(self._do_vpbx_fetch_for_picker)
+
+    def _on_deploy_scrape_creds(self) -> None:
+        w = self._deploy_w
+        btn = w.get("btn_scrape_creds_deploy")
+        if btn:
+            btn.configure(state="disabled", text="Scraping…")
+        count_lbl = w.get("vpbx_count_lbl")
+        if count_lbl:
+            count_lbl.config(text="opening browser…", fg="#f59e0b")
+        self._run_in_thread(self._do_deploy_scrape_creds)
+
+    def _do_deploy_scrape_creds(self) -> None:
+        import time as _time
+        try:
+            r = requests.post(f"{API_BASE}/api/vpbx/credentials/refresh", json={}, timeout=10)
+            r.raise_for_status()
+            job_id = r.json().get("job_id", "")
+        except Exception as exc:
+            def _err(e=exc):
+                w = self._deploy_w
+                btn = w.get("btn_scrape_creds_deploy")
+                if btn:
+                    btn.configure(state="normal", text="🔑 Scrape Passwords")
+                count_lbl = w.get("vpbx_count_lbl")
+                if count_lbl:
+                    count_lbl.config(text=f"error: {e}", fg="#f87171")
+            self.after(0, _err)
+            return
+
+        while True:
+            _time.sleep(2)
+            try:
+                r = requests.get(f"{API_BASE}/api/jobs/{job_id}", timeout=10)
+                if not r.ok:
+                    break
+                row = r.json()
+                status = row.get("status", "")
+                completed = row.get("completed", 0)
+                total = row.get("total", 0)
+
+                if status in ("done", "succeeded"):
+                    count = (row.get("result") or {}).get("credentials_count", "?")
+                    def _done(n=count):
+                        w = self._deploy_w
+                        btn = w.get("btn_scrape_creds_deploy")
+                        if btn:
+                            btn.configure(state="normal", text="🔑 Scrape Passwords")
+                        count_lbl = w.get("vpbx_count_lbl")
+                        if count_lbl:
+                            count_lbl.config(fg="#4ade80")
+                        self._run_in_thread(self._do_vpbx_fetch_for_picker)
+                    self.after(0, _done)
+                    break
+                elif status in ("error", "cancelled"):
+                    def _fail(s=status):
+                        w = self._deploy_w
+                        btn = w.get("btn_scrape_creds_deploy")
+                        if btn:
+                            btn.configure(state="normal", text="🔑 Scrape Passwords")
+                        count_lbl = w.get("vpbx_count_lbl")
+                        if count_lbl:
+                            count_lbl.config(text=s, fg="#f87171")
+                    self.after(0, _fail)
+                    break
+                else:
+                    def _prog(c=completed, t=total):
+                        count_lbl = self._deploy_w.get("vpbx_count_lbl")
+                        if count_lbl:
+                            suffix = f"{c}/{t}" if t else str(c)
+                            count_lbl.config(text=f"scraping {suffix}…", fg="#f59e0b")
+                    self.after(0, _prog)
+            except Exception:
+                break
 
     def _do_vpbx_fetch_for_picker(self) -> None:
         try:
@@ -2988,7 +3068,26 @@ class ScrapeManagerApp(ctk.CTk):
             form, text="SSH into a FreePBX server and collect diagnostic info.",
             font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_status"].grid(row=1, column=0, columnspan=11, padx=12, pady=(0, 8), sticky="w")
+        w["lbl_status"].grid(row=1, column=0, columnspan=11, padx=12, pady=(0, 4), sticky="w")
+
+        # Row 2: credential scrape (populates ftp_pass in DB for Deploy auto-fill)
+        cred_row = ctk.CTkFrame(form, fg_color="transparent")
+        cred_row.grid(row=2, column=0, columnspan=11, padx=12, pady=(0, 8), sticky="w")
+
+        w["btn_scrape_creds"] = ctk.CTkButton(
+            cred_row, text="🔑  Scrape SSH Passwords",
+            fg_color="#1a5276", hover_color="#154360",
+            width=200, height=30, font=ctk.CTkFont(size=11),
+            command=self._on_sdiag_scrape_creds,
+        )
+        w["btn_scrape_creds"].pack(side="left", padx=(0, 10))
+
+        w["lbl_cred_status"] = ctk.CTkLabel(
+            cred_row,
+            text="Visits every VPBX detail page, extracts the SSH password, and saves it to the DB.",
+            font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["lbl_cred_status"].pack(side="left")
 
         # Results
         out_frame = ctk.CTkFrame(tab, corner_radius=8)
@@ -3020,6 +3119,98 @@ class ScrapeManagerApp(ctk.CTk):
             fg_color="#7f8c8d", hover_color="#626567",
             command=lambda: self._clear_text_widget(w.get("output")),
         ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+
+    def _on_sdiag_scrape_creds(self) -> None:
+        w = self._sdiag_w
+        if w.get("btn_scrape_creds"):
+            w["btn_scrape_creds"].configure(state="disabled", text="Scraping…")
+        if w.get("lbl_cred_status"):
+            w["lbl_cred_status"].configure(
+                text="Opening browser — log in with SSO to start…", text_color="#f39c12"
+            )
+        self._run_in_thread(self._do_sdiag_scrape_creds)
+
+    def _do_sdiag_scrape_creds(self) -> None:
+        try:
+            r = requests.post(f"{API_BASE}/api/vpbx/credentials/refresh", json={}, timeout=10)
+            r.raise_for_status()
+            job_id = r.json().get("job_id", "")
+            self.after(0, lambda jid=job_id: self._sdiag_poll_cred_job(jid))
+        except Exception as exc:
+            def _err(e=exc):
+                w = self._sdiag_w
+                if w.get("btn_scrape_creds"):
+                    w["btn_scrape_creds"].configure(state="normal", text="🔑  Scrape SSH Passwords")
+                if w.get("lbl_cred_status"):
+                    w["lbl_cred_status"].configure(
+                        text=f"Failed to start: {e}", text_color="#e74c3c"
+                    )
+            self.after(0, _err)
+
+    def _sdiag_poll_cred_job(self, job_id: str) -> None:
+        self._run_in_thread(self._do_sdiag_poll_cred_job, job_id=job_id)
+
+    def _do_sdiag_poll_cred_job(self, job_id: str) -> None:
+        import time as _time
+        while True:
+            try:
+                r = requests.get(f"{API_BASE}/api/jobs/{job_id}", timeout=10)
+                if not r.ok:
+                    break
+                row = r.json()
+                status = row.get("status", "")
+                result = row.get("result") or {}
+                if status in ("done", "succeeded"):
+                    count = result.get("credentials_count", "?")
+                    def _done(n=count):
+                        w = self._sdiag_w
+                        if w.get("btn_scrape_creds"):
+                            w["btn_scrape_creds"].configure(state="normal", text="🔑  Scrape SSH Passwords")
+                        if w.get("lbl_cred_status"):
+                            w["lbl_cred_status"].configure(
+                                text=f"Done — saved SSH passwords for {n} sites. Deploy tab will auto-fill on next site selection.",
+                                text_color="#2ecc71",
+                            )
+                        # Reload vpbx_records so the deploy picker picks up ftp_pass immediately
+                        self._run_in_thread(self._do_vpbx_fetch_for_picker)
+                    self.after(0, _done)
+                    break
+                elif status == "error":
+                    err_msg = row.get("error_message") or "unknown error"
+                    def _err(m=err_msg):
+                        w = self._sdiag_w
+                        if w.get("btn_scrape_creds"):
+                            w["btn_scrape_creds"].configure(state="normal", text="🔑  Scrape SSH Passwords")
+                        if w.get("lbl_cred_status"):
+                            w["lbl_cred_status"].configure(
+                                text=f"Scrape failed: {m}", text_color="#e74c3c"
+                            )
+                    self.after(0, _err)
+                    break
+                elif status == "cancelled":
+                    def _cancelled():
+                        w = self._sdiag_w
+                        if w.get("btn_scrape_creds"):
+                            w["btn_scrape_creds"].configure(state="normal", text="🔑  Scrape SSH Passwords")
+                        if w.get("lbl_cred_status"):
+                            w["lbl_cred_status"].configure(text="Scrape cancelled.", text_color="#f39c12")
+                    self.after(0, _cancelled)
+                    break
+                else:
+                    completed = row.get("completed", 0)
+                    total = row.get("total", 0)
+                    def _progress(c=completed, t=total):
+                        w = self._sdiag_w
+                        if w.get("lbl_cred_status"):
+                            suffix = f" ({c}/{t})" if t else ""
+                            w["lbl_cred_status"].configure(
+                                text=f"Scraping SSH passwords{suffix} — browser must stay open…",
+                                text_color="#f39c12",
+                            )
+                    self.after(0, _progress)
+            except Exception:
+                break
+            _time.sleep(2)
 
     def _on_sdiag_run(self) -> None:
         w = self._sdiag_w

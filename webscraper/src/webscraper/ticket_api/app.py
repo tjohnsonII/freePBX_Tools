@@ -2623,10 +2623,6 @@ def api_vpbx_credentials_refresh(body: _VpbxCredentialsRefreshBody, request: Req
                 login_timeout_seconds=login_timeout,
                 emit_fn=_emit,
             )
-            # Final flush for any records not yet saved via on_handle_done
-            remaining = [r for r in records if r not in records[:total_saved]]
-            if remaining:
-                db.upsert_vpbx_credentials(db_path(), remaining)
 
             finished = _iso_now()
             _update_scrape_job(job_id=job_id, status="done", completed=len(records), total=len(records),
