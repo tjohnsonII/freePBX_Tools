@@ -250,3 +250,4 @@ webscraper/ticket-ui/F5
 
 # Polycom UI local build backups (do not track)
 /PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/dist_backup_*/
+NTR-freepbx-tools.zip
