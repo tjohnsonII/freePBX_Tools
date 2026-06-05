@@ -100,7 +100,7 @@ SERVICES = {
         "venv": "freepbx-deploy-backend/.venv",
         "app": "freepbx_deploy_backend.main:app",
         "port": 8002,
-        "host": "127.0.0.1",
+        "host": "0.0.0.0",
         "kind": "uvicorn",
         "health_paths": ["/api/health", "/docs"],
     },

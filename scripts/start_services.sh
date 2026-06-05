@@ -37,7 +37,7 @@ fi
 echo "[start] Stopping existing services..."
 python3 scripts/stop_all_web_apps.py 2>/dev/null || true
 
-for PORT in 3004 3005 3006 3011 5000 8787 8788; do
+for PORT in 3004 3005 3006 3011 5000 8787 8788 8002; do
     PID=$(lsof -ti tcp:$PORT 2>/dev/null || true)
     if [ -n "$PID" ]; then
         echo "[start] Killing stale process on port $PORT (pid $PID)"
