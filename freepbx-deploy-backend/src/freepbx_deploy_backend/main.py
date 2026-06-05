@@ -220,13 +220,15 @@ def _python_exe() -> str:
     if configured:
         return configured
 
-    # Prefer the repo's standard Python (has Paramiko, etc.) over the backend venv.
-    # Windows dev machine paths first, then Linux fallbacks.
+    # On Linux, prefer sys.executable (the backend's own venv Python) so the
+    # deploy script inherits the same environment — including paramiko.
+    if sys.platform != "win32":
+        return sys.executable
+
+    # Windows dev machine fallbacks.
     candidates = [
         Path("E:/DevTools/Python/python.exe"),
         Path("E:/DevTools/Python/python3.exe"),
-        Path("/usr/bin/python3"),
-        Path("/usr/local/bin/python3"),
     ]
     for p in candidates:
         try:
