@@ -1934,7 +1934,7 @@ class ScrapeManagerApp(ctk.CTk):
         filter_row = tk.Frame(picker_frm, bg=_pbg)
         filter_row.pack(fill="x", padx=4, pady=(4, 2))
 
-        w["vpbx_status_var"] = tk.StringVar(value="production_billed")
+        w["vpbx_status_var"] = tk.StringVar(value="All")
         w["vpbx_status_cb"] = ttk.Combobox(
             filter_row, textvariable=w["vpbx_status_var"],
             values=["All", "production_billed", "testing", "decomissioned", "provisioning"],
@@ -3163,7 +3163,7 @@ class ScrapeManagerApp(ctk.CTk):
         filter_row = tk.Frame(picker_frm, bg=_pbg)
         filter_row.pack(fill="x", padx=4, pady=(4, 2))
 
-        w["vpbx_status_var"] = tk.StringVar(value="production_billed")
+        w["vpbx_status_var"] = tk.StringVar(value="All")
         w["vpbx_status_cb"] = ttk.Combobox(
             filter_row, textvariable=w["vpbx_status_var"],
             values=["All", "production_billed", "testing", "decomissioned", "provisioning"],
