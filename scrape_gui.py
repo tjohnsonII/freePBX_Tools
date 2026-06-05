@@ -1564,6 +1564,9 @@ class ScrapeManagerApp(ctk.CTk):
         if connected:
             if not prev:
                 self._queue_log(f"Connected to {API_BASE}", "info")
+                # Reload VPBX pickers on first connect so they don't show "offline"
+                self._run_in_thread(self._do_vpbx_fetch_for_picker)
+                self._run_in_thread(self._do_sdiag_vpbx_fetch)
             self._lbl_conn.configure(text="● Connected", text_color="#2ecc71")
             self._btn_start.configure(state="normal")
             self._btn_resume.configure(state="normal")
