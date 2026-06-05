@@ -2207,6 +2207,8 @@ class ScrapeManagerApp(ctk.CTk):
             proc = subprocess.Popen(
                 ["ssh",
                  "-o", "StrictHostKeyChecking=no",
+                 "-o", "BatchMode=yes",
+                 "-o", "PasswordAuthentication=no",
                  "-o", "ServerAliveInterval=15",
                  "-o", "ExitOnForwardFailure=yes",
                  "-L", f"{_DEPLOY_PORT}:127.0.0.1:{_DEPLOY_PORT}",
