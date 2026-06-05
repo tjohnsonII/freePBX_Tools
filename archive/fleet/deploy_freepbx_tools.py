@@ -928,13 +928,17 @@ Examples:
         print_error("No servers specified")
         sys.exit(1)
 
-    # Get files to deploy
-    files = get_local_files()
-    if not files:
-        print_error("No files found to deploy")
-        sys.exit(1)
+    # Get files to deploy (skipped for connect-only — no upload needed)
+    if args.connect_only:
+        files = []
+    else:
+        files = get_local_files()
+        if not files:
+            print_error("No files found to deploy")
+            sys.exit(1)
     print_header("FreePBX Tools Deployment")
-    print(f"Source: {LOCAL_SOURCE_DIR}")
+    if not args.connect_only:
+        print(f"Source: {LOCAL_SOURCE_DIR}")
     print(f"Target: {REMOTE_INSTALL_DIR}")
     print(f"Servers: {len(servers)}")
     # Start deployment
