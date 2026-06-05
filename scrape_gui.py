@@ -268,6 +268,7 @@ class ScrapeManagerApp(ctk.CTk):
         self._deploy_jobs: list[dict] = []
         self._rrun_active_job: dict | None = None
         self._deploy_backend_ok = False
+        self._deploy_backend_proc: subprocess.Popen | None = None
         self._deploy_conn_method: str = ""   # "direct", "tunnel", ""
         self._ssh_tunnel_proc: subprocess.Popen | None = None
         self._ssh_tunnel_alive = False
@@ -305,6 +306,7 @@ class ScrapeManagerApp(ctk.CTk):
             except Exception:
                 pass
         threading.Thread(target=self._ensure_server, daemon=True).start()
+        threading.Thread(target=self._ensure_deploy_backend, daemon=True, name="deploy-backend").start()
         threading.Thread(target=self._heartbeat_loop, daemon=True, name="heartbeat").start()
         self._log_file_pos = 0
         threading.Thread(target=self._tail_log_loop, daemon=True, name="log-tail").start()
@@ -375,6 +377,52 @@ class ScrapeManagerApp(ctk.CTk):
             self._queue_log(f"Server failed to start: {exc}", "error")
             self._ui_queue.put(("conn_label", f"● Server failed to start: {exc}", "#e74c3c"))
 
+    def _ensure_deploy_backend(self) -> None:
+        """Auto-start the local deploy backend if DEPLOY_HOST is localhost."""
+        host = os.getenv("DEPLOY_HOST", "localhost").strip().lower()
+        if host not in ("localhost", "127.0.0.1"):
+            return  # remote backend — don't manage it locally
+
+        health_url = f"http://localhost:{_DEPLOY_PORT}/api/health"
+        try:
+            requests.get(health_url, timeout=2)
+            self._queue_log("Deploy backend already running on localhost", "info")
+            return
+        except Exception:
+            pass
+
+        self._queue_log("Starting local deploy backend…", "info")
+
+        python = Path(sys.executable)
+        python_exe = python.parent / "python.exe"
+        exe = str(python_exe if python_exe.exists() else python)
+
+        src_dir = str(self._project_root / "freepbx-deploy-backend" / "src")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = src_dir
+
+        cmd = [
+            exe, "-m", "uvicorn",
+            "freepbx_deploy_backend.main:app",
+            "--host", "0.0.0.0",
+            "--port", _DEPLOY_PORT,
+        ]
+
+        kwargs: dict = dict(
+            cwd=str(self._project_root),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        try:
+            self._deploy_backend_proc = subprocess.Popen(cmd, **kwargs)
+            self._queue_log(f"Deploy backend started (pid {self._deploy_backend_proc.pid})", "info")
+        except Exception as exc:
+            self._queue_log(f"Deploy backend failed to start: {exc}", "error")
+
     def _stream_server_output(self) -> None:
         if not self._server_proc or not self._server_proc.stdout:
             return
@@ -394,15 +442,16 @@ class ScrapeManagerApp(ctk.CTk):
 
     def _on_close(self) -> None:
         self._closing = True
-        if self._server_proc and self._server_proc.poll() is None:
-            try:
-                self._server_proc.terminate()
-                self._server_proc.wait(timeout=4)
-            except Exception:
+        for proc in (self._server_proc, self._deploy_backend_proc):
+            if proc and proc.poll() is None:
                 try:
-                    self._server_proc.kill()
+                    proc.terminate()
+                    proc.wait(timeout=4)
                 except Exception:
-                    pass
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         self._kill_ssh_tunnel()
         self.destroy()
 
