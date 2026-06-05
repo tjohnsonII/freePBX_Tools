@@ -226,6 +226,21 @@ class ScrapeManagerApp(ctk.CTk):
         self._project_root = Path(__file__).resolve().parent
         self._server_proc: subprocess.Popen | None = None
 
+        # Load .env into os.environ NOW so getenv() calls during UI build see the values.
+        # Also refresh module-level deploy URL constants which were computed at import time.
+        _env_file = self._project_root / ".env"
+        if _env_file.exists():
+            for _raw in _env_file.read_text(encoding="utf-8").splitlines():
+                _line = _raw.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+        global _DEPLOY_HOST, _DEPLOY_DIRECT_URL
+        _DEPLOY_HOST = os.getenv("DEPLOY_HOST", _DEPLOY_HOST)
+        _DEPLOY_DIRECT_URL = os.getenv("DEPLOY_API_URL", f"http://{_DEPLOY_HOST}:{_DEPLOY_PORT}")
+        _deploy_active_url[0] = _DEPLOY_DIRECT_URL
+
         # Ticket scraper state
         self._connected = False
         self._closing = False
