@@ -3153,59 +3153,113 @@ class ScrapeManagerApp(ctk.CTk):
 
         form = ctk.CTkFrame(tab, corner_radius=8)
         form.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        form.grid_columnconfigure(0, weight=1)
 
-        for col, (lbl, key, kw) in enumerate([
-            ("Server:",    "server_entry",       {"width": 180, "placeholder_text": "IP or hostname"}),
-            ("User:",      "username_entry",     {"width": 100}),
-            ("SSH Pass:",  "password_entry",     {"width": 120, "show": "●"}),
-            ("Root Pass:", "root_pw_entry",      {"width": 120, "show": "●"}),
-            ("Timeout:",   "timeout_entry",      {"width": 50}),
-        ]):
-            ctk.CTkLabel(form, text=lbl, font=ctk.CTkFont(size=12)).grid(
-                row=0, column=col * 2, padx=(12 if col == 0 else 8, 4), pady=10, sticky="w"
-            )
-            ent = ctk.CTkEntry(form, height=34, **kw)
+        # ── VPBX site picker ──────────────────────────────────────────────
+        _pbg = "#0f172a"
+        picker_frm = tk.Frame(form, bg=_pbg, highlightbackground="#1e293b", highlightthickness=1)
+        picker_frm.grid(row=0, column=0, padx=12, pady=(10, 4), sticky="ew")
+
+        filter_row = tk.Frame(picker_frm, bg=_pbg)
+        filter_row.pack(fill="x", padx=4, pady=(4, 2))
+
+        w["vpbx_status_var"] = tk.StringVar(value="production_billed")
+        w["vpbx_status_cb"] = ttk.Combobox(
+            filter_row, textvariable=w["vpbx_status_var"],
+            values=["All", "production_billed", "testing", "decomissioned", "provisioning"],
+            width=18, state="readonly",
+        )
+        w["vpbx_status_cb"].pack(side="left", padx=(0, 6))
+
+        tk.Label(filter_row, text="Search:", bg=_pbg, fg="#94a3b8",
+                 font=("Segoe UI", 9)).pack(side="left")
+        w["vpbx_search_var"] = tk.StringVar()
+        tk.Entry(
+            filter_row, textvariable=w["vpbx_search_var"], width=18,
+            bg="#1e293b", fg="#e2e8f0", insertbackground="#e2e8f0",
+            relief="flat", font=("Segoe UI", 9),
+        ).pack(side="left", padx=(3, 8))
+
+        w["vpbx_count_lbl"] = tk.Label(filter_row, text="loading…",
+                                        bg=_pbg, fg="#64748b", font=("Segoe UI", 9))
+        w["vpbx_count_lbl"].pack(side="left")
+
+        tk.Button(
+            filter_row, text="↻ Refresh", bg="#1e3a5f", fg="#93c5fd",
+            relief="flat", font=("Segoe UI", 8), padx=6,
+            command=self._on_sdiag_vpbx_refresh,
+        ).pack(side="right")
+
+        w["btn_scrape_creds"] = tk.Button(
+            filter_row, text="🔑 Scrape Passwords", bg="#1a3a1a", fg="#4ade80",
+            relief="flat", font=("Segoe UI", 8), padx=6,
+            command=self._on_sdiag_scrape_creds,
+        )
+        w["btn_scrape_creds"].pack(side="right", padx=(0, 4))
+
+        lb_frm = tk.Frame(picker_frm, bg="#0d1117")
+        lb_frm.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+        vsb_p = ttk.Scrollbar(lb_frm, orient="vertical")
+        vsb_p.pack(side="right", fill="y")
+        w["vpbx_listbox"] = tk.Listbox(
+            lb_frm, selectmode="single",
+            bg="#0d1117", fg="#e2e8f0", font=("Courier New", 9),
+            selectbackground="#1d4ed8", selectforeground="#ffffff",
+            yscrollcommand=vsb_p.set, activestyle="none",
+            bd=0, highlightthickness=0, height=4,
+        )
+        vsb_p.config(command=w["vpbx_listbox"].yview)
+        w["vpbx_listbox"].pack(side="left", fill="both", expand=True)
+        w["vpbx_records"] = []
+        w["vpbx_filtered"] = []
+
+        w["vpbx_status_cb"].bind("<<ComboboxSelected>>", lambda _: self._sdiag_picker_refresh())
+        w["vpbx_search_var"].trace_add("write", lambda *_: self._sdiag_picker_refresh())
+        w["vpbx_listbox"].bind("<<ListboxSelect>>", self._on_sdiag_listbox_select)
+
+        # ── Credentials + action row ──────────────────────────────────────
+        cred_row = ctk.CTkFrame(form, fg_color="transparent")
+        cred_row.grid(row=1, column=0, padx=12, pady=(4, 10), sticky="ew")
+
+        for lbl, key, kw in [
+            ("IP:",        "server_entry",   {"width": 160, "placeholder_text": "← select above"}),
+            ("User:",      "username_entry", {"width": 90}),
+            ("SSH Pass:",  "password_entry", {"width": 120, "show": "●"}),
+            ("Root Pass:", "root_pw_entry",  {"width": 120, "show": "●"}),
+            ("Timeout:",   "timeout_entry",  {"width": 50}),
+        ]:
+            ctk.CTkLabel(cred_row, text=lbl, font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
+            ent = ctk.CTkEntry(cred_row, height=34, **kw)
             if key == "username_entry":
                 ent.insert(0, "123net")
-            if key == "timeout_entry":
+            elif key == "root_pw_entry":
+                ent.insert(0, "sdxczvsdxczv")
+            elif key == "timeout_entry":
                 ent.insert(0, "15")
-            ent.grid(row=0, column=col * 2 + 1, padx=(0, 8), pady=10)
+            ent.pack(side="left", padx=(0, 12))
             w[key] = ent
 
         w["btn_run"] = ctk.CTkButton(
-            form, text="🔍  Diagnose",
+            cred_row, text="🔍  Diagnose",
             fg_color="#2980b9", hover_color="#1f6391",
             width=130, height=36, font=ctk.CTkFont(size=13),
             command=self._on_sdiag_run,
         )
-        w["btn_run"].grid(row=0, column=10, padx=(4, 12), pady=10)
+        w["btn_run"].pack(side="left")
 
+        # ── Status labels ─────────────────────────────────────────────────
         w["lbl_status"] = ctk.CTkLabel(
-            form, text="SSH into a FreePBX server and collect diagnostic info.",
+            form, text="Select a site above, then click Diagnose.",
             font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_status"].grid(row=1, column=0, columnspan=11, padx=12, pady=(0, 4), sticky="w")
-
-        # Row 2: credential scrape (populates ftp_pass in DB for Deploy auto-fill)
-        cred_row = ctk.CTkFrame(form, fg_color="transparent")
-        cred_row.grid(row=2, column=0, columnspan=11, padx=12, pady=(0, 8), sticky="w")
-
-        w["btn_scrape_creds"] = ctk.CTkButton(
-            cred_row, text="🔑  Scrape SSH Passwords",
-            fg_color="#1a5276", hover_color="#154360",
-            width=200, height=30, font=ctk.CTkFont(size=11),
-            command=self._on_sdiag_scrape_creds,
-        )
-        w["btn_scrape_creds"].pack(side="left", padx=(0, 10))
+        w["lbl_status"].grid(row=2, column=0, padx=12, pady=(0, 4), sticky="w")
 
         w["lbl_cred_status"] = ctk.CTkLabel(
-            cred_row,
-            text="Visits every VPBX detail page, extracts the SSH password, and saves it to the DB.",
-            font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+            form, text="", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_cred_status"].pack(side="left")
+        w["lbl_cred_status"].grid(row=3, column=0, padx=12, pady=(0, 6), sticky="w")
 
-        # Results
+        # ── Results output ────────────────────────────────────────────────
         out_frame = ctk.CTkFrame(tab, corner_radius=8)
         out_frame.grid(row=2, column=0, sticky="nsew")
         out_frame.grid_rowconfigure(0, weight=1)
@@ -3235,6 +3289,90 @@ class ScrapeManagerApp(ctk.CTk):
             fg_color="#7f8c8d", hover_color="#626567",
             command=lambda: self._clear_text_widget(w.get("output")),
         ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+
+        # Auto-load site list
+        self._run_in_thread(self._do_sdiag_vpbx_fetch)
+
+    def _on_sdiag_listbox_select(self, _event=None) -> None:
+        w = self._sdiag_w
+        lb = w.get("vpbx_listbox")
+        if not lb:
+            return
+        sel = lb.curselection()
+        if not sel:
+            return
+        rec = w["vpbx_filtered"][sel[0]]
+        ip = rec.get("ip") or ""
+        ftp_pass = (rec.get("ftp_pass") or "").strip()
+        handle = rec.get("handle") or ""
+        name = (rec.get("name") or "")[:40]
+        srv = w.get("server_entry")
+        if srv:
+            srv.delete(0, "end")
+            srv.insert(0, ip)
+        if ftp_pass:
+            pwd = w.get("password_entry")
+            if pwd:
+                pwd.delete(0, "end")
+                pwd.insert(0, ftp_pass)
+        if w.get("lbl_status"):
+            w["lbl_status"].configure(
+                text=f"Selected: {handle} — {name}  ({ip})",
+                text_color="#3498db",
+            )
+
+    def _sdiag_picker_refresh(self) -> None:
+        w = self._sdiag_w
+        lb = w.get("vpbx_listbox")
+        if not lb:
+            return
+        flt = w["vpbx_status_var"].get()
+        q = w["vpbx_search_var"].get().lower()
+        filtered = [
+            r for r in w["vpbx_records"]
+            if (flt == "All" or r.get("account_status") == flt)
+            and (not q or q in (r.get("handle") or "").lower()
+                        or q in (r.get("name") or "").lower()
+                        or q in (r.get("ip") or "").lower())
+        ]
+        filtered.sort(key=lambda r: (r.get("name") or r.get("handle") or "").lower())
+        w["vpbx_filtered"] = filtered
+        lb.delete(0, "end")
+        for r in filtered:
+            h = (r.get("handle") or "").upper()
+            ip = r.get("ip") or "—"
+            name = (r.get("name") or "")[:32]
+            has_pass = "🔑" if r.get("ftp_pass") else "  "
+            lb.insert("end", f"{h:<5}  {ip:<17}  {has_pass}  {name}")
+        count_lbl = w.get("vpbx_count_lbl")
+        if count_lbl:
+            count_lbl.config(text=f"{len(filtered)} sites")
+
+    def _on_sdiag_vpbx_refresh(self) -> None:
+        w = self._sdiag_w
+        count_lbl = w.get("vpbx_count_lbl")
+        if count_lbl:
+            count_lbl.config(text="loading…")
+        self._run_in_thread(self._do_sdiag_vpbx_fetch)
+
+    def _do_sdiag_vpbx_fetch(self) -> None:
+        try:
+            r = requests.get(f"{API_BASE}/api/vpbx/records", timeout=10)
+            r.raise_for_status()
+            records = r.json().get("items", [])
+            self.after(0, lambda recs=records: self._on_sdiag_vpbx_loaded(recs))
+        except Exception:
+            def _err():
+                w = self._sdiag_w
+                count_lbl = w.get("vpbx_count_lbl")
+                if count_lbl:
+                    count_lbl.config(text="offline")
+            self.after(0, _err)
+
+    def _on_sdiag_vpbx_loaded(self, records: list[dict]) -> None:
+        w = self._sdiag_w
+        w["vpbx_records"] = records
+        self._sdiag_picker_refresh()
 
     def _on_sdiag_scrape_creds(self) -> None:
         w = self._sdiag_w
@@ -3332,7 +3470,7 @@ class ScrapeManagerApp(ctk.CTk):
         w = self._sdiag_w
         server = w["server_entry"].get().strip()
         if not server:
-            messagebox.showerror("Missing Server", "Enter a server IP or hostname.")
+            messagebox.showerror("No Site Selected", "Select a site from the list above.")
             return
         try:
             timeout = float(w["timeout_entry"].get().strip() or "15")
