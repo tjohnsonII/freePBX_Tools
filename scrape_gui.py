@@ -82,7 +82,10 @@ _SCRAPERS: list[dict] = [
 
 _DEPLOY_PORT = os.getenv("DEPLOY_PORT", "8002")
 _DEPLOY_HOST = os.getenv("DEPLOY_HOST", "localhost")
-DEPLOY_API_BASE = os.getenv("DEPLOY_API_URL", f"http://{_DEPLOY_HOST}:{_DEPLOY_PORT}")
+_DEPLOY_DIRECT_URL = os.getenv("DEPLOY_API_URL", f"http://{_DEPLOY_HOST}:{_DEPLOY_PORT}")
+_DEPLOY_TUNNEL_URL = f"http://localhost:{_DEPLOY_PORT}"
+_deploy_active_url: list[str] = [_DEPLOY_DIRECT_URL]   # mutable — updated by auto-connect
+DEPLOY_API_BASE = _DEPLOY_DIRECT_URL  # alias
 
 _DEPLOY_ACTIONS = [
     ("deploy",       "Deploy"),
@@ -108,13 +111,13 @@ _REMOTE_RUN_MENU = [
 
 
 def _deploy_get(path: str, **kw: Any) -> Any:
-    r = requests.get(f"{DEPLOY_API_BASE}{path}", timeout=15, **kw)
+    r = requests.get(f"{_deploy_active_url[0]}{path}", timeout=15, **kw)
     r.raise_for_status()
     return r.json()
 
 
 def _deploy_post(path: str, **kw: Any) -> Any:
-    r = requests.post(f"{DEPLOY_API_BASE}{path}", timeout=30, **kw)
+    r = requests.post(f"{_deploy_active_url[0]}{path}", timeout=30, **kw)
     r.raise_for_status()
     return r.json()
 
@@ -250,6 +253,7 @@ class ScrapeManagerApp(ctk.CTk):
         self._deploy_jobs: list[dict] = []
         self._rrun_active_job: dict | None = None
         self._deploy_backend_ok = False
+        self._deploy_conn_method: str = ""   # "direct", "tunnel", ""
         self._ssh_tunnel_proc: subprocess.Popen | None = None
         self._ssh_tunnel_alive = False
 
@@ -1568,6 +1572,9 @@ class ScrapeManagerApp(ctk.CTk):
                 # Reload VPBX pickers on first connect so they don't show "offline"
                 self._run_in_thread(self._do_vpbx_fetch_for_picker)
                 self._run_in_thread(self._do_sdiag_vpbx_fetch)
+                # Kick off deploy backend auto-connect
+                threading.Thread(target=self._deploy_auto_connect, daemon=True,
+                                 name="deploy-autoconn-init").start()
             self._lbl_conn.configure(text="● Connected", text_color="#2ecc71")
             self._btn_start.configure(state="normal")
             self._btn_resume.configure(state="normal")
@@ -2051,31 +2058,41 @@ class ScrapeManagerApp(ctk.CTk):
         )
         w["btn_browse"].grid(row=2, column=0, columnspan=2, pady=(0, 4), sticky="ew")
 
-        # Row 3: SSH tunnel management
-        ctk.CTkLabel(form, text="Deploy Server IP:", font=ctk.CTkFont(size=12)).grid(
+        # Row 3: Deploy backend connection — auto tries direct then SSH tunnel
+        ctk.CTkLabel(form, text="Deploy Server:", font=ctk.CTkFont(size=12)).grid(
             row=3, column=0, padx=(12, 4), pady=(4, 8), sticky="w"
         )
-        w["tunnel_ip_entry"] = ctk.CTkEntry(form, width=160, height=32)
-        w["tunnel_ip_entry"].insert(0, os.getenv("DEPLOY_SERVER_IP", ""))
-        w["tunnel_ip_entry"].grid(row=3, column=1, padx=(0, 12), pady=(4, 8), sticky="w")
+        _tunnel_ip_default = os.getenv("DEPLOY_SERVER_IP", "") or (
+            _DEPLOY_HOST if _DEPLOY_HOST != "localhost" else ""
+        )
+        w["tunnel_ip_entry"] = ctk.CTkEntry(form, width=150, height=32)
+        w["tunnel_ip_entry"].insert(0, _tunnel_ip_default)
+        w["tunnel_ip_entry"].grid(row=3, column=1, padx=(0, 8), pady=(4, 8), sticky="w")
+
+        ctk.CTkLabel(form, text="SSH User:", font=ctk.CTkFont(size=12)).grid(
+            row=3, column=2, padx=(4, 4), pady=(4, 8), sticky="w"
+        )
+        w["tunnel_user_entry"] = ctk.CTkEntry(form, width=80, height=32)
+        w["tunnel_user_entry"].insert(0, os.getenv("DEPLOY_SSH_USER", "tim2"))
+        w["tunnel_user_entry"].grid(row=3, column=3, padx=(0, 12), pady=(4, 8), sticky="w")
 
         w["tunnel_dot"] = ctk.CTkLabel(
             form, text="●", font=ctk.CTkFont(size=16), text_color="#e74c3c", width=20,
         )
-        w["tunnel_dot"].grid(row=3, column=2, padx=(4, 2), pady=(4, 8))
+        w["tunnel_dot"].grid(row=3, column=4, padx=(4, 2), pady=(4, 8))
 
         w["tunnel_status_lbl"] = ctk.CTkLabel(
-            form, text="Tunnel offline", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+            form, text="Connecting…", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["tunnel_status_lbl"].grid(row=3, column=3, padx=(0, 12), pady=(4, 8), sticky="w")
+        w["tunnel_status_lbl"].grid(row=3, column=5, padx=(0, 12), pady=(4, 8), sticky="w")
 
         w["btn_tunnel"] = ctk.CTkButton(
-            form, text="🔌 Connect Tunnel",
-            fg_color="#1a3a5f", hover_color="#234f82",
-            height=30, font=ctk.CTkFont(size=12), width=160,
-            command=self._on_deploy_tunnel_toggle,
+            form, text="↻ Reconnect",
+            fg_color="#374151", hover_color="#4b5563",
+            height=30, font=ctk.CTkFont(size=12), width=120,
+            command=self._on_deploy_force_reconnect,
         )
-        w["btn_tunnel"].grid(row=3, column=4, columnspan=2, padx=(0, 12), pady=(4, 8), sticky="w")
+        w["btn_tunnel"].grid(row=3, column=6, columnspan=2, padx=(0, 12), pady=(4, 8), sticky="w")
 
         w["lbl_status"] = ctk.CTkLabel(
             form, text="Deploy backend: checking…",
@@ -2150,78 +2167,118 @@ class ScrapeManagerApp(ctk.CTk):
         # Auto-load VPBX site list on tab build
         self._run_in_thread(self._do_vpbx_fetch_for_picker)
 
-    # ── SSH tunnel management ─────────────────────────────────────────────────
+    # ── Deploy backend auto-connect (Option A: direct, Option B: SSH tunnel) ─────
 
-    def _on_deploy_tunnel_toggle(self) -> None:
+    def _on_deploy_force_reconnect(self) -> None:
         w = self._deploy_w
-        if self._ssh_tunnel_alive:
-            self._kill_ssh_tunnel()
-            w["btn_tunnel"].configure(text="🔌 Connect Tunnel")
-            w["tunnel_dot"].configure(text_color="#e74c3c")
-            w["tunnel_status_lbl"].configure(text="Tunnel offline")
-        else:
-            ip = w["tunnel_ip_entry"].get().strip()
-            if not ip:
-                messagebox.showwarning("SSH Tunnel", "Enter the deploy server IP first.")
-                return
-            w["btn_tunnel"].configure(text="⏳ Connecting…", state="disabled")
-            w["tunnel_status_lbl"].configure(text="Connecting…")
-            threading.Thread(
-                target=self._do_deploy_tunnel_connect, args=(ip,),
-                daemon=True, name="ssh-tunnel",
-            ).start()
+        if w.get("tunnel_status_lbl"):
+            w["tunnel_status_lbl"].configure(text="Reconnecting…", text_color="#f59e0b")
+        if w.get("tunnel_dot"):
+            w["tunnel_dot"].configure(text_color="#f59e0b")
+        threading.Thread(target=self._deploy_auto_connect, daemon=True,
+                         name="deploy-reconnect").start()
 
-    def _do_deploy_tunnel_connect(self, ip: str) -> None:
-        w = self._deploy_w
+    def _check_deploy_url(self, url: str) -> bool:
+        try:
+            r = requests.get(f"{url}/api/jobs", timeout=3)
+            return r.status_code < 500
+        except Exception:
+            return False
+
+    def _start_ssh_tunnel(self, ip: str, user: str) -> None:
+        self._kill_ssh_tunnel()
+        target = f"{user}@{ip}" if user else ip
         try:
             proc = subprocess.Popen(
-                ["ssh", "-o", "StrictHostKeyChecking=no",
+                ["ssh",
+                 "-o", "StrictHostKeyChecking=no",
                  "-o", "ServerAliveInterval=15",
+                 "-o", "ExitOnForwardFailure=yes",
                  "-L", f"{_DEPLOY_PORT}:127.0.0.1:{_DEPLOY_PORT}",
-                 ip, "-N"],
+                 target, "-N"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
             self._ssh_tunnel_proc = proc
-            # Give SSH a moment to establish the tunnel
             time.sleep(2)
             if proc.poll() is not None:
-                err = proc.stderr.read().decode(errors="replace").strip()
-                self.after(0, self._tunnel_set_failed, f"SSH exited: {err[:120]}")
+                self._ssh_tunnel_proc = None
+                self._ssh_tunnel_alive = False
                 return
             self._ssh_tunnel_alive = True
-            self.after(0, self._tunnel_set_connected)
-            # Monitor in the same thread
-            self._do_deploy_tunnel_monitor(proc)
-        except FileNotFoundError:
-            self.after(0, self._tunnel_set_failed, "ssh not found — is OpenSSH installed?")
-        except Exception as exc:
-            self.after(0, self._tunnel_set_failed, str(exc)[:120])
+            threading.Thread(target=self._monitor_ssh_tunnel, args=(proc,),
+                             daemon=True, name="ssh-tunnel-mon").start()
+        except Exception:
+            self._ssh_tunnel_proc = None
+            self._ssh_tunnel_alive = False
 
-    def _do_deploy_tunnel_monitor(self, proc: subprocess.Popen) -> None:
-        """Block until the SSH process exits, then update UI."""
+    def _monitor_ssh_tunnel(self, proc: subprocess.Popen) -> None:
         proc.wait()
         if self._closing:
             return
         self._ssh_tunnel_alive = False
         self._ssh_tunnel_proc = None
-        self.after(0, self._tunnel_set_failed, "Tunnel disconnected")
+        # Tunnel died — trigger auto-reconnect
+        threading.Thread(target=self._deploy_auto_connect, daemon=True,
+                         name="deploy-reconnect").start()
 
-    def _tunnel_set_connected(self) -> None:
-        w = self._deploy_w
-        w["btn_tunnel"].configure(text="✕ Disconnect", state="normal",
-                                   fg_color="#7f1d1d", hover_color="#991b1b")
-        w["tunnel_dot"].configure(text_color="#2ecc71")
-        w["tunnel_status_lbl"].configure(text=f"Tunnel active → port {_DEPLOY_PORT}")
+    def _deploy_auto_connect(self) -> None:
+        """Try Option A (direct), then Option B (SSH tunnel). Updates active URL and UI."""
+        # Option A: direct connection
+        if self._check_deploy_url(_DEPLOY_DIRECT_URL):
+            _deploy_active_url[0] = _DEPLOY_DIRECT_URL
+            self._deploy_conn_method = "direct"
+            self.after(0, self._update_deploy_conn_ui)
+            return
 
-    def _tunnel_set_failed(self, reason: str = "Tunnel offline") -> None:
+        # Option B: tunnel already alive
+        if self._ssh_tunnel_alive and self._check_deploy_url(_DEPLOY_TUNNEL_URL):
+            _deploy_active_url[0] = _DEPLOY_TUNNEL_URL
+            self._deploy_conn_method = "tunnel"
+            self.after(0, self._update_deploy_conn_ui)
+            return
+
+        # Option B: start tunnel then check
         w = self._deploy_w
-        w["btn_tunnel"].configure(text="🔌 Connect Tunnel", state="normal",
-                                   fg_color="#1a3a5f", hover_color="#234f82")
-        w["tunnel_dot"].configure(text_color="#e74c3c")
-        w["tunnel_status_lbl"].configure(text=reason)
-        self._ssh_tunnel_alive = False
-        self._ssh_tunnel_proc = None
+        ip = (w.get("tunnel_ip_entry") and w["tunnel_ip_entry"].get().strip()) or ""
+        user = (w.get("tunnel_user_entry") and w["tunnel_user_entry"].get().strip()) or ""
+        if ip:
+            self._start_ssh_tunnel(ip, user)
+            if self._ssh_tunnel_alive and self._check_deploy_url(_DEPLOY_TUNNEL_URL):
+                _deploy_active_url[0] = _DEPLOY_TUNNEL_URL
+                self._deploy_conn_method = "tunnel"
+                self.after(0, self._update_deploy_conn_ui)
+                return
+
+        # Both failed
+        _deploy_active_url[0] = _DEPLOY_DIRECT_URL
+        self._deploy_conn_method = ""
+        self.after(0, self._update_deploy_conn_ui)
+
+    def _update_deploy_conn_ui(self) -> None:
+        w = self._deploy_w
+        method = self._deploy_conn_method
+        self._deploy_backend_ok = bool(method)
+        if method == "direct":
+            dot_color, conn_txt = "#2ecc71", f"● Direct  ({_DEPLOY_HOST}:{_DEPLOY_PORT})"
+            status_txt, status_color = (
+                f"Deploy backend ready — direct ({_DEPLOY_HOST}:{_DEPLOY_PORT})", "#2ecc71"
+            )
+        elif method == "tunnel":
+            dot_color, conn_txt = "#3498db", f"● Tunnel  (SSH → port {_DEPLOY_PORT})"
+            status_txt, status_color = "Deploy backend ready — SSH tunnel", "#3498db"
+        else:
+            dot_color, conn_txt = "#e74c3c", "○ Offline — retrying…"
+            status_txt, status_color = "Deploy backend offline — retrying…", "#e74c3c"
+        if w.get("tunnel_dot"):
+            w["tunnel_dot"].configure(text_color=dot_color)
+        if w.get("tunnel_status_lbl"):
+            w["tunnel_status_lbl"].configure(text=conn_txt, text_color=dot_color)
+        if w.get("lbl_status") and not (
+            self._deploy_active_job and
+            self._deploy_active_job.get("status") in ("queued", "running")
+        ):
+            w["lbl_status"].configure(text=status_txt, text_color=status_color)
 
     def _on_deploy_action_changed(self, label: str) -> None:
         w = self._deploy_w
@@ -3575,6 +3632,7 @@ class ScrapeManagerApp(ctk.CTk):
 
     def _deploy_poll_loop(self) -> None:
         last_list_t = 0.0
+        last_connect_t = 0.0
         while not self._closing:
             now = time.time()
 
@@ -3603,28 +3661,26 @@ class ScrapeManagerApp(ctk.CTk):
                     jobs_sorted = sorted(jobs, key=lambda j: j.get("created_at", ""), reverse=True)
                     self._ui_queue.put(("deploy_jobs", jobs_sorted))
                     last_list_t = now
+                    # Update UI if method changed (e.g. recovered after outage)
+                    if not self._deploy_backend_ok:
+                        self._deploy_conn_method = (
+                            "direct" if _deploy_active_url[0] == _DEPLOY_DIRECT_URL else "tunnel"
+                        )
+                        self.after(0, self._update_deploy_conn_ui)
                     self._deploy_backend_ok = True
-                    w = self._deploy_w
-                    if w.get("lbl_status") and not (
-                        self._deploy_active_job and
-                        self._deploy_active_job.get("status") in ("queued", "running")
-                    ):
-                        self.after(0, lambda: w["lbl_status"].configure(
-                            text=f"Deploy backend ready  (port {_DEPLOY_PORT})",
-                            text_color="#2ecc71",
-                        ))
                 except Exception:
-                    self._deploy_backend_ok = False
                     last_list_t = now
-                    w = self._deploy_w
-                    if w.get("lbl_status") and not (
-                        self._deploy_active_job and
-                        self._deploy_active_job.get("status") in ("queued", "running")
-                    ):
-                        self.after(0, lambda: w["lbl_status"].configure(
-                            text=f"Deploy backend offline  (port {_DEPLOY_PORT})",
-                            text_color="#e74c3c",
-                        ))
+                    was_ok = self._deploy_backend_ok
+                    self._deploy_backend_ok = False
+                    if was_ok:
+                        # Just went offline — update UI immediately
+                        self._deploy_conn_method = ""
+                        self.after(0, self._update_deploy_conn_ui)
+                    # Auto-reconnect every 15 s
+                    if now - last_connect_t >= 15:
+                        last_connect_t = now
+                        threading.Thread(target=self._deploy_auto_connect, daemon=True,
+                                         name="deploy-autoconn").start()
 
             time.sleep(0.5)
 
