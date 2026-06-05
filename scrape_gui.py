@@ -249,6 +249,8 @@ class ScrapeManagerApp(ctk.CTk):
         self._deploy_jobs: list[dict] = []
         self._rrun_active_job: dict | None = None
         self._deploy_backend_ok = False
+        self._ssh_tunnel_proc: subprocess.Popen | None = None
+        self._ssh_tunnel_alive = False
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -381,7 +383,22 @@ class ScrapeManagerApp(ctk.CTk):
                     self._server_proc.kill()
                 except Exception:
                     pass
+        self._kill_ssh_tunnel()
         self.destroy()
+
+    def _kill_ssh_tunnel(self) -> None:
+        proc = self._ssh_tunnel_proc
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._ssh_tunnel_proc = None
+        self._ssh_tunnel_alive = False
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -2029,11 +2046,37 @@ class ScrapeManagerApp(ctk.CTk):
         )
         w["btn_browse"].grid(row=2, column=0, columnspan=2, pady=(0, 4), sticky="ew")
 
+        # Row 3: SSH tunnel management
+        ctk.CTkLabel(form, text="Deploy Server IP:", font=ctk.CTkFont(size=12)).grid(
+            row=3, column=0, padx=(12, 4), pady=(4, 8), sticky="w"
+        )
+        w["tunnel_ip_entry"] = ctk.CTkEntry(form, width=160, height=32)
+        w["tunnel_ip_entry"].insert(0, os.getenv("DEPLOY_SERVER_IP", ""))
+        w["tunnel_ip_entry"].grid(row=3, column=1, padx=(0, 12), pady=(4, 8), sticky="w")
+
+        w["tunnel_dot"] = ctk.CTkLabel(
+            form, text="●", font=ctk.CTkFont(size=16), text_color="#e74c3c", width=20,
+        )
+        w["tunnel_dot"].grid(row=3, column=2, padx=(4, 2), pady=(4, 8))
+
+        w["tunnel_status_lbl"] = ctk.CTkLabel(
+            form, text="Tunnel offline", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
+        )
+        w["tunnel_status_lbl"].grid(row=3, column=3, padx=(0, 12), pady=(4, 8), sticky="w")
+
+        w["btn_tunnel"] = ctk.CTkButton(
+            form, text="🔌 Connect Tunnel",
+            fg_color="#1a3a5f", hover_color="#234f82",
+            height=30, font=ctk.CTkFont(size=12), width=160,
+            command=self._on_deploy_tunnel_toggle,
+        )
+        w["btn_tunnel"].grid(row=3, column=4, columnspan=2, padx=(0, 12), pady=(4, 8), sticky="w")
+
         w["lbl_status"] = ctk.CTkLabel(
             form, text="Deploy backend: checking…",
             font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_status"].grid(row=3, column=0, columnspan=10, padx=12, pady=(0, 8), sticky="w")
+        w["lbl_status"].grid(row=4, column=0, columnspan=10, padx=12, pady=(0, 8), sticky="w")
 
         # ── Split: job list (left) + output (right) ───────────────────────────
         split = ctk.CTkFrame(tab, corner_radius=0, fg_color="transparent")
@@ -2101,6 +2144,79 @@ class ScrapeManagerApp(ctk.CTk):
 
         # Auto-load VPBX site list on tab build
         self._run_in_thread(self._do_vpbx_fetch_for_picker)
+
+    # ── SSH tunnel management ─────────────────────────────────────────────────
+
+    def _on_deploy_tunnel_toggle(self) -> None:
+        w = self._deploy_w
+        if self._ssh_tunnel_alive:
+            self._kill_ssh_tunnel()
+            w["btn_tunnel"].configure(text="🔌 Connect Tunnel")
+            w["tunnel_dot"].configure(text_color="#e74c3c")
+            w["tunnel_status_lbl"].configure(text="Tunnel offline")
+        else:
+            ip = w["tunnel_ip_entry"].get().strip()
+            if not ip:
+                messagebox.showwarning("SSH Tunnel", "Enter the deploy server IP first.")
+                return
+            w["btn_tunnel"].configure(text="⏳ Connecting…", state="disabled")
+            w["tunnel_status_lbl"].configure(text="Connecting…")
+            threading.Thread(
+                target=self._do_deploy_tunnel_connect, args=(ip,),
+                daemon=True, name="ssh-tunnel",
+            ).start()
+
+    def _do_deploy_tunnel_connect(self, ip: str) -> None:
+        w = self._deploy_w
+        try:
+            proc = subprocess.Popen(
+                ["ssh", "-o", "StrictHostKeyChecking=no",
+                 "-o", "ServerAliveInterval=15",
+                 "-L", f"{_DEPLOY_PORT}:127.0.0.1:{_DEPLOY_PORT}",
+                 ip, "-N"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            self._ssh_tunnel_proc = proc
+            # Give SSH a moment to establish the tunnel
+            time.sleep(2)
+            if proc.poll() is not None:
+                err = proc.stderr.read().decode(errors="replace").strip()
+                self.after(0, self._tunnel_set_failed, f"SSH exited: {err[:120]}")
+                return
+            self._ssh_tunnel_alive = True
+            self.after(0, self._tunnel_set_connected)
+            # Monitor in the same thread
+            self._do_deploy_tunnel_monitor(proc)
+        except FileNotFoundError:
+            self.after(0, self._tunnel_set_failed, "ssh not found — is OpenSSH installed?")
+        except Exception as exc:
+            self.after(0, self._tunnel_set_failed, str(exc)[:120])
+
+    def _do_deploy_tunnel_monitor(self, proc: subprocess.Popen) -> None:
+        """Block until the SSH process exits, then update UI."""
+        proc.wait()
+        if self._closing:
+            return
+        self._ssh_tunnel_alive = False
+        self._ssh_tunnel_proc = None
+        self.after(0, self._tunnel_set_failed, "Tunnel disconnected")
+
+    def _tunnel_set_connected(self) -> None:
+        w = self._deploy_w
+        w["btn_tunnel"].configure(text="✕ Disconnect", state="normal",
+                                   fg_color="#7f1d1d", hover_color="#991b1b")
+        w["tunnel_dot"].configure(text_color="#2ecc71")
+        w["tunnel_status_lbl"].configure(text=f"Tunnel active → port {_DEPLOY_PORT}")
+
+    def _tunnel_set_failed(self, reason: str = "Tunnel offline") -> None:
+        w = self._deploy_w
+        w["btn_tunnel"].configure(text="🔌 Connect Tunnel", state="normal",
+                                   fg_color="#1a3a5f", hover_color="#234f82")
+        w["tunnel_dot"].configure(text_color="#e74c3c")
+        w["tunnel_status_lbl"].configure(text=reason)
+        self._ssh_tunnel_alive = False
+        self._ssh_tunnel_proc = None
 
     def _on_deploy_action_changed(self, label: str) -> None:
         w = self._deploy_w

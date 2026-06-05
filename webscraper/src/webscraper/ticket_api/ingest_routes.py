@@ -116,6 +116,10 @@ class _VpbxSiteConfigsBody(BaseModel):
     now_utc: str
 
 
+class _VpbxCredentialsBody(BaseModel):
+    records: list[dict[str, Any]]
+
+
 class _HeartbeatBody(BaseModel):
     client_id: str
     status: str = "idle"
@@ -258,6 +262,13 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     _require_ingest_auth(request)
     n = _db.upsert_vpbx_site_configs(_dp(), body.records, body.now_utc)
     return {"inserted": n}
+
+
+@router.post("/vpbx/credentials")
+def ingest_vpbx_credentials(body: _VpbxCredentialsBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    n = _db.upsert_vpbx_credentials(_dp(), body.records)
+    return {"updated": n}
 
 
 class _OrdersBody(BaseModel):

@@ -16,8 +16,13 @@ import os
 import sqlite3
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 import requests as _requests
 
@@ -327,6 +332,27 @@ def upsert_vpbx_site_configs(
         return 0
     r = _post_queued("/api/ingest/vpbx/site-configs", {"records": records, "now_utc": now_utc})
     return int(r.get("inserted", 0))
+
+
+def upsert_vpbx_credentials(db_path: str, records: list[dict]) -> int:  # noqa: ARG001
+    if not records:
+        return 0
+    count = 0
+    for rec in records:
+        r = _post(
+            "/api/ingest/vpbx/credentials",
+            {
+                "handle":   rec.get("handle", ""),
+                "ftp_pass": rec.get("ftp_pass", ""),
+                "ftp_host": rec.get("ftp_host", ""),
+                "ftp_user": rec.get("ftp_user", ""),
+                "rest_pass": rec.get("rest_pass", ""),
+                "now_utc":  rec.get("last_seen_utc") or _iso_now(),
+            },
+        )
+        if r.get("updated"):
+            count += 1
+    return count
 
 
 def upsert_orders(
