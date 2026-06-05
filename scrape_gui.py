@@ -81,7 +81,8 @@ _SCRAPERS: list[dict] = [
 # ── Deploy backend (FreePBX Tools) ────────────────────────────────────────────
 
 _DEPLOY_PORT = os.getenv("DEPLOY_PORT", "8002")
-DEPLOY_API_BASE = f"http://localhost:{_DEPLOY_PORT}"
+_DEPLOY_HOST = os.getenv("DEPLOY_HOST", "localhost")
+DEPLOY_API_BASE = os.getenv("DEPLOY_API_URL", f"http://{_DEPLOY_HOST}:{_DEPLOY_PORT}")
 
 _DEPLOY_ACTIONS = [
     ("deploy",       "Deploy"),
