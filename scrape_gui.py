@@ -1915,6 +1915,7 @@ class ScrapeManagerApp(ctk.CTk):
             row=0, column=8, padx=(12, 4), pady=10, sticky="w"
         )
         w["root_password_entry"] = ctk.CTkEntry(form, show="●", width=120, height=34)
+        w["root_password_entry"].insert(0, "sdxczvsdxczv")
         w["root_password_entry"].grid(row=0, column=9, padx=(0, 16), pady=10)
 
         # Row 1: embedded VPBX site picker (VPBX mode) or servers textbox (manual mode)
@@ -2508,11 +2509,10 @@ class ScrapeManagerApp(ctk.CTk):
         n = len(sel)
         if n > 0:
             w["workers_var"].set(str(min(n, 10)))
-            if not w["password_entry"].get():
-                first = w["vpbx_filtered"][sel[0]]
-                ftp_pass = (first.get("ftp_pass") or "").strip()
-                if ftp_pass:
-                    self._deploy_vpbx_fill_password(ftp_pass)
+            first = w["vpbx_filtered"][sel[0]]
+            ftp_pass = (first.get("ftp_pass") or "").strip()
+            if ftp_pass:
+                self._deploy_vpbx_fill_password(ftp_pass)
 
     def _vpbx_picker_refresh(self) -> None:
         w = self._deploy_w
