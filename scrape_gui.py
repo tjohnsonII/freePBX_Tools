@@ -97,24 +97,26 @@ _DEPLOY_ACTIONS = [
 ]
 
 _REMOTE_RUN_MENU = [
-    ("1",  "1 — Refresh DB snapshot"),
-    ("2",  "2 — Show inventory + list DIDs"),
-    ("3",  "3 — Generate call-flow for selected DID(s)"),
-    ("4",  "4 — Generate call-flows for ALL DIDs"),
-    ("5",  "5 — Generate call-flows ALL DIDs (skip OPEN label)"),
-    ("6",  "6 — Time-Condition status"),
-    ("7",  "7 — Module analysis"),
-    ("8",  "8 — Paging / overhead / fax analysis"),
-    ("9",  "9 — Comprehensive component analysis"),
-    ("10", "10 — ASCII art call-flows"),
-    ("12", "12 — Full Asterisk diagnostic"),
-    ("13", "13 — Automated log analysis"),
-    ("14", "14 — Error map & quick reference"),
-    ("15", "15 — Network diagnostics"),
-    ("16", "16 — Enhanced log analysis (dmesg/journal)"),
-    ("17", "17 — CDR/CEL call log analysis"),
-    ("18", "18 — Phone/endpoint analysis"),
+    ("1",  "1 - Refresh DB snapshot"),
+    ("2",  "2 - Show inventory + list DIDs"),
+    ("3",  "3 - Generate call-flow for selected DID(s)"),
+    ("4",  "4 - Generate call-flows for ALL DIDs"),
+    ("5",  "5 - Generate call-flows ALL DIDs (skip OPEN label)"),
+    ("6",  "6 - Time-Condition status"),
+    ("7",  "7 - Module analysis"),
+    ("8",  "8 - Paging / overhead / fax analysis"),
+    ("9",  "9 - Comprehensive component analysis"),
+    ("10", "10 - ASCII art call-flows"),
+    ("12", "12 - Full Asterisk diagnostic"),
+    ("13", "13 - Automated log analysis"),
+    ("14", "14 - Error map & quick reference"),
+    ("15", "15 - Network diagnostics"),
+    ("16", "16 - Enhanced log analysis (dmesg/journal)"),
+    ("17", "17 - CDR/CEL call log analysis"),
+    ("18", "18 - Phone/endpoint analysis"),
 ]
+# Label -> key lookup so _on_rrun_start never relies on splitting the label string
+_RRUN_LABEL_TO_KEY: dict[str, str] = {lbl: key for key, lbl in _REMOTE_RUN_MENU}
 
 
 def _deploy_get(path: str, **kw: Any) -> Any:
@@ -3322,7 +3324,7 @@ class ScrapeManagerApp(ctk.CTk):
             messagebox.showerror("Missing Server", "Enter a server IP or hostname.")
             return
         menu_val    = w["menu_var"].get()
-        menu_choice = menu_val.split("—")[0].strip()
+        menu_choice = _RRUN_LABEL_TO_KEY.get(menu_val, menu_val.split()[0])
         self._run_in_thread(
             self._do_rrun_start,
             server=server,
