@@ -3750,7 +3750,7 @@ class ScrapeManagerApp(ctk.CTk):
         w["log_output"].grid(row=0, column=0, sticky="nsew")
         log_ysb = ctk.CTkScrollbar(out_frame, command=w["log_output"].yview)
         log_ysb.grid(row=0, column=1, sticky="ns")
-        log_xsb = ctk.CTkScrollbar(out_frame, orient="horizontal", command=w["log_output"].xview)
+        log_xsb = ttk.Scrollbar(out_frame, orient="horizontal", command=w["log_output"].xview)
         log_xsb.grid(row=1, column=0, sticky="ew")
         w["log_output"].configure(yscrollcommand=log_ysb.set, xscrollcommand=log_xsb.set)
 
@@ -3817,7 +3817,7 @@ class ScrapeManagerApp(ctk.CTk):
         w["cmd_output"].grid(row=0, column=0, sticky="nsew")
         cmd_ysb = ctk.CTkScrollbar(out_frame, command=w["cmd_output"].yview)
         cmd_ysb.grid(row=0, column=1, sticky="ns")
-        cmd_xsb = ctk.CTkScrollbar(out_frame, orient="horizontal", command=w["cmd_output"].xview)
+        cmd_xsb = ttk.Scrollbar(out_frame, orient="horizontal", command=w["cmd_output"].xview)
         cmd_xsb.grid(row=1, column=0, sticky="ew")
         w["cmd_output"].configure(yscrollcommand=cmd_ysb.set, xscrollcommand=cmd_xsb.set)
 
