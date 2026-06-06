@@ -97,16 +97,23 @@ _DEPLOY_ACTIONS = [
 ]
 
 _REMOTE_RUN_MENU = [
-    ("1",  "1 — List callflows"),
-    ("2",  "2 — Export all callflows"),
-    ("6",  "6 — Dump JSON"),
-    ("12", "12 — TC status"),
-    ("13", "13 — Show extensions"),
-    ("14", "14 — Show DIDs"),
-    ("15", "15 — Show queues"),
-    ("16", "16 — Show IVRs"),
-    ("17", "17 — Show time conditions"),
-    ("18", "18 — Show ring groups"),
+    ("1",  "1 — Refresh DB snapshot"),
+    ("2",  "2 — Show inventory + list DIDs"),
+    ("3",  "3 — Generate call-flow for selected DID(s)"),
+    ("4",  "4 — Generate call-flows for ALL DIDs"),
+    ("5",  "5 — Generate call-flows ALL DIDs (skip OPEN label)"),
+    ("6",  "6 — Time-Condition status"),
+    ("7",  "7 — Module analysis"),
+    ("8",  "8 — Paging / overhead / fax analysis"),
+    ("9",  "9 — Comprehensive component analysis"),
+    ("10", "10 — ASCII art call-flows"),
+    ("12", "12 — Full Asterisk diagnostic"),
+    ("13", "13 — Automated log analysis"),
+    ("14", "14 — Error map & quick reference"),
+    ("15", "15 — Network diagnostics"),
+    ("16", "16 — Enhanced log analysis (dmesg/journal)"),
+    ("17", "17 — CDR/CEL call log analysis"),
+    ("18", "18 — Phone/endpoint analysis"),
 ]
 
 
