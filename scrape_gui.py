@@ -3546,10 +3546,10 @@ class ScrapeManagerApp(ctk.CTk):
         cred_row.grid(row=1, column=0, padx=12, pady=(4, 6), sticky="ew")
 
         for lbl, key, kw in [
-            ("IP:",        "server_entry",   {"width": 160, "placeholder_text": "← select above"}),
+            ("IP:",        "server_entry",   {"width": 160, "placeholder_text": "pick above or type IP"}),
             ("User:",      "username_entry", {"width": 90}),
-            ("SSH Pass:",  "password_entry", {"width": 120, "show": "●"}),
-            ("Root Pass:", "root_pw_entry",  {"width": 120, "show": "●"}),
+            ("SSH Pass:",  "password_entry", {"width": 120, "show": "●", "placeholder_text": "SSH pass"}),
+            ("Root Pass:", "root_pw_entry",  {"width": 120, "show": "●", "placeholder_text": "root pass"}),
             ("Timeout:",   "timeout_entry",  {"width": 50}),
         ]:
             ctk.CTkLabel(cred_row, text=lbl, font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
