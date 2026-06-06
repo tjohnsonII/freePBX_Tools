@@ -76,8 +76,10 @@ paramiko: Any
 try:
     import paramiko  # type: ignore
 except ImportError:
-    # Defer failure until a network operation is requested.
-    paramiko = None
+    import subprocess as _sp
+    print("[INFO] paramiko not found — installing...", flush=True)
+    _sp.check_call([sys.executable, "-m", "pip", "install", "--quiet", "paramiko"])
+    import paramiko  # type: ignore
 
 def _is_placeholder_secret(value: str) -> bool:
     v = (value or "").strip()
@@ -169,9 +171,7 @@ def _safe_stdout_write(text: str) -> None:
 
 def _ensure_paramiko() -> None:
     if paramiko is None:
-        print("[ERROR] paramiko library not installed")
-        print("Please install it with: pip install paramiko")
-        raise SystemExit(1)
+        raise SystemExit("[ERROR] paramiko could not be imported even after auto-install.")
 
 class Colors:
     """

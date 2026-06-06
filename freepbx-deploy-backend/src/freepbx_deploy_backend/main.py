@@ -224,6 +224,19 @@ def _python_exe() -> str:
     return sys.executable
 
 
+def _ensure_deploy_deps() -> None:
+    """Install paramiko into the deploy Python if missing. Runs once at startup."""
+    py = _python_exe()
+    result = subprocess.run([py, "-c", "import paramiko"], capture_output=True)
+    if result.returncode != 0:
+        print(f"[startup] paramiko missing in {py} — installing...", flush=True)
+        subprocess.check_call([py, "-m", "pip", "install", "--quiet", "paramiko"])
+        print("[startup] paramiko installed.", flush=True)
+
+
+_ensure_deploy_deps()
+
+
 async def _run_one(job: Job, args: List[str], title: str) -> int:
     await _append_line(job, "\n" + ("=" * 70) + "\n")
     await _append_line(job, f"{title}\n")
