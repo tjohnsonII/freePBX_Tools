@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Set
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -70,6 +70,26 @@ class DiagnosticsSummaryRequest(BaseModel):
     password: str = ""
     root_password: str = ""
     timeout_seconds: float = Field(15.0, ge=2.0, le=120.0)
+
+
+class RunCommandRequest(BaseModel):
+    server: str = Field(..., description="Target FreePBX host")
+    username: str = "123net"
+    password: str = ""
+    root_password: str = ""
+    command: str = Field(..., description="Shell command to run on remote host")
+    as_root: bool = True
+    timeout_seconds: float = Field(30.0, ge=2.0, le=300.0)
+
+
+class LogTailRequest(BaseModel):
+    server: str = Field(..., description="Target FreePBX host")
+    username: str = "123net"
+    password: str = ""
+    root_password: str = ""
+    log_path: str = "/var/log/asterisk/full"
+    filter_pattern: str = ""
+    timeout_seconds: float = Field(30.0, ge=2.0, le=120.0)
 
 
 _ALLOWED_MENU_CHOICES = frozenset({
@@ -638,6 +658,178 @@ async def job_ws(ws: WebSocket, job_id: str) -> None:
         async with JOBS_LOCK:
             if job_id in JOBS:
                 JOBS[job_id].clients.discard(ws)
+
+
+_QUICK_ACTION_CMDS: Dict[str, str] = {
+    "watch_calls": (
+        "asterisk -rx 'core show channels count' 2>/dev/null; "
+        "asterisk -rx 'core show channels verbose' 2>/dev/null | head -50"
+    ),
+    "disk_check": "df -h 2>/dev/null",
+    "top_processes": "ps aux --sort=-%cpu 2>/dev/null | head -25",
+    "asterisk_errors": (
+        "tail -200 /var/log/asterisk/full 2>/dev/null "
+        "| grep -E 'ERROR|WARNING|NOTICE' | tail -50"
+    ),
+    "network_ports": (
+        "ss -tulpn 2>/dev/null | grep -E ':5060|:4569|:10000|:10001|:443|:80|:22'"
+    ),
+    "restart_asterisk": (
+        "systemctl restart asterisk 2>&1 && sleep 2 "
+        "&& systemctl is-active asterisk && echo 'Asterisk is now active'"
+    ),
+    "reload_freepbx": "fwconsole reload 2>&1 | tail -30",
+    "clear_fail2ban": (
+        "fail2ban-client unban --all 2>&1 "
+        "&& fail2ban-client status 2>/dev/null | head -5"
+    ),
+}
+
+
+def _build_exec_env(password: str, root_password: str) -> Dict[str, str]:
+    return {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        "FREEPBX_PASSWORD": password,
+        "FREEPBX_ROOT_PASSWORD": root_password or password,
+    }
+
+
+@app.post("/api/diagnostics/run-command")
+async def run_command(req: RunCommandRequest) -> Dict[str, Any]:
+    """SSH into server, (optionally become root), run command, return JSON result."""
+    script = REPO_ROOT / "scripts" / "remote_ssh_exec.py"
+    if not script.exists():
+        raise HTTPException(status_code=500, detail="remote_ssh_exec.py not found")
+
+    args = [
+        _python_exe(), str(script),
+        "--mode", "run",
+        "--server", req.server,
+        "--user", req.username,
+        "--timeout", str(req.timeout_seconds),
+        "--command", req.command,
+    ]
+    if not req.as_root:
+        args.append("--no-root")
+
+    def _run() -> Dict[str, Any]:
+        p = subprocess.run(
+            args,
+            cwd=str(REPO_ROOT),
+            env=_build_exec_env(req.password, req.root_password),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            timeout=req.timeout_seconds + 60,
+        )
+        stdout = (p.stdout or "").strip()
+        if not stdout:
+            err = (p.stderr or "").strip() or "No output from SSH executor"
+            return {"ok": False, "error": err, "server": req.server}
+        try:
+            return json.loads(stdout.splitlines()[-1])
+        except Exception:
+            return {"ok": False, "error": f"Could not parse output: {stdout[:500]}", "server": req.server}
+
+    try:
+        result = await asyncio.to_thread(_run)
+        status = 200 if result.get("ok") else 502
+        return JSONResponse(status_code=status, content=result)
+    except subprocess.TimeoutExpired:
+        return JSONResponse(status_code=504, content={"ok": False, "error": "Command timed out", "server": req.server})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e), "server": req.server})
+
+
+@app.post("/api/diagnostics/quick-action")
+async def quick_action(req: RunCommandRequest) -> Dict[str, Any]:
+    """Run a predefined safe/destructive action on the remote FreePBX host."""
+    action = req.command  # action key is passed via command field
+    cmd = _QUICK_ACTION_CMDS.get(action)
+    if not cmd:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action!r}")
+    return await run_command(RunCommandRequest(
+        server=req.server, username=req.username,
+        password=req.password, root_password=req.root_password,
+        command=cmd, as_root=True, timeout_seconds=req.timeout_seconds,
+    ))
+
+
+@app.post("/api/diagnostics/tail-log")
+async def tail_log(req: LogTailRequest) -> StreamingResponse:
+    """SSE stream that tails a remote log file over SSH. Each event is JSON: {line: str}."""
+    script = REPO_ROOT / "scripts" / "remote_ssh_exec.py"
+    if not script.exists():
+        raise HTTPException(status_code=500, detail="remote_ssh_exec.py not found")
+
+    args = [
+        _python_exe(), str(script),
+        "--mode", "tail",
+        "--server", req.server,
+        "--user", req.username,
+        "--log-path", req.log_path,
+        "--timeout", str(req.timeout_seconds),
+    ]
+    if req.filter_pattern:
+        args += ["--filter", req.filter_pattern]
+
+    env = _build_exec_env(req.password, req.root_password)
+
+    async def generate():
+        import time as _time
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            env=env,
+            cwd=str(REPO_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        buf = b""
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=25.0)  # type: ignore[union-attr]
+                except asyncio.TimeoutError:
+                    # Send heartbeat so client knows the connection is alive
+                    yield f"data: {json.dumps({'heartbeat': True, 'ts': _time.time()})}\n\n"
+                    if proc.returncode is not None:
+                        break
+                    continue
+
+                if not chunk:
+                    yield f"data: {json.dumps({'eof': True})}\n\n"
+                    break
+
+                buf += chunk
+                while b"\n" in buf:
+                    line_bytes, buf = buf.split(b"\n", 1)
+                    line = line_bytes.decode("utf-8", errors="replace")
+                    if line:
+                        yield f"data: {json.dumps({'line': line, 'ts': _time.time()})}\n\n"
+        except Exception as exc:
+            try:
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except Exception:
+                pass
+        finally:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # Optional: serve built frontend if present.

@@ -425,6 +425,87 @@ def collect_one(host: str, username: str, password: str, root_password: str, tim
         if total and total > 0:
             pct = int((reg_count / float(total)) * 100)
 
+        # ── System health ──────────────────────────────────────────────────
+
+        # Disk usage on /
+        disk: dict = {}
+        disk_out = _run_shell_cmd(
+            chan,
+            "df -h / 2>/dev/null | awk 'NR==2{print $2,$3,$4,$5}'",
+            timeout=timeout,
+        ).out.strip().splitlines()
+        if disk_out:
+            parts = (disk_out[-1] or "").split()
+            if len(parts) >= 4:
+                disk = {"total": parts[0], "used": parts[1], "free": parts[2], "use_pct": parts[3]}
+
+        # Memory (MB): total used free available
+        mem: dict = {}
+        mem_out = _run_shell_cmd(
+            chan,
+            "free -m 2>/dev/null | awk '/^Mem:/{print $2,$3,$4,$7}'",
+            timeout=timeout,
+        ).out.strip().splitlines()
+        if mem_out:
+            parts = (mem_out[-1] or "").split()
+            if len(parts) >= 4 and all(p.lstrip("-").isdigit() for p in parts):
+                mem = {
+                    "total_mb": int(parts[0]),
+                    "used_mb": int(parts[1]),
+                    "free_mb": int(parts[2]),
+                    "available_mb": int(parts[3]),
+                }
+
+        # Load average (1m, 5m, 15m)
+        load: dict = {}
+        load_out = _run_shell_cmd(
+            chan,
+            "cat /proc/loadavg 2>/dev/null | awk '{print $1,$2,$3}'",
+            timeout=timeout,
+        ).out.strip().splitlines()
+        if load_out:
+            parts = (load_out[-1] or "").split()
+            if len(parts) >= 3:
+                load = {"1m": parts[0], "5m": parts[1], "15m": parts[2]}
+
+        # Fail2ban
+        fail2ban: dict = {"available": False}
+        f2b_check = _run_shell_cmd(
+            chan,
+            "command -v fail2ban-client >/dev/null 2>&1 && echo yes || echo no",
+            timeout=timeout,
+        ).out.strip().splitlines()
+        if f2b_check and f2b_check[-1].strip() == "yes":
+            fail2ban["available"] = True
+            ban_out = _run_shell_cmd(
+                chan,
+                (
+                    "fail2ban-client status sshd 2>/dev/null "
+                    "| grep 'Currently banned' | awk '{print $NF}' || echo '0'"
+                ),
+                timeout=timeout,
+            ).out.strip().splitlines()
+            ban_str = (ban_out[-1] if ban_out else "0").strip()
+            fail2ban["sshd_banned"] = int(ban_str) if ban_str.isdigit() else 0
+            total_out = _run_shell_cmd(
+                chan,
+                "fail2ban-client status 2>/dev/null | grep 'Number of jail' | awk '{print $NF}' || echo '0'",
+                timeout=timeout,
+            ).out.strip().splitlines()
+            total_str = (total_out[-1] if total_out else "0").strip()
+            fail2ban["jail_count"] = int(total_str) if total_str.isdigit() else 0
+
+        # Last Asterisk restart timestamp
+        restart_out = _run_shell_cmd(
+            chan,
+            (
+                "systemctl show asterisk --property=ActiveEnterTimestamp 2>/dev/null "
+                "| cut -d= -f2 | sed 's/ UTC//' | grep -v '^$' || echo ''"
+            ),
+            timeout=timeout,
+        ).out.strip().splitlines()
+        last_restart = (restart_out[-1] if restart_out else "").strip() or None
+
         return {
             "ok": True,
             "server": host,
@@ -445,6 +526,13 @@ def collect_one(host: str, username: str, password: str, root_password: str, tim
             "time_conditions": {"total": tc_total, "forced": forced_count, "auto": max(0, tc_total - forced_count)},
             "services": svc_rows,
             "snapshot": snap,
+            "system": {
+                "disk": disk,
+                "memory": mem,
+                "load": load,
+                "fail2ban": fail2ban,
+                "asterisk_last_restart": last_restart,
+            },
         }
     finally:
         try:

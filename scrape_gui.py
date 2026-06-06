@@ -10,6 +10,7 @@ Run:
 
 from __future__ import annotations
 
+import json
 import os
 import queue
 import re
@@ -451,6 +452,18 @@ class ScrapeManagerApp(ctk.CTk):
 
     def _on_close(self) -> None:
         self._closing = True
+        # Stop log tail stream if active
+        stop_evt = self._sdiag_w.get("tail_stop_event")
+        if stop_evt:
+            stop_evt.set()
+        # Cancel scheduled after-callbacks
+        for key in ("auto_refresh_after_id", "call_watch_after_id"):
+            aid = self._sdiag_w.get(key)
+            if aid:
+                try:
+                    self.after_cancel(aid)
+                except Exception:
+                    pass
         for proc in (self._server_proc, self._deploy_backend_proc):
             if proc and proc.poll() is None:
                 try:
@@ -1622,6 +1635,30 @@ class ScrapeManagerApp(ctk.CTk):
                 elif cmd == "sdiag_result":
                     _, data, error = item
                     self._display_sdiag_result(data, error)
+                elif cmd == "sdiag_cmd_result":
+                    _, data, error = item
+                    self._display_sdiag_cmd_result(data, error)
+                elif cmd == "sdiag_tail_line":
+                    self._sdiag_append_log_line(item[1])
+                elif cmd == "sdiag_tail_status":
+                    w = self._sdiag_w
+                    if w.get("tail_status_lbl"):
+                        w["tail_status_lbl"].configure(text=item[1], text_color=item[2])
+                elif cmd == "sdiag_tail_done":
+                    w = self._sdiag_w
+                    if w.get("tail_btn_start"):
+                        w["tail_btn_start"].configure(state="normal")
+                    if w.get("tail_btn_stop"):
+                        w["tail_btn_stop"].configure(state="disabled")
+                elif cmd == "sdiag_call_count":
+                    w = self._sdiag_w
+                    count = item[1]
+                    if w.get("call_count_lbl"):
+                        if count is None:
+                            w["call_count_lbl"].configure(text="err", text_color="#e74c3c")
+                        else:
+                            color = "#e74c3c" if count > 0 else "#2ecc71"
+                            w["call_count_lbl"].configure(text=str(count), text_color=color)
                 elif cmd == "refresh":
                     self._run_poll()
                 elif cmd == "schedule":
@@ -3421,14 +3458,25 @@ class ScrapeManagerApp(ctk.CTk):
 
     # ── Server Diagnostics sub-tab ───────────────────────────────────────────
 
+    _QUICK_ACTION_CMDS: dict = {
+        "watch_calls":      "asterisk -rx 'core show channels count' 2>/dev/null; asterisk -rx 'core show channels verbose' 2>/dev/null | head -50",
+        "disk_check":       "df -h 2>/dev/null",
+        "top_processes":    "ps aux --sort=-%cpu 2>/dev/null | head -25",
+        "asterisk_errors":  "tail -200 /var/log/asterisk/full 2>/dev/null | grep -E 'ERROR|WARNING|NOTICE' | tail -50",
+        "network_ports":    "ss -tulpn 2>/dev/null | grep -E ':5060|:4569|:10000|:10001|:443|:80|:22'",
+        "restart_asterisk": "systemctl restart asterisk 2>&1 && sleep 2 && systemctl is-active asterisk && echo 'Asterisk is now active'",
+        "reload_freepbx":   "fwconsole reload 2>&1 | tail -30",
+        "clear_fail2ban":   "fail2ban-client unban --all 2>&1 && fail2ban-client status 2>/dev/null | head -5",
+    }
+
     def _build_sdiag_sub_tab(self, tab: Any) -> None:
         tab.grid_columnconfigure(0, weight=1)
-        tab.grid_rowconfigure(2, weight=1)
+        tab.grid_rowconfigure(1, weight=1)
 
         w = self._sdiag_w
 
         form = ctk.CTkFrame(tab, corner_radius=8)
-        form.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        form.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 4))
         form.grid_columnconfigure(0, weight=1)
 
         # ── VPBX site picker ──────────────────────────────────────────────
@@ -3493,9 +3541,9 @@ class ScrapeManagerApp(ctk.CTk):
         w["vpbx_search_var"].trace_add("write", lambda *_: self._sdiag_picker_refresh())
         w["vpbx_listbox"].bind("<<ListboxSelect>>", self._on_sdiag_listbox_select)
 
-        # ── Credentials + action row ──────────────────────────────────────
+        # ── Credentials row ───────────────────────────────────────────────
         cred_row = ctk.CTkFrame(form, fg_color="transparent")
-        cred_row.grid(row=1, column=0, padx=12, pady=(4, 10), sticky="ew")
+        cred_row.grid(row=1, column=0, padx=12, pady=(4, 6), sticky="ew")
 
         for lbl, key, kw in [
             ("IP:",        "server_entry",   {"width": 160, "placeholder_text": "← select above"}),
@@ -3515,59 +3563,274 @@ class ScrapeManagerApp(ctk.CTk):
             ent.pack(side="left", padx=(0, 12))
             w[key] = ent
 
-        w["btn_run"] = ctk.CTkButton(
-            cred_row, text="🔍  Diagnose",
-            fg_color="#2980b9", hover_color="#1f6391",
-            width=130, height=36, font=ctk.CTkFont(size=13),
-            command=self._on_sdiag_run,
-        )
-        w["btn_run"].pack(side="left")
-
         # ── Status labels ─────────────────────────────────────────────────
         w["lbl_status"] = ctk.CTkLabel(
-            form, text="Select a site above, then click Diagnose.",
+            form, text="Select a site above, then choose a diagnostic tool.",
             font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_status"].grid(row=2, column=0, padx=12, pady=(0, 4), sticky="w")
+        w["lbl_status"].grid(row=2, column=0, padx=12, pady=(0, 2), sticky="w")
 
         w["lbl_cred_status"] = ctk.CTkLabel(
             form, text="", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["lbl_cred_status"].grid(row=3, column=0, padx=12, pady=(0, 6), sticky="w")
+        w["lbl_cred_status"].grid(row=3, column=0, padx=12, pady=(0, 4), sticky="w")
 
-        # ── Results output ────────────────────────────────────────────────
-        out_frame = ctk.CTkFrame(tab, corner_radius=8)
-        out_frame.grid(row=2, column=0, sticky="nsew")
-        out_frame.grid_rowconfigure(0, weight=1)
-        out_frame.grid_columnconfigure(0, weight=1)
+        # ── Inner tool tabs ───────────────────────────────────────────────
+        inner_tabs = ctk.CTkTabview(tab, corner_radius=6)
+        inner_tabs.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
+        w["inner_tabs"] = inner_tabs
 
-        w["output"] = tk.Text(
-            out_frame,
-            bg="#0d1117", fg="#c9d1d9",
-            font=("Consolas", 10),
-            state="disabled", relief="flat", wrap="word",
-            padx=8, pady=8,
-        )
-        w["output"].grid(row=0, column=0, sticky="nsew")
-        ysb = ctk.CTkScrollbar(out_frame, command=w["output"].yview)
-        ysb.grid(row=0, column=1, sticky="ns")
-        w["output"].configure(yscrollcommand=ysb.set)
-
-        for tag, color in [
-            ("ok",    "#2ecc71"), ("key",   "#3498db"),
-            ("error", "#e74c3c"), ("value", "#ecf0f1"),
-            ("hint",  "#f39c12"),
-        ]:
-            w["output"].tag_configure(tag, foreground=color)
-
-        ctk.CTkButton(
-            tab, text="Clear", width=80, height=28,
-            fg_color="#7f8c8d", hover_color="#626567",
-            command=lambda: self._clear_text_widget(w.get("output")),
-        ).grid(row=3, column=0, sticky="e", pady=(4, 0))
+        self._build_sdiag_health_tab(inner_tabs.add("Health Snapshot"))
+        self._build_sdiag_log_tab(inner_tabs.add("Live Log Tail"))
+        self._build_sdiag_cmd_tab(inner_tabs.add("Run Command"))
 
         # Auto-load site list
         self._run_in_thread(self._do_sdiag_vpbx_fetch)
+
+    def _build_sdiag_health_tab(self, tab: Any) -> None:
+        w = self._sdiag_w
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        # Action bar
+        action_bar = ctk.CTkFrame(tab, fg_color="transparent")
+        action_bar.grid(row=0, column=0, padx=8, pady=(6, 4), sticky="ew")
+
+        w["health_btn_run"] = ctk.CTkButton(
+            action_bar, text="🔍  Diagnose",
+            fg_color="#2980b9", hover_color="#1f6391",
+            width=130, height=34, font=ctk.CTkFont(size=13),
+            command=self._on_sdiag_run,
+        )
+        w["health_btn_run"].pack(side="left", padx=(0, 12))
+
+        w["auto_refresh_var"] = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            action_bar, text="Auto-refresh", variable=w["auto_refresh_var"],
+            command=self._on_sdiag_auto_refresh_toggle,
+            font=ctk.CTkFont(size=12), width=120,
+        ).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(action_bar, text="every", font=ctk.CTkFont(size=11)).pack(side="left")
+        w["refresh_interval_var"] = tk.StringVar(value="30")
+        ctk.CTkEntry(action_bar, textvariable=w["refresh_interval_var"],
+                     width=42, height=26, font=ctk.CTkFont(size=11)).pack(side="left", padx=(4, 2))
+        ctk.CTkLabel(action_bar, text="s", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 16))
+
+        # Live call count watcher
+        ctk.CTkLabel(action_bar, text="Active calls:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
+        w["call_count_lbl"] = ctk.CTkLabel(
+            action_bar, text="—", font=ctk.CTkFont(size=13, weight="bold"), text_color="#f39c12",
+        )
+        w["call_count_lbl"].pack(side="left", padx=(0, 6))
+        w["watch_calls_btn"] = ctk.CTkButton(
+            action_bar, text="Watch", width=70, height=28, font=ctk.CTkFont(size=11),
+            fg_color="#2d5016", hover_color="#3d6b20",
+            command=self._on_sdiag_watch_calls_toggle,
+        )
+        w["watch_calls_btn"].pack(side="left")
+        w["call_watch_active"] = False
+        w["call_watch_after_id"] = None
+        w["auto_refresh_after_id"] = None
+
+        # Quick action buttons
+        qa_frame = ctk.CTkFrame(tab, corner_radius=6, fg_color="#161b22")
+        qa_frame.grid(row=1, column=0, padx=8, pady=(0, 4), sticky="ew")
+
+        ctk.CTkLabel(qa_frame, text="Quick Actions:", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color="#7f8c8d").pack(side="left", padx=(8, 8), pady=6)
+
+        for label, action in [
+            ("Active Calls",  "watch_calls"),
+            ("Disk Usage",    "disk_check"),
+            ("Top Processes", "top_processes"),
+            ("Recent Errors", "asterisk_errors"),
+            ("VoIP Ports",    "network_ports"),
+        ]:
+            ctk.CTkButton(
+                qa_frame, text=label, width=110, height=28, font=ctk.CTkFont(size=11),
+                fg_color="#1e3a5f", hover_color="#2e4a6f",
+                command=lambda a=action: self._on_sdiag_quick_action(a),
+            ).pack(side="left", padx=3, pady=6)
+
+        ttk.Separator(qa_frame, orient="vertical").pack(side="left", padx=8, fill="y", pady=6)
+
+        for label, action, fg, hv in [
+            ("Reload FreePBX",     "reload_freepbx",   "#6b3d00", "#8a5010"),
+            ("Restart Asterisk ⚠", "restart_asterisk", "#5c1a1a", "#7a2222"),
+            ("Clear Fail2Ban",     "clear_fail2ban",   "#1a4a2a", "#2a6a3a"),
+        ]:
+            ctk.CTkButton(
+                qa_frame, text=label, width=145, height=28, font=ctk.CTkFont(size=11),
+                fg_color=fg, hover_color=hv,
+                command=lambda a=action: self._on_sdiag_quick_action(a),
+            ).pack(side="left", padx=3, pady=6)
+
+        # Health output
+        out_frame = ctk.CTkFrame(tab, corner_radius=6)
+        out_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 4))
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["health_output"] = tk.Text(
+            out_frame, bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 10), state="disabled", relief="flat",
+            wrap="word", padx=8, pady=8,
+        )
+        w["health_output"].grid(row=0, column=0, sticky="nsew")
+        ysb = ctk.CTkScrollbar(out_frame, command=w["health_output"].yview)
+        ysb.grid(row=0, column=1, sticky="ns")
+        w["health_output"].configure(yscrollcommand=ysb.set)
+
+        for tag, color in [
+            ("ok",      "#2ecc71"), ("key",     "#3498db"),
+            ("error",   "#e74c3c"), ("value",   "#ecf0f1"),
+            ("hint",    "#f39c12"), ("section", "#9b59b6"),
+            ("warn",    "#e67e22"),
+        ]:
+            w["health_output"].tag_configure(tag, foreground=color)
+
+        ctk.CTkButton(
+            tab, text="Clear", width=70, height=26,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=lambda: self._clear_text_widget(w.get("health_output")),
+        ).grid(row=3, column=0, sticky="e", padx=8, pady=(0, 4))
+
+    def _build_sdiag_log_tab(self, tab: Any) -> None:
+        w = self._sdiag_w
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(1, weight=1)
+
+        # Control bar
+        ctrl = ctk.CTkFrame(tab, fg_color="transparent")
+        ctrl.grid(row=0, column=0, padx=8, pady=(6, 4), sticky="ew")
+
+        ctk.CTkLabel(ctrl, text="Log:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
+        w["log_path_var"] = tk.StringVar(value="/var/log/asterisk/full")
+        ctk.CTkEntry(ctrl, textvariable=w["log_path_var"], width=240, height=30,
+                     font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(ctrl, text="Filter:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
+        w["log_filter_var"] = tk.StringVar(value="")
+        ctk.CTkEntry(ctrl, textvariable=w["log_filter_var"], width=130, height=30,
+                     placeholder_text="grep pattern", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(ctrl, text="Level:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
+        w["log_level_var"] = tk.StringVar(value="All")
+        ttk.Combobox(ctrl, textvariable=w["log_level_var"],
+                     values=["All", "ERROR", "WARNING", "NOTICE", "VERBOSE"],
+                     state="readonly", width=9).pack(side="left", padx=(0, 12))
+
+        w["tail_btn_start"] = ctk.CTkButton(
+            ctrl, text="▶  Start Tail", width=110, height=32,
+            fg_color="#2d5016", hover_color="#3d6b20", font=ctk.CTkFont(size=12),
+            command=self._on_sdiag_tail_start,
+        )
+        w["tail_btn_start"].pack(side="left", padx=(0, 6))
+        w["tail_btn_stop"] = ctk.CTkButton(
+            ctrl, text="■  Stop", width=80, height=32,
+            fg_color="#5c1a1a", hover_color="#7a2222",
+            font=ctk.CTkFont(size=12), state="disabled",
+            command=self._on_sdiag_tail_stop,
+        )
+        w["tail_btn_stop"].pack(side="left")
+        w["tail_status_lbl"] = ctk.CTkLabel(ctrl, text="", font=ctk.CTkFont(size=11), text_color="#7f8c8d")
+        w["tail_status_lbl"].pack(side="left", padx=(10, 0))
+
+        # Log output (horizontal scroll for log lines)
+        out_frame = ctk.CTkFrame(tab, corner_radius=6)
+        out_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 0))
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["log_output"] = tk.Text(
+            out_frame, bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 9), state="disabled", relief="flat",
+            wrap="none", padx=8, pady=8,
+        )
+        w["log_output"].grid(row=0, column=0, sticky="nsew")
+        log_ysb = ctk.CTkScrollbar(out_frame, command=w["log_output"].yview)
+        log_ysb.grid(row=0, column=1, sticky="ns")
+        log_xsb = ctk.CTkScrollbar(out_frame, orient="horizontal", command=w["log_output"].xview)
+        log_xsb.grid(row=1, column=0, sticky="ew")
+        w["log_output"].configure(yscrollcommand=log_ysb.set, xscrollcommand=log_xsb.set)
+
+        for tag, color in [
+            ("log_error",   "#e74c3c"), ("log_warning", "#f39c12"),
+            ("log_notice",  "#3498db"), ("log_verbose", "#7f8c8d"),
+            ("log_debug",   "#2980b9"), ("log_normal",  "#c9d1d9"),
+        ]:
+            w["log_output"].tag_configure(tag, foreground=color)
+
+        btn_row = ctk.CTkFrame(tab, fg_color="transparent")
+        btn_row.grid(row=2, column=0, sticky="e", padx=8, pady=(2, 4))
+        ctk.CTkButton(btn_row, text="Clear", width=70, height=26,
+                      fg_color="#7f8c8d", hover_color="#626567",
+                      command=lambda: self._clear_text_widget(w.get("log_output"))).pack(side="left", padx=4)
+        w["log_auto_scroll_var"] = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(btn_row, text="Auto-scroll", variable=w["log_auto_scroll_var"],
+                        font=ctk.CTkFont(size=11), width=100).pack(side="left")
+
+        # Tail state
+        w["tail_stop_event"] = None
+        w["tail_thread"] = None
+
+    def _build_sdiag_cmd_tab(self, tab: Any) -> None:
+        w = self._sdiag_w
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(1, weight=1)
+
+        # Command bar
+        cmd_bar = ctk.CTkFrame(tab, fg_color="transparent")
+        cmd_bar.grid(row=0, column=0, padx=8, pady=(6, 4), sticky="ew")
+        cmd_bar.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(cmd_bar, text="$", font=ctk.CTkFont(size=15, weight="bold"),
+                     text_color="#2ecc71").pack(side="left", padx=(4, 6))
+        w["cmd_var"] = tk.StringVar()
+        cmd_entry = ctk.CTkEntry(cmd_bar, textvariable=w["cmd_var"], height=36,
+                                  font=ctk.CTkFont(size=12), placeholder_text="command to run on remote host")
+        cmd_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        cmd_entry.bind("<Return>", lambda _: self._on_sdiag_cmd_run())
+        w["cmd_entry"] = cmd_entry
+
+        w["as_root_var"] = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(cmd_bar, text="Root", variable=w["as_root_var"],
+                        font=ctk.CTkFont(size=11), width=70).pack(side="left", padx=(0, 6))
+        w["cmd_btn_run"] = ctk.CTkButton(
+            cmd_bar, text="▶  Run", width=90, height=36, font=ctk.CTkFont(size=12),
+            fg_color="#2d5016", hover_color="#3d6b20",
+            command=self._on_sdiag_cmd_run,
+        )
+        w["cmd_btn_run"].pack(side="left")
+
+        # Command output
+        out_frame = ctk.CTkFrame(tab, corner_radius=6)
+        out_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 0))
+        out_frame.grid_rowconfigure(0, weight=1)
+        out_frame.grid_columnconfigure(0, weight=1)
+
+        w["cmd_output"] = tk.Text(
+            out_frame, bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 10), state="disabled", relief="flat",
+            wrap="none", padx=8, pady=8,
+        )
+        w["cmd_output"].grid(row=0, column=0, sticky="nsew")
+        cmd_ysb = ctk.CTkScrollbar(out_frame, command=w["cmd_output"].yview)
+        cmd_ysb.grid(row=0, column=1, sticky="ns")
+        cmd_xsb = ctk.CTkScrollbar(out_frame, orient="horizontal", command=w["cmd_output"].xview)
+        cmd_xsb.grid(row=1, column=0, sticky="ew")
+        w["cmd_output"].configure(yscrollcommand=cmd_ysb.set, xscrollcommand=cmd_xsb.set)
+
+        for tag, color in [
+            ("ok", "#2ecc71"), ("error", "#e74c3c"), ("cmd_hdr", "#3498db"), ("value", "#ecf0f1"),
+        ]:
+            w["cmd_output"].tag_configure(tag, foreground=color)
+
+        ctk.CTkButton(
+            tab, text="Clear", width=70, height=26,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=lambda: self._clear_text_widget(w.get("cmd_output")),
+        ).grid(row=2, column=0, sticky="e", padx=8, pady=(2, 4))
 
     def _on_sdiag_listbox_select(self, _event=None) -> None:
         w = self._sdiag_w
@@ -3766,7 +4029,8 @@ class ScrapeManagerApp(ctk.CTk):
         root_password: str, timeout: float,
     ) -> None:
         w = self._sdiag_w
-        self.after(0, lambda: w["btn_run"].configure(state="disabled", text="Running…"))
+        btn = w.get("health_btn_run")
+        self.after(0, lambda: btn and btn.configure(state="disabled", text="Running…"))
         self.after(0, lambda: w["lbl_status"].configure(
             text=f"Connecting to {server}…", text_color="#f39c12",
         ))
@@ -3787,11 +4051,11 @@ class ScrapeManagerApp(ctk.CTk):
         except Exception as exc:
             self._ui_queue.put(("sdiag_result", {"error": str(exc)}, str(exc)))
         finally:
-            self.after(0, lambda: w["btn_run"].configure(state="normal", text="🔍  Diagnose"))
+            self.after(0, lambda: btn and btn.configure(state="normal", text="🔍  Diagnose"))
 
     def _display_sdiag_result(self, data: dict, error: str | None) -> None:
         w = self._sdiag_w
-        txt = w.get("output")
+        txt = w.get("health_output")
         if not txt:
             return
         txt.configure(state="normal")
@@ -3808,10 +4072,17 @@ class ScrapeManagerApp(ctk.CTk):
                 w["lbl_status"].configure(text=f"Failed — {short}", text_color="#e74c3c")
         else:
             srv = data.get("server", "")
+            ts  = data.get("generated_at_utc", "")
             if w.get("lbl_status"):
                 w["lbl_status"].configure(
-                    text=f"✓ Diagnostics complete — {srv}", text_color="#2ecc71",
+                    text=f"✓ Diagnostics complete — {srv}  ({ts})", text_color="#2ecc71",
                 )
+
+            # ── Render sections in friendly order ────────────────────────
+            def _section(title: str) -> None:
+                txt.insert("end", f"\n{'─' * 60}\n", "section")
+                txt.insert("end", f"  {title}\n", "section")
+                txt.insert("end", f"{'─' * 60}\n", "section")
 
             def _render(obj: Any, indent: int = 0) -> None:
                 pad = "  " * indent
@@ -3824,9 +4095,10 @@ class ScrapeManagerApp(ctk.CTk):
                             _render(v, indent + 1)
                         else:
                             sv = str(v)
-                            ok_val  = v is True  or sv.lower() in ("ok", "true",  "yes", "installed", "found")
-                            err_val = v is False or sv.lower() in ("false", "no", "missing", "not installed", "not found")
-                            vtag    = "ok" if ok_val else "error" if err_val else "value"
+                            ok_val  = v is True  or sv.lower() in ("ok", "true", "yes", "installed", "found", "active", "enabled")
+                            err_val = v is False or sv.lower() in ("false", "no", "missing", "not installed", "not found", "failed", "inactive")
+                            warn_val = sv.lower() in ("inactive", "disabled", "unknown")
+                            vtag = "ok" if ok_val else "error" if err_val else "warn" if warn_val else "value"
                             txt.insert("end", f"{pad}{k}: ", "key")
                             txt.insert("end", f"{sv}\n", vtag)
                 elif isinstance(obj, list):
@@ -3838,9 +4110,452 @@ class ScrapeManagerApp(ctk.CTk):
                 else:
                     txt.insert("end", f"{pad}{obj}\n", "value")
 
-            _render(data)
+            # Meta
+            _section("System Info")
+            _render(data.get("meta", {}), 1)
+
+            # Calls
+            _section("Active Calls")
+            _render(data.get("calls", {}), 1)
+
+            # Endpoints
+            _section("Endpoints")
+            ep = dict(data.get("endpoints", {}))
+            ep.pop("registered_ids", None)  # skip the long list in main view
+            _render(ep, 1)
+            reg_ids = data.get("endpoints", {}).get("registered_ids", [])
+            if reg_ids:
+                txt.insert("end", "  registered_ids:\n", "key")
+                for eid in reg_ids:
+                    txt.insert("end", f"    • {eid}\n", "value")
+
+            # Time conditions
+            _section("Time Conditions")
+            _render(data.get("time_conditions", {}), 1)
+
+            # Services
+            _section("Services")
+            for svc in data.get("services", []):
+                name  = svc.get("name", "?")
+                state = svc.get("state", "?")
+                en    = svc.get("enabled", "?")
+                state_tag = "ok" if state == "active" else "error" if state == "failed" else "warn"
+                txt.insert("end", f"  {name:<12}", "key")
+                txt.insert("end", f"  {state:<10}", state_tag)
+                txt.insert("end", f"  enabled={en}\n", "value")
+
+            # System health (new section)
+            sys_data = data.get("system", {})
+            if sys_data:
+                _section("System Health")
+                disk = sys_data.get("disk", {})
+                if disk:
+                    pct_str = disk.get("use_pct", "")
+                    try:
+                        pct_num = int(pct_str.rstrip("%"))
+                        disk_tag = "error" if pct_num >= 90 else "warn" if pct_num >= 75 else "ok"
+                    except Exception:
+                        disk_tag = "value"
+                    txt.insert("end", "  Disk /: ", "key")
+                    txt.insert("end", f"{disk.get('used','?')} / {disk.get('total','?')}  ({pct_str} used)  free={disk.get('free','?')}\n", disk_tag)
+
+                mem = sys_data.get("memory", {})
+                if mem:
+                    total_mb = mem.get("total_mb", 0) or 1
+                    used_mb  = mem.get("used_mb", 0)
+                    avail_mb = mem.get("available_mb", used_mb)
+                    pct_used = int((used_mb / total_mb) * 100) if total_mb else 0
+                    mem_tag  = "error" if pct_used >= 90 else "warn" if pct_used >= 75 else "ok"
+                    txt.insert("end", "  Memory:  ", "key")
+                    txt.insert("end", f"{used_mb} MB used / {total_mb} MB total  ({pct_used}%)  avail={avail_mb} MB\n", mem_tag)
+
+                load = sys_data.get("load", {})
+                if load:
+                    txt.insert("end", "  Load:    ", "key")
+                    txt.insert("end", f"1m={load.get('1m','?')}  5m={load.get('5m','?')}  15m={load.get('15m','?')}\n", "value")
+
+                f2b = sys_data.get("fail2ban", {})
+                if f2b.get("available"):
+                    banned = f2b.get("sshd_banned", 0)
+                    ban_tag = "warn" if banned > 0 else "ok"
+                    txt.insert("end", "  Fail2Ban:", "key")
+                    txt.insert("end", f" sshd_banned={banned}  jails={f2b.get('jail_count','?')}\n", ban_tag)
+                else:
+                    txt.insert("end", "  Fail2Ban:", "key")
+                    txt.insert("end", " not installed\n", "value")
+
+                restart = sys_data.get("asterisk_last_restart")
+                if restart:
+                    txt.insert("end", "  Asterisk last restart: ", "key")
+                    txt.insert("end", f"{restart}\n", "value")
+
+            # Snapshot
+            snap = data.get("snapshot", {})
+            if snap:
+                _section("Callflows Snapshot")
+                _render(snap, 1)
 
         txt.see("1.0")
+        txt.configure(state="disabled")
+
+    # ── Quick actions ──────────────────────────────────────────────────────────
+
+    def _on_sdiag_quick_action(self, action: str) -> None:
+        _CONFIRM = {
+            "restart_asterisk": "⚠ This will DROP all active calls.\nAre you sure you want to restart Asterisk?",
+            "reload_freepbx":   "This will reload FreePBX configuration.\nContinue?",
+            "clear_fail2ban":   "This will unban ALL currently blocked IPs.\nContinue?",
+        }
+        if action in _CONFIRM:
+            if not messagebox.askyesno("Confirm Action", _CONFIRM[action]):
+                return
+        w = self._sdiag_w
+        if w.get("inner_tabs"):
+            try:
+                w["inner_tabs"].set("Run Command")
+            except Exception:
+                pass
+        server = w["server_entry"].get().strip()
+        if not server:
+            messagebox.showwarning("No Server", "Select a server from the picker first.")
+            return
+        cmd = self._QUICK_ACTION_CMDS.get(action, f"echo 'unknown action: {action}'")
+        self._sdiag_append_cmd_output(f"\n# Quick Action: {action}\n$ {cmd}\n", "cmd_hdr")
+        self._run_in_thread(
+            self._do_sdiag_run_command,
+            server=server,
+            username=w["username_entry"].get().strip() or "123net",
+            password=w["password_entry"].get().strip(),
+            root_password=w["root_pw_entry"].get().strip(),
+            command=cmd,
+            as_root=True,
+            timeout=max(60.0, float(w["timeout_entry"].get().strip() or "30")),
+        )
+
+    # ── Run Command tab methods ────────────────────────────────────────────────
+
+    def _on_sdiag_cmd_run(self) -> None:
+        w = self._sdiag_w
+        cmd = w.get("cmd_var") and w["cmd_var"].get().strip()
+        if not cmd:
+            return
+        server = w["server_entry"].get().strip()
+        if not server:
+            messagebox.showwarning("No Server", "Select a server from the picker first.")
+            return
+        as_root = bool(w.get("as_root_var") and w["as_root_var"].get())
+        try:
+            timeout = float(w["timeout_entry"].get().strip() or "30")
+        except ValueError:
+            timeout = 30.0
+        self._sdiag_append_cmd_output(f"\n$ {cmd}\n", "cmd_hdr")
+        self._run_in_thread(
+            self._do_sdiag_run_command,
+            server=server,
+            username=w["username_entry"].get().strip() or "123net",
+            password=w["password_entry"].get().strip(),
+            root_password=w["root_pw_entry"].get().strip(),
+            command=cmd,
+            as_root=as_root,
+            timeout=timeout,
+        )
+
+    def _do_sdiag_run_command(
+        self, server: str, username: str, password: str,
+        root_password: str, command: str, as_root: bool, timeout: float,
+    ) -> None:
+        w = self._sdiag_w
+        btn = w.get("cmd_btn_run")
+        self.after(0, lambda: btn and btn.configure(state="disabled", text="Running…"))
+        try:
+            result = _deploy_post("/api/diagnostics/run-command", json={
+                "server": server, "username": username, "password": password,
+                "root_password": root_password or password,
+                "command": command, "as_root": as_root,
+                "timeout_seconds": timeout,
+            })
+            self._ui_queue.put(("sdiag_cmd_result", result, None))
+        except requests.HTTPError as exc:
+            try:
+                err_data = exc.response.json()
+            except Exception:
+                err_data = {"ok": False, "error": exc.response.text}
+            self._ui_queue.put(("sdiag_cmd_result", err_data, str(exc)))
+        except Exception as exc:
+            self._ui_queue.put(("sdiag_cmd_result", {"ok": False, "error": str(exc)}, str(exc)))
+        finally:
+            self.after(0, lambda: btn and btn.configure(state="normal", text="▶  Run"))
+
+    def _sdiag_append_cmd_output(self, text: str, tag: str = "value") -> None:
+        w = self._sdiag_w
+        txt = w.get("cmd_output")
+        if not txt:
+            return
+        txt.configure(state="normal")
+        txt.insert("end", text, tag)
+        txt.see("end")
+        txt.configure(state="disabled")
+
+    def _display_sdiag_cmd_result(self, data: dict, error: str | None) -> None:
+        w = self._sdiag_w
+        txt = w.get("cmd_output")
+        if not txt:
+            return
+        txt.configure(state="normal")
+        if error or not data.get("ok", True):
+            msg = data.get("error") or error or "Command failed"
+            txt.insert("end", f"[ERROR] {msg}\n", "error")
+        else:
+            output = data.get("output", "")
+            rc = data.get("rc", 0)
+            if output:
+                txt.insert("end", output + "\n", "value")
+            rc_tag = "ok" if rc == 0 else "error"
+            txt.insert("end", f"[exit {rc}]\n", rc_tag)
+        txt.insert("end", "─" * 60 + "\n", "value")
+        txt.see("end")
+        txt.configure(state="disabled")
+
+    # ── Auto-refresh ───────────────────────────────────────────────────────────
+
+    def _on_sdiag_auto_refresh_toggle(self) -> None:
+        w = self._sdiag_w
+        enabled = w.get("auto_refresh_var") and w["auto_refresh_var"].get()
+        after_id = w.pop("auto_refresh_after_id", None)
+        if after_id:
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+        w["auto_refresh_after_id"] = None
+        if enabled:
+            self._on_sdiag_run()
+            self._sdiag_schedule_auto_refresh()
+
+    def _sdiag_schedule_auto_refresh(self) -> None:
+        w = self._sdiag_w
+        if not (w.get("auto_refresh_var") and w["auto_refresh_var"].get()):
+            return
+        try:
+            interval = max(10, int(w["refresh_interval_var"].get())) * 1000
+        except Exception:
+            interval = 30_000
+        w["auto_refresh_after_id"] = self.after(interval, self._sdiag_auto_refresh_run)
+
+    def _sdiag_auto_refresh_run(self) -> None:
+        w = self._sdiag_w
+        if not (w.get("auto_refresh_var") and w["auto_refresh_var"].get()):
+            return
+        self._on_sdiag_run()
+        self._sdiag_schedule_auto_refresh()
+
+    # ── Live call count watcher ────────────────────────────────────────────────
+
+    def _on_sdiag_watch_calls_toggle(self) -> None:
+        w = self._sdiag_w
+        if w.get("call_watch_active"):
+            w["call_watch_active"] = False
+            after_id = w.pop("call_watch_after_id", None)
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except Exception:
+                    pass
+            w["call_watch_after_id"] = None
+            if w.get("watch_calls_btn"):
+                w["watch_calls_btn"].configure(text="Watch", fg_color="#2d5016", hover_color="#3d6b20")
+            if w.get("call_count_lbl"):
+                w["call_count_lbl"].configure(text="—", text_color="#f39c12")
+        else:
+            server = w.get("server_entry") and w["server_entry"].get().strip()
+            if not server:
+                messagebox.showwarning("No Server", "Select a server first.")
+                return
+            w["call_watch_active"] = True
+            if w.get("watch_calls_btn"):
+                w["watch_calls_btn"].configure(text="Stop", fg_color="#5c1a1a", hover_color="#7a2222")
+            self._do_sdiag_watch_calls_once()
+            self._sdiag_schedule_watch_calls()
+
+    def _sdiag_schedule_watch_calls(self) -> None:
+        w = self._sdiag_w
+        if not w.get("call_watch_active"):
+            return
+        w["call_watch_after_id"] = self.after(10_000, self._sdiag_watch_calls_tick)
+
+    def _sdiag_watch_calls_tick(self) -> None:
+        w = self._sdiag_w
+        if not w.get("call_watch_active"):
+            return
+        self._do_sdiag_watch_calls_once()
+        self._sdiag_schedule_watch_calls()
+
+    def _do_sdiag_watch_calls_once(self) -> None:
+        w = self._sdiag_w
+        server = w.get("server_entry") and w["server_entry"].get().strip()
+        if not server:
+            return
+        try:
+            timeout = float(w["timeout_entry"].get().strip() or "15")
+        except Exception:
+            timeout = 15.0
+        self._run_in_thread(
+            self._fetch_sdiag_call_count,
+            server=server,
+            username=w["username_entry"].get().strip() or "123net",
+            password=w["password_entry"].get().strip(),
+            root_password=w["root_pw_entry"].get().strip(),
+            timeout=timeout,
+        )
+
+    def _fetch_sdiag_call_count(
+        self, server: str, username: str, password: str, root_password: str, timeout: float,
+    ) -> None:
+        try:
+            data = _deploy_post("/api/diagnostics/run-command", json={
+                "server": server, "username": username,
+                "password": password, "root_password": root_password or password,
+                "command": "asterisk -rx 'core show channels count' 2>/dev/null",
+                "as_root": True, "timeout_seconds": timeout,
+            })
+            output = data.get("output", "")
+            count: int | None = None
+            for line in output.splitlines():
+                parts = line.strip().split()
+                if parts and parts[0].isdigit():
+                    count = int(parts[0])
+                    break
+            self._ui_queue.put(("sdiag_call_count", count))
+        except Exception:
+            self._ui_queue.put(("sdiag_call_count", None))
+
+    # ── Live log tail ──────────────────────────────────────────────────────────
+
+    def _on_sdiag_tail_start(self) -> None:
+        w = self._sdiag_w
+        server = w["server_entry"].get().strip()
+        if not server:
+            messagebox.showwarning("No Server", "Select a server from the picker first.")
+            return
+        self._on_sdiag_tail_stop()
+        stop_event = threading.Event()
+        w["tail_stop_event"] = stop_event
+        if w.get("tail_btn_start"):
+            w["tail_btn_start"].configure(state="disabled")
+        if w.get("tail_btn_stop"):
+            w["tail_btn_stop"].configure(state="normal")
+        if w.get("tail_status_lbl"):
+            w["tail_status_lbl"].configure(text=f"Connecting to {server}…", text_color="#f39c12")
+        thread = threading.Thread(
+            target=self._do_sdiag_tail_stream,
+            kwargs={
+                "server": server,
+                "username": w["username_entry"].get().strip() or "123net",
+                "password": w["password_entry"].get().strip(),
+                "root_password": w["root_pw_entry"].get().strip(),
+                "log_path": w.get("log_path_var", tk.StringVar(value="/var/log/asterisk/full")).get().strip() or "/var/log/asterisk/full",
+                "filter_pattern": w.get("log_filter_var", tk.StringVar()).get().strip(),
+                "stop_event": stop_event,
+            },
+            daemon=True, name="sdiag-tail",
+        )
+        w["tail_thread"] = thread
+        thread.start()
+
+    def _on_sdiag_tail_stop(self) -> None:
+        w = self._sdiag_w
+        stop_evt = w.get("tail_stop_event")
+        if stop_evt:
+            stop_evt.set()
+        w["tail_stop_event"] = None
+        w["tail_thread"] = None
+        if w.get("tail_btn_start"):
+            w["tail_btn_start"].configure(state="normal")
+        if w.get("tail_btn_stop"):
+            w["tail_btn_stop"].configure(state="disabled")
+        if w.get("tail_status_lbl"):
+            w["tail_status_lbl"].configure(text="Stopped.", text_color="#7f8c8d")
+
+    def _do_sdiag_tail_stream(
+        self, server: str, username: str, password: str,
+        root_password: str, log_path: str, filter_pattern: str,
+        stop_event: threading.Event,
+    ) -> None:
+        url = f"{_deploy_active_url[0]}/api/diagnostics/tail-log"
+        payload = {
+            "server": server, "username": username, "password": password,
+            "root_password": root_password or password,
+            "log_path": log_path, "filter_pattern": filter_pattern,
+            "timeout_seconds": 30.0,
+        }
+        try:
+            self._ui_queue.put(("sdiag_tail_status", f"Streaming {log_path} from {server}…", "#2ecc71"))
+            with requests.post(url, json=payload, stream=True, timeout=None) as resp:
+                resp.raise_for_status()
+                for raw_line in resp.iter_lines(decode_unicode=True):
+                    if stop_event.is_set():
+                        break
+                    if not raw_line:
+                        continue
+                    if raw_line.startswith("data: "):
+                        try:
+                            evt = json.loads(raw_line[6:])
+                            if evt.get("heartbeat"):
+                                continue
+                            if evt.get("eof"):
+                                break
+                            if evt.get("error"):
+                                self._ui_queue.put(("sdiag_tail_line", f"[ERROR] {evt['error']}"))
+                                break
+                            line = evt.get("line", "")
+                            if line:
+                                self._ui_queue.put(("sdiag_tail_line", line))
+                        except json.JSONDecodeError:
+                            pass
+        except requests.HTTPError as exc:
+            if not stop_event.is_set():
+                self._ui_queue.put(("sdiag_tail_line", f"[HTTP ERROR] {exc}"))
+        except Exception as exc:
+            if not stop_event.is_set():
+                self._ui_queue.put(("sdiag_tail_line", f"[ERROR] {exc}"))
+        finally:
+            if not stop_event.is_set():
+                self._ui_queue.put(("sdiag_tail_status", "Connection closed.", "#e74c3c"))
+            self._ui_queue.put(("sdiag_tail_done",))
+
+    def _sdiag_append_log_line(self, line: str) -> None:
+        w = self._sdiag_w
+        txt = w.get("log_output")
+        if not txt:
+            return
+        level_filter = w.get("log_level_var") and w["log_level_var"].get()
+        if level_filter and level_filter != "All":
+            if level_filter.upper() not in line.upper():
+                return
+        upper = line.upper()
+        if "ERROR" in upper:
+            tag = "log_error"
+        elif "WARNING" in upper:
+            tag = "log_warning"
+        elif "NOTICE" in upper:
+            tag = "log_notice"
+        elif "VERBOSE" in upper or "VERB[" in upper:
+            tag = "log_verbose"
+        elif "DEBUG" in upper:
+            tag = "log_debug"
+        else:
+            tag = "log_normal"
+        txt.configure(state="normal")
+        txt.insert("end", line + "\n", tag)
+        if w.get("log_auto_scroll_var") and w["log_auto_scroll_var"].get():
+            txt.see("end")
+        # Bound memory: keep last 5000 lines
+        try:
+            line_count = int(txt.index("end-1c").split(".")[0])
+            if line_count > 5000:
+                txt.delete("1.0", f"{line_count - 4000}.0")
+        except Exception:
+            pass
         txt.configure(state="disabled")
 
     # ── Deploy background poll ────────────────────────────────────────────────
