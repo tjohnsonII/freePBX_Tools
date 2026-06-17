@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin – LSBBW</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="admin-body">
+<div class="admin-login-box">
+  <h2>LSBBW Admin</h2>
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  <form method="post">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit" class="btn-big">Login</button>
+  </form>
+</div>
+</body>
+</html>

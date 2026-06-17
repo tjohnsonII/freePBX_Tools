@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ video.title }} – LSBBW{% endblock %}
+
+{% block content %}
+<div class="video-layout">
+
+  <div class="video-main">
+    <div class="player-wrap">
+      {% if video.type == "embed" %}
+        {% if "twitter-tweet" in video.embed_url or "x.com" in video.embed_url or "twitter.com" in video.embed_url %}
+          <blockquote class="twitter-tweet">
+            <a href="{{ video.embed_url }}"></a>
+          </blockquote>
+          <script async src="https://platform.twitter.com/widgets.js"></script>
+        {% elif "instagram.com" in video.embed_url %}
+          {% set parts = video.embed_url.split("/") %}
+          <iframe src="{{ video.embed_url.rstrip('/') }}/embed/"
+                  allowfullscreen scrolling="no"
+                  style="width:100%;min-height:480px;border:none;"></iframe>
+        {% elif "tiktok.com" in video.embed_url %}
+          {% set vid_id = video.embed_url.split("/video/")[1].split("?")[0] if "/video/" in video.embed_url else "" %}
+          <iframe src="https://www.tiktok.com/embed/v2/{{ vid_id }}"
+                  allowfullscreen allow="autoplay; encrypted-media"
+                  style="width:100%;min-height:480px;border:none;"></iframe>
+        {% else %}
+          {% set yt_id = "" %}
+          {% if "youtu.be/" in video.embed_url %}
+            {% set yt_id = video.embed_url.split("youtu.be/")[1].split("?")[0] %}
+          {% elif "v=" in video.embed_url %}
+            {% set yt_id = video.embed_url.split("v=")[1].split("&")[0] %}
+          {% elif "/shorts/" in video.embed_url %}
+            {% set yt_id = video.embed_url.split("/shorts/")[1].split("?")[0] %}
+          {% endif %}
+          <iframe src="https://www.youtube.com/embed/{{ yt_id }}?rel=0&autoplay=1"
+                  allowfullscreen allow="autoplay; encrypted-media"
+                  style="width:100%;aspect-ratio:16/9;border:none;"></iframe>
+        {% endif %}
+      {% else %}
+        <video controls autoplay preload="metadata" style="width:100%;">
+          <source src="{{ video.file_path }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      {% endif %}
+    </div>
+
+    <div class="video-info">
+      <h1>{{ video.title }}</h1>
+      <div class="video-meta">
+        <span class="cat-pill">{{ video.category }}</span>
+        <span>{{ video.views }} views</span>
+        <span>by {{ video.submitter }}</span>
+        <span>{{ video.created_at[:10] }}</span>
+      </div>
+      {% if video.description %}
+      <p class="video-desc">{{ video.description }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if related %}
+  <aside class="video-sidebar">
+    <h3>More Like This</h3>
+    {% for v in related %}
+    <a href="/v/{{ v.id }}" class="side-card">
+      {% if v.thumbnail %}
+      <img src="{{ v.thumbnail }}" alt="{{ v.title }}">
+      {% else %}
+      <div class="side-thumb-ph"><span>▶</span></div>
+      {% endif %}
+      <div>
+        <p class="side-title">{{ v.title }}</p>
+        <p class="side-meta">{{ v.views }} views</p>
+      </div>
+    </a>
+    {% endfor %}
+  </aside>
+  {% endif %}
+
+</div>
+{% endblock %}

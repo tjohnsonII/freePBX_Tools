@@ -1,0 +1,17 @@
+[Unit]
+Description=LSBBW Video Site
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/lsbbw
+Environment="LSBBW_DB=/var/www/lsbbw/lsbbw.db"
+Environment="LSBBW_UPLOADS=/var/www/lsbbw/app/static/uploads"
+Environment="LSBBW_THUMBS=/var/www/lsbbw/app/static/thumbnails"
+Environment="LSBBW_ADMIN_PASS=changeme123"
+ExecStart=/var/www/lsbbw/venv/bin/python run.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

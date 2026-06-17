@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Dashboard – LSBBW</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="admin-body admin-dash">
+
+<div class="admin-header">
+  <span class="logo">LS<span>BBW</span> Admin</span>
+  <a href="/admin/logout" class="btn-logout">Logout</a>
+</div>
+
+<div class="admin-tabs">
+  <a href="/admin/dashboard?status=pending"  class="tab{% if active_status=='pending'  %} active{% endif %}">
+    Pending <span class="badge-count">{{ counts.pending }}</span>
+  </a>
+  <a href="/admin/dashboard?status=approved" class="tab{% if active_status=='approved' %} active{% endif %}">
+    Approved <span class="badge-count">{{ counts.approved }}</span>
+  </a>
+  <a href="/admin/dashboard?status=rejected" class="tab{% if active_status=='rejected' %} active{% endif %}">
+    Rejected <span class="badge-count">{{ counts.rejected }}</span>
+  </a>
+</div>
+
+<div class="admin-list">
+  {% for v in videos %}
+  <div class="admin-row">
+    <div class="admin-thumb">
+      {% if v.thumbnail %}
+      <img src="{{ v.thumbnail }}" alt="">
+      {% else %}
+      <div class="side-thumb-ph"><span>▶</span></div>
+      {% endif %}
+    </div>
+    <div class="admin-info">
+      <strong>{{ v.title }}</strong>
+      <p>{{ v.category }} &bull; {{ v.type }} &bull; by {{ v.submitter }} &bull; {{ v.created_at[:16] }}</p>
+      {% if v.embed_url %}<p class="admin-url">{{ v.embed_url[:80] }}</p>{% endif %}
+      {% if v.file_path %}<p class="admin-url">{{ v.file_path }}</p>{% endif %}
+    </div>
+    <div class="admin-actions">
+      {% if active_status != 'approved' %}
+      <form method="post" action="/admin/approve/{{ v.id }}" style="display:inline">
+        <button class="btn-approve">Approve</button>
+      </form>
+      {% endif %}
+      {% if active_status != 'rejected' %}
+      <form method="post" action="/admin/reject/{{ v.id }}" style="display:inline">
+        <button class="btn-reject">Reject</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/admin/delete/{{ v.id }}" style="display:inline"
+            onsubmit="return confirm('Delete this video?')">
+        <button class="btn-delete">Delete</button>
+      </form>
+      {% if active_status == 'approved' %}
+      <a href="/v/{{ v.id }}" target="_blank" class="btn-view">View</a>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="empty" style="padding:2rem">Nothing here.</p>
+  {% endfor %}
+</div>
+
+</body>
+</html>
