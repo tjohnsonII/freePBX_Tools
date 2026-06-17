@@ -11,7 +11,7 @@ SERVER_UNIQUE_FILES=(
 )
 
 REMOTE="${1:-origin}"
-SERVER_BRANCH="Server"
+SERVER_BRANCH="server"
 CLIENT_BRANCH="client"
 
 echo "=== Syncing main ==="
