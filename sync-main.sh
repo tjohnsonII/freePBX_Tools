@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Files that exist ONLY on Server — must be added to main from Server.
+# Files that exist ONLY on Server — must be present on main.
 SERVER_UNIQUE_FILES=(
     "webscraper/scripts/scrape_orders.py"
     "webscraper_manager/api/routes/orders.py"
@@ -19,7 +19,7 @@ SERVER_AUTHORITATIVE_FILES=(
 )
 
 REMOTE="${1:-origin}"
-SERVER_BRANCH="Server"
+SERVER_BRANCH="server"
 CLIENT_BRANCH="client"
 
 echo "=== Syncing main ==="
@@ -28,50 +28,48 @@ echo ""
 
 git fetch "$REMOTE"
 
-git checkout main
+# Build the unified tree using git plumbing — no checkout, no working-tree
+# permission issues from root-owned files.
+GIT_INDEX_FILE=$(mktemp /tmp/sync_idx.XXXXXX)
+export GIT_INDEX_FILE
 
-# Reset main to equal client — newest version of all client-side code
-git reset --hard "$REMOTE/$CLIENT_BRANCH"
-echo "  [ok] main reset to $REMOTE/$CLIENT_BRANCH"
+# Load client tree as base — newest version of all shared files
+git read-tree "$REMOTE/$CLIENT_BRANCH"
+echo "  [ok] loaded $REMOTE/$CLIENT_BRANCH as base"
 
-# Overlay files that only exist on Server
+# Overlay server files into the temporary index
 echo ""
-echo "Overlaying Server-unique files:"
-for f in "${SERVER_UNIQUE_FILES[@]}"; do
-    if git ls-tree -r "$REMOTE/$SERVER_BRANCH" --name-only | grep -qx "$f"; then
-        git checkout "$REMOTE/$SERVER_BRANCH" -- "$f"
+echo "Overlaying Server files:"
+for f in "${SERVER_UNIQUE_FILES[@]}" "${SERVER_AUTHORITATIVE_FILES[@]}"; do
+    INFO=$(git ls-tree "$REMOTE/$SERVER_BRANCH" -- "$f")
+    if [ -n "$INFO" ]; then
+        MODE=$(echo "$INFO" | awk '{print $1}')
+        BLOB=$(echo "$INFO" | awk '{print $3}')
+        git update-index --cacheinfo "$MODE,$BLOB,$f"
         echo "  [+] $f"
     else
         echo "  [-] $f — not found on $SERVER_BRANCH, skipping"
     fi
 done
 
-# Overlay files where Server is authoritative (superset of client version)
-echo ""
-echo "Overlaying Server-authoritative files:"
-for f in "${SERVER_AUTHORITATIVE_FILES[@]}"; do
-    if git ls-tree -r "$REMOTE/$SERVER_BRANCH" --name-only | grep -qx "$f"; then
-        git checkout "$REMOTE/$SERVER_BRANCH" -- "$f"
-        echo "  [+] $f"
-    else
-        echo "  [-] $f — not found on $SERVER_BRANCH, skipping"
-    fi
-done
+# Write the composite tree and create a commit on top of current main
+NEW_TREE=$(git write-tree)
+PARENT=$(git rev-parse "$REMOTE/main")
 
-# Commit only if something actually changed
-if git diff --cached --quiet; then
+if [ "$NEW_TREE" = "$(git rev-parse "$PARENT^{tree}")" ]; then
     echo ""
     echo "No changes — main already up to date."
 else
     echo ""
     TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    git commit -m "sync: main updated from $CLIENT_BRANCH + $SERVER_BRANCH files [$TIMESTAMP]"
-    echo "  [ok] committed"
+    NEW_COMMIT=$(git commit-tree "$NEW_TREE" -p "$PARENT" \
+        -m "sync: main = $CLIENT_BRANCH base + $SERVER_BRANCH files [$TIMESTAMP]")
+    git push --force "$REMOTE" "${NEW_COMMIT}:refs/heads/main"
+    echo "  [ok] pushed → $NEW_COMMIT"
 fi
 
-git push --force "$REMOTE" main
-echo "  [ok] pushed to $REMOTE/main"
+rm -f "$GIT_INDEX_FILE"
+unset GIT_INDEX_FILE
 
-git checkout -
 echo ""
 echo "Done. main is now the unified install-ready branch."
