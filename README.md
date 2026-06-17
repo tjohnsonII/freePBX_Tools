@@ -6,15 +6,31 @@ A production monorepo running on an always-on Ubuntu server. It combines a VoIP 
 
 ## Branches
 
-| Branch | Contents |
-|--------|---------|
-| `main` | Source of truth — the full monorepo, everything lives here |
-| `Server` | All server-side code — webscraper, manager API, deploy backend, HomeLab, systemd, nginx, scripts |
-| `client` | **React/Vite SPA only** — the Hosted Config Generator (`PolycomYealinkMikrotikSwitchConfig-main/`) deployed at [polycom.123hostedtools.com](https://polycom.123hostedtools.com) |
+| Branch | Contents | Deploy from here? |
+|--------|---------|-------------------|
+| `main` | **Complete monorepo — server + client, everything** | **Yes — use this for all deployments** |
+| `Server` | Server-side subset — webscraper, manager API, deploy backend, HomeLab, systemd, nginx, scripts | No — subset only |
+| `client` | Client subset — React/Vite SPA (`PolycomYealinkMikrotikSwitchConfig-main/`) | No — subset only |
 
-Always develop on `main`. The `client` and `Server` branches are curated subsets — they are **not** simple rebases of main, they contain only the code relevant to their role.
+### `main` is the deploy branch
 
-> **Note:** The `client` branch (React SPA) is separate from "client mode" (scraper running on a laptop and forwarding data to the server). See [Client / Server Split](#client--server-split) below.
+**Always clone or pull `main` when setting up a new machine or deploying an update.** It contains:
+- All server-side services (APIs, scrapers, systemd units, startup scripts)
+- All React/Next.js front-end apps
+- The Vite/React SPA deployed at [polycom.123hostedtools.com](https://polycom.123hostedtools.com)
+- All documentation, scripts, and config
+
+```bash
+# Clone for a fresh deploy (server or client machine)
+git clone -b main https://github.com/tjohnsonii/freepbx_tools.git
+
+# Pull latest on an existing clone
+git pull origin main
+```
+
+The `Server` and `client` branches are **read-only curated subsets** maintained for reference and CI scoping. They are not rebases of `main` — do not develop on them directly.
+
+> **Note:** The `client` branch (React SPA subset) is separate from "client mode" (scraper laptop forwarding data to the server). See [Client / Server Split](#client--server-split) below.
 
 ---
 
