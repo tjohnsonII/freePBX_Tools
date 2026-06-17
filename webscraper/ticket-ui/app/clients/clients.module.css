@@ -1,0 +1,93 @@
+.page    { padding: 1.5rem 2rem; }
+.title   { font-size: 1.4rem; font-weight: 700; margin-bottom: 1.25rem; }
+.error   { color: #e74c3c; margin-bottom: 1rem; }
+.loading { color: #7f8c8d; }
+.empty   { color: #7f8c8d; font-style: italic; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: var(--card-bg, #1e1e2e);
+  border: 1px solid #2d2d44;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  transition: border-color 0.2s;
+}
+.card:hover  { border-color: #4a4a70; }
+.stale       { border-color: #5a3030; opacity: 0.8; }
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+.clientId {
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusBadge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  background: #2d2d44;
+  color: #aaa;
+}
+.status_scraping     { background: #1a4a2e; color: #2ecc71; }
+.status_waiting_login{ background: #4a3a10; color: #f39c12; }
+.status_queued       { background: #1a2e4a; color: #3498db; }
+.status_idle         { background: #2d2d44; color: #95a5a6; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.rowLabel {
+  color: #7f8c8d;
+  min-width: 64px;
+  flex-shrink: 0;
+}
+.rowValue {
+  color: #ecf0f1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mono { font-family: monospace; font-size: 0.82rem; }
+
+.vpnDot   { font-size: 0.75rem; flex-shrink: 0; }
+.vpnOn    { color: #2ecc71; }
+.vpnOff   { color: #e74c3c; }
+
+.progressWrap {
+  flex: 1;
+  height: 6px;
+  background: #2d2d44;
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.progressBar {
+  height: 100%;
+  background: #2ecc71;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.lastSeen  { font-size: 0.78rem; color: #7f8c8d; margin-top: 0.2rem; }
+.staleText { color: #e74c3c; }
