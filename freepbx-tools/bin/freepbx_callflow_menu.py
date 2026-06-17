@@ -1133,59 +1133,156 @@ def summarize(data):
     print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.RESET)
     print("")
 
-def list_dids(data, show_limit=50):
+_SORT_CYCLE = ['index', 'did', 'label', 'dest']
+
+
+def get_did_rows(data):
+    """Extract DID rows from snapshot data without any display."""
     dids = data.get("inbound", [])
     rows = []
     for i, r in enumerate(dids, 1):
-        label = r.get("label") or ""
-        cid   = r.get("cid") or ""
-        dest  = r.get("destination") or ""
-        rows.append((i, r.get("did",""), label, cid, dest))
+        rows.append((i, r.get("did", ""), r.get("label") or "", r.get("cid") or "", r.get("destination") or ""))
+    return rows
+
+
+def _filter_rows(rows, query):
+    q = query.strip().lower()
+    if not q:
+        return list(rows)
+    return [r for r in rows if q in r[1].lower() or q in r[2].lower() or q in r[3].lower() or q in r[4].lower()]
+
+
+def _sort_rows(rows, key):
+    col = {'index': 0, 'did': 1, 'label': 2, 'cid': 3, 'dest': 4}.get(key, 0)
+    return sorted(rows, key=lambda r: str(r[col]).lower())
+
+
+def _show_did_detail(row):
+    idx, did, label, cid, dest = row
+    W = 64
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW +
+          f" DID Detail — Index {idx} ".center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    for field, val in [("DID", did), ("Label", label), ("CID", cid), ("Destination", dest)]:
+        line = f"  {field:<14}: {val}"
+        print(Colors.CYAN + "║" + Colors.WHITE + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def list_dids(data, show_limit=50):
+    rows = get_did_rows(data)
     if not rows:
         print(Colors.RED + "❌ No inbound routes found." + Colors.RESET)
         return []
-
-    def print_header():
-        print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
-        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 DID ROUTING TABLE ".center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Index │ DID           │ Label                         │ CID   │ Destination                    " + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
-        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-
-    def print_row(i, did, label, cid, dest):
-        print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
-            i, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
-
-    # show_limit=0 means silent (caller just wants the row data)
     if show_limit == 0:
         return rows
 
     page_size = show_limit
-    offset = 0
-    while offset < len(rows):
-        page = rows[offset:offset + page_size]
-        print_header()
-        for i, did, label, cid, dest in page:
-            print_row(i, did, label, cid, dest)
-        print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+    active_filter = ""
+    sort_key = "index"
 
-        offset += page_size
-        remaining = len(rows) - offset
-        if remaining <= 0:
-            break
+    def _tbl_header(shown, total, sk, af):
+        meta = []
+        if af:
+            meta.append(f"filter: {af}")
+        if sk != "index":
+            meta.append(f"sort: {sk}")
+        suffix = ("[" + ", ".join(meta) + "] ") if meta else ""
+        count = f"({shown}" + (f"/{total}" if af else "") + ")"
+        title = f" 📞 DID ROUTING TABLE {suffix}{count} "
+        print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + title.center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE +
+              "Index │ DID           │ Label                         │ CID   │ Destination                    " +
+              Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
 
-        prompt = (Colors.YELLOW +
-                  f"... {remaining} more. ENTER=next page, 'a'=show all, 'q'=stop: " +
-                  Colors.RESET)
-        ans = input(prompt).strip().lower()
-        if ans == "q":
-            break
-        if ans == "a":
-            print_header()
-            for i, did, label, cid, dest in rows[offset:]:
-                print_row(i, did, label, cid, dest)
+    def _tbl_row(idx, did, label, cid, dest):
+        print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
+            idx, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
+
+    def _next_sort():
+        i = _SORT_CYCLE.index(sort_key) if sort_key in _SORT_CYCLE else 0
+        return _SORT_CYCLE[(i + 1) % len(_SORT_CYCLE)]
+
+    def _prompt(remaining):
+        if remaining > 0:
+            h = (f"... {remaining} more │ ENTER=next │ a=all │ "
+                 f"f <text>=filter │ s=sort({sort_key}) │ d<N>=detail │ q=quit: ")
+        else:
+            h = "End of list │ ENTER=done │ f <text>=filter │ s=sort │ d<N>=detail: "
+        return input(Colors.YELLOW + h + Colors.RESET).strip().lower()
+
+    def _handle_detail(ans, display):
+        try:
+            n = int(ans[1:].strip())
+            match = next((r for r in display if r[0] == n), None)
+            if match:
+                _show_did_detail(match)
+                input(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            else:
+                print(Colors.RED + f"Index {n} not found in current view." + Colors.RESET)
+        except ValueError:
+            pass
+
+    while True:  # outer: redo on filter/sort change
+        display = _sort_rows(_filter_rows(rows, active_filter), sort_key)
+
+        if not display:
+            print(Colors.YELLOW + f"No results for '{active_filter}'. Press ENTER to clear filter." + Colors.RESET)
+            input()
+            active_filter = ""
+            continue
+
+        redo = False
+        offset = 0
+
+        while offset < len(display):
+            page = display[offset:offset + page_size]
+            _tbl_header(len(display), len(rows), sort_key, active_filter)
+            for row in page:
+                _tbl_row(*row)
             print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
-            break
+
+            next_offset = offset + page_size
+            remaining = len(display) - next_offset
+
+            while True:  # inner prompt loop — re-prompts after detail view
+                ans = _prompt(remaining)
+                if ans == "q":
+                    return rows
+                elif ans == "a" and remaining > 0:
+                    _tbl_header(len(display), len(rows), sort_key, active_filter)
+                    for row in display[next_offset:]:
+                        _tbl_row(*row)
+                    print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+                    next_offset = len(display)
+                    remaining = 0
+                    continue  # fall through to end-of-list prompt
+                elif ans.startswith("f"):
+                    active_filter = ans[1:].strip() or input(Colors.YELLOW + "Filter (DID/label/dest, blank=clear): " + Colors.RESET).strip()
+                    redo = True
+                    break
+                elif ans == "s":
+                    sort_key = _next_sort()
+                    print(Colors.CYAN + f"  → sorted by: {sort_key}" + Colors.RESET)
+                    redo = True
+                    break
+                elif ans.startswith("d") and len(ans) > 1:
+                    _handle_detail(ans, display)
+                    continue  # re-show same prompt without advancing
+                else:  # ENTER
+                    break
+
+            if redo:
+                break
+            offset = next_offset
+
+        if redo:
+            continue
+        break
 
     return rows
 
@@ -2188,36 +2285,43 @@ def main():
         
         # Helper function to format menu line with proper alignment
         def menu_line(num, text):
-            # Build the visible content (without color codes)
             visible_content = f" {num:>2}) {text}"
-            # Calculate padding needed (menu_width - 2 for borders - visible length)
             padding_needed = menu_width - len(visible_content) - 2
             padding = " " * max(0, padding_needed)
-            
-            # Build line with colors: border + bold number + reset + text + padding + border
             num_part = f" {num:>2})"
-            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET + 
-                   " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
-        
+            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET +
+                    " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
+
+        def menu_section(title):
+            inner = f" {title} "
+            dashes = "─" * ((menu_width - len(inner)) // 2)
+            line = (dashes + inner + dashes).ljust(menu_width)
+            return Colors.CYAN + "║" + Colors.BOLD + Colors.CYAN + line + Colors.RESET + Colors.CYAN + "║" + Colors.RESET
+
+        print(menu_section("Snapshot & Inventory"))
         print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
         print(menu_line("1", "Refresh DB snapshot"))
         print(menu_line("2", "Show inventory (counts) + list DIDs"))
+        print(menu_section("Render Call Flows"))
         print(menu_line("3", "Generate call-flow for selected DID(s)"))
         print(menu_line("4", "Generate call-flows for ALL DIDs"))
         print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
+        print(menu_line("10", "Generate ASCII art call-flows"))
+        print(menu_section("PBX Analysis"))
         print(menu_line("6", "Show Time-Condition status (+ last *code use)"))
         print(menu_line("7", "Run FreePBX module analysis"))
         print(menu_line("8", "Run paging, overhead & fax analysis"))
         print(menu_line("9", "Run comprehensive component analysis"))
-        print(menu_line("10", "Generate ASCII art call-flows"))
-        print(menu_line("11", "📞 Call Simulation & Validation"))
+        print(menu_section("Diagnostics"))
+        print(menu_line("11", "Call Simulation & Validation"))
         print(menu_line("12", "Run full Asterisk diagnostic"))
-        print(menu_line("13", "🔍 Automated log analysis (detect issues)"))
-        print(menu_line("14", "📚 Error Map & Quick Reference"))
-        print(menu_line("15", "🌐 Network Diagnostics & Packet Capture"))
-        print(menu_line("16", "🔍 Enhanced Log Analysis (dmesg/journal/regex)"))
-        print(menu_line("17", "📞 CDR/CEL Call Log Analysis"))
-        print(menu_line("18", "📱 Phone/Endpoint Analysis"))
+        print(menu_line("13", "Automated log analysis (detect issues)"))
+        print(menu_line("14", "Error Map & Quick Reference"))
+        print(menu_line("15", "Network Diagnostics & Packet Capture"))
+        print(menu_line("16", "Enhanced Log Analysis (dmesg/journal/regex)"))
+        print(menu_line("17", "CDR/CEL Call Log Analysis"))
+        print(menu_line("18", "Phone/Endpoint Analysis"))
+        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         print(menu_line("19", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
@@ -2265,8 +2369,8 @@ def main():
             input()
 
         elif choice == "4":
-            did_rows = list_dids(data, show_limit=0) or list_dids(data)  # ensures we have rows
-            if not did_rows: 
+            did_rows = get_did_rows(data)
+            if not did_rows:
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
                 input()
                 continue
@@ -2275,7 +2379,7 @@ def main():
             input()
 
         elif choice == "5":
-            did_rows = list_dids(data, show_limit=0) or list_dids(data)
+            did_rows = get_did_rows(data)
             if not did_rows: 
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
                 input()
