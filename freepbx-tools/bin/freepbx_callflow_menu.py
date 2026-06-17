@@ -1144,21 +1144,35 @@ def list_dids(data, show_limit=50):
     if not rows:
         print(Colors.RED + "❌ No inbound routes found." + Colors.RESET)
         return []
-    
-    print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
-    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 DID ROUTING TABLE ".center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
-    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Index │ DID           │ Label                         │ CID   │ Destination                    " + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-    
-    for i, did, label, cid, dest in rows[:show_limit]:
-        print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
-            i, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
-    
-    print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
-    
-    if len(rows) > show_limit:
-        print(Colors.YELLOW + f"... {len(rows) - show_limit} more not shown. (Use selection to target them anyway.)" + Colors.RESET)
+
+    if show_limit == 0:
+        return rows
+
+    def _print_header():
+        print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 DID ROUTING TABLE ".center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Index │ DID           │ Label                         │ CID   │ Destination                    " + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+
+    page_size = show_limit
+    offset = 0
+    while offset < len(rows):
+        _print_header()
+        for i, did, label, cid, dest in rows[offset:offset + page_size]:
+            print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
+                i, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+        offset += page_size
+        remaining = len(rows) - offset
+        if remaining <= 0:
+            break
+        ans = input(Colors.YELLOW + f"... {remaining} more.  ENTER=next page  'a'=show all  'q'=stop: " + Colors.RESET).strip().lower()
+        if ans == "q":
+            break
+        if ans == "a":
+            page_size = len(rows)
+
     return rows
 
 def parse_selection(sel, max_index):
