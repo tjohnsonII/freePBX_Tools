@@ -57,7 +57,7 @@ fi
 echo "[start] Starting all services..."
 python3 scripts/run_all_web_apps.py \
     --browser none \
-    --webscraper-mode api \
+    --webscraper-mode combined \
     --extras \
     --readiness-timeout 120
 
