@@ -43,12 +43,6 @@ import argparse
 import py_compile
 from typing import List
 
-# Absolute paths — manager lives in archive/legacy-cli/, deploy scripts are in archive/fleet/
-_FLEET_DIR       = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fleet"))
-_REPO_ROOT       = os.path.normpath(os.path.join(_FLEET_DIR, "..", ".."))
-DEPLOY_SCRIPT    = os.path.join(_FLEET_DIR, "deploy_freepbx_tools.py")
-UNINSTALL_SCRIPT = os.path.join(_FLEET_DIR, "deploy_uninstall_tools.py")
-
 # Enable ANSI colors on Windows
 if sys.platform == "win32":
     os.system("")  # This enables ANSI escape sequences in Windows console
@@ -202,9 +196,9 @@ def create_offline_bundle():
     print(f"{'='*70}{Colors.RESET}")
     default_name = "freepbx-tools-bundle.zip"
     out_name = input(f"Output zip filename [{default_name}]: ").strip() or default_name
-    cmd = [sys.executable, DEPLOY_SCRIPT, "--bundle", out_name]
+    cmd = [sys.executable, "deploy_freepbx_tools.py", "--bundle", out_name]
     print(f"\n{Colors.GREEN}{Colors.BOLD}Creating bundle...{Colors.RESET}\n")
-    subprocess.run(cmd, cwd=_REPO_ROOT)
+    subprocess.run(cmd)
     print(
         f"\n{Colors.GREEN}[OK] Bundle created. Copy it to the server, unzip into /home/123net/freepbx-tools, then run bootstrap.sh + install.sh as root.{Colors.RESET}"
     )
@@ -426,15 +420,14 @@ def create_and_upload_offline_bundle():
     out_name = input(f"Output zip filename [{default_name}]: ").strip() or default_name
 
     # Create bundle locally (no servers needed)
-    cmd = [sys.executable, DEPLOY_SCRIPT, "--bundle", out_name]
+    cmd = [sys.executable, "deploy_freepbx_tools.py", "--bundle", out_name]
     print(f"\n{Colors.GREEN}{Colors.BOLD}🔄 Creating bundle...{Colors.RESET}\n")
-    r = subprocess.run(cmd, cwd=_REPO_ROOT)
+    r = subprocess.run(cmd)
     if r.returncode != 0:
         print(f"{Colors.RED}❌ Bundle creation failed (exit {r.returncode}){Colors.RESET}")
         return
 
-    bn = out_name if out_name.lower().endswith(".zip") else out_name + ".zip"
-    bundle_path = os.path.join(_REPO_ROOT, os.path.basename(bn))
+    bundle_path = os.path.abspath(out_name if out_name.lower().endswith(".zip") else out_name + ".zip")
     if not os.path.exists(bundle_path):
         print(f"{Colors.RED}❌ Expected bundle not found: {bundle_path}{Colors.RESET}")
         return
@@ -529,7 +522,7 @@ def _run_with_credentials(cmd, username, password, root_password):
     env["FREEPBX_USER"] = username
     env["FREEPBX_PASSWORD"] = password
     env["FREEPBX_ROOT_PASSWORD"] = root_password
-    return subprocess.run(cmd, env=env, cwd=_REPO_ROOT)
+    return subprocess.run(cmd, env=env)
 
 def _parse_install_symlinks(install_sh_text):
     bin_links = set()
@@ -573,8 +566,8 @@ def validate_installer_uninstaller_symlinks():
     print("  🔍 Validate install/uninstall symlink consistency")
     print(f"{'='*70}{Colors.RESET}")
 
-    install_path = os.path.join(_FLEET_DIR, "freepbx-tools", "install.sh")
-    uninstall_path = os.path.join(_FLEET_DIR, "freepbx-tools", "uninstall.sh")
+    install_path = os.path.join("freepbx-tools", "install.sh")
+    uninstall_path = os.path.join("freepbx-tools", "uninstall.sh")
 
     if not os.path.exists(install_path):
         print(f"{Colors.RED}❌ Missing: {install_path}{Colors.RESET}")
@@ -635,8 +628,6 @@ def _build_deploy_cmd(script_name, servers):
       - a comma-separated string of IPs
       - a filename (ProductionServers.txt/custom file)
     """
-    if not os.path.isabs(script_name):
-        script_name = os.path.join(_FLEET_DIR, script_name)
     cmd = [sys.executable, script_name]
 
     if isinstance(servers, (list, tuple)):
@@ -671,11 +662,11 @@ def _self_test():
     print("- Checks focus on syntax, packaging, and installer consistency\n")
 
     required_paths = [
-        os.path.join(_FLEET_DIR, "freepbx-tools", "install.sh"),
-        os.path.join(_FLEET_DIR, "freepbx-tools", "uninstall.sh"),
-        os.path.join(_FLEET_DIR, "freepbx-tools", "bootstrap.sh"),
-        DEPLOY_SCRIPT,
-        UNINSTALL_SCRIPT,
+        os.path.join("freepbx-tools", "install.sh"),
+        os.path.join("freepbx-tools", "uninstall.sh"),
+        os.path.join("freepbx-tools", "bootstrap.sh"),
+        "deploy_freepbx_tools.py",
+        "deploy_uninstall_tools.py",
     ]
     missing = [p for p in required_paths if not os.path.exists(p)]
     if missing:
@@ -686,9 +677,9 @@ def _self_test():
 
     # Python syntax check
     to_compile = [
-        os.path.abspath(__file__),
-        DEPLOY_SCRIPT,
-        UNINSTALL_SCRIPT,
+        "freepbx_tools_manager.py",
+        "deploy_freepbx_tools.py",
+        "deploy_uninstall_tools.py",
     ]
     for f in to_compile:
         py_compile.compile(f, doraise=True)
@@ -699,7 +690,7 @@ def _self_test():
     # If install.sh uses 'set -e', that can abort the installer even when
     # installation actually succeeded.
     print("\n[INFO] Checking freepbx-tools/install.sh for set -e safe counters...")
-    install_sh_path = os.path.join(_FLEET_DIR, "freepbx-tools", "install.sh")
+    install_sh_path = os.path.join("freepbx-tools", "install.sh")
     try:
         with open(install_sh_path, "r", encoding="utf-8", errors="ignore") as f:
             install_lines = f.read().splitlines()
@@ -762,7 +753,7 @@ def _self_test():
 
     # Deploy script dry-run (must not attempt network)
     print("\n[INFO] Running deploy_freepbx_tools.py --dry-run (no SSH, no changes)...")
-    r = subprocess.run([sys.executable, DEPLOY_SCRIPT, "--dry-run", "--workers", "1", "--servers", "127.0.0.1"], check=False, cwd=_REPO_ROOT)
+    r = subprocess.run([sys.executable, "deploy_freepbx_tools.py", "--dry-run", "--workers", "1", "--servers", "127.0.0.1"], check=False)
     if r.returncode != 0:
         print("[FAIL] deploy_freepbx_tools.py dry-run failed")
         return 2
@@ -770,7 +761,7 @@ def _self_test():
 
     # Uninstall script help should work
     print("\n[INFO] Checking deploy_uninstall_tools.py --help...")
-    r = subprocess.run([sys.executable, UNINSTALL_SCRIPT, "--help"], check=False, cwd=_REPO_ROOT)
+    r = subprocess.run([sys.executable, "deploy_uninstall_tools.py", "--help"], check=False)
     if r.returncode != 0:
         print("[FAIL] deploy_uninstall_tools.py --help failed")
         return 3
