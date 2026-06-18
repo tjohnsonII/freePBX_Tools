@@ -31,26 +31,41 @@
       color: var(--text); padding: 0.45rem 0.75rem;
       border-radius: var(--radius); font-size: 0.85rem;
     }
-    .admin-toolbar input[type="text"] { width: 220px; }
+    .admin-toolbar input[type="text"] { width: 200px; }
     .admin-toolbar input:focus, .admin-toolbar select:focus { outline: none; border-color: var(--accent2); }
     .toolbar-btn { padding: 0.45rem 1rem; border-radius: var(--radius); font-size: 0.82rem; font-weight: 700; border: none; cursor: pointer; }
     .toolbar-btn.search { background: var(--accent); color: #fff; }
     .toolbar-btn.clear  { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); text-decoration: none; }
 
-    .bulk-bar {
-      display: none; align-items: center; gap: 0.75rem;
-      padding: 0.6rem 1.5rem; background: #1a1a2e;
-      border-bottom: 1px solid #333; font-size: 0.85rem;
+    /* ── Approve All Pending ── */
+    .approve-all-btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.5rem 1.1rem; border-radius: var(--radius);
+      font-size: 0.85rem; font-weight: 800; border: none; cursor: pointer;
+      background: #1e6e45; color: #fff;
+      box-shadow: 0 0 0 2px #6effa044;
+      transition: background .15s, box-shadow .15s;
     }
-    .bulk-bar.visible { display: flex; }
-    .bulk-count { color: var(--accent2); font-weight: 700; }
-    .bulk-btn { padding: 0.35rem 0.9rem; border-radius: var(--radius); font-size: 0.8rem; font-weight: 700; border: none; cursor: pointer; }
-    .bulk-btn.approve { background: #1e6e45; color: #fff; }
-    .bulk-btn.reject  { background: #7a3a00; color: #fff; }
-    .bulk-btn.delete  { background: #7a1a1a; color: #fff; }
-    .select-all-wrap  { margin-left: auto; display: flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.8rem; cursor: pointer; }
+    .approve-all-btn:hover { background: #27915c; box-shadow: 0 0 0 3px #6effa077; }
+    .approve-all-btn .badge { background: #6effa0; color: #000; border-radius: 99px; padding: 0 0.5rem; font-size: 0.75rem; font-weight: 900; }
 
-    .row-check { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+    /* ── Selection bar (always visible when list is non-empty) ── */
+    .selection-bar {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0.6rem 1.5rem; background: #111;
+      border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .sel-label { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); cursor: pointer; user-select: none; }
+    .sel-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+    .sel-count { color: var(--accent2); font-weight: 700; min-width: 90px; }
+    .sel-actions { display: flex; gap: 0.5rem; }
+    .sel-btn { padding: 0.3rem 0.85rem; border-radius: var(--radius); font-size: 0.8rem; font-weight: 700; border: none; cursor: pointer; opacity: 0.35; pointer-events: none; transition: opacity .15s; }
+    .sel-btn.active { opacity: 1; pointer-events: auto; }
+    .sel-btn.approve { background: #1e6e45; color: #fff; }
+    .sel-btn.reject  { background: #7a3a00; color: #fff; }
+    .sel-btn.delete  { background: #7a1a1a; color: #fff; }
+
+    .row-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
     .admin-row.selected { border-color: var(--accent); background: #1a0a0a; }
   </style>
 </head>
@@ -95,7 +110,7 @@
   <a href="/admin/dashboard?status=rejected" class="tab{% if active_status=='rejected' %} active{% endif %}">Rejected <span class="badge-count">{{ counts.rejected }}</span></a>
 </div>
 
-<!-- Search toolbar -->
+<!-- Search + Approve All Pending -->
 <form method="get" action="/admin/dashboard">
   <input type="hidden" name="status" value="{{ active_status }}">
   <div class="admin-toolbar">
@@ -111,32 +126,52 @@
     <a href="/admin/dashboard?status={{ active_status }}" class="toolbar-btn clear">Clear</a>
     {% endif %}
     <span style="margin-left:auto;color:var(--muted);font-size:.82rem;">{{ videos|length }} result(s)</span>
+    {% if active_status == 'pending' and counts.pending > 0 %}
+    <form method="post" action="/admin/approve-all-pending" style="margin:0"
+          onsubmit="return confirm('Approve ALL {{ counts.pending }} pending videos?')">
+      <button type="submit" class="approve-all-btn">
+        Approve All <span class="badge">{{ counts.pending }}</span>
+      </button>
+    </form>
+    {% endif %}
   </div>
 </form>
 
-<!-- Bulk bar — own form, checkboxes associated via the `form` attribute -->
-<div class="bulk-bar" id="bulk-bar">
-  <span class="bulk-count" id="bulk-count">0 selected</span>
-  <form id="bulk-form" method="post" action="/admin/bulk" style="display:contents">
-    <button type="submit" name="bulk_action" value="approve" class="bulk-btn approve">Approve All</button>
-    <button type="submit" name="bulk_action" value="reject"  class="bulk-btn reject">Reject All</button>
-    <button type="submit" name="bulk_action" value="delete"  class="bulk-btn delete"
-            onclick="return confirm('Delete all selected?')">Delete All</button>
-  </form>
-  <label class="select-all-wrap">
-    <input type="checkbox" id="select-all"> Select all
+<!-- Selection bar (always shown when list has items) -->
+{% if videos %}
+<div class="selection-bar">
+  <label class="sel-label">
+    <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select All
   </label>
+  <span class="sel-count" id="sel-count">0 selected</span>
+  <div class="sel-actions">
+    {% if active_status != 'approved' %}
+    <button class="sel-btn approve" id="bulk-approve"
+            onclick="bulkAction('approve')" disabled>Approve</button>
+    {% endif %}
+    {% if active_status != 'rejected' %}
+    <button class="sel-btn reject" id="bulk-reject"
+            onclick="bulkAction('reject')" disabled>Reject</button>
+    {% endif %}
+    <button class="sel-btn delete" id="bulk-delete"
+            onclick="bulkAction('delete')" disabled>Delete</button>
+  </div>
 </div>
+{% endif %}
+
+<!-- Bulk form (off-screen, checkboxes associated via form= attr) -->
+<form id="bulk-form" method="post" action="/admin/bulk"
+      style="position:absolute;left:-9999px;height:0;overflow:hidden">
+</form>
 
 <!-- Video list -->
 <div class="admin-list">
   {% for v in videos %}
   <div class="admin-row" id="row-{{ v.id }}">
 
-    <!-- Checkbox associated with bulk-form, NOT nested inside it -->
     <input type="checkbox" name="selected" value="{{ v.id }}"
            class="row-check video-check" form="bulk-form"
-           onchange="updateBulkBar()">
+           onchange="updateSelection()">
 
     <div class="admin-thumb">
       {% if v.thumbnail %}
@@ -174,6 +209,47 @@
 </div>
 
 <script>
+  function getChecked() {
+    return [...document.querySelectorAll('.video-check:checked')];
+  }
+
+  function updateSelection() {
+    const checked = getChecked();
+    const n = checked.length;
+    document.getElementById('sel-count').textContent = n + ' selected';
+
+    document.querySelectorAll('.sel-btn').forEach(b => {
+      b.disabled = n === 0;
+      b.classList.toggle('active', n > 0);
+    });
+    document.querySelectorAll('.admin-row').forEach(r => r.classList.remove('selected'));
+    checked.forEach(cb => cb.closest('.admin-row').classList.add('selected'));
+
+    const all = document.querySelectorAll('.video-check');
+    const sa  = document.getElementById('select-all');
+    if (sa) sa.indeterminate = n > 0 && n < all.length;
+    if (sa) sa.checked = n > 0 && n === all.length;
+  }
+
+  function toggleAll(cb) {
+    document.querySelectorAll('.video-check').forEach(c => c.checked = cb.checked);
+    updateSelection();
+  }
+
+  function bulkAction(action) {
+    const checked = getChecked();
+    if (!checked.length) return;
+    if (action === 'delete' && !confirm(`Delete ${checked.length} video(s)?`)) return;
+    if (action === 'approve' && !confirm(`Approve ${checked.length} video(s)?`)) return;
+    const form = document.getElementById('bulk-form');
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'bulk_action';
+    input.value = action;
+    form.appendChild(input);
+    form.submit();
+  }
+
   function postAction(url, btn) {
     btn.disabled = true;
     btn.textContent = '…';
@@ -184,21 +260,6 @@
     if (!confirm('Delete this video?')) return;
     postAction(url, btn);
   }
-
-  function updateBulkBar() {
-    const checked = document.querySelectorAll('.video-check:checked');
-    const bar   = document.getElementById('bulk-bar');
-    const count = document.getElementById('bulk-count');
-    count.textContent = checked.length + ' selected';
-    bar.classList.toggle('visible', checked.length > 0);
-    document.querySelectorAll('.admin-row').forEach(r => r.classList.remove('selected'));
-    checked.forEach(cb => cb.closest('.admin-row').classList.add('selected'));
-  }
-
-  document.getElementById('select-all').addEventListener('change', function () {
-    document.querySelectorAll('.video-check').forEach(cb => cb.checked = this.checked);
-    updateBulkBar();
-  });
 </script>
 
 </body>

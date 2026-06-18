@@ -190,6 +190,19 @@ async def bulk_action(
     return RedirectResponse("/admin/dashboard", status_code=302)
 
 
+# ── Approve all pending ───────────────────────────────────────────────────────
+
+@router.post("/approve-all-pending")
+async def approve_all_pending(lsbbw_admin: str | None = Cookie(None)):
+    if not _check_auth(lsbbw_admin):
+        raise HTTPException(status_code=403)
+    db = get_db()
+    db.execute("UPDATE videos SET status='approved' WHERE status='pending'")
+    db.commit()
+    db.close()
+    return RedirectResponse("/admin/dashboard?status=approved", status_code=302)
+
+
 # ── Single actions ────────────────────────────────────────────────────────────
 
 @router.post("/approve/{video_id}")
