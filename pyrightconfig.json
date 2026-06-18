@@ -4,7 +4,9 @@
   "venv": ".venv-web-manager",
   "extraPaths": [
     "webscraper/src",
-    ".venv-webscraper/lib/python3.12/site-packages"
+    ".venv-webscraper/lib/python3.12/site-packages",
+    "/home/tim2/lsbbw",
+    "/var/www/lsbbw/venv/lib/python3.12/site-packages"
   ],
   "typeCheckingMode": "basic",
   "reportMissingModuleSource": "none"

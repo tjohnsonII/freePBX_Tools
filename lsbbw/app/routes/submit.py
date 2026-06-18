@@ -1,8 +1,8 @@
 import os
-import shutil
 import uuid
-from fastapi import APIRouter, Request, Form, File, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+import subprocess
+from fastapi import APIRouter, Request, Form, File, UploadFile
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import get_db
 from app.embed import parse_embed
@@ -17,10 +17,33 @@ MAX_UPLOAD_MB = 500
 ALLOWED_EXTS = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
 
+def _make_thumbnail(video_path: str, thumb_name: str) -> str | None:
+    """Extract a frame at 3s using FFmpeg. Returns web path or None on failure."""
+    out = os.path.join(THUMB_DIR, thumb_name)
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", "00:00:03",
+                "-i", video_path,
+                "-vframes", "1",
+                "-q:v", "4",
+                "-vf", "scale=480:-1",
+                out,
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and os.path.exists(out):
+            return f"/static/thumbnails/{thumb_name}"
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/submit", response_class=HTMLResponse)
 async def submit_form(request: Request):
-    return templates.TemplateResponse("submit.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "submit.html", {
         "categories": CATEGORIES,
         "error": None,
     })
@@ -96,11 +119,13 @@ async def submit_post(
                     })
                 out.write(chunk)
 
+        thumbnail = _make_thumbnail(dest, f"{uid}.jpg")
+
         db = get_db()
         db.execute(
-            "INSERT INTO videos (title, description, category, type, file_path, submitter) "
-            "VALUES (?, ?, ?, 'upload', ?, ?)",
-            (title, description, category, f"/static/uploads/{filename}", submitter),
+            "INSERT INTO videos (title, description, category, type, file_path, thumbnail, submitter) "
+            "VALUES (?, ?, ?, 'upload', ?, ?, ?)",
+            (title, description, category, f"/static/uploads/{filename}", thumbnail, submitter),
         )
         db.commit()
         db.close()
@@ -111,8 +136,7 @@ async def submit_post(
             "success": True,
         })
 
-    return templates.TemplateResponse("submit.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "submit.html", {
         "categories": CATEGORIES,
         "error": "Please paste a URL or choose a file to upload.",
     })

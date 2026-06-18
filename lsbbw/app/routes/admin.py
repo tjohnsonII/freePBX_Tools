@@ -28,14 +28,13 @@ def _check_auth(session: str | None) -> bool:
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("admin/login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "admin/login.html", {"error": None})
 
 
 @router.post("/login", response_class=HTMLResponse)
 async def login_post(request: Request, password: str = Form(...)):
     if not secrets.compare_digest(password, ADMIN_PASSWORD):
-        return templates.TemplateResponse("admin/login.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "admin/login.html", {
             "error": "Wrong password.",
         })
     token = secrets.token_urlsafe(32)
@@ -79,8 +78,7 @@ async def dashboard(request: Request, lsbbw_admin: str | None = Cookie(None), st
     }
     db.close()
 
-    return templates.TemplateResponse("admin/dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "admin/dashboard.html", {
         "videos": videos,
         "counts": counts,
         "active_status": status,

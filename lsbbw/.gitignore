@@ -4,3 +4,5 @@ __pycache__/
 *.db
 app/static/uploads/
 app/static/thumbnails/
+!app/templates/**
+!app/templates/admin/**

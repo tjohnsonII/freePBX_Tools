@@ -29,8 +29,7 @@ async def index(request: Request, category: str = "", page: int = 1):
     db.close()
 
     pages = (total + PER_PAGE - 1) // PER_PAGE
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "videos": videos,
         "categories": CATEGORIES,
         "active_cat": category,
@@ -58,8 +57,7 @@ async def video_page(request: Request, video_id: int):
     ).fetchall()
     db.close()
 
-    return templates.TemplateResponse("video.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "video.html", {
         "video": video,
         "related": related,
     })
