@@ -13,7 +13,7 @@ templates = Jinja2Templates(directory="app/templates")
 CATEGORIES = ["General", "Music Videos", "Freestyles", "Thick Thursdays", "Fan Favorites", "Comedy", "Other"]
 UPLOAD_DIR = os.environ.get("LSBBW_UPLOADS", "/var/www/lsbbw/app/static/uploads")
 THUMB_DIR  = os.environ.get("LSBBW_THUMBS",  "/var/www/lsbbw/app/static/thumbnails")
-MAX_UPLOAD_MB = 500
+MAX_UPLOAD_MB = 8192  # 8 GB — fits a 2-hour 1080p video
 ALLOWED_EXTS = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
 
