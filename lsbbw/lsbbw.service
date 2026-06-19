@@ -9,6 +9,11 @@ Environment="LSBBW_DB=/var/www/lsbbw/lsbbw.db"
 Environment="LSBBW_UPLOADS=/var/www/lsbbw/app/static/uploads"
 Environment="LSBBW_THUMBS=/var/www/lsbbw/app/static/thumbnails"
 Environment="LSBBW_ADMIN_PASS=changeme123"
+Environment="KEYCLOAK_URL=https://auth.123hostedtools.com"
+Environment="KEYCLOAK_REALM=internal-tools"
+Environment="KEYCLOAK_CLIENT_ID=lsbbw-admin"
+Environment="KEYCLOAK_CLIENT_SECRET=PASTE_SECRET_HERE"
+Environment="KEYCLOAK_REDIRECT_URI=https://lsbbw.123hostedtools.com/admin/callback"
 ExecStart=/var/www/lsbbw/venv/bin/python run.py
 Restart=always
 RestartSec=5

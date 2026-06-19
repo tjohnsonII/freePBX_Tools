@@ -1,5 +1,7 @@
 import os
 import secrets
+import httpx
+from urllib.parse import urlencode
 from fastapi import APIRouter, Request, Form, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -10,6 +12,43 @@ templates = Jinja2Templates(directory="app/templates")
 
 ADMIN_PASSWORD = os.environ.get("LSBBW_ADMIN_PASS", "changeme123")
 CATEGORIES = ["General", "Music Videos", "Freestyles", "Thick Thursdays", "Fan Favorites", "Comedy", "Other"]
+
+# ── Keycloak OIDC config ──────────────────────────────────────────────────────
+_KC_URL    = os.environ.get("KEYCLOAK_URL", "")
+_KC_REALM  = os.environ.get("KEYCLOAK_REALM", "internal-tools")
+_KC_ID     = os.environ.get("KEYCLOAK_CLIENT_ID", "lsbbw-admin")
+_KC_SECRET = os.environ.get("KEYCLOAK_CLIENT_SECRET", "")
+_KC_REDIR  = os.environ.get("KEYCLOAK_REDIRECT_URI", "https://lsbbw.123hostedtools.com/admin/callback")
+
+
+def _keycloak_enabled() -> bool:
+    return bool(_KC_URL and _KC_SECRET)
+
+
+def _keycloak_auth_url(state: str) -> str:
+    base = f"{_KC_URL}/realms/{_KC_REALM}/protocol/openid-connect/auth"
+    return base + "?" + urlencode({
+        "client_id": _KC_ID,
+        "redirect_uri": _KC_REDIR,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+    })
+
+
+async def _exchange_code(code: str) -> dict | None:
+    token_url = f"{_KC_URL}/realms/{_KC_REALM}/protocol/openid-connect/token"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(token_url, data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": _KC_REDIR,
+            "client_id": _KC_ID,
+            "client_secret": _KC_SECRET,
+        })
+        if resp.status_code == 200:
+            return resp.json()
+    return None
 
 
 def _check_auth(session: str | None) -> bool:
@@ -25,10 +64,25 @@ def _check_auth(session: str | None) -> bool:
     return row is not None
 
 
+def _create_session() -> str:
+    token = secrets.token_urlsafe(32)
+    db = get_db()
+    db.execute("INSERT INTO admin_sessions (token) VALUES (?)", (token,))
+    db.commit()
+    db.close()
+    return token
+
+
 # ── Login ────────────────────────────────────────────────────────────────────
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+async def login_page(request: Request, local: str = ""):
+    # ?local=1 bypasses Keycloak for emergency password login
+    if _keycloak_enabled() and not local:
+        state = secrets.token_urlsafe(16)
+        resp = RedirectResponse(_keycloak_auth_url(state), status_code=302)
+        resp.set_cookie("lsbbw_oidc_state", state, httponly=True, samesite="lax", max_age=300)
+        return resp
     return templates.TemplateResponse(request, "admin/login.html", {"error": None})
 
 
@@ -36,13 +90,43 @@ async def login_page(request: Request):
 async def login_post(request: Request, password: str = Form(...)):
     if not secrets.compare_digest(password, ADMIN_PASSWORD):
         return templates.TemplateResponse(request, "admin/login.html", {"error": "Wrong password."})
-    token = secrets.token_urlsafe(32)
-    db = get_db()
-    db.execute("INSERT INTO admin_sessions (token) VALUES (?)", (token,))
-    db.commit()
-    db.close()
+    token = _create_session()
     resp = RedirectResponse("/admin/dashboard", status_code=302)
     resp.set_cookie("lsbbw_admin", token, httponly=True, samesite="lax", max_age=28800)
+    return resp
+
+
+# ── Keycloak callback ─────────────────────────────────────────────────────────
+
+@router.get("/callback")
+async def oidc_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+):
+    if error:
+        return templates.TemplateResponse(request, "admin/login.html", {
+            "error": f"Keycloak error: {error_description or error}"
+        })
+
+    stored_state = request.cookies.get("lsbbw_oidc_state", "")
+    if not state or not secrets.compare_digest(state, stored_state):
+        return templates.TemplateResponse(request, "admin/login.html", {
+            "error": "State mismatch — please try logging in again."
+        })
+
+    tokens = await _exchange_code(code)
+    if not tokens or "access_token" not in tokens:
+        return templates.TemplateResponse(request, "admin/login.html", {
+            "error": "Token exchange failed — check client secret and redirect URI."
+        })
+
+    session_token = _create_session()
+    resp = RedirectResponse("/admin/dashboard", status_code=302)
+    resp.set_cookie("lsbbw_admin", session_token, httponly=True, samesite="lax", max_age=28800)
+    resp.delete_cookie("lsbbw_oidc_state")
     return resp
 
 
@@ -73,18 +157,16 @@ async def dashboard(
 
     db = get_db()
 
-    # ── Stats ────────────────────────────────────────────────────────────────
     counts = {
         "pending":  db.execute("SELECT COUNT(*) FROM videos WHERE status='pending'").fetchone()[0],
         "approved": db.execute("SELECT COUNT(*) FROM videos WHERE status='approved'").fetchone()[0],
         "rejected": db.execute("SELECT COUNT(*) FROM videos WHERE status='rejected'").fetchone()[0],
     }
-    total_views   = db.execute("SELECT COALESCE(SUM(views),0) FROM videos WHERE status='approved'").fetchone()[0]
-    today_subs    = db.execute(
+    total_views = db.execute("SELECT COALESCE(SUM(views),0) FROM videos WHERE status='approved'").fetchone()[0]
+    today_subs  = db.execute(
         "SELECT COUNT(*) FROM videos WHERE date(created_at)=date('now')"
     ).fetchone()[0]
 
-    # ── Filtered list ────────────────────────────────────────────────────────
     where = "WHERE status=?"
     params: list = [status]
     if q:
