@@ -77,8 +77,8 @@ async def submit_post(
             })
         db = get_db()
         db.execute(
-            "INSERT INTO videos (title, description, category, type, embed_url, thumbnail, submitter) "
-            "VALUES (?, ?, ?, 'embed', ?, ?, ?)",
+            "INSERT INTO videos (title, description, category, type, embed_url, thumbnail, submitter, status) "
+            "VALUES (?, ?, ?, 'embed', ?, ?, ?, 'approved')",
             (title, description, category, embed_url.strip(),
              parsed.get("thumbnail"), submitter),
         )
@@ -123,8 +123,8 @@ async def submit_post(
 
         db = get_db()
         db.execute(
-            "INSERT INTO videos (title, description, category, type, file_path, thumbnail, submitter) "
-            "VALUES (?, ?, ?, 'upload', ?, ?, ?)",
+            "INSERT INTO videos (title, description, category, type, file_path, thumbnail, submitter, status) "
+            "VALUES (?, ?, ?, 'upload', ?, ?, ?, 'approved')",
             (title, description, category, f"/static/uploads/{filename}", thumbnail, submitter),
         )
         db.commit()

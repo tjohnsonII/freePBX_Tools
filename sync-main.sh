@@ -9,6 +9,11 @@ SERVER_UNIQUE_FILES=(
     "webscraper_manager/api/server.py"
 )
 
+# Entire directories that exist ONLY on Server — all files overlaid onto main.
+SERVER_UNIQUE_DIRS=(
+    "lsbbw"
+)
+
 # Files that exist on BOTH branches but Server is authoritative
 # (server has the superset — orders schema, enrichment tables, agent layer, etc.)
 SERVER_AUTHORITATIVE_FILES=(
@@ -50,6 +55,16 @@ for f in "${SERVER_UNIQUE_FILES[@]}" "${SERVER_AUTHORITATIVE_FILES[@]}"; do
     else
         echo "  [-] $f — not found on $SERVER_BRANCH, skipping"
     fi
+done
+
+# Overlay entire server-unique directories
+echo ""
+echo "Overlaying Server directories:"
+for d in "${SERVER_UNIQUE_DIRS[@]}"; do
+    while IFS=$'\t' read -r mode type blob path; do
+        git update-index --cacheinfo "$mode,$blob,$path"
+        echo "  [+] $path"
+    done < <(git ls-tree -r "$REMOTE/$SERVER_BRANCH" -- "$d")
 done
 
 # Write the composite tree and create a commit on top of current main
