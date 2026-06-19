@@ -61,7 +61,7 @@ done
 echo ""
 echo "Overlaying Server directories:"
 for d in "${SERVER_UNIQUE_DIRS[@]}"; do
-    while IFS=$'\t' read -r mode type blob path; do
+    while read -r mode type blob path; do
         git update-index --cacheinfo "$mode,$blob,$path"
         echo "  [+] $path"
     done < <(git ls-tree -r "$REMOTE/$SERVER_BRANCH" -- "$d")
