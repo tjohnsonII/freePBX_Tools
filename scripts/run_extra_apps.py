@@ -40,6 +40,17 @@ REMOTE_TRACEROUTE_DIR  = "~"          # directory containing traceroute_server_u
 REMOTE_TRACEROUTE_CTL  = "~/traceroute_server_ctl.sh"
 
 SERVICES = {
+    "traceroute_backend": {
+        "label": "Traceroute Visualizer Backend (FastAPI)",
+        "service_name": "traceroute_backend",
+        "rel_dir": "traceroute-visualizer-main/traceroute-visualizer-main/src/backend",
+        "venv": "traceroute-visualizer-main/backend/.venv",
+        "app": "fastapi_traceroute_server:app",
+        "port": 8003,
+        "host": "127.0.0.1",
+        "kind": "uvicorn",
+        "health_paths": ["/docs"],
+    },
     "homelab": {
         "label": "HomeLab Network Mapping (CCNA Lab Tracker)",
         "service_name": "homelab_network_mapping",

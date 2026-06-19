@@ -59,6 +59,7 @@ python3 scripts/run_all_web_apps.py \
     --browser none \
     --webscraper-mode combined \
     --extras \
+    --no-bootstrap \
     --readiness-timeout 120
 
 echo "[start] All services started."

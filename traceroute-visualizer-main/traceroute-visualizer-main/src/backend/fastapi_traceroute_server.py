@@ -4,10 +4,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import json
-import re
 import httpx
 
 ALIASES_PATH = Path(__file__).resolve().parents[3] / "backend" / "ip_aliases.json"
@@ -30,7 +30,6 @@ load_aliases()
 
 app = FastAPI()
 
-# Enable CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,6 +37,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _geo(ip: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            data = (await client.get(f"http://ip-api.com/json/{ip}")).json()
+            return {
+                "city": data.get("city", ""),
+                "country": data.get("country", ""),
+                "lat": data.get("lat"),
+                "lon": data.get("lon"),
+            }
+    except Exception:
+        return {"city": "", "country": "", "lat": None, "lon": None}
+
+
+def _hostname(ip: str) -> str:
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except Exception:
+        return ip
+
 
 @app.post("/traceroute")
 async def traceroute(request: Request):
@@ -47,62 +68,32 @@ async def traceroute(request: Request):
     if not target:
         return {"error": "Missing target"}
 
+    mtr = shutil.which("mtr")
+    if not mtr:
+        return {"error": "mtr not installed — run: sudo apt-get install mtr-tiny"}
+
     try:
-        result = subprocess.run(["traceroute", "-n", target], capture_output=True, text=True, timeout=30)
-        lines = result.stdout.strip().split('\n')[1:]  # skip header
+        result = subprocess.run(
+            [mtr, "--json", "--no-dns", "--report-cycles", "3", target],
+            capture_output=True, text=True, timeout=60,
+        )
+        data = json.loads(result.stdout)
+        hubs: List[Dict] = data["report"]["hubs"]
+
         hops = []
-        hop_counter = 1
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            if '* * *' in line:
-                ip = "No response"
-                latency = "---"
-                hostname = "No response"
-                geo = {"city": "", "country": "", "lat": None, "lon": None}
-            else:
-                match = re.match(r'^(\d+)\s+([\d.]+)\s+([\d.]+)\s+ms', line)
-                if match:
-                    ip = match.group(2)
-                    latency = match.group(3) + " ms"
-
-                    try:
-                        hostname = socket.gethostbyaddr(ip)[0]
-                    except:
-                        hostname = ip
-
-                    try:
-                        geo_url = f"http://ip-api.com/json/{ip}"
-                        async with httpx.AsyncClient(timeout=2) as client:
-                            geo_response = await client.get(geo_url)
-                            data = geo_response.json()
-                            geo = {
-                                "city": data.get("city", ""),
-                                "country": data.get("country", ""),
-                                "lat": data.get("lat"),
-                                "lon": data.get("lon"),
-                            }
-                    except:
-                        geo = {"city": "", "country": "", "lat": None, "lon": None}
-                else:
-                    ip = "No response"
-                    latency = "---"
-                    hostname = "No response"
-                    geo = {"city": "", "country": "", "lat": None, "lon": None}
-
+        for hub in hubs:
+            ip = hub["host"]
+            no_response = (ip == "???")
+            latency = f"{hub['Last']:.1f} ms" if not no_response and hub["Last"] else "---"
+            geo = await _geo(ip) if not no_response else {"city": "", "country": "", "lat": None, "lon": None}
             hops.append({
-                "hop": hop_counter,
-                "ip": ip,
-                "hostname": hostname,
+                "hop": hub["count"],
+                "ip": ip if not no_response else "No response",
+                "hostname": _hostname(ip) if not no_response else "No response",
                 "latency": latency,
                 "geo": geo,
-                "label": label_for_ip(ip),
+                "label": label_for_ip(ip) if not no_response else None,
             })
-
-            hop_counter += 1
 
         return hops
 

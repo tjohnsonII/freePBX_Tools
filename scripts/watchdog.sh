@@ -6,13 +6,11 @@ set -euo pipefail
 declare -A HEALTH_PATHS=(
     [3004]="/"
     [3005]="/"
-    [3006]="/"
-    [3011]="/"
     [8787]="/api/health"
     [8788]="/api/health"
 )
-LABELS=(manager-ui ticket-ui traceroute homelab manager-api ticket-api)
-PORTS=(3004 3005 3006 3011 8787 8788)
+LABELS=(manager-ui ticket-ui manager-api ticket-api)
+PORTS=(3004 3005 8787 8788)
 NEEDS_RESTART=0
 
 for i in "${!PORTS[@]}"; do

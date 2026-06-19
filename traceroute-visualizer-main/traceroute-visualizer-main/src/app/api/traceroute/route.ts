@@ -21,8 +21,6 @@ export async function POST(req: Request) {
 
     const backendUrl = process.env.BACKEND_URL || "http://192.168.50.1:8000";
     const url = new URL(backendUrl);
-    // Build query for the remote server
-    if (url.pathname === "/") url.pathname = ""; // avoid trailing slash issues
     url.searchParams.set("target", normalizedTarget);
     if (mode && (mode === "icmp" || mode === "tcp" || mode === "udp")) {
       url.searchParams.set("mode", mode);
