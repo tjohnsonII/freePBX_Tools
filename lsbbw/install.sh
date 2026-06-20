@@ -35,8 +35,8 @@ sudo apachectl configtest && sudo systemctl reload apache2
 
 echo ""
 echo "Done! LSBBW is running."
-echo "  Site:  http://lsbbw.123hostedtools.com"
-echo "  Admin: http://lsbbw.123hostedtools.com/admin/login"
+echo "  Site:  http://ilovelsbbw.com"
+echo "  Admin: http://ilovelsbbw.com/admin/login"
 echo ""
 echo "Edit /etc/systemd/system/lsbbw.service to change the admin password,"
 echo "then: sudo systemctl restart lsbbw"

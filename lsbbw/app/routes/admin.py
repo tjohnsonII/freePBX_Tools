@@ -18,7 +18,7 @@ _KC_URL    = os.environ.get("KEYCLOAK_URL", "")
 _KC_REALM  = os.environ.get("KEYCLOAK_REALM", "internal-tools")
 _KC_ID     = os.environ.get("KEYCLOAK_CLIENT_ID", "lsbbw-admin")
 _KC_SECRET = os.environ.get("KEYCLOAK_CLIENT_SECRET", "")
-_KC_REDIR  = os.environ.get("KEYCLOAK_REDIRECT_URI", "https://lsbbw.123hostedtools.com/admin/callback")
+_KC_REDIR  = os.environ.get("KEYCLOAK_REDIRECT_URI", "https://ilovelsbbw.com/admin/callback")
 
 
 def _keycloak_enabled() -> bool:

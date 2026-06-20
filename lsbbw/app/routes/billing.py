@@ -11,7 +11,7 @@ stripe.api_key       = os.environ.get("STRIPE_SECRET_KEY", "")
 _WEBHOOK_SECRET      = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 _PRICE_MONTHLY       = os.environ.get("STRIPE_PRICE_MONTHLY", "price_1TkS882OWGaF3El62qfAEvrp")
 _PRICE_ANNUAL        = os.environ.get("STRIPE_PRICE_ANNUAL",  "price_1TkSKF2OWGaF3El6PUjr3sBP")
-_SITE_URL            = os.environ.get("SITE_URL", "https://lsbbw.123hostedtools.com")
+_SITE_URL            = os.environ.get("SITE_URL", "https://ilovelsbbw.com")
 _TRIAL_DAYS          = 7
 
 
