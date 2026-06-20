@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Age Verification – LSBBW</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0a;
+      color: #f0f0f0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .box {
+      max-width: 460px;
+      width: 90%;
+      text-align: center;
+      padding: 2.5rem 2rem;
+      background: #181818;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+    }
+    .logo { font-size: 2rem; font-weight: 900; letter-spacing: -1px; margin-bottom: 1.5rem; }
+    .logo span { color: #e8002d; }
+    h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #fff; }
+    p { color: #aaa; line-height: 1.6; font-size: 0.92rem; margin-bottom: 2rem; }
+    .actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    button {
+      padding: 0.75rem 2rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    button:hover { opacity: 0.85; }
+    .enter { background: #e8002d; color: #fff; }
+    .exit  { background: #2e2e2e; color: #aaa; }
+    .legal { margin-top: 1.5rem; font-size: 0.75rem; color: #555; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">LS<span>BBW</span></div>
+    <h1>Adults Only — 18+</h1>
+    <p>
+      This site contains adult content intended for viewers who are 18 years of age or older.
+      By entering you confirm that you are at least 18 years old and legally permitted to
+      view such material in your jurisdiction.
+    </p>
+    <form method="post" action="/age-gate/confirm" class="actions">
+      <input type="hidden" name="next" value="{{ next }}">
+      <button class="enter" name="confirm" value="yes">I am 18+ — Enter</button>
+      <button class="exit"  name="confirm" value="no">Exit</button>
+    </form>
+    <p class="legal">By entering you also agree to our terms of service and privacy policy.</p>
+  </div>
+</body>
+</html>
