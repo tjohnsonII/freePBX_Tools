@@ -17,6 +17,7 @@
       {% if current_user %}
         <a href="/account/dashboard" class="nav-account">{{ current_user.email.split('@')[0] }}</a>
         {% if current_user.tier == 'paid' %}<span class="nav-tier-badge">PRO</span>{% endif %}
+        <a href="/account/logout" class="nav-link">Sign Out</a>
       {% else %}
         <a href="/account/login" class="nav-link">Sign In</a>
         <a href="/account/signup" class="btn-join">Join Free</a>
