@@ -37,6 +37,10 @@ async def signup_post(
         return templates.TemplateResponse(request, "account/signup.html", {
             "error": "Password must be at least 8 characters.", "current_user": None,
         })
+    if len(password.encode()) > 72:
+        return templates.TemplateResponse(request, "account/signup.html", {
+            "error": "Password is too long (max 72 characters).", "current_user": None,
+        })
     if password != password2:
         return templates.TemplateResponse(request, "account/signup.html", {
             "error": "Passwords don't match.", "current_user": None,
