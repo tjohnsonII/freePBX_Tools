@@ -37,7 +37,13 @@
   <div class="upgrade-cta">
     <h2>Upgrade to PRO</h2>
     <p>Get access to exclusive content, HD downloads, and an ad-free experience.</p>
-    <a href="/billing/checkout" class="btn-big">Upgrade Now</a>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:1.25rem;">
+      <a href="/billing/checkout?plan=monthly" class="btn-big">$4.99 / month</a>
+      <a href="/billing/checkout?plan=annual" class="btn-big" style="background:#1e6e45;">
+        $39.99 / year <span style="font-size:.8em; opacity:.85;">(save 33%)</span>
+      </a>
+    </div>
+    <p style="margin-top:.75rem; font-size:.83rem; color:var(--muted);">7-day free trial included — cancel anytime.</p>
   </div>
   {% else %}
   <div class="upgrade-cta" style="border-color: #1e6e45;">
