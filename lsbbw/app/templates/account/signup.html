@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Create Account – LSBBW{% endblock %}
+
+{% block content %}
+<div class="auth-box">
+  <h2>Create a Free Account</h2>
+
+  {% if error %}
+  <div class="alert error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" class="auth-form">
+    <label>
+      Email
+      <input type="email" name="email" required autofocus placeholder="you@example.com">
+    </label>
+    <label>
+      Password <span class="field-hint">8+ characters</span>
+      <input type="password" name="password" required minlength="8" placeholder="••••••••">
+    </label>
+    <label>
+      Confirm password
+      <input type="password" name="password2" required placeholder="••••••••">
+    </label>
+    <button type="submit" class="btn-big" style="width:100%">Create Account</button>
+  </form>
+
+  <p class="auth-footer">Already have an account? <a href="/account/login">Sign in</a></p>
+</div>
+{% endblock %}

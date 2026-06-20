@@ -37,6 +37,23 @@ def init_db():
             token      TEXT PRIMARY KEY,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            email              TEXT    UNIQUE NOT NULL COLLATE NOCASE,
+            password_hash      TEXT    NOT NULL,
+            tier               TEXT    NOT NULL DEFAULT 'free' CHECK(tier IN ('free','paid')),
+            stripe_customer_id TEXT,
+            created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            token      TEXT    PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     conn.close()

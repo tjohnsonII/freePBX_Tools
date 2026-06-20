@@ -14,6 +14,13 @@
     <a href="/" class="logo">LS<span>BBW</span></a>
     <nav>
       <a href="/">Home</a>
+      {% if current_user %}
+        <a href="/account/dashboard" class="nav-account">{{ current_user.email.split('@')[0] }}</a>
+        {% if current_user.tier == 'paid' %}<span class="nav-tier-badge">PRO</span>{% endif %}
+      {% else %}
+        <a href="/account/login" class="nav-link">Sign In</a>
+        <a href="/account/signup" class="btn-join">Join Free</a>
+      {% endif %}
       <a href="/submit" class="btn-submit">+ Submit</a>
     </nav>
   </div>

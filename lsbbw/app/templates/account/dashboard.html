@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}My Account – LSBBW{% endblock %}
+
+{% block content %}
+<div class="account-page">
+  <div class="account-header">
+    <h1>My Account</h1>
+    <a href="/account/logout" class="btn-outline">Sign Out</a>
+  </div>
+
+  <div class="account-cards">
+
+    <div class="account-card">
+      <div class="card-label">Email</div>
+      <div class="card-value">{{ current_user.email }}</div>
+    </div>
+
+    <div class="account-card">
+      <div class="card-label">Plan</div>
+      <div class="card-value">
+        {% if current_user.tier == 'paid' %}
+          <span class="tier-badge paid">PRO</span>
+        {% else %}
+          <span class="tier-badge free">FREE</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="account-card">
+      <div class="card-label">Member since</div>
+      <div class="card-value">{{ current_user.created_at[:10] }}</div>
+    </div>
+
+  </div>
+
+  {% if current_user.tier == 'free' %}
+  <div class="upgrade-cta">
+    <h2>Upgrade to PRO</h2>
+    <p>Get access to exclusive content, HD downloads, and an ad-free experience.</p>
+    <a href="/billing/checkout" class="btn-big">Upgrade Now</a>
+  </div>
+  {% else %}
+  <div class="upgrade-cta" style="border-color: #1e6e45;">
+    <h2 style="color: #6effa0;">You're on PRO</h2>
+    <p>Enjoy full access to all content and features.</p>
+    <a href="/billing/portal" class="btn-outline">Manage Subscription</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

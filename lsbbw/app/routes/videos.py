@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import get_db
+from app.auth import get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -12,6 +13,7 @@ PER_PAGE = 24
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, category: str = "", page: int = 1):
+    user = await get_current_user(request)
     db = get_db()
     offset = (page - 1) * PER_PAGE
 
@@ -35,11 +37,13 @@ async def index(request: Request, category: str = "", page: int = 1):
         "active_cat": category,
         "page": page,
         "pages": pages,
+        "current_user": user,
     })
 
 
 @router.get("/v/{video_id}", response_class=HTMLResponse)
 async def video_page(request: Request, video_id: int):
+    user = await get_current_user(request)
     db = get_db()
     video = db.execute(
         "SELECT * FROM videos WHERE id=? AND status='approved'", (video_id,)
@@ -60,4 +64,5 @@ async def video_page(request: Request, video_id: int):
     return templates.TemplateResponse(request, "video.html", {
         "video": video,
         "related": related,
+        "current_user": user,
     })

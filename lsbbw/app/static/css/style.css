@@ -367,3 +367,94 @@ footer {
 .btn-delete:hover { background: #991a1a; }
 .btn-view    { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
 .btn-view:hover { border-color: var(--accent2); }
+
+/* ── Visitor nav additions ───────────────────────────────────────────── */
+.nav-link { font-size: 0.9rem; font-weight: 600; color: var(--muted); transition: color .15s; }
+.nav-link:hover { color: #fff; }
+
+.btn-join {
+  background: transparent; color: #fff !important;
+  padding: 0.4rem 1rem; border-radius: var(--radius);
+  font-weight: 700 !important; border: 1px solid var(--border);
+  transition: border-color .15s;
+}
+.btn-join:hover { border-color: var(--accent2); color: var(--accent2) !important; }
+
+.nav-account {
+  font-size: 0.88rem; font-weight: 600; color: var(--accent2);
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nav-account:hover { color: #fff; }
+
+.nav-tier-badge {
+  font-size: 0.65rem; font-weight: 900; letter-spacing: .05em;
+  background: var(--accent); color: #fff;
+  padding: 2px 6px; border-radius: 3px;
+}
+
+/* ── Auth pages (signup / login) ─────────────────────────────────────── */
+.auth-box {
+  width: 380px; max-width: 100%; margin: 3.5rem auto;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2.5rem;
+  display: flex; flex-direction: column; gap: 1.2rem;
+}
+.auth-box h2 { font-size: 1.4rem; text-align: center; }
+
+.auth-form { display: flex; flex-direction: column; gap: 1rem; }
+.auth-form label {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  font-size: 0.88rem; font-weight: 600; color: #ccc;
+}
+.field-hint { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-left: 0.3rem; }
+.auth-form input {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); padding: 0.6rem 0.8rem;
+  border-radius: var(--radius); font-size: 0.95rem;
+}
+.auth-form input:focus { outline: none; border-color: var(--accent2); }
+
+.auth-footer { text-align: center; color: var(--muted); font-size: 0.88rem; }
+.auth-footer a { color: var(--accent2); }
+.auth-footer a:hover { color: #fff; }
+
+/* ── Account dashboard ───────────────────────────────────────────────── */
+.account-page { max-width: 720px; margin: 0 auto; }
+.account-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+.account-header h1 { font-size: 1.5rem; }
+
+.btn-outline {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); padding: 0.4rem 1rem;
+  border-radius: var(--radius); font-size: 0.85rem; font-weight: 600;
+  transition: border-color .15s, color .15s;
+}
+.btn-outline:hover { border-color: var(--accent); color: var(--accent2); }
+
+.account-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem; margin-bottom: 2rem;
+}
+.account-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem 1.5rem;
+}
+.card-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 0.4rem; }
+.card-value { font-size: 1rem; font-weight: 600; word-break: break-all; }
+
+.tier-badge {
+  display: inline-block; font-size: 0.75rem; font-weight: 900;
+  letter-spacing: .06em; padding: 3px 10px; border-radius: 4px;
+}
+.tier-badge.paid { background: var(--accent); color: #fff; }
+.tier-badge.free { background: var(--bg3); border: 1px solid var(--border); color: var(--muted); }
+
+.upgrade-cta {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2rem;
+}
+.upgrade-cta h2 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+.upgrade-cta p  { color: var(--muted); margin-bottom: 1.25rem; line-height: 1.5; }
