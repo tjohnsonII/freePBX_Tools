@@ -13,12 +13,12 @@ Environment="KEYCLOAK_URL=https://auth.123hostedtools.com"
 Environment="KEYCLOAK_REALM=internal-tools"
 Environment="KEYCLOAK_CLIENT_ID=lsbbw-admin"
 Environment="KEYCLOAK_CLIENT_SECRET=PASTE_SECRET_HERE"
-Environment="KEYCLOAK_REDIRECT_URI=https://lsbbw.123hostedtools.com/admin/callback"
+Environment="KEYCLOAK_REDIRECT_URI=https://ilovelsbbw.com/admin/callback"
 Environment="STRIPE_SECRET_KEY=PASTE_SECRET_KEY_HERE"
 Environment="STRIPE_PRICE_MONTHLY=price_1TkS882OWGaF3El62qfAEvrp"
 Environment="STRIPE_PRICE_ANNUAL=price_1TkSKF2OWGaF3El6PUjr3sBP"
 Environment="STRIPE_WEBHOOK_SECRET=PASTE_WEBHOOK_SECRET_HERE"
-Environment="SITE_URL=https://lsbbw.123hostedtools.com"
+Environment="SITE_URL=https://ilovelsbbw.com"
 ExecStart=/var/www/lsbbw/venv/bin/python run.py
 Restart=always
 RestartSec=5
