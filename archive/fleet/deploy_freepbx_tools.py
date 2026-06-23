@@ -64,6 +64,7 @@ Script Flow:
 import sys
 import os
 import argparse
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import re
@@ -133,7 +134,7 @@ ROOT_PASSWORD = _creds["root_password"]
 # IMPORTANT: Store credentials in environment variables or a secure config file
 # Never commit passwords to git!
 REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
-LOCAL_SOURCE_DIR = "freepbx-tools"
+LOCAL_SOURCE_DIR = str(Path(__file__).resolve().parent.parent.parent / "freepbx-tools")
 
 
 def _configure_stdio_errors_replace() -> None:
