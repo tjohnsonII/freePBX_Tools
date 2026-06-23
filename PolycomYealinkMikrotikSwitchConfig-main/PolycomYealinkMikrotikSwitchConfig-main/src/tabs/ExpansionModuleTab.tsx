@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import styles from './ExpansionModuleTab.module.css';
 import { EXP_TYPE_ICONS, EXP_TYPE_TOOLTIPS, POLYCOM_PAGE_LABELS, POLYCOM_KEYS_PER_PAGE } from '../constants/expansionModule';
 
@@ -185,6 +185,39 @@ const ExpansionModuleTab: React.FC = () => {
     });
   };
 
+  // Parse sidecarConfig into a full layout map: { page -> { key -> {label, value, type} } }
+  const parsedSidecar = useMemo(() => {
+    const map: Record<number, Record<number, { label: string; value: string; type: string }>> = {};
+    for (const raw of sidecarConfig.split('\n')) {
+      const m = raw.trim().match(/^expansion_module\.(\d+)\.key\.(\d+)\.(type|value|label)=(.+)$/);
+      if (!m) continue;
+      const page = Number(m[1]), key = Number(m[2]), prop = m[3] as 'label' | 'value' | 'type';
+      if (!map[page]) map[page] = {};
+      if (!map[page][key]) map[page][key] = { label: '', value: '', type: '' };
+      map[page][key][prop] = m[4].trim();
+    }
+    return map;
+  }, [sidecarConfig]);
+
+  // Pull expansion_module.* lines out of the scraped device config and load into the editor
+  function importExpansionKeysFromScrapedConfig() {
+    const dev = devices.find(d => d.device_id === selectedDeviceId);
+    const _ph = new Set(['place holder text', 'placeholder text', 'placeholder']);
+    const _pick = (s: string) => s && !_ph.has(s.trim().toLowerCase()) ? s : '';
+    const source = dev
+      ? (_pick(dev.arbitrary_attributes) || _pick(dev.view_config) || _pick(dev.bulk_config) || '')
+      : '';
+    const expLines = source
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => /^expansion_module\.\d+\.key\.\d+\.(type|value|label)=/.test(l));
+    if (expLines.length === 0) {
+      alert('No expansion_module keys found in the scraped config for this device.\nScrape the handle first to pull fresh data.');
+      return;
+    }
+    setSidecarConfig(expLines.join('\n'));
+  }
+
   // Generate Polycom expansion config string based on form state
   const generatePolycomExpansion = () => {
     const { address, label, type, linekeyCategory, linekeyIndex } = polycomSection;
@@ -304,6 +337,10 @@ const ExpansionModuleTab: React.FC = () => {
                     title="Load saved sidecar config into the editor below"
                   >↓ Load Saved</button>
                 )}
+                <button type="button" className={styles.loadBtn}
+                  onClick={importExpansionKeysFromScrapedConfig}
+                  title="Extract expansion_module.* keys from the scraped device config and load them into the editor"
+                >⬆ Import from Config</button>
                 <button type="button" className={styles.saveBtn}
                   onClick={saveSidecarConfig}
                   disabled={!sidecarConfig}
@@ -385,16 +422,23 @@ const ExpansionModuleTab: React.FC = () => {
             </div>
             <div className={styles.keyGrid}>
               {Array.from({ length: 20 }).map((_, idx) => {
-                const isCurrent = parseInt(yealinkSection.sidecarLine) === idx + 1;
-                const label = isCurrent ? yealinkSection.label : '';
-                const value = isCurrent ? yealinkSection.value : '';
-                const type = isCurrent ? yealinkSection.templateType : '';
-                const icon = EXP_TYPE_ICONS[type || 'default'];
-                const tooltip = label ? `Line: ${idx + 1}\nType: ${type}\nLabel: ${label}\nValue: ${value}` : 'Empty';
-                const cellClass = `${styles.keyCell} ${type === 'BLF' ? styles.keyCellBLF : type === 'SpeedDial' ? styles.keyCellSpeedDial : ''}`;
+                const lineNum = idx + 1;
+                const pageNum = parseInt(yealinkSection.sidecarPage);
+                const isCurrent = parseInt(yealinkSection.sidecarLine) === lineNum;
+                // Active form entry overrides parsed value for live preview
+                const parsed = parsedSidecar[pageNum]?.[lineNum];
+                const rawType = isCurrent ? (yealinkSection.templateType === 'BLF' ? '16' : '13') : (parsed?.type || '');
+                const typeLabel = rawType === '16' ? 'BLF' : rawType === '13' ? 'SpeedDial' : rawType;
+                const label = isCurrent ? yealinkSection.label : (parsed?.label || '');
+                const value = isCurrent ? yealinkSection.value : (parsed?.value || '');
+                const icon = EXP_TYPE_ICONS[typeLabel || 'default'];
+                const tooltip = label
+                  ? `Line: ${lineNum}\nType: ${typeLabel}\nLabel: ${label}\nValue: ${value}`
+                  : `Line: ${lineNum} — Empty`;
+                const cellClass = `${styles.keyCell} ${typeLabel === 'BLF' ? styles.keyCellBLF : typeLabel === 'SpeedDial' ? styles.keyCellSpeedDial : ''}`;
                 return (
                   <div key={idx} className={cellClass} title={tooltip}>
-                    <span className={styles.keyIcon} title={EXP_TYPE_TOOLTIPS[type || 'default']}>{icon}</span>
+                    <span className={styles.keyIcon} title={EXP_TYPE_TOOLTIPS[typeLabel || 'default']}>{icon}</span>
                     <div>{label || <span className={styles.emptyLabel}>Empty</span>}</div>
                     <div className={styles.keyValue}>{value}</div>
                   </div>
