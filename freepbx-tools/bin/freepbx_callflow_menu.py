@@ -1600,19 +1600,17 @@ def get_service_status(services):
     """Get status of system services"""
     status_list = []
     for service in services:
-        # Try common variations for certain services
         variations = [service]
         if service == "asterisk":
             variations = ["asterisk", "asterisk16", "asterisk18", "asterisk20"]
         elif service == "php-fpm":
             variations = ["php-fpm", "php73-php-fpm", "php74-php-fpm", "php80-php-fpm", "rh-php73-php-fpm"]
-        
+
         found = False
         for variant in variations:
             try:
-                # Try systemctl first (EL7+)
                 cmd = ["systemctl", "is-active", variant]
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       universal_newlines=True, timeout=2)
                 if result.returncode == 0 and result.stdout.strip() == "active":
                     status_list.append((service, "running", Colors.GREEN))
@@ -1620,13 +1618,12 @@ def get_service_status(services):
                     break
             except Exception:
                 pass
-        
+
         if not found:
             try:
-                # Try service command (older systems)
                 for variant in variations:
                     cmd = ["service", variant, "status"]
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                           universal_newlines=True, timeout=2)
                     if result.returncode == 0:
                         status_list.append((service, "running", Colors.GREEN))
@@ -1634,10 +1631,23 @@ def get_service_status(services):
                         break
             except Exception:
                 pass
-        
+
+        # Asterisk-specific fallback: CLI ping proves it's running even if systemd
+        # unit name doesn't match any variant (e.g. custom build or init.d start)
+        if not found and service == "asterisk":
+            try:
+                r = subprocess.run(["asterisk", "-rx", "core show uptime"],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   universal_newlines=True, timeout=3)
+                if r.returncode == 0 and r.stdout.strip():
+                    status_list.append((service, "running", Colors.GREEN))
+                    found = True
+            except Exception:
+                pass
+
         if not found:
             status_list.append((service, "stopped", Colors.RED))
-    
+
     return status_list
 
 def get_active_calls(sock):
