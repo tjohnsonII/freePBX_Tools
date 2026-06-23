@@ -177,6 +177,93 @@ SIMULATE_CALLS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/simulate_calls.sh"
 NETWORK_DIAGNOSTICS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_network_diagnostics.py"
 LOG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
 CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.py"
+OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
+
+
+def run_ops_menu(sock):
+    """Interactive submenu for freepbx_ops (trace, find, snapshot, validate, set-ivr)."""
+    if not os.path.isfile(OPS_SCRIPT):
+        print(Colors.RED + "\n❌ freepbx_ops.py not found at " + OPS_SCRIPT + Colors.RESET)
+        print(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+        input()
+        return
+
+    base_cmd = ["python3", OPS_SCRIPT, "--socket", sock]
+
+    while True:
+        print("\n" + Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "║   🔧  Call-Flow Ops Tools                ║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  1) Trace DID  — full call-path tree     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  2) Decode destination string            " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  3) Find  — search across all components " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  4) Snapshot  — save current call-flow   " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  5) Validate  — health/consistency check " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  6) Set IVR option (dry-run / apply)     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  7) Print ticket note                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
+        ch = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+
+        if ch == "0":
+            break
+
+        elif ch == "1":
+            did = input(Colors.YELLOW + "DID number: " + Colors.RESET).strip()
+            if did:
+                subprocess.call(base_cmd + ["trace", did])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "2":
+            dest = input(Colors.YELLOW + "Destination string (e.g. ext-group,7004,1): " + Colors.RESET).strip()
+            if dest:
+                subprocess.call(base_cmd + ["decode", dest])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "3":
+            query = input(Colors.YELLOW + "Search term: " + Colors.RESET).strip()
+            if query:
+                subprocess.call(base_cmd + ["find", query])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "4":
+            reason = input(Colors.YELLOW + "Reason (optional): " + Colors.RESET).strip()
+            cmd = base_cmd + ["snapshot"]
+            if reason:
+                cmd += ["--reason", reason]
+            subprocess.call(cmd)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "5":
+            subprocess.call(base_cmd + ["validate"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "6":
+            ivr_id = input(Colors.YELLOW + "IVR ID: " + Colors.RESET).strip()
+            option = input(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
+            dest   = input(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
+            if ivr_id and option and dest:
+                subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option, "--dest", dest])
+                apply = input(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
+                if apply in ("y", "yes"):
+                    subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option,
+                                                "--dest", dest, "--apply"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "7":
+            subprocess.call(base_cmd + ["ticket"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        else:
+            print(Colors.RED + "Invalid choice." + Colors.RESET)
 
 
 def run_tc_status(sock):
@@ -2321,6 +2408,8 @@ def main():
         print(menu_line("16", "Enhanced Log Analysis (dmesg/journal/regex)"))
         print(menu_line("17", "CDR/CEL Call Log Analysis"))
         print(menu_line("18", "Phone/Endpoint Analysis"))
+        print(menu_section("Ops Tools"))
+        print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
         print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         print(menu_line("19", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
@@ -2437,6 +2526,9 @@ def main():
 
         elif choice == "18":
             run_phone_analysis_menu()
+
+        elif choice == "20":
+            run_ops_menu(sock)
 
         elif choice == "19":
             print("Bye.")
