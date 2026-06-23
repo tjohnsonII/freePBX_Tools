@@ -90,6 +90,10 @@ def has_col(table, col):
     except Exception:
         return False
 
+def did_col(tbl):
+    """Return the DID column name — 'did' (newer FreePBX) or 'extension' (older)."""
+    return "did" if has_col(tbl, "did") else "extension"
+
 # ── destination decoder ───────────────────────────────────────────────────────
 
 _DEST_CACHE = {}
@@ -195,13 +199,18 @@ def _misc_label(misc_id):
 # ── data loaders ──────────────────────────────────────────────────────────────
 
 def load_did(did):
-    for tbl, cols in [
-        ("incoming",      ["did","cidnum","destination","description"]),
-        ("inbound_routes",["did","cidnum","destination","description"]),
-    ]:
+    for tbl in ("incoming", "inbound_routes"):
         if has_table(tbl):
-            row = qone(f"SELECT did,cidnum,destination,description FROM {tbl} WHERE did='{did}';", cols)
+            dc = did_col(tbl)
+            cols = [dc, "cidnum", "destination", "description"]
+            row = qone(
+                f"SELECT {dc},cidnum,destination,description FROM {tbl} WHERE {dc}='{did}';",
+                cols
+            )
             if row:
+                # normalise key to 'did' for callers
+                if dc != "did":
+                    row["did"] = row.pop(dc)
                 return row
     return None
 
@@ -395,16 +404,17 @@ def cmd_find(args):
 
     # Inbound routes / DIDs
     tbl = "incoming" if has_table("incoming") else "inbound_routes"
+    dc  = did_col(tbl)
     rows = qrows(
-        f"SELECT did, description, destination FROM {tbl} "
-        f"WHERE did LIKE '%{q}%' OR description LIKE '%{q}%' LIMIT 10;",
-        ["did", "description", "destination"]
+        f"SELECT {dc}, description, destination FROM {tbl} "
+        f"WHERE {dc} LIKE '%{q}%' OR description LIKE '%{q}%' LIMIT 10;",
+        [dc, "description", "destination"]
     )
     if rows:
         found = True
         print(f"{C.BOLD}Inbound Routes (DIDs):{C.RESET}")
         for r in rows:
-            print(f"  {C.GREEN}{r['did']:<15}{C.RESET} {r['description']:<30} → {decode(r['destination'])}")
+            print(f"  {C.GREEN}{r[dc]:<15}{C.RESET} {r['description']:<30} → {decode(r['destination'])}")
         print()
 
     # Time Conditions
@@ -490,8 +500,12 @@ def cmd_snapshot(args):
 
     # Inbound routes
     tbl  = "incoming" if has_table("incoming") else "inbound_routes"
-    rows = qrows(f"SELECT did, description, destination FROM {tbl};",
-                 ["did", "description", "destination"])
+    dc   = did_col(tbl)
+    rows = qrows(f"SELECT {dc}, description, destination FROM {tbl};",
+                 [dc, "description", "destination"])
+    # normalise key to 'did' in snapshot output
+    if dc != "did":
+        rows = [{**{k: v for k, v in r.items() if k != dc}, "did": r[dc]} for r in rows]
     snap["inbound_routes"] = rows
     ok(f"Inbound routes: {len(rows)}")
 
@@ -582,12 +596,13 @@ def cmd_validate(args):
 
     # 4. Inbound routes pointing to deleted/missing destinations
     tbl  = "incoming" if has_table("incoming") else "inbound_routes"
-    rows = qrows(f"SELECT did, description, destination FROM {tbl};",
-                 ["did", "description", "destination"])
+    dc   = did_col(tbl)
+    rows = qrows(f"SELECT {dc}, description, destination FROM {tbl};",
+                 [dc, "description", "destination"])
     for r in rows:
         dest = r.get("destination","")
         if not dest:
-            issues.append(f"DID {r['did']} ({r['description']}): no destination configured")
+            issues.append(f"DID {r[dc]} ({r['description']}): no destination configured")
 
     # 5. Voicemail boxes with no email
     rows = qrows("SELECT mailbox, fullname, email FROM voicemail WHERE context='default';",
