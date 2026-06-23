@@ -1,4 +1,4 @@
-name: Sync main branch
+name: Sync main
 
 on:
   push:
@@ -15,19 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # need full history + all branches
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure git identity
+      - name: Configure git
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run sync-main.sh
+      - name: Sync main
         run: bash sync-main.sh
-
-      - name: Report result
-        if: always()
-        run: |
-          echo "Triggered by push to: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
