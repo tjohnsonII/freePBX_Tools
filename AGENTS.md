@@ -1,266 +1,268 @@
-# AGENTS.md – freePBX_Tools workspace
+# AGENTS.md — AI Agent and Automation Guidance
 
-This repo is a multi-tool workspace (Python + Shell + Node/TypeScript) for FreePBX operations, deployments, diagnostics, config generation, traceroute visualization, and scraping/knowledge-base automation.
+Rules for AI coding agents (Claude, Codex, Copilot, etc.) working in this repo.
 
-**High risk:** parts of this repo interact with customer systems and can produce/contain sensitive data (cookies, credentials, customer exports). Follow the hard rules.
-
-If anything is unclear, **do not guess**. Add a **TODO/VERIFY** note and point to the specific file that needs to be updated.
+**High sensitivity:** parts of this repo interact with customer systems and contain scraped ticket data. Follow the hard rules. When in doubt, add a `TODO/VERIFY` comment rather than guessing.
 
 ---
 
-## Hard rules (non-negotiable)
+## Hard Rules (Non-Negotiable)
 
-### Secrets / sensitive data
+### Secrets and sensitive data
 - **Never** create, modify, or commit:
-  - cookies, sessions, headers, auth tokens
-  - usernames/passwords/credentials
-  - internal-only docs/dumps/scrapes/exported customer data
-  - databases or analysis outputs containing customer information
-- Treat anything under these patterns as **off-limits** for commits:
-  - `cookies*`, `*_cookies.*`, `*_credentials.*`, `*password*`, `.env*`
-  - `123net_internal_docs/` (and any mirrored copies)
-  - scrape/export outputs such as `scraped_tickets/`, `webscraper/output/`, `webscraper/ticket-discovery-output/`
-  - `tickets.json`, `customers_raw.html`, `*.db`, bulk `*.csv`/`*.json` outputs
-- **Do not open or scan ignored output folders** (anything ignored by `.gitignore`) unless explicitly asked.
-- If a folder/file is ignored by `.gitignore`, treat it as private/local-only unless explicitly instructed otherwise.
-- If a change would require adding sensitive output files, **stop** and propose an alternative.
+  - `.env` files (gitignored — contains `INGEST_API_KEY` and similar)
+  - Cookies, sessions, auth tokens
+  - Customer data, scrape outputs, ticket databases
+  - SQLite database files (`*.db`, `*.sqlite`)
+  - Chrome profile data (`webscraper/var/chrome-profile/`)
+- Treat these paths as **off-limits**:
+  - `webscraper/var/` — runtime data, never committed
+  - `scraped_tickets/` — legacy scrape outputs
+  - `.env` — local secrets
+  - `var/` — runtime state files
 
-### Repo safety workflow
-- Prefer **small, scoped diffs**.
-- Do not reformat unrelated files.
-- Always state what you changed + what you tested.
-- One task = one commit/PR when possible. Avoid drive-by refactors.
-- Output files must go to ignored folders; if in doubt, add an ignore rule first.
-
-### Secure push requirement
-- **Always** use secure push workflow instead of raw `git push` when `git spush` is available.
-- This repo ships `scripts/secure_push.py`; some environments configure `git spush` as a local alias in `.git/config` or a global Git config.
-- **Important:** if `git spush` is configured, verify it does not hard-code a machine-specific Python path. Prefer `py -3` / `python` in docs.
-
-### Line endings
-- Default to **LF** for new files.
-- Respect `.gitattributes` (enforces LF for certain patterns).
+### Never do these
+- Never bypass pre-commit hooks with `--no-verify`
+- Never commit to `server` or `client` branch directly — develop on `main`
+- Never run `npm run dev` on the server — production builds only
+- Never install Python packages into system Python — always use the project venv
+- Never share or cross-activate venvs between zones
+- Never add modern Python 3.7+ features to `freepbx-tools/bin/` — those run on Python 3.6.7
 
 ---
 
-## Source of truth order (do not invent commands)
-1. `README*` and `RUN_APPS.md`
-2. `package.json` scripts
-3. `pyproject.toml` / `requirements.txt`
-4. VS Code tasks (if that’s how a tool is run)
+## Repository Zones
 
-If the repo doesn’t explicitly document a command, add **TODO/VERIFY**.
+Understanding zones is essential before making any change.
 
----
+### Zone A — FreePBX CLI (Remote PBX Servers)
+**Path:** `freepbx-tools/bin/`  
+**Runtime:** Python 3.6.7 on production FreePBX PBX hosts  
+**Run as:** root  
+These deploy to actual FreePBX phone system servers — not this Ubuntu server. Must stay Python 3.6 compatible. Uses `mysql -NBe` via subprocess (no Python DB drivers).
 
-## Repo map (deep-dive)
+### Zone B — Server Python Services
+**Paths:** `webscraper/`, `webscraper_manager/`, `scripts/`, root helpers  
+**Runtime:** Python 3.12.x, Ubuntu Linux server  
+Three separate venvs (never cross-activate):
+- `.venv-web-manager` → Manager API on port 8787
+- `.venv-webscraper` → Ticket API on port 8788 + scraper worker
+- `.venv` → general scripts, `web_manager.py`
 
-### Core FreePBX tool suite (deployable)
-- `freepbx-tools/`
-  - Shell + Python diagnostics, analyzers, callflow utilities
-  - Scripts under `freepbx-tools/bin/`
-  - Installer scripts present: `bootstrap.sh`, `install.sh`, `uninstall.sh`, `make_executable.sh`
-  - Config: `freepbx-tools/version_policy.json`, `freepbx-tools/requirements.txt`
+### Zone C — Front-End Apps
+**Paths:** `manager-ui/`, `webscraper/ticket-ui/`, `PolycomYealinkMikrotikSwitchConfig-main/`, `traceroute-visualizer-main/`, `HomeLab_NetworkMapping/ccna-lab-tracker/`  
+**Runtime:** Node.js 20+, npm, Ubuntu Linux server  
+Built with `npm run build`, served in production with `npm run start`. Never `npm run dev` on server.
 
-### Deployment web app (FastAPI + Vite)
-- `freepbx-deploy-backend/` (Python/FastAPI)
-- `freepbx-deploy-ui/` (React/Vite)
-
-### Config generator web app (React/Vite + Storybook)
-- `PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/`
-  - Includes Storybook config and at least one test file (`*.test.tsx`)
-  - Includes a GitHub Actions workflow under `.github/workflows/`
-
-### Traceroute visualizer (Next.js + Python backends included)
-- `traceroute-visualizer-main/traceroute-visualizer-main/` (Next.js frontend)
-- Python backend entrypoints exist under:
-  - `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/traceroute_server.py`
-  - `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/fastapi_traceroute_server.py`
-  - `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/traceroute_server_py2.py`
-- Additional backend dependency folder exists:
-  - `traceroute-visualizer-main/backend/requirements.txt`
-
-### Webscraper (Selenium) – HIGH SENSITIVITY
-- `webscraper/`
-  - Selenium scraping utilities and discovery runs
-  - Has `webscraper/requirements.txt`, `webscraper/ultimate_scraper.py`, and `webscraper/ultimate_scraper_config.py`
-  - Contains chromedriver artifacts (tracked). Treat as sensitive/large and avoid touching unless required.
-
-### Knowledge base + scraping + analysis tools (repo root)
-- Ticket/KB tooling: `ticket_scraper.py`, `build_unified_kb.py`, `unified_knowledge_base.py`, `kb_quickstart.py`, `query_ticket_kb.py`, etc.
-- Analysis tooling: `phone_config_analyzer.py`, `deep_analyze_scraped_data.py`, `analyze_vpbx_phone_configs.py`, etc.
-- Safety tooling: `verify_commit_safety.py`, `scripts/secure_push.py`
-
-### Flask web UI (repo root)
-- `web_manager.py`, `static/`, `templates/`, `web_requirements.txt`
-
-### Network config templates / generators
-- `mikrotik/` (templates + README + helper scripts)
-- `cisco switches/` (templates + helper scripts)
-
-### Misc utilities
-- `CAGE_INFO/` (shell scripts for cage/host diagnostics)
-- `scripts/` (smoke tests, selenium tests, remote diagnostics, secure push tooling)
+### Zone D — Client Scraper (Laptop)
+**Entry point:** `start_client.sh`  
+**Runtime:** same Python venv as Zone B but with `CLIENT_MODE=1`  
+Runs on a laptop over VPN. Sends scraped data to server via authenticated ingest API.
 
 ---
 
-## Subprojects: setup/run/test (Windows-friendly)
+## Architecture Summary
 
-### 1) `freepbx-deploy-backend/` (FastAPI)
-Install (PowerShell):
-- `py -3 -m venv .venv`
-- `\.venv\Scripts\python -m pip install -U pip`
-- `\.venv\Scripts\python -m pip install -r requirements.txt`
+```
+Client Laptop (VPN, CLIENT_MODE=1)
+  → POST /api/ingest/*  X-Ingest-Key: <shared>
+  → Server :8788 (Ticket API)
+       → writes to webscraper/var/db/tickets.sqlite
 
-Run:
-- `\.venv\Scripts\python -m uvicorn freepbx_deploy_backend.main:app --reload --host 127.0.0.1 --port 8002`
+Server (Ubuntu, always-on)
+  Apache :443 → proxy to internal services
+  :8787  Manager API    (.venv-web-manager, FastAPI)
+  :8788  Ticket API     (.venv-webscraper, FastAPI + SQLite)
+  :3004  Manager UI     (Next.js, npm)
+  :3005  Ticket UI      (Next.js, npm)
+  :3006  Traceroute UI  (Next.js, npm)
+  :3011  HomeLab        (Next.js, npm)
+  :5000  Web Manager    (.venv, Flask)
+  static Polycom Config UI (dist/ served by Apache)
 
-Test:
-- TODO/VERIFY (check README/pyproject for `pytest` or other test runner)
-
-Config:
-- `requirements.txt`, `pyproject.toml`, `.env*` (DO NOT COMMIT)
-
-### 2) `freepbx-deploy-ui/` (React/Vite)
-Install:
-- `npm install`
-
-Run:
-- Use `npm run <script>` from `package.json` as source of truth.
-- Example: `npm run dev`
-
-Test:
-- TODO/VERIFY (run the test script defined in `package.json`, if present)
-
-Config:
-- `package.json`, `vite.config.ts`, `tsconfig.json`
-
-### 3) `PolycomYealinkMikrotikSwitchConfig-main/.../` (React/Vite)
-Install:
-- `npm install`
-
-Run:
-- Use `npm run <script>` from `package.json` as source of truth.
-- Example: `npm run dev`
-
-Test:
-- TODO/VERIFY (project contains `*.test.tsx`; use the defined `package.json` test script)
-
-Config:
-- `package.json`, `vite.config.ts`, `.storybook/`, `.prettierrc`, `eslint.config.js`
-
-### 4) `traceroute-visualizer-main/traceroute-visualizer-main/` (Next.js)
-Install:
-- `npm install`
-
-Run:
-- Use `npm run <script>` from `package.json` as source of truth.
-- Example: `npm run dev`
-
-Test:
-- TODO/VERIFY (use the defined `package.json` test/lint scripts)
-
-Config:
-- `package.json`, `next.config.ts`, `.env.local` (DO NOT COMMIT)
-
-### 5) Traceroute Python backends (entrypoints included)
-Entrypoints (choose one):
-- `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/traceroute_server.py`
-- `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/fastapi_traceroute_server.py`
-- `traceroute-visualizer-main/traceroute-visualizer-main/src/backend/traceroute_server_py2.py`
-
-Install:
-- TODO/VERIFY which requirements file is authoritative:
-  - `traceroute-visualizer-main/backend/requirements.txt`
-  - and/or any requirements referenced by the backend scripts
-
-Run/Test:
-- TODO/VERIFY – do not guess flags/ports; follow the README for the traceroute project.
-
-### 6) `webscraper/` (Selenium) – HIGH SENSITIVITY
-Install:
-- TODO/VERIFY (use `webscraper/requirements.txt` and `webscraper/README.md`)
-
-Run/Test:
-- TODO/VERIFY (follow `webscraper/README.md`)
-
-Config:
-- `webscraper/ultimate_scraper_config.py` may reference sensitive behavior. Never commit real creds/cookies.
-
-### 7) `freepbx-tools/` (deployable server-side scripts)
-Install/Run/Test:
-- TODO/VERIFY exact invocation patterns from `freepbx-tools/README.txt`
-- Scripts do exist: `bootstrap.sh`, `install.sh`, `uninstall.sh`, `make_executable.sh` (confirm usage in README before documenting exact commands)
-
-Config:
-- `freepbx-tools/requirements.txt`, `freepbx-tools/version_policy.json`
-
-### 8) Flask web UI (repo root)
-Install/Run/Test:
-- TODO/VERIFY – use `RUN_APPS.md` and `web_requirements.txt` as sources of truth
-
-Config:
-- `web_requirements.txt`, and any `.env*` (DO NOT COMMIT)
-
-### 9) KB / analysis scripts (repo root)
-Run/Test:
-- Several test entrypoints exist (e.g., `test_kb_system.py`, `test_selenium.py`, `test_dashboard.py`, `test_phone_analyzer_integration.py`).
-- TODO/VERIFY the intended runner (plain `python`, `pytest`, or other) from `README.md` / `QUICK_TEST.md` / `TEST_KNOWLEDGE_BASE.md`.
-
-Config:
-- Use `config.example.py` and `scraper_config.example.py` as templates only. Do not commit real `config.py` / `scraper_config.py`.
+systemd: freepbx-tools.service → scripts/start_services.sh (boot)
+Manual:  sudo ./FULL_START.sh  (full rebuild + start)
+Quick:   sudo ./RESTART.sh     (per-service restart menu)
+```
 
 ---
 
-## Existing repo conventions & tooling (observed)
-- Ignore rules: `.gitignore` (sensitive outputs and artifacts are intentionally ignored)
-- Line endings: `.gitattributes`
-- Secret scanning / hooks: `.pre-commit-config.yaml`, `.gitleaks.toml`
-- Secure push wrapper: `scripts/secure_push.py` (may be invoked by `git spush` if configured)
-- Workspace/editor config: `.vscode/settings.json`, `freepbx-tools-suite.code-workspace`
-- GitHub/Copilot guidance: `.github/copilot-instructions.md` and subproject copilot instructions
+## Repo Map (Authoritative)
 
-If pre-commit is installed, run:
-- `pre-commit run -a`
+### Applications (Active)
+
+| Directory | What it is |
+|-----------|-----------|
+| `manager-ui/` | Next.js dashboard UI (port 3004) |
+| `webscraper_manager/` | FastAPI Manager API (port 8787) — backend for manager-ui |
+| `webscraper/src/webscraper/` | Python package: scraper + Ticket API (port 8788) |
+| `webscraper/ticket-ui/` | Next.js ticket browser UI (port 3005) |
+| `PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/` | Vite/React static config generator |
+| `traceroute-visualizer-main/traceroute-visualizer-main/` | Next.js traceroute UI (port 3006) |
+| `HomeLab_NetworkMapping/ccna-lab-tracker/` | Next.js CCNA tracker (port 3011) |
+| `freepbx-tools/bin/` | FreePBX CLI tools (deployed to PBX servers, Python 3.6) |
+| `freepbx-deploy-ui/` + `freepbx-deploy-backend/` | Deploy tool UI + backend (local dev only) |
+| `web_manager.py` | Flask FreePBX web manager (port 5000) |
+
+### Key Supporting Files
+
+| File | Purpose |
+|------|---------|
+| `FULL_START.sh` | Full rebuild + start all services (run as root) |
+| `RESTART.sh` | Per-service restart menu (run as root) |
+| `start_client.sh` | Start scraper in client mode (laptop only) |
+| `scripts/start_services.sh` | Lean startup called by systemd |
+| `scripts/run_all_web_apps.py` | Python launcher for all services |
+| `scripts/stop_all_web_apps.py` | Graceful service shutdown |
+| `systemd/freepbx-tools.service` | systemd unit (root-owned) |
+| `.env` | Gitignored secrets — INGEST_API_KEY, CLIENT_MODE, etc. |
+| `.env.example` | Committed template for `.env` |
+
+### Data / Runtime (Never Source)
+
+| Path | What it is |
+|------|-----------|
+| `webscraper/var/db/tickets.sqlite` | The live ticket database |
+| `webscraper/var/chrome-profile/` | Chrome session (gitignored) |
+| `var/` | Runtime logs and state |
+| `.next/`, `dist/` | Build outputs |
+| `node_modules/` | npm packages |
+| `scraped_tickets/` | Legacy data |
 
 ---
 
-## Adding new tools/scripts safely
-1. Put new scripts under `scripts/` or a dedicated subfolder.
-2. Ensure outputs go to an ignored folder (`output/`, `data/`, etc.) and update `.gitignore` first.
-3. If a script needs secrets, use environment variables + a `*.example.*` template.
-4. Update the nearest README / RUN_APPS.md with exact run steps.
-5. Never commit binaries, dumps, or customer exports.
+## Run Commands (Source of Truth)
+
+All commands run from `/var/www/freePBX_Tools` as root unless noted.
+
+```bash
+# Full rebuild and start
+sudo ./FULL_START.sh
+
+# Restart one service
+sudo ./RESTART.sh manager-api   # port 8787
+sudo ./RESTART.sh ticket-api    # port 8788
+sudo ./RESTART.sh manager-ui    # port 3004
+sudo ./RESTART.sh ticket-ui     # port 3005
+sudo ./RESTART.sh worker        # scraper
+
+# Health checks
+curl -sf http://127.0.0.1:8787/api/health
+curl -sf http://127.0.0.1:8788/api/health
+
+# systemd
+systemctl status freepbx-tools.service
+journalctl -fu freepbx-tools.service
+
+# Run tests
+source .venv-webscraper/bin/activate
+pytest -q webscraper/tests
+```
 
 ---
 
-## TODO/VERIFY (do not guess)
-- Confirm authoritative run/test commands for:
-  - `webscraper/` (from `webscraper/README.md`)
-  - traceroute backend scripts (from traceroute README)
-  - Flask web UI (`RUN_APPS.md` / `docs/WEB_INTERFACE_README.md` if present)
-  - repo-root KB/analysis test runner expectations (README/quick test docs)
-- If a `git spush` alias is configured in global or repo-local config, verify it is portable (avoid hard-coded interpreter paths).
+## Subproject: webscraper (Zone B)
+
+**Package:** `webscraper/src/webscraper/`  
+**Venv:** `.venv-webscraper`
+
+Active modules:
+- `ticket_api/app.py` — FastAPI entry point, switches db vs db_client on CLIENT_MODE
+- `ticket_api/db.py` — SQLite write path (server mode)
+- `ticket_api/db_client.py` — HTTP write path (client mode, sends to INGEST_SERVER_URL)
+- `ticket_api/ingest_routes.py` — POST /api/ingest/* with X-Ingest-Key auth
+- `auth/` — portal authentication
+- `browser/` — Chrome/Selenium management
+- `scrape/runner.py` — main scrape loop
+- `parsers/` — HTML ticket parsers
+
+Legacy modules (do not use for new work):
+- `legacy/` — compatibility shims for old imports
+- `webscraper/src/webscraper/scraping/` — deprecated compat shim
+
+Run ticket API: `uvicorn webscraper.ticket_api.app:app --host 127.0.0.1 --port 8788`
 
 ---
 
-## Sources inspected (evidence list)
-The following tracked paths were used to derive the repo map / tooling inventory:
-- `.git/config`
-- Output of `git ls-files`
-- `README.md`
-- `RUN_APPS.md`
-- `QUICK_TEST.md`
-- `freepbx-deploy-backend/README.md`
-- `freepbx-deploy-ui/README.md`
-- `PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/README.md`
-- `traceroute-visualizer-main/traceroute-visualizer-main/README.md`
-- `webscraper/README.md`
-- `freepbx-tools/README.txt`
-- `web_requirements.txt`
-- `web_manager.py`
-- `.gitignore`
-- `.gitattributes`
-- `.pre-commit-config.yaml`
-- `.gitleaks.toml`
-- `freepbx-tools-suite.code-workspace`
+## Subproject: webscraper_manager (Zone B)
+
+**Package:** `webscraper_manager/`  
+**Venv:** `.venv-web-manager`  
+**Port:** 8787
+
+Active modules:
+- `api/server.py` — FastAPI app factory
+- `api/routes/` — route groups (auth, db, diagnostics, health, logs, manager, services, system, tickets, webscraper)
+- `api/services/` — business logic (StateStore, EventBus, CommandRunner, AuthInspector, TicketPipelineService, DBInspector, SystemInspector)
+
+Run: `uvicorn webscraper_manager.api.server:app --host 127.0.0.1 --port 8787`
+
+---
+
+## Subproject: manager-ui (Zone C)
+
+**Framework:** Next.js 14 App Router + Tailwind CSS  
+**Port:** 3004
+
+Pages: `/dashboard`, `/services`, `/auth`, `/handles`, `/tickets`, `/logs`, `/system`, `/database`
+
+API base (browser-side): `NEXT_PUBLIC_API_BASE=https://manager-api.123hostedtools.com`  
+Set automatically by `FULL_START.sh` in `manager-ui/.env.local` before each build.
+
+Build: `cd manager-ui && npm ci && npm run build`  
+Start: `npm --prefix manager-ui run start -- --port 3004 --hostname 127.0.0.1`
+
+---
+
+## Making Safe Changes
+
+### Before editing any file
+1. Identify which zone it belongs to
+2. Check if it's a source file (not in `var/`, `dist/`, `.next/`, `node_modules/`)
+3. For Zone A: verify changes are Python 3.6 compatible
+4. For Zone B: activate the correct venv before testing
+
+### Adding a dependency
+- Zone B: add to `requirements.txt` or `pyproject.toml` in the correct subproject, then `pip install -e .`
+- Zone C: `npm install --save <package>` in the correct app directory
+
+### Testing changes
+```bash
+# Python (Zone B)
+source .venv-webscraper/bin/activate
+pytest -q webscraper/tests
+
+# Type checking
+pyright webscraper/src
+
+# Front-end (Zone C) — build to catch type errors
+cd manager-ui && npm run build
+```
+
+### Documenting changes
+- Update the nearest `README.md` with any new commands or behavior
+- Update `RUNBOOK.md` if service start/stop commands change
+- Update `DEPENDENCIES.md` if you add a package
+- Update `CODING_RULES.md` if you establish a new constraint
+
+---
+
+## TODO/VERIFY Pattern
+
+If you're uncertain about a command, path, or behavior, add:
+```
+# TODO/VERIFY: <what needs to be confirmed and where to look>
+```
+
+Do not guess. An incorrect command in documentation is worse than a placeholder.
+
+---
+
+## Source of Truth Order
+
+1. `README.md` (root) — system architecture and quick start
+2. `RUNBOOK.md` — exact service commands
+3. `REPO_MAP.md` — authoritative folder/file inventory
+4. `CODING_RULES.md` — this file's rules
+5. `package.json` scripts — Node app commands
+6. `pyproject.toml` / `requirements.txt` — Python deps

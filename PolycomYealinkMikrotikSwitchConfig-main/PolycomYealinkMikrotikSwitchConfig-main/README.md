@@ -1,221 +1,157 @@
-# PolycomYealinkMikrotikSwitchConfig
+# Polycom / Yealink / Mikrotik Config Generator
 
-A modular web app for generating configuration code for Polycom and Yealink phones, as well as templates for FBPX, VPBX, Streeto, Mikrotik, and Switch devices. Built with React, TypeScript, and Vite, this app features dynamic forms, CSV import/export, and customizable static/dynamic templates for various network devices and phone models.
+React + Vite web app for generating configuration code for Polycom/Yealink phones, Mikrotik routers, and switches — plus bulk FreePBX import/export tools.
 
----
-
-## Quick Start (Windows on E:\)
-
-1. Install and start the app
-  ```powershell
-  Push-Location "E:\DevTools\freepbx-tools\PolycomYealinkMikrotikSwitchConfig-main\PolycomYealinkMikrotikSwitchConfig-main"
-  npm.cmd install
-  npm.cmd run dev
-  ```
-
-2. Open the UI
-  - Dev server: http://localhost:3002
-  - Port and host are set in `vite.config.ts` (port 3002 to avoid conflict with the traceroute visualizer on 3000).
-
-3. Generate configs
-  - Phone Configs: choose Polycom/Yealink model, enter fields, copy output.
-  - VPBX/FBPX/Streeto: import/export CSV to manage bulk data.
-  - Mikrotik/Switch: edit dynamic templates (8/24-port), copy results.
-
-Optional
-- Scripted start: `./start-app.sh` installs deps if needed and starts Vite with common flags.
+Served as a **static site** by Apache on the server. No backend required at runtime.
 
 ---
 
-## Table of Contents
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Modular Project Structure](#modular-project-structure)
-- [How to Contribute](#how-to-contribute)
-- [File-by-File Technical Overview](#file-by-file-technical-overview)
-- [Development](#development)
-- [Automated Start Script](#automated-start-script)
-- [License](#license)
+## Quick Start (Server)
 
----
+The app is built and served automatically by `FULL_START.sh`. To rebuild manually:
 
-## Features
-- **Tabbed UI** for easy navigation between device/template types, including a dedicated Reference tab for Polycom/Yealink config legends
-- **Dynamic forms** for phone and device configuration
-- **Model-specific templates** for Polycom and Yealink (including expansion modules and feature keys)
-- **CSV import/export** for FBPX, VPBX, and Streeto tabs (using papaparse)
-- **Editable static/dynamic templates** for Mikrotik and Switch devices
-- **Graphical preview** for Yealink and Polycom expansion modules (with tooltips and user guidance)
-- **Fully commented, modular code** for maintainability and easy contribution
-
----
-
-## How It Works
-
-The app uses a tabbed interface to separate configuration generators for different device types. Each tab presents a form or table tailored to the selected device or template. Users can input data, generate configuration code, and (where supported) import/export CSV files for bulk operations. The app is built with React functional components and TypeScript, ensuring type safety and maintainability.
-
-- **Phone Configs Tab:**
-  - Select Polycom or Yealink, choose a model, and enter extension, IP, and label information.
-  - Generates model-specific configuration code, including expansion module and feature key templates.
-- **FBPX/VPBX Tabs:**
-  - Dynamic forms for PBX configuration.
-  - Support for CSV import/export for bulk editing.
-- **Streeto Tab:**
-  - Table-based import/export for Streeto device data.
-- **Mikrotik/Switch Tabs:**
-  - Editable templates for Mikrotik routers and Switches (8/24 port), with fields for hostname and asset tag.
-- **Reference Tab:**
-  - Dedicated legend for Polycom and Yealink configuration settings, with tables and feature explanations for both brands.
-
----
-
-## Modular Project Structure
-
+```bash
+cd /var/www/freePBX_Tools/PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main
+npm ci
+npm run build
+# dist/ is served by Apache
 ```
+
+## Quick Start (Local Dev — Windows)
+
+```powershell
+Push-Location "E:\DevTools\freepbx-tools\PolycomYealinkMikrotikSwitchConfig-main\PolycomYealinkMikrotikSwitchConfig-main"
+npm.cmd install
+npm.cmd run dev
+```
+
+Open **<http://localhost:3002>** in your browser.
+
+Port 3002 is hardcoded in `vite.config.ts` (`strictPort: true`) to avoid conflicts with other apps in the suite.
+
+The Vite dev server proxies all `/api` requests to the freepbx-deploy-backend on **<http://127.0.0.1:8002>**. Start the backend first if you need any API-backed tabs (Phone Config Generator, Config Audit, Diagnostics).
+
+---
+
+## Tabs
+
+| Tab | Key | Description |
+| --- | --- | --- |
+| Phone Configs | `phone` | Form-based config generator for Polycom/Yealink models; generates extension, IP, label, and feature key blocks |
+| Expansion Modules | `expansion` | Graphical preview and config for Yealink/Polycom sidecar/expansion modules |
+| Full Config | `fullconfig` | Full device config view |
+| Reference | `reference` | Legend for Polycom and Yealink config keys and feature settings |
+| Diagnostics | `diagnostics` | Connect to a FreePBX server, run diagnostic tools, view call-flow graphs and terminal output |
+| copyUserExtensions | `copyusers` | CSV-driven user/extension import table; exports populate FBPX fields |
+| FBPX Import | `fbpx` | FBPX provisioning data import/export (CSV) |
+| VPBX Import | `vpbx` | VPBX site and device data import/export (CSV) |
+| Stretto Import | `streeto` | Stretto device data import/export (CSV) |
+| DIDs | `dids` | DID routing table import/export (15-column CSV: cidnum, extension, destination, etc.) |
+| Phone Config Generator | `phonegen` | API-backed generator — pulls live device configs from the scraper backend and generates Yealink/Polycom config blocks with BLF, park lines, and speed dials |
+| Config Audit | `audit` | Audits live device configs from the backend against expected values (SIP server, time zone, etc.) |
+| Mikrotik Templates | `mikrotik` | Editable Mikrotik router config templates (OTT, On-Net, Standalone ATA, 5009 Bridge/Passthrough) |
+| Switch Templates | `switch` | Editable switch config templates (8-port and 24-port) |
+| Order Tracker | `ordertracker` | Hosted order tracker — per-customer checklist spreadsheet with CSV import/export |
+
+---
+
+## API dependency (backend-connected tabs)
+
+The **Phone Config Generator**, **Config Audit**, and **Diagnostics** tabs call the freepbx-deploy-backend. Set `VITE_SCRAPER_BASE` if the backend is not on the default port:
+
+```powershell
+$env:VITE_SCRAPER_BASE = 'http://localhost:8788'
+npm.cmd run dev
+```
+
+The Vite proxy (`/api → http://127.0.0.1:8002`) handles all other API calls automatically in dev.
+
+---
+
+## Project structure
+
+```text
 src/
-  components/         # Reusable UI (InfoIcon, EditableTable, etc.)
-  tabs/               # Each main tab as a component (ExpansionModuleTab, PhoneConfigTab, etc.)
-  templates/          # Static config templates (mikrotik, switch, etc.)
-  types/              # TypeScript types/interfaces
-  utils/              # Shared logic (CSV, config generation, etc.)
-  constants/          # Shared constants (icons, tooltips, etc.)
-  App.tsx             # Main app, handles layout and tab switching
-  main.tsx            # Entry point
+├── App.tsx                        # Tab router and top-level state
+├── App.css                        # Global styles, CSS variables
+├── main.tsx                       # React entry point
+├── data/
+│   ├── importStore.ts             # Row types, field lists, empty row factories,
+│   │                              #   localStorage helpers, CSV export, cross-tab population
+│   ├── modelRules.ts              # Phone model definitions and rules
+│   └── phoneTemplates.ts          # Config block generators (BLF, park, speed dial)
+├── tabs/
+│   ├── ImportTable.tsx            # Shared react-data-grid table component
+│   ├── ImportTable.module.css     # Shared table CSS (RDG theme, dark mode, resize)
+│   ├── PhoneConfigGeneratorTab.tsx  # API-backed phone config generator
+│   ├── ConfigAuditTab.tsx         # Live config audit
+│   ├── DiagnosticsTab.tsx         # Diagnostics + call-flow graph + terminal
+│   ├── ExpansionModuleTab.tsx     # Expansion module preview
+│   ├── MikrotikTab.tsx            # Mikrotik template tab
+│   ├── FbpxImportTab.tsx          # FBPX CSV import/export
+│   ├── VpbxImportTab.tsx          # VPBX CSV import/export
+│   ├── CopyUserExtensionsTab.tsx  # User/extension import
+│   ├── DidsTab.tsx                # DID routing import/export
+│   ├── CallFlowGraph.tsx          # ReactFlow call-flow diagram
+│   └── TerminalPanel.tsx          # xterm.js terminal panel
+├── MikrotikDynamicTemplate.tsx    # Mikrotik editable template component
+├── Switch8DynamicTemplate.tsx     # 8-port switch template component
+├── Switch24DynamicTemplate.tsx    # 24-port switch template component
+├── SwitchDynamicTemplate.tsx      # Generic switch template component
+├── StrettoImportExportTab.tsx     # Stretto CSV import/export tab
+└── HostedOrderTrackerTab.tsx      # Order tracker tab
 ```
 
-- Each tab/component manages its own state and logic.
-- Shared UI and logic should be imported from `components/`, `utils/`, or `constants/`.
-- `App.tsx` should only handle layout, navigation, and tab switching.
+### ImportTable — Key Design Decisions
 
----
+`ImportTable.tsx` is the shared grid component used by all import tabs.
 
-## How to Contribute
-
-1. **Fork the repo and create a new branch.**
-2. **Add or update features:**
-   - Add a new tab: create a file in `src/tabs/` and add it to the tab navigation in `App.tsx`.
-   - Add shared UI: place reusable components in `src/components/`.
-   - Add config templates: place static templates in `src/templates/`.
-   - Add shared logic: place utility functions in `src/utils/`.
-   - Add or update types: place TypeScript interfaces/types in `src/types/`.
-   - Add shared constants: place icons, tooltips, and other constants in `src/constants/`.
-3. **Use TypeScript and React best practices.**
-4. **Keep components small and focused.**
-5. **Use Prettier and ESLint for formatting and linting.**
-6. **Add comments for complex logic and UI.**
-7. **Submit a pull request with a clear description.**
-8. **See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for more details and guidelines.**
-
----
-
-## File-by-File Technical Overview
-
-### `/src/App.tsx`
-- **Main application component.**
-- Implements the tabbed UI and manages state for the selected tab.
-- Renders the appropriate form/component for each tab (Phone Configs, FBPX, VPBX, Streeto, Mikrotik, Switch, Reference).
-- Handles passing props and state to child components.
-- Contains high-level and section comments for clarity.
-- The Reference tab provides a legend for Polycom and Yealink config settings and features.
-
-### `/src/main.tsx`
-- **Entry point for the React app.**
-- Renders the `App` component inside `React.StrictMode` and attaches it to the DOM.
-- Imports global styles from `index.css`.
-- Fully commented to explain initialization logic.
-
-### `/src/index.css`
-- **Global CSS styles** for the app.
-- Includes resets, base styles, and layout rules.
-- Commented to explain style sections and their purpose.
-
-### `/src/App.css`
-- **Component-specific styles** for the `App` and its children.
-- Styles for tab navigation, forms, tables, and config output areas.
-- Commented for maintainability.
-
-### `/src/MikrotikDynamicTemplate.tsx`
-- **Component for Mikrotik router configuration.**
-- Provides a form for editing Mikrotik config templates.
-- Allows users to customize and copy/paste generated config.
-- Uses TypeScript for type safety and is fully commented.
-
-### `/src/SwitchDynamicTemplate.tsx`
-- **Component for generic switch configuration.**
-- Allows editing of hostname and asset tag.
-- Generates switch config templates dynamically.
-- Fully commented and type-safe.
-
-### `/src/Switch24DynamicTemplate.tsx`
-- **Component for 24-port switch configuration.**
-- Similar to `SwitchDynamicTemplate` but tailored for 24-port models.
-- Editable fields for hostname and asset tag.
-- Fully commented.
-
-### `/src/Switch8DynamicTemplate.tsx`
-- **Component for 8-port switch configuration.**
-- Similar to `SwitchDynamicTemplate` but tailored for 8-port models.
-- Editable fields for hostname and asset tag.
-- Fully commented.
-
-### `/src/StrettoImportExportTab.tsx`
-- **Component for Streeto tab.**
-- Provides a table interface for importing/exporting Streeto device data.
-- Supports CSV import/export using papaparse.
-- Fully commented and type-safe.
-
-### `/src/.github/copilot-instructions.md`
-- **Custom Copilot instructions** for workspace-specific coding guidelines.
-- Ensures best practices for React and TypeScript are followed.
-
-### `/README.md` (this file)
-- **Project documentation.**
-- Explains app features, technical architecture, and file responsibilities.
-- Provides setup and usage instructions.
+- **ResizeObserver** measures the outer container width and computes proportional pixel column widths (wide fields = 2× weight, normal = 1×, delete button = 0.38×). Falls back to minimum widths with horizontal scroll on narrow screens.
+- **rowClass prop** (not CSS nth-child) applies alternating row colors — required for virtual scrolling to work correctly.
+- **Always-visible dropdowns** use `renderCell` (not `renderEditCell`) so selects are always visible without entering edit mode. `editable: false` prevents the text editor from opening on those cells.
+- **Drag-to-resize** uses CSS `resize: vertical; overflow: hidden` on the wrapper div with DataGrid `height: 100%`. Default height shows 20 rows.
+- **Dark mode** via `[data-theme="dark"]` attribute on root, with CSS variable overrides for all RDG colors.
 
 ---
 
 ## Development
 
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-2. **Start the development server:**
-   ```bash
-   npm run dev
-   ```
-3. **Build for production:**
-   ```bash
-   npm run build
-   ```
-4. **Preview production build:**
-   ```bash
-   npm run preview
-   ```
+```powershell
+npm.cmd install        # Install dependencies
+npm.cmd run dev        # Start dev server (<http://localhost:3002>)
+npm.cmd run build      # Type-check and build for production
+npm.cmd run preview    # Preview production build
+npm.cmd run lint       # Run ESLint
+```
 
 ---
 
-## Automated Start Script
+## Build Notes
 
-You can use the provided `start-app.sh` script to automate starting the app with all common network options:
+`FULL_START.sh` tracks source changes with an MD5 hash stored in `.src_hash`. It only rebuilds if source changed or `.src_hash` is missing.
+
+Force rebuild:
 
 ```bash
-chmod +x start-app.sh
-./start-app.sh
+rm PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/.src_hash
+sudo ./FULL_START.sh
 ```
 
-This script will:
-- Install dependencies (if needed)
-- Start the Vite dev server with:
-  - `--host 0.0.0.0` (listen on all interfaces)
-  - `--port 3000` (custom port)
-  - `--open` (open browser)
-  - `--strictPort` (fail if port is taken)
+The built `dist/` is served by Apache as a static site. No node process runs in production.
 
-You can edit the script to change options as needed.
+---
+
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for guidelines. Key conventions:
+
+- New tab → create `src/tabs/MyTab.tsx`, register in the `TABS` array in `App.tsx`
+- Shared UI → `src/` root or a new `src/components/` file
+- Shared config logic → `src/data/`
+- Use TypeScript, Prettier, and ESLint before submitting a PR
 
 ---
 
 ## License
+
 MIT

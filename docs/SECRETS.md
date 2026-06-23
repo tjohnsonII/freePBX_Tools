@@ -1,3 +1,5 @@
+> **NOTE (2026-04-27):** Current secrets are documented in **docs/SECURITY.md**. The primary secret is now `INGEST_API_KEY` (client/server auth). FreePBX credential env vars (`FREEPBX_USER_PASSWORD`, etc.) remain relevant for `freepbx-tools/bin/` deployment scripts. Cookie artifacts described below are still applicable — never commit them.
+
 # Secrets Remediation and Handling
 
 This repository previously contained high-entropy values and cookie artifacts flagged by GitGuardian. To prevent future leaks and remediate existing incidents, follow these steps.

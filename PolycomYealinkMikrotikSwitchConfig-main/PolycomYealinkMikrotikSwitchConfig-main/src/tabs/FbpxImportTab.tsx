@@ -33,12 +33,20 @@ import {
   type VpbxRow,
 } from '../data/importStore';
 
-const WIDE_FIELDS = ['name', 'description', 'voicemail_email', 'voicemail_options', 'dial'] as const;
+const WIDE_FIELDS = ['name', 'description', 'voicemail_email', 'dial'] as const;
+
+const FPBX_SELECT_OPTIONS: Record<string, string[]> = {
+  tech:               ['pjsip', 'sip', 'iax2', 'dahdi'],
+  callwaiting_enable: ['ENABLED', 'DISABLED'],
+  voicemail:          ['default', 'disabled'],
+  voicemail_enable:   ['yes', 'no'],
+  voicemail_same_exten: ['yes', 'no'],
+};
 
 export default function FbpxImportTab() {
   const [rows, setRows] = useState<FpbxRow[]>(() => {
     const saved = loadStore('fpbx') as FpbxRow[] | null;
-    return saved?.length ? saved : Array(5).fill(null).map(emptyFpbxRow);
+    return saved?.length ? saved : Array(200).fill(null).map(emptyFpbxRow);
   });
   const [sipDomain, setSipDomain] = useState('');
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -66,7 +74,7 @@ export default function FbpxImportTab() {
 
   function handleClear() {
     if (!confirm('Clear all FPBX rows?')) return;
-    const blank = Array(5).fill(null).map(emptyFpbxRow);
+    const blank = Array(200).fill(null).map(emptyFpbxRow);
     setRows(blank);
     setStatus({ msg: 'Cleared.', ok: true });
   }
@@ -143,10 +151,10 @@ export default function FbpxImportTab() {
       {/* Row 1: file ops + clear */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarGroup}>
-          <button className={styles.btnDanger} onClick={handleClear}>Clear</button>
+          <button className={styles.btnDanger} onClick={handleClear}>Clear All</button>
           <div className={styles.toolbarDivider} />
           <label className={styles.btn} style={{ cursor: 'pointer' }}>
-            Import CSV
+            Upload
             <input
               ref={fileRef}
               type="file"
@@ -155,14 +163,14 @@ export default function FbpxImportTab() {
               onChange={handleImport}
             />
           </label>
-          <button className={styles.btn} onClick={handleExport}>Export CSV</button>
+          <button className={styles.btnSuccess} onClick={handleExport}>Export To CSV</button>
         </div>
         <div className={styles.toolbarDivider} />
         {/* Row 1: compute actions */}
         <div className={styles.toolbarGroup}>
-          <button className={styles.btn} onClick={handlePopulateFields}>Populate Fields</button>
-          <button className={styles.btn} onClick={handleGenerateSecrets}>Generate Secrets</button>
           <button className={styles.btn} onClick={handleCleanCid}>Clean Outbound CID</button>
+          <button className={styles.btn} onClick={handleGenerateSecrets}>Generate Secrets</button>
+          <button className={styles.btn} onClick={handlePopulateFields}>Populate FPBX Page</button>
         </div>
         {status && (
           <span className={status.ok ? styles.statusOk : styles.statusErr}>
@@ -175,7 +183,7 @@ export default function FbpxImportTab() {
       <div className={styles.toolbar} style={{ marginBottom: 10 }}>
         <div className={styles.toolbarGroup}>
           <button className={styles.btnPrimary} onClick={handleReceiveFromCopyUsers}>
-            ← Receive from copyUserExtensions
+            Copy From User Extension
           </button>
         </div>
         <div className={styles.toolbarDivider} />
@@ -215,6 +223,7 @@ export default function FbpxImportTab() {
         onDeleteRow={handleDeleteRow}
         onAddRow={handleAddRow}
         wideFields={WIDE_FIELDS}
+        selectOptions={FPBX_SELECT_OPTIONS}
       />
     </div>
   );

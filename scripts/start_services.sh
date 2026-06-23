@@ -8,7 +8,7 @@ DISPLAY_NUM=99
 
 cd "$REPO"
 
-# Load secrets from .env if present (never committed — contains INGEST_API_KEY etc.)
+# ── Load local environment (INGEST_API_KEY, etc.) ─────────────────────────────
 if [ -f "$REPO/.env" ]; then
     set -a
     # shellcheck source=/dev/null
@@ -25,8 +25,7 @@ sleep 1
 if command -v Xvfb &>/dev/null; then
     Xvfb ":${DISPLAY_NUM}" -screen 0 1280x900x24 2>/dev/null &
     sleep 1
-    export DISPLAY=":${DISPLAY_NUM}"
-    openbox 2>/dev/null &
+    DISPLAY=":${DISPLAY_NUM}" openbox 2>/dev/null &
     sleep 0.5
     x11vnc -display ":${DISPLAY_NUM}" -rfbport 5900 -nopw -forever -bg -quiet 2>/dev/null || true
     echo "[start] Virtual display :${DISPLAY_NUM} ready."

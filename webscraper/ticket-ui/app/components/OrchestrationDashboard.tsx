@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { apiGet } from "../../lib/api";
 import styles from "./OrchestrationDashboard.module.css";
 
 type JobState = "queued" | "running" | "completed" | "failed";
@@ -21,35 +21,9 @@ type Job = {
 
 type SystemStatus = {
   backend_health: string;
-  browser_status: string;
-  auth_status: string;
-  secure_tab_status?: string;
-  session_status?: string;
-  cookies_status?: string;
-  validation_status?: string;
-  probe_status?: string;
-  detection_reason?: string | null;
-  current_job?: Job | null;
-  last_successful_scrape?: string | null;
   db_counts: { tickets: number; handles: number };
   last_error?: string | null;
   state: StepState;
-  login_required?: boolean;
-};
-
-type ScrapeStart = { queued: boolean; job_id: string; handles_total: number; status: string; resume_from_handle?: string | null };
-type ScrapeJob = {
-  job_id: string;
-  status: "queued" | "running" | "completed" | "failed";
-  error_message?: string | null;
-  result?: {
-    status_message?: string;
-    current_handle?: string | null;
-    completed_handles?: number;
-    total_handles?: number;
-    ticket_count?: number;
-    error?: string;
-  } | null;
 };
 
 type ScrapeState = {
@@ -57,22 +31,10 @@ type ScrapeState = {
   updated_utc: string | null;
 };
 
-type JobEvent = {
-  id: number;
-  ts_utc: string;
-  level: string;
-  event: string;
-  message: string;
-  data?: Record<string, unknown> | null;
-};
-
 export default function OrchestrationDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [scrapeJob, setScrapeJob] = useState<ScrapeJob | null>(null);
-  const [scrapeEvents, setScrapeEvents] = useState<JobEvent[]>([]);
   const [scrapeState, setScrapeState] = useState<ScrapeState | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedJob, setExpandedJob] = useState<Job | null>(null);
@@ -95,40 +57,6 @@ export default function OrchestrationDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const startScrape = async (resumeFromHandle?: string | null) => {
-    const label = resumeFromHandle ? "resume" : "start";
-    setBusy(label);
-    setError(null);
-    setScrapeEvents([]);
-    try {
-      const start = await apiPost<ScrapeStart>("/api/scrape/start", resumeFromHandle ? { resume_from_handle: resumeFromHandle } : {});
-      const startedJob: ScrapeJob = {
-        job_id: start.job_id,
-        status: "queued",
-        result: { status_message: "queued", completed_handles: 0, total_handles: start.handles_total, ticket_count: 0 },
-      };
-      setScrapeJob(startedJob);
-      let done = false;
-      while (!done) {
-        const [next, eventsResp] = await Promise.all([
-          apiGet<ScrapeJob>(`/api/jobs/status/${start.job_id}`),
-          apiGet<{ events: JobEvent[] }>(`/api/jobs/${start.job_id}/events?limit=30`).catch(() => ({ events: [] })),
-        ]);
-        setScrapeJob(next);
-        setScrapeEvents(eventsResp.events);
-        done = next.status === "completed" || next.status === "failed";
-        if (!done) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-      }
-      await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const toggleJobDetails = async (jobId: string) => {
     if (expandedJobId === jobId) {
       setExpandedJobId(null);
@@ -147,44 +75,9 @@ export default function OrchestrationDashboard() {
     }
   };
 
-  const loginRequired = useMemo(() => {
-    if (status?.login_required) return true;
-    const waitIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "waiting_for_login");
-    if (waitIdx === -1) return false;
-    const loginIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "login_detected");
-    return loginIdx < waitIdx;
-  }, [status, scrapeEvents]);
-
-  const nocTicketsLoginRequired = useMemo(() => {
-    const waitIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "waiting_for_noc_tickets_login");
-    if (waitIdx === -1) return false;
-    const doneIdx = scrapeEvents.findLastIndex((e) => (e.data as Record<string, unknown> | null)?.["event"] === "noc_tickets_access_confirmed");
-    return doneIdx < waitIdx;
-  }, [scrapeEvents]);
-
   return (
     <section className={styles.section}>
       <h2>Scrape Dashboard</h2>
-      {loginRequired && (
-        <div className={styles.loginBanner}>
-          <strong>Login required — Step 1 of 2</strong>
-          <ol className={styles.loginBannerSteps}>
-            <li>Find the Chrome window that just opened on your desktop.</li>
-            <li>Complete the 123.net SSO login (secure.123.net).</li>
-            <li>A second login tab will open automatically for noc-tickets.123.net.</li>
-          </ol>
-        </div>
-      )}
-      {nocTicketsLoginRequired && (
-        <div className={styles.loginBanner}>
-          <strong>Login required — Step 2 of 2 (noc-tickets.123.net)</strong>
-          <ol className={styles.loginBannerSteps}>
-            <li>A second tab has opened in the Chrome window for noc-tickets.123.net.</li>
-            <li>Complete the Keycloak login in that tab.</li>
-            <li>Scraping will begin automatically once both logins are done.</li>
-          </ol>
-        </div>
-      )}
       {error ? <p className={styles.error}>{error}</p> : null}
       <div className={styles.statusGrid}>
         <div><strong>Backend</strong><div>{status?.backend_health ?? "unknown"}</div></div>
@@ -196,61 +89,6 @@ export default function OrchestrationDashboard() {
           <div><strong>Last scraped handle</strong><div>{scrapeState.last_completed_handle}</div></div>
         )}
       </div>
-      <div className={styles.actionRow}>
-        <button type="button" onClick={() => startScrape()} disabled={!!busy}>
-          {busy === "start" ? "Starting…" : "Start Scrape"}
-        </button>
-        {scrapeState?.last_completed_handle && (
-          <button type="button" onClick={() => startScrape(scrapeState.last_completed_handle)} disabled={!!busy}>
-            {busy === "resume" ? "Resuming…" : `Resume from ${scrapeState.last_completed_handle}`}
-          </button>
-        )}
-      </div>
-      {scrapeJob ? (
-        <div className={styles.seleniumJobStatus}>
-          <strong>Scrape job</strong>
-          <div className={styles.seleniumJobSummary}>
-            <span>job_id={scrapeJob.job_id}</span>
-            <span>status={scrapeJob.status}</span>
-            {typeof scrapeJob.result?.completed_handles === "number" && typeof scrapeJob.result?.total_handles === "number" && (
-              <span>progress={scrapeJob.result.completed_handles}/{scrapeJob.result.total_handles}</span>
-            )}
-            {typeof scrapeJob.result?.ticket_count === "number" && (
-              <span>tickets={scrapeJob.result.ticket_count}</span>
-            )}
-            {scrapeJob.result?.current_handle && (
-              <span>handle={scrapeJob.result.current_handle}</span>
-            )}
-            {scrapeJob.result?.status_message && (
-              <span className={styles.seleniumJobMessage}>{scrapeJob.result.status_message}</span>
-            )}
-            {(scrapeJob.error_message || scrapeJob.result?.error) && (
-              <span className={styles.seleniumJobError}>{scrapeJob.error_message || scrapeJob.result?.error}</span>
-            )}
-          </div>
-          {scrapeEvents.length > 0 && (
-            <div className={styles.seleniumEventLog}>
-              <strong>Live events (last {scrapeEvents.length})</strong>
-              <ol className={styles.seleniumEventList}>
-                {scrapeEvents.map((ev) => {
-                  const firstTickets = (ev.data?.first_ticket_ids as string[] | undefined) ?? [];
-                  const count = ev.data?.count as number | undefined;
-                  return (
-                    <li key={ev.id} className={ev.level === "error" ? styles.seleniumEventError : styles.seleniumEventItem}>
-                      <span className={styles.seleniumEventTs}>{ev.ts_utc.replace("T", " ").slice(0, 19)}</span>
-                      {" "}{ev.message}
-                      {typeof count === "number" && ` · count=${count}`}
-                      {firstTickets.length > 0 && (
-                        <span className={styles.seleniumTicketIds}> [{firstTickets.join(", ")}]</span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          )}
-        </div>
-      ) : null}
       <div className={styles.recentJobs}>
         <strong>Recent jobs</strong>
         <ul>

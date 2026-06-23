@@ -1,3 +1,5 @@
+> **NOTE (2026-04-27):** This document covers `scripts/run_all_web_apps.py` which is still the underlying launcher called by `FULL_START.sh` and `scripts/start_services.sh`. For the full current startup reference including `FULL_START.sh`, `RESTART.sh`, systemd, and health checks, see **RUNBOOK.md**. Windows `.bat` wrappers listed below are not used on the server.
+
 # Canonical Startup Guide (Web Manager + Webscraper)
 
 ## Startup contract (single source of truth)

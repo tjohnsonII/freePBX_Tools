@@ -912,8 +912,6 @@ class FreePBXUniversalCollector:
         if not route:
             print(Colors.RED + f"\n❌ No inbound route found for DID: {did}" + Colors.RESET)
             return
-        self._render_simple_flow(did, route)
-
     def _render_simple_flow(self, did, route):
         """Render a complete ASCII call flow tree."""
         print(Colors.CYAN + "\n╔" + "═" * 68 + "╗" + Colors.RESET)

@@ -93,7 +93,7 @@ def ensure_precommit():
     try:
         run([sys.executable, "-m", "detect_secrets", "--version"], check=True)
     except Exception:
-        run([sys.executable, "-m", "pip", "install", "detect-secrets"], check=True)
+        run([sys.executable, "-m", "pip", "install", "detect-secrets", "--break-system-packages"], check=True)
 
     ensure_detect_secrets_baseline()
     ensure_allowlist_pragmas()

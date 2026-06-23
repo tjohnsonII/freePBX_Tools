@@ -1,234 +1,162 @@
-# DEPENDENCIES.md
+# Dependencies
 
-This document describes **dependency boundaries and classes**, not every installed package.
-
-Exact versions are defined in:
-- `package.json` / lock files (Node apps)
-- `requirements.txt` / `pyproject.toml` (Python apps)
-
-If something breaks due to a dependency, **check the section for that subproject first**.
+Dependency boundaries and classes per subproject. For exact versions, see each project's `requirements.txt` / `pyproject.toml` / `package.json`.
 
 ---
 
-## 1. System-Level Dependencies
+## Python Venvs Overview
 
-### FreePBX Servers (Production / Lab)
-- Linux (CentOS / RHEL derivatives)
-- **Python 3.6.7 (fixed, non-upgradable)**
-- MySQL (FreePBX-managed)
-- `mysql` CLI (used via subprocess)
-- `fwconsole`
-- Bash
-- SSH access
-- UTF-8 locale (**required**)
+| Venv | Projects | Key packages |
+|------|---------|-------------|
+| `.venv` | General scripts, `web_manager.py` | flask, requests, paramiko |
+| `.venv-web-manager` | `webscraper_manager/` (Manager API) | fastapi, uvicorn, pydantic |
+| `.venv-webscraper` | `webscraper/` (Ticket API + scraper) | fastapi, uvicorn, selenium, requests |
 
-⚠ These systems are legacy-constrained. Tooling must adapt to them — not the other way around.
+Bootstrap all: `python3 scripts/bootstrap_venvs.py`
 
 ---
 
-### Windows (Domain-Joined)
-- Windows 10/11
-- CMD (required for Node/npm)
-- PowerShell (limited use: Git, editing, reading logs)
-- Python 3.12.x
-- Node.js (modern, non-LTS acceptable; v24 observed)
-- Git for Windows
-- VS Code
+## 1. Manager API (`.venv-web-manager`)
 
-⚠ PowerShell execution policy **cannot be changed** and is intentionally avoided for Node/npm.
+**Location:** `webscraper_manager/`
+**Entry point:** `uvicorn webscraper_manager.api.server:app`
 
----
+Requirements file: `webscraper_manager/requirements.txt`
 
-### WSL2 (Ubuntu 24.04 LTS)
-- Bash shell
-- Python 3.12.x
-- Node.js
-- npm
-- Chromium / Chrome (for Selenium)
-- Linux utilities (`grep`, `sed`, `awk`, etc.)
-
-WSL is treated as a **Linux-first development environment**, not a Windows replacement.
+Core deps:
+- `fastapi` — web framework
+- `uvicorn` — ASGI server
+- `pydantic` — request/response models
+- `python-dotenv` — `.env` loading
+- `requests` — HTTP client (for proxying)
 
 ---
 
-## 2. Python Dependencies (by Area)
+## 2. Ticket API + Scraper (`.venv-webscraper`)
 
-### A. FreePBX CLI Tools (Server-Side)
+**Location:** `webscraper/src/webscraper/`
+**Entry points:**
+- `uvicorn webscraper.ticket_api.app:app` (ticket API)
+- `python -m webscraper --mode headless` (scraper worker)
 
-**Location**
-- `freepbx-tools/bin/*.py`
+Requirements files:
+- `webscraper/pyproject.toml` (primary)
+- Or `webscraper/requirements*.txt` if present
 
-**Runtime**
-- Python **3.6.7 ONLY**
+Core deps:
+- `fastapi` — ticket API web framework
+- `uvicorn` — ASGI server
+- `pydantic` — models
+- `requests` — ingest client HTTP calls (db_client.py)
+- `selenium` — browser automation for scraping
+- `beautifulsoup4` + `lxml` — HTML parsing
+- `sqlite3` — stdlib, ticket database
 
-**Hard Constraints**
-- Must run on legacy FreePBX hosts
-- Must run as `root`
-- Must tolerate ASCII/UTF-8 quirks
+**External requirements:**
+- Chrome or Chromium browser installed
+- ChromeDriver version must match browser version exactly
 
-**Dependencies**
-- `mysql` CLI (invoked via `subprocess`)
-- `argparse`
-- `json`
-- `os`, `sys`
-- `subprocess` (stdlib)
+---
 
-**Explicitly Forbidden**
-- Python DB drivers (`mysqlclient`, `pymysql`)
+## 3. General Scripts (`.venv`)
+
+**Location:** Root, `scripts/`, `web_manager.py`
+
+Core deps:
+- `flask` — web_manager.py
+- `requests` — HTTP calls
+- `paramiko` — SSH operations (deploy scripts)
+- `python-dotenv` — env loading
+- Standard library: `json`, `pathlib`, `subprocess`, `sqlite3`
+
+---
+
+## 4. FreePBX CLI Tools (Remote — Python 3.6.7)
+
+**Location:** `freepbx-tools/bin/`
+**Runtime:** Python 3.6.7 on production FreePBX hosts (not this server)
+
+**All dependencies must be Python 3.6 compatible.**
+
+Core deps (stdlib only where possible):
+- `argparse` — CLI argument parsing
+- `json` — data serialization
+- `subprocess` — MySQL CLI calls (`mysql -NBe`)
+- `os`, `sys`, `pathlib`
+
+**Explicitly forbidden:**
+- Any Python DB driver (`mysqlclient`, `pymysql`, `sqlalchemy`)
 - Walrus operator (`:=`)
-- Pattern matching
-- Modern `pathlib` assumptions
-- Advanced typing / annotations
+- Pattern matching (`match`/`case`)
+- `from __future__ import annotations`
+- Modern typing features
 
 ---
 
-### A2. Deployment & Orchestration Scripts
+## 5. Node / Front-End Dependencies
 
-**Files**
-- `deploy_freepbx_tools.py`
-- `deploy_uninstall_tools.py`
-- `scripts/*`
+### Manager UI (`manager-ui/`)
+```
+next: 14.2.x        → Next.js App Router
+react: 18.3.x       → UI library
+tailwindcss: 3.4.x  → Utility CSS
+typescript: 5.5.x   → Type safety
+```
 
-**Runtime**
-- Python 3.12.x (Windows / WSL)
+### Ticket UI (`webscraper/ticket-ui/`)
+Next.js app — see `webscraper/ticket-ui/package.json`
 
-**Dependencies**
-- `paramiko`
-- `scp` / `ssh` (external tools)
-- `requests`
-- `subprocess`
+### Polycom / Yealink Config UI
+```
+react: 19.x              → UI library
+typescript: 5.x          → Type safety
+vite: 6.x               → Build tool
+react-data-grid: 7.0.0-beta.59  → Excel-like import tables
+papaparse                → CSV parsing
+```
 
-These scripts **do not run on FreePBX hosts**.
+### HomeLab Tracker (`HomeLab_NetworkMapping/ccna-lab-tracker/`)
+Next.js app — see its `package.json`
 
----
+### Traceroute Visualizer (`traceroute-visualizer-main/`)
+Next.js app — see its `package.json`
 
-### B. FreePBX Deploy Backend (FastAPI)
-
-**Location**
-- `freepbx-deploy-backend/`
-
-**Runtime**
-- Python 3.12.x
-
-**Dependencies**
-- `fastapi`
-- `uvicorn`
-- `pydantic`
-- `requests`
-- `python-dotenv`
-
-Defined in:
-- `requirements.txt`
-- `pyproject.toml`
-
-Runs locally for development and testing.
+### FreePBX Deploy UI (`freepbx-deploy-ui/`)
+Vite + React — see its `package.json`
 
 ---
 
-### C. Webscraper / Knowledge Base Tooling
+## 6. System-Level Dependencies (Server)
 
-**Locations**
-- `webscraper/`
-- Root-level scraper scripts
-
-**Runtime**
-- Python 3.12.x
-- WSL preferred
-
-**Dependencies**
-- `selenium`
-- `beautifulsoup4`
-- `lxml`
-- `requests`
-- `sqlite3` (stdlib)
-
-**External Requirements**
-- Chrome / Chromium
-- Matching WebDriver version
-
-⚠ WebDriver version **must match browser version**.
+| Package | Purpose |
+|---------|---------|
+| `apache2` | Reverse proxy + static serving |
+| `certbot` + `python3-certbot-apache` | Let's Encrypt SSL |
+| `nodejs` / `npm` | Front-end builds and production servers |
+| `python3` (3.12.x) | Runtime for all Python services |
+| `sqlite3` | SQLite CLI (debugging) |
+| `openvpn3` | VPN client |
+| `x11vnc` | VNC server (on virtual display) |
+| `Xvfb` | Virtual framebuffer for headless Chrome |
+| `openbox` | Minimal window manager for Xvfb session |
+| `google-chrome` or `chromium-browser` | Browser for Selenium scraping |
+| `chromium-chromedriver` | WebDriver (must match Chrome version) |
+| `systemd` | Service management |
 
 ---
 
-## 3. Node / Frontend Dependencies
+## What Is NOT Tracked Here
 
-### Shared Stack
-- Node.js
-- npm
-- TypeScript
-- React
-
-### Tooling
-- Vite
-- ESLint
-- PostCSS
-- esbuild
+- Individual transitive npm/pip dependencies
+- Virtual environment contents (derived, not source)
+- Lock file details (see `package-lock.json`, `pyproject.toml`)
 
 ---
 
-### A. FreePBX Deploy UI
+## Dependency Rules
 
-**Location**
-- `freepbx-deploy-ui/`
-
-**Commands**
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
-
-Runs via **Windows CMD** (required).
-
----
-
-### B. Polycom / Yealink / Mikrotik Config UI
-
-**Location**
-- `PolycomYealinkMikrotikSwitchConfig-main/`
-
-**Purpose**
-- Generate configuration files
-- UI-only
-- No backend or deployment logic
-
----
-
-### C. Traceroute Visualizer (Frontend)
-
-**Location**
-- `traceroute-visualizer-main/`
-
-**Notes**
-- UI runs locally
-- Backend typically runs remotely on FreeBSD
-- Local FastAPI backend exists for development/testing
-
----
-
-## 4. What Is Explicitly NOT Tracked Here
-
-- Individual `node_modules` packages
-- Transitive npm dependencies
-- Virtual environment contents
-- Copilot-installed helper libraries
-
-These are defined in lock files and intentionally excluded.
-
----
-
-## 5. Guidance for Codex / AI Agents
-
-- Do **not** assume a single runtime for the repo
-- Always check folder context before proposing changes
-- Never introduce modern Python into FreePBX CLI tools
-- Do not replace MySQL CLI calls with Python DB drivers
-- Prefer WSL for scraping and backend experimentation
-- Treat CMD as the authoritative Node environment on Windows
-
----
-
-## Status
-
-This file should change **rarely**.
-
-If it changes often, dependency boundaries are leaking and must be corrected.
+1. **Never** add packages to a venv by hand — always update `requirements.txt` or `pyproject.toml` first
+2. **Never** install pip packages into the system Python
+3. **Never** use `npm install <package>` without also adding it to `package.json` (use `npm install --save`)
+4. **Never** add modern Python syntax to `freepbx-tools/bin/` — it runs on Python 3.6
+5. **Never** use Python DB drivers for MySQL on FreePBX hosts — use the `mysql` CLI via subprocess

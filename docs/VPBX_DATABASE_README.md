@@ -1,4 +1,6 @@
-# VPBX SQLite Database
+> **SUPERSEDED (2026-04-27):** This document describes the legacy `vpbx_data.db` database created from one-time scrape analysis. Current scraped VPBX/phone data lives in `webscraper/var/db/tickets.sqlite` and is served by the Ticket API on port 8788. See **webscraper/README.md** and **docs/ARCHITECTURE.md**. This file is retained as historical context only.
+
+# VPBX SQLite Database — HISTORICAL
 
 ## Overview
 This SQLite database contains all scraped VPBX data including:

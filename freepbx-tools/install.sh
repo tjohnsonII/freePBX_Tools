@@ -266,7 +266,6 @@ install_files() {
   chmod +x "$INSTALL_DIR"/uninstall.sh                   2>/dev/null || true
 
   mkdir -p "$CALLFLOWS_DIR"  # Ensure output directory exists
-  mkdir -p "$CALLFLOWS_DIR/snapshots"  # Snapshot dir for freepbx_ops
   if id asterisk >/dev/null 2>&1; then
     chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true  # Set ownership if asterisk user exists
   fi
@@ -310,7 +309,6 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_comprehensive_analyzer.py" "$BIN_DIR/freepbx-comprehensive-analyzer" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_version_aware_ascii_callflow.py" "$BIN_DIR/freepbx-ascii-callflow" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/callflow_validator.py" "$BIN_DIR/callflow-validator" 2>/dev/null || true
-  ln -sf "$INSTALL_DIR/bin/freepbx_ops.py"       "$BIN_DIR/freepbx-ops"       2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true

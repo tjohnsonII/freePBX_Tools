@@ -43,6 +43,10 @@ def _fetch_all() -> dict:
     api_ok = health is not None and health.get("ok", False)
     db_counts = (status or {}).get("db_counts", {})
     current_job = (status or {}).get("current_job")
+    clients: list[dict] = (status or {}).get("clients", [])
+
+    # Primary client: most recently seen
+    primary_client = clients[0] if clients else None
 
     return {
         "api_ok": api_ok,
@@ -52,7 +56,6 @@ def _fetch_all() -> dict:
         "current_state": (status or {}).get("state", "unknown"),
         "backend_health": (status or {}).get("backend_health", "unknown"),
         "last_error": (status or {}).get("last_error"),
-        "last_successful_scrape": (status or {}).get("last_successful_scrape"),
         "last_scraped_handle": (state or {}).get("last_completed_handle"),
         "active_job": {
             "job_id": current_job["job_id"],
@@ -61,6 +64,8 @@ def _fetch_all() -> dict:
             "records_found": current_job.get("records_found", 0),
             "records_written": current_job.get("records_written", 0),
         } if current_job else None,
+        "client": primary_client,
+        "clients": clients,
         "fetch_errors": errors,
         "checked_at": datetime.now(UTC).isoformat(),
     }
