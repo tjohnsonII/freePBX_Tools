@@ -177,6 +177,93 @@ SIMULATE_CALLS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/simulate_calls.sh"
 NETWORK_DIAGNOSTICS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_network_diagnostics.py"
 LOG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
 CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.py"
+OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
+
+
+def run_ops_menu(sock):
+    """Interactive submenu for freepbx_ops (trace, find, snapshot, validate, set-ivr)."""
+    if not os.path.isfile(OPS_SCRIPT):
+        print(Colors.RED + "\n❌ freepbx_ops.py not found at " + OPS_SCRIPT + Colors.RESET)
+        print(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+        input()
+        return
+
+    base_cmd = ["python3", OPS_SCRIPT, "--socket", sock]
+
+    while True:
+        print("\n" + Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "║   🔧  Call-Flow Ops Tools                ║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  1) Trace DID  — full call-path tree     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  2) Decode destination string            " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  3) Find  — search across all components " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  4) Snapshot  — save current call-flow   " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  5) Validate  — health/consistency check " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  6) Set IVR option (dry-run / apply)     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  7) Print ticket note                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
+        ch = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+
+        if ch == "0":
+            break
+
+        elif ch == "1":
+            did = input(Colors.YELLOW + "DID number: " + Colors.RESET).strip()
+            if did:
+                subprocess.call(base_cmd + ["trace", did])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "2":
+            dest = input(Colors.YELLOW + "Destination string (e.g. ext-group,7004,1): " + Colors.RESET).strip()
+            if dest:
+                subprocess.call(base_cmd + ["decode", dest])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "3":
+            query = input(Colors.YELLOW + "Search term: " + Colors.RESET).strip()
+            if query:
+                subprocess.call(base_cmd + ["find", query])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "4":
+            reason = input(Colors.YELLOW + "Reason (optional): " + Colors.RESET).strip()
+            cmd = base_cmd + ["snapshot"]
+            if reason:
+                cmd += ["--reason", reason]
+            subprocess.call(cmd)
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "5":
+            subprocess.call(base_cmd + ["validate"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "6":
+            ivr_id = input(Colors.YELLOW + "IVR ID: " + Colors.RESET).strip()
+            option = input(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
+            dest   = input(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
+            if ivr_id and option and dest:
+                subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option, "--dest", dest])
+                apply = input(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
+                if apply in ("y", "yes"):
+                    subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option,
+                                                "--dest", dest, "--apply"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        elif ch == "7":
+            subprocess.call(base_cmd + ["ticket"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            input()
+
+        else:
+            print(Colors.RED + "Invalid choice." + Colors.RESET)
 
 
 def run_tc_status(sock):
@@ -237,34 +324,51 @@ def run_comprehensive_analyzer(sock):
 
 def run_call_simulation_menu(sock, did_rows):
     """Interactive call simulation and validation menu."""
-    print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-    print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation Menu{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-    print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-    print(f"{Colors.CYAN}║{Colors.WHITE} Test real call behavior against predicted call flows{' ' * 24}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-    print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
-    print()
-    
+    # Pre-flight: check which tools are available
+    simulator_ok   = os.path.isfile(CALL_SIMULATOR_SCRIPT)
+    validator_ok   = os.path.isfile(CALLFLOW_VALIDATOR_SCRIPT)
+    monitoring_ok  = os.path.isfile(SIMULATE_CALLS_SCRIPT)
+
+    W = 78
     while True:
-        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation Options{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 1){Colors.WHITE} Test specific DID with call simulation (makes actual test call){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 2){Colors.WHITE} Validate call flow configuration for DID (checks database only){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 3){Colors.WHITE} Test extension call (internal extension-to-extension){' ' * 17}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 4){Colors.WHITE} Test voicemail call (voicemail access and functionality){' ' * 14}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 5){Colors.WHITE} Validate ring group configuration (checks members & settings){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 6){Colors.WHITE} Run comprehensive call validation (all checks across system){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 7){Colors.WHITE} Monitor active call simulations (real-time status){' ' * 20}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.RED} 8){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        print(f"\n{Colors.CYAN}╔{'═' * W}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+
+        # ── Safe section ──────────────────────────────────────────────────────
+        safe_hdr = " ── Database Checks (safe — no live calls) ── "
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.GREEN}{safe_hdr:<{W}}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+        avail = Colors.GREEN if validator_ok else Colors.RED
+        print(f"{Colors.CYAN}║{avail} 1){Colors.WHITE} Validate DID call-flow config  (database only){' ' * 22}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        # ── Live call section ─────────────────────────────────────────────────
+        live_hdr = " ── ⚠  LIVE CALL TESTS — makes real calls on this system ── "
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.RED}{live_hdr:<{W}}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+        avail = Colors.GREEN if simulator_ok else Colors.RED
+        na    = "" if simulator_ok else "  [⚠ simulator not installed]"
+        print(f"{Colors.CYAN}║{avail} 2){Colors.WHITE} Test specific DID{na}{' ' * max(0, 51 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 3){Colors.WHITE} Test extension-to-extension call{na}{' ' * max(0, 37 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 4){Colors.WHITE} Test voicemail access{na}{' ' * max(0, 48 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 5){Colors.WHITE} Test audio playback  (plays a sound file){na}{' ' * max(0, 28 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 6){Colors.RED}{Colors.BOLD} ⚠ Comprehensive validation  (many real calls — use in test env){' ' * 7}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        # ── Monitoring ────────────────────────────────────────────────────────
+        avail = Colors.GREEN if monitoring_ok else Colors.RED
+        print(f"{Colors.CYAN}║{avail} 7){Colors.WHITE} Monitor active call simulations{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 0){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
         print()
-        
-        choice = input(f"{Colors.YELLOW}Choose simulation option (1-8): {Colors.RESET}").strip()
-        
-        if choice == "1":
-            run_did_call_test(did_rows)
-        elif choice == "2":
+
+        choice = input(f"{Colors.YELLOW}Choose option (0-7): {Colors.RESET}").strip()
+
+        if choice == "0":
+            break
+        elif choice == "1":
             run_callflow_validation(did_rows)
+        elif choice == "2":
+            run_did_call_test(did_rows)
         elif choice == "3":
             run_extension_test()
         elif choice == "4":
@@ -275,10 +379,8 @@ def run_call_simulation_menu(sock, did_rows):
             run_comprehensive_validation()
         elif choice == "7":
             run_call_monitoring()
-        elif choice == "8":
-            break
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-8.{Colors.RESET}")
+            print(f"{Colors.RED}❌ Invalid choice. Please select 0-7.{Colors.RESET}")
 
 
 def run_did_call_test(did_rows):
@@ -286,9 +388,15 @@ def run_did_call_test(did_rows):
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print(f"{Colors.RED}❌ Call simulator not found. Please run deployment first.{Colors.RESET}")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     if not did_rows:
-        print(f"{Colors.RED}❌ No DID data available. Please refresh the snapshot first.{Colors.RESET}")
+        print(f"{Colors.RED}❌ No DID data available. Please refresh the data cache first.{Colors.RESET}")
         return
     
     print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
@@ -366,7 +474,7 @@ def run_callflow_validation(did_rows):
         return
     
     if not did_rows:
-        print("❌ No DID data available. Please refresh the snapshot first.")
+        print("❌ No DID data available. Please refresh the data cache first.")
         return
     
     print("\n🔍 Call Flow Validation Test")
@@ -426,7 +534,13 @@ def run_extension_test():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     print("\n📱 Extension Call Test")
     
     extension = input("Enter extension number to test: ").strip()
@@ -459,7 +573,13 @@ def run_voicemail_test():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     print("\n📧 Voicemail Call Test")
     
     mailbox = input("Enter voicemail mailbox to test: ").strip()
@@ -488,12 +608,18 @@ def run_voicemail_test():
 
 
 def run_playback_test():
-    """Test playback application (like zombies example)."""
+    """Test audio playback via Asterisk (plays a sound file)."""
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
-    print("\n🎵 Playback Application Test")
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
+    print("\n🎵 Audio Playback Test")
     print("Common sound files: demo-congrats, demo-thanks, zombies, beep")
     
     sound_file = input("Enter sound file to play: ").strip()
@@ -526,20 +652,17 @@ def run_comprehensive_validation():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
-    print("\n🧪 Comprehensive Call Validation")
-    print("This will run a full test suite including:")
-    print("- DID routing tests")
-    print("- Extension tests")
-    print("- Voicemail tests")
-    print("- Application tests")
-    print("- Performance measurement")
+
+    print(f"\n{Colors.RED}{Colors.BOLD}{'═' * 70}")
+    print(f"⚠  COMPREHENSIVE LIVE CALL TEST")
+    print(f"   This will create MULTIPLE real calls across the production system:")
+    print(f"   DID routing tests, extension tests, voicemail tests,")
+    print(f"   application tests, and performance measurement.")
+    print(f"   DO NOT run this on a live customer system during business hours.")
+    print(f"{'═' * 70}{Colors.RESET}")
     print()
-    
-    print("⚠️  WARNING: This will create multiple real calls in your system!")
-    
-    confirm = input("Continue with comprehensive testing? (y/N): ").strip().lower()
-    if confirm != 'y':
+    confirm = input(f"{Colors.YELLOW}Type CONFIRM to proceed, or press Enter to cancel: {Colors.RESET}").strip()
+    if confirm != "CONFIRM":
         print("❌ Testing cancelled.")
         return
     
@@ -604,7 +727,7 @@ def run_ascii_callflow(sock, did_rows):
         elif choice == "1":
             # Original DID-specific flow generation
             if not did_rows:
-                print("No DID data available. Please refresh the snapshot first.")
+                print("No DID data available. Please refresh the data cache first.")
                 continue
             
             print("\nSelect DID(s) for ASCII flow chart generation:")
@@ -710,36 +833,8 @@ def run_ascii_callflow(sock, did_rows):
 
 
 def show_error_map_quick_reference():
-    """Display interactive error map and quick reference tables"""
-    while True:
-        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*80}")
-        print(f"  📚 FreePBX Error Map & Quick Reference")
-        print(f"{'='*80}{Colors.RESET}\n")
-        
-        print(f"{Colors.YELLOW}Choose a reference:{Colors.RESET}")
-        print(f"  {Colors.CYAN}1){Colors.RESET} SIP/Q.850 Code Lookup")
-        print(f"  {Colors.CYAN}2){Colors.RESET} Common Issues Quick Reference")
-        print(f"  {Colors.CYAN}3){Colors.RESET} Diagnostic Symptoms Guide")
-        print(f"  {Colors.CYAN}4){Colors.RESET} Response Playbooks Summary")
-        print(f"  {Colors.CYAN}5){Colors.RESET} Return to main menu")
-        print()
-        
-        choice = input(f"{Colors.YELLOW}Enter choice (1-5): {Colors.RESET}").strip()
-        
-        if choice == "5":
-            break
-        elif choice == "1":
-            show_sip_code_reference()
-        elif choice == "2":
-            show_common_issues_matrix()
-        elif choice == "3":
-            show_diagnostic_symptoms()
-        elif choice == "4":
-            show_playbooks_summary()
-        else:
-            print(f"{Colors.RED}Invalid choice. Please enter 1-5.{Colors.RESET}")
-        
-        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
+    """SIP/Q.850 code lookup — direct, no sub-menu."""
+    show_sip_code_reference()
 
 
 def show_sip_code_reference():
@@ -1093,7 +1188,7 @@ def load_dump():
 
 def refresh_dump(sock):
     ensure_outdir()
-    print("\n[+] Refreshing FreePBX snapshot (this reads MySQL)...")
+    print("\n[+] Refreshing FreePBX data cache (this reads MySQL)...")
     cmd = ["python3", DUMP_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--out", DUMP_PATH]
     rc, out, err = run(cmd)
     if rc == 0:
@@ -1133,32 +1228,216 @@ def summarize(data):
     print(Colors.CYAN + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.RESET)
     print("")
 
-def list_dids(data, show_limit=50):
+_SORT_CYCLE = ['index', 'did', 'label', 'dest']
+
+
+def get_did_rows(data):
+    """Extract DID rows from snapshot data without any display."""
     dids = data.get("inbound", [])
     rows = []
     for i, r in enumerate(dids, 1):
-        label = r.get("label") or ""
-        cid   = r.get("cid") or ""
-        dest  = r.get("destination") or ""
-        rows.append((i, r.get("did",""), label, cid, dest))
+        rows.append((i, r.get("did", ""), r.get("label") or "", r.get("cid") or "", r.get("destination") or ""))
+    return rows
+
+
+def _decode_dest_from_cache(dest, data):
+    """Map a FreePBX destination string to a human label using cached data."""
+    if not dest or not data:
+        return dest or ""
+    parts = dest.split(",")
+    ctx  = parts[0].strip()
+    arg1 = parts[1].strip() if len(parts) > 1 else ""
+    ctx_lower = ctx.lower()
+
+    if ctx_lower == "timeconditions":
+        for tc in (data.get("timeconditions") or []):
+            if str(tc.get("timeconditions_id", "")) == arg1:
+                return f"TC: {tc.get('displayname', arg1)}"
+
+    if ctx_lower == "ext-group":
+        for rg in (data.get("ringgroups") or []):
+            if str(rg.get("grpnum", "")) == arg1:
+                return f"RG: {rg.get('description', arg1)}"
+
+    if ctx_lower.startswith("ivr-"):
+        ivr_id = ctx[4:]
+        for m in (data.get("ivrs", {}).get("menus") or []):
+            if str(m.get("ivr_id", "")) == ivr_id:
+                return f"IVR: {m.get('name', ivr_id)}"
+
+    if ctx_lower == "ivr":
+        for m in (data.get("ivrs", {}).get("menus") or []):
+            if str(m.get("ivr_id", "")) == arg1:
+                return f"IVR: {m.get('name', arg1)}"
+
+    if ctx_lower == "ext-queues":
+        for q in (data.get("queues") or []):
+            if isinstance(q, dict) and str(q.get("queue", "")) == arg1:
+                return f"Queue: {q.get('queue_name', arg1)}"
+
+    if ctx_lower in ("app-announce", "ext-announce", "app-recordings-custom"):
+        for ann in (data.get("announcements") or []):
+            if str(ann.get("announcement_id", "")) == arg1:
+                return f"Ann: {ann.get('description', arg1)}"
+
+    if ctx_lower == "from-did-direct":
+        for ext in (data.get("extensions") or []):
+            if str(ext.get("extension", "")) == arg1:
+                return f"Ext {arg1}: {ext.get('name', '')}".strip()
+        return f"Ext: {arg1}"
+
+    if ctx.isdigit():
+        for ext in (data.get("extensions") or []):
+            if str(ext.get("extension", "")) == ctx:
+                return f"Ext {ctx}: {ext.get('name', '')}".strip()
+
+    return dest
+
+
+def _filter_rows(rows, query):
+    q = query.strip().lower()
+    if not q:
+        return list(rows)
+    return [r for r in rows if q in r[1].lower() or q in r[2].lower() or q in r[3].lower() or q in r[4].lower()]
+
+
+def _sort_rows(rows, key):
+    col = {'index': 0, 'did': 1, 'label': 2, 'cid': 3, 'dest': 4}.get(key, 0)
+    return sorted(rows, key=lambda r: str(r[col]).lower())
+
+
+def _show_did_detail(row):
+    idx, did, label, cid, dest = row
+    W = 64
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW +
+          f" DID Detail — Index {idx} ".center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    for field, val in [("DID", did), ("Label", label), ("CID", cid), ("Destination", dest)]:
+        line = f"  {field:<14}: {val}"
+        print(Colors.CYAN + "║" + Colors.WHITE + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def list_dids(data, show_limit=50):
+    rows = get_did_rows(data)
     if not rows:
         print(Colors.RED + "❌ No inbound routes found." + Colors.RESET)
         return []
-    
-    print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
-    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 DID ROUTING TABLE ".center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
-    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-    print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE + "Index │ DID           │ Label                         │ CID   │ Destination                    " + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
-    print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
-    
-    for i, did, label, cid, dest in rows[:show_limit]:
+    if show_limit == 0:
+        return rows
+
+    page_size = show_limit
+    active_filter = ""
+    sort_key = "index"
+
+    snap_age = get_snapshot_age_seconds()
+    age_tag = f"cache: {format_age(snap_age)}" if snap_age is not None else "cache: unknown"
+
+    def _tbl_header(shown, total, sk, af):
+        meta = []
+        if af:
+            meta.append(f"filter: {af}")
+        if sk != "index":
+            meta.append(f"sort: {sk}")
+        meta.append(age_tag)
+        suffix = ("[" + ", ".join(meta) + "] ") if meta else ""
+        count = f"({shown}" + (f"/{total}" if af else "") + ")"
+        title = f" 📞 DID ROUTING TABLE {suffix}{count} "
+        print(Colors.CYAN + "╔" + "═" * 115 + "╗" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + title.center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE +
+              "Index │ DID           │ Label                         │ CID   │ Destination (decoded)          " +
+              Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
+
+    def _tbl_row(idx, did, label, cid, dest):
+        decoded = _decode_dest_from_cache(dest, data)
         print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
-            i, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
-    
-    print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
-    
-    if len(rows) > show_limit:
-        print(Colors.YELLOW + f"... {len(rows) - show_limit} more not shown. (Use selection to target them anyway.)" + Colors.RESET)
+            idx, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], decoded[:32]) + Colors.CYAN + " ║" + Colors.RESET)
+
+    def _next_sort():
+        i = _SORT_CYCLE.index(sort_key) if sort_key in _SORT_CYCLE else 0
+        return _SORT_CYCLE[(i + 1) % len(_SORT_CYCLE)]
+
+    def _prompt(remaining):
+        if remaining > 0:
+            h = (f"... {remaining} more │ ENTER=next │ a=all │ "
+                 f"f <text>=filter │ s=sort({sort_key}) │ d<N>=detail │ q=quit: ")
+        else:
+            h = "End of list │ ENTER=done │ f <text>=filter │ s=sort │ d<N>=detail: "
+        return input(Colors.YELLOW + h + Colors.RESET).strip().lower()
+
+    def _handle_detail(ans, display):
+        try:
+            n = int(ans[1:].strip())
+            match = next((r for r in display if r[0] == n), None)
+            if match:
+                _show_did_detail(match)
+                input(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            else:
+                print(Colors.RED + f"Index {n} not found in current view." + Colors.RESET)
+        except ValueError:
+            pass
+
+    while True:  # outer: redo on filter/sort change
+        display = _sort_rows(_filter_rows(rows, active_filter), sort_key)
+
+        if not display:
+            print(Colors.YELLOW + f"No results for '{active_filter}'. Press ENTER to clear filter." + Colors.RESET)
+            input()
+            active_filter = ""
+            continue
+
+        redo = False
+        offset = 0
+
+        while offset < len(display):
+            page = display[offset:offset + page_size]
+            _tbl_header(len(display), len(rows), sort_key, active_filter)
+            for row in page:
+                _tbl_row(*row)
+            print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+
+            next_offset = offset + page_size
+            remaining = len(display) - next_offset
+
+            while True:  # inner prompt loop — re-prompts after detail view
+                ans = _prompt(remaining)
+                if ans == "q":
+                    return rows
+                elif ans == "a" and remaining > 0:
+                    _tbl_header(len(display), len(rows), sort_key, active_filter)
+                    for row in display[next_offset:]:
+                        _tbl_row(*row)
+                    print(Colors.CYAN + "╚" + "═" * 115 + "╝" + Colors.RESET)
+                    next_offset = len(display)
+                    remaining = 0
+                    continue  # fall through to end-of-list prompt
+                elif ans.startswith("f"):
+                    active_filter = ans[1:].strip() or input(Colors.YELLOW + "Filter (DID/label/dest, blank=clear): " + Colors.RESET).strip()
+                    redo = True
+                    break
+                elif ans == "s":
+                    sort_key = _next_sort()
+                    print(Colors.CYAN + f"  → sorted by: {sort_key}" + Colors.RESET)
+                    redo = True
+                    break
+                elif ans.startswith("d") and len(ans) > 1:
+                    _handle_detail(ans, display)
+                    continue  # re-show same prompt without advancing
+                else:  # ENTER
+                    break
+
+            if redo:
+                break
+            offset = next_offset
+
+        if redo:
+            continue
+        break
+
     return rows
 
 def parse_selection(sel, max_index):
@@ -1477,6 +1756,45 @@ def get_endpoint_status(sock):
     except Exception:
         return {"registered": 0, "unregistered": 0, "total": 0, "details": []}
 
+def get_trunk_status(sock):
+    """Return (online, total) trunk registration counts."""
+    try:
+        rc, out, _ = run(["asterisk", "-rx", "pjsip show registrations"], timeout=5)
+        if rc == 0 and out:
+            online = sum(1 for l in out.split('\n') if 'Registered' in l)
+            total = sum(1 for l in out.split('\n') if re.search(r'^\s*\S+.*sip', l, re.IGNORECASE))
+            if total == 0:
+                total = out.lower().count('sip')
+            return online, max(online, total)
+        # fallback: chan_sip
+        rc2, out2, _ = run(["asterisk", "-rx", "sip show registry"], timeout=5)
+        if rc2 == 0 and out2:
+            online = sum(1 for l in out2.split('\n') if 'Registered' in l)
+            total = sum(1 for l in out2.split('\n')
+                        if l.strip() and not l.lower().startswith('host') and not l.startswith('-'))
+            return online, max(online, total)
+    except Exception:
+        pass
+    return None, None
+
+
+def get_recent_error_count():
+    """Return count of ERROR lines in last 200 lines of Asterisk full log, or None."""
+    try:
+        log = "/var/log/asterisk/full"
+        if not os.path.isfile(log):
+            return None
+        result = subprocess.run(
+            ["bash", "-c", f"tail -200 {log} | grep -c ERROR"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=5)
+        if result.returncode in (0, 1):
+            return int(result.stdout.strip() or 0)
+    except Exception:
+        pass
+    return None
+
+
 def display_system_dashboard(sock, data):
     """Display key system information in a professional tile-based dashboard layout"""
     import os
@@ -1524,6 +1842,8 @@ def display_system_dashboard(sock, data):
     endpoint_status = get_endpoint_status(sock)
     services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
     service_status = get_service_status(services)
+    trunk_online, trunk_total = get_trunk_status(sock)
+    recent_errors = get_recent_error_count()
     
     # Calculate metrics
     ep_total = endpoint_status["total"]
@@ -1723,7 +2043,29 @@ def display_system_dashboard(sock, data):
     else:
         ep_display = Colors.RED + Colors.BOLD + str(ep_pct) + "%" + Colors.RESET
     status_parts.append("📱 Endpoint Health: " + ep_display)
-    
+
+    # Trunk status
+    if trunk_online is not None and trunk_total is not None:
+        if trunk_total == 0:
+            trunk_display = Colors.YELLOW + "N/A" + Colors.RESET
+        elif trunk_online == trunk_total:
+            trunk_display = Colors.GREEN + f"{trunk_online}/{trunk_total}" + Colors.RESET
+        elif trunk_online > 0:
+            trunk_display = Colors.YELLOW + f"{trunk_online}/{trunk_total}" + Colors.RESET
+        else:
+            trunk_display = Colors.RED + Colors.BOLD + f"0/{trunk_total}" + Colors.RESET
+        status_parts.append("📡 Trunks: " + trunk_display)
+
+    # Recent errors badge
+    if recent_errors is not None:
+        if recent_errors == 0:
+            err_display = Colors.GREEN + "0" + Colors.RESET
+        elif recent_errors < 10:
+            err_display = Colors.YELLOW + str(recent_errors) + Colors.RESET
+        else:
+            err_display = Colors.RED + Colors.BOLD + str(recent_errors) + Colors.RESET
+        status_parts.append("⚠ Errors(200L): " + err_display)
+
     print("\n  " + "  │  ".join(status_parts))
     print("")
 
@@ -1961,46 +2303,40 @@ def run_network_diagnostics_menu():
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🌐 Network Diagnostics & Packet Capture{' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show network interfaces (ip addr / ifconfig){' ' * 28}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show routing table (ip route / route){' ' * 35}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Show ARP table (address resolution){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Show network statistics (netstat / ss){' ' * 33}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Ping test (connectivity check){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Traceroute (path analysis){' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} DNS lookup (dig / nslookup){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Capture packets with tcpdump{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Analyze SIP traffic (port 5060){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Monitor RTP traffic (audio streams){' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Show Asterisk SIP peers{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 13){Colors.WHITE} Show active Asterisk channels{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show Asterisk SIP peers{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Show active Asterisk channels{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Analyze SIP traffic (port 5060){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Monitor RTP traffic (audio streams){' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Capture packets with tcpdump{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Ping test (connectivity check){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Traceroute (path analysis){' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} DNS lookup (dig / nslookup){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Show network interfaces (ip addr / ifconfig){' ' * 28}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Show routing table (ip route / route){' ' * 35}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Show ARP table (address resolution){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 13){Colors.WHITE} Show network statistics (netstat / ss){' ' * 33}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN} 14){Colors.WHITE} Run comprehensive network diagnostic{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.RED} 15){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
-        
+
         choice = input(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
-        
+
         if choice == "1":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
+            print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
         elif choice == "2":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
         elif choice == "3":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
         elif choice == "4":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
+            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
         elif choice == "5":
-            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
         elif choice == "6":
-            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
-            if host:
-                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
-        elif choice == "7":
-            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
-            if domain:
-                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
-        elif choice == "8":
             duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
             port = input(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
             host = input(f"{Colors.YELLOW}Filter by host (optional, press Enter to skip): {Colors.RESET}").strip()
@@ -2010,19 +2346,25 @@ def run_network_diagnostics_menu():
             if host:
                 cmd.extend(["--host", host])
             run_interactive(cmd)
+        elif choice == "7":
+            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+        elif choice == "8":
+            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
+            if host:
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
         elif choice == "9":
-            print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
+            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
+            if domain:
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
         elif choice == "10":
-            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
         elif choice == "11":
-            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
         elif choice == "12":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
         elif choice == "13":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
         elif choice == "14":
             print(f"{Colors.CYAN}Running comprehensive network diagnostic...{Colors.RESET}\n")
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--comprehensive"])
@@ -2037,52 +2379,86 @@ def run_network_diagnostics_menu():
 
 # ---------------- menu ----------------
 
-def run_phone_analysis_menu():
+def run_show_unregistered_phones(sock):
+    """Show unregistered phones inline using live Asterisk data."""
+    print(f"\n{Colors.CYAN}Querying endpoint registration status...{Colors.RESET}")
+    ep = get_endpoint_status(sock)
+    details = ep.get("details", [])
+    unreg = [(ext, name, status) for ext, name, status in details
+             if status.lower() not in ("registered", "ok")]
+    reg = [(ext, name, status) for ext, name, status in details
+           if status.lower() in ("registered", "ok")]
+
+    W = 68
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    title = f" 📵 UNREGISTERED PHONES — {len(unreg)} of {ep['total']} offline "
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.RED + title.center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    if not unreg:
+        line = "  ✓ All extensions registered."
+        print(Colors.CYAN + "║" + Colors.GREEN + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    else:
+        hdr = f"  {'Ext':<8} {'Name':<28} Status"
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + hdr.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "─" * W + "╣" + Colors.RESET)
+        for ext, name, status in sorted(unreg, key=lambda r: r[0]):
+            line = f"  {ext:<8} {name[:28]:<28} {status}"
+            print(Colors.CYAN + "║" + Colors.YELLOW + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    summary = f"  Registered: {len(reg)}  │  Unregistered: {len(unreg)}  │  Total: {ep['total']}"
+    print(Colors.CYAN + "║" + Colors.WHITE + summary.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def run_phone_analysis_menu(sock):
     """Interactive phone/endpoint analysis menu."""
     PHONE_ANALYZER_SCRIPT = os.path.join(os.path.dirname(__file__), "freepbx_phone_analyzer.py")
-    
+
     if not os.path.isfile(PHONE_ANALYZER_SCRIPT):
         print(f"{Colors.RED}❌ Phone analyzer tool not found.{Colors.RESET}")
         return
-    
+
     while True:
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 Phone & Endpoint Analysis{' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Analyze SIP peer registrations{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Analyze PJSIP endpoints{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Analyze extension configuration{' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Check provisioning status{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Check firmware versions{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Check 123NET configuration standards{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Analyze call quality metrics{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Generate comprehensive phone report{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show unregistered phones (live){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Analyze SIP peer registrations{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Analyze PJSIP endpoints{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Analyze extension configuration{' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Check provisioning status{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Check firmware versions{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Check 123NET configuration standards{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Analyze call quality metrics{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Generate comprehensive phone report{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
-        
-        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-9): {Colors.RESET}").strip()
-        
-        if choice == '9':
+
+        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-10): {Colors.RESET}").strip()
+
+        if choice == '10':
             break
         elif choice == '1':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--sip-peers'])
+            run_show_unregistered_phones(sock)
         elif choice == '2':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--pjsip'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--sip-peers'])
         elif choice == '3':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--extensions'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--pjsip'])
         elif choice == '4':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--provisioning'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--extensions'])
         elif choice == '5':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--firmware'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--provisioning'])
         elif choice == '6':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--standards'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--firmware'])
         elif choice == '7':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--call-quality'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--standards'])
         elif choice == '8':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--call-quality'])
+        elif choice == '9':
             run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--comprehensive'])
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-9.{Colors.RESET}")
-        
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-10.{Colors.RESET}")
+
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
         input()
 
@@ -2096,7 +2472,7 @@ def main():
     parser.add_argument(
         "--watch-refresh-snapshot",
         action="store_true",
-        help="When using --watch, refresh the DB snapshot every cycle (can be heavy).",
+        help="When using --watch, refresh the data cache every cycle (can be heavy).",
     )
     args = parser.parse_args()
 
@@ -2120,7 +2496,7 @@ def main():
     sock = detect_mysql_socket()
     data = load_dump()
     if not data:
-        # first run: force snapshot so menu has content
+        # first run: force data cache so menu has content
         if not refresh_dump(sock):
             sys.exit(1)
         data = load_dump()
@@ -2158,38 +2534,50 @@ def main():
         print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 freePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         
-        # Helper function to format menu line with proper alignment
+        # Helper function to format menu line with proper alignment (ANSI-safe)
         def menu_line(num, text):
-            # Build the visible content (without color codes)
-            visible_content = f" {num:>2}) {text}"
-            # Calculate padding needed (menu_width - 2 for borders - visible length)
-            padding_needed = menu_width - len(visible_content) - 2
-            padding = " " * max(0, padding_needed)
-            
-            # Build line with colors: border + bold number + reset + text + padding + border
             num_part = f" {num:>2})"
-            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET + 
-                   " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
-        
+            inner = num_part + " " + text
+            padding_needed = menu_width - visible_len(inner) - 2
+            padding = " " * max(0, padding_needed)
+            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET +
+                    " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
+
+        def menu_section(title):
+            inner = f" {title} "
+            dashes = "─" * ((menu_width - len(inner)) // 2)
+            line = (dashes + inner + dashes).ljust(menu_width)
+            return Colors.CYAN + "║" + Colors.BOLD + Colors.CYAN + line + Colors.RESET + Colors.CYAN + "║" + Colors.RESET
+
+        _cache_age_s = get_snapshot_age_seconds()
+        _cache_tag = (f"  {Colors.CYAN}[cache: {format_age(_cache_age_s)}]{Colors.RESET}"
+                      if _cache_age_s is not None else "")
+        print(menu_section("Snapshot & Inventory"))
         print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
-        print(menu_line("1", "Refresh DB snapshot"))
+        print(menu_line("1", "Refresh data cache" + _cache_tag))
         print(menu_line("2", "Show inventory (counts) + list DIDs"))
+        print(menu_section("Render Call Flows"))
         print(menu_line("3", "Generate call-flow for selected DID(s)"))
         print(menu_line("4", "Generate call-flows for ALL DIDs"))
         print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
+        print(menu_line("10", "Generate ASCII art call-flows"))
+        print(menu_section("PBX Analysis"))
         print(menu_line("6", "Show Time-Condition status (+ last *code use)"))
         print(menu_line("7", "Run FreePBX module analysis"))
         print(menu_line("8", "Run paging, overhead & fax analysis"))
         print(menu_line("9", "Run comprehensive component analysis"))
-        print(menu_line("10", "Generate ASCII art call-flows"))
-        print(menu_line("11", "📞 Call Simulation & Validation"))
+        print(menu_section("Diagnostics"))
+        print(menu_line("11", "Call Simulation & Validation"))
         print(menu_line("12", "Run full Asterisk diagnostic"))
-        print(menu_line("13", "🔍 Automated log analysis (detect issues)"))
-        print(menu_line("14", "📚 Error Map & Quick Reference"))
-        print(menu_line("15", "🌐 Network Diagnostics & Packet Capture"))
-        print(menu_line("16", "🔍 Enhanced Log Analysis (dmesg/journal/regex)"))
-        print(menu_line("17", "📞 CDR/CEL Call Log Analysis"))
-        print(menu_line("18", "📱 Phone/Endpoint Analysis"))
+        print(menu_line("13", "Automated log analysis (detect issues)"))
+        print(menu_line("14", "SIP / Q.850 code lookup"))
+        print(menu_line("15", "Network Diagnostics & Packet Capture"))
+        print(menu_line("16", "Enhanced Log Analysis (dmesg/journal/regex)"))
+        print(menu_line("17", "CDR/CEL Call Log Analysis"))
+        print(menu_line("18", "Phone/Endpoint Analysis"))
+        print(menu_section("Ops Tools"))
+        print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
+        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         print(menu_line("19", "Quit"))
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
         choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
@@ -2199,7 +2587,7 @@ def main():
             try:
                 interval = input(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
                 args.interval = interval
-                refresh_each = input(Colors.YELLOW + "Refresh DB snapshot each cycle? (y/N): " + Colors.RESET).strip().lower()
+                refresh_each = input(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
                 args.watch_refresh_snapshot = refresh_each in ("y", "yes")
             except Exception:
                 args.interval = "2"
@@ -2237,8 +2625,8 @@ def main():
             input()
 
         elif choice == "4":
-            did_rows = list_dids(data, show_limit=0) or list_dids(data)  # ensures we have rows
-            if not did_rows: 
+            did_rows = get_did_rows(data)
+            if not did_rows:
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
                 input()
                 continue
@@ -2247,7 +2635,7 @@ def main():
             input()
 
         elif choice == "5":
-            did_rows = list_dids(data, show_limit=0) or list_dids(data)
+            did_rows = get_did_rows(data)
             if not did_rows: 
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
                 input()
@@ -2304,7 +2692,10 @@ def main():
             run_cdr_analysis_menu()
 
         elif choice == "18":
-            run_phone_analysis_menu()
+            run_phone_analysis_menu(sock)
+
+        elif choice == "20":
+            run_ops_menu(sock)
 
         elif choice == "19":
             print("Bye.")
