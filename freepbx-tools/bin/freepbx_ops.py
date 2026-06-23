@@ -771,7 +771,7 @@ def main():
     p.add_argument("--db-user",  default="root",  help="MySQL user")
     p.add_argument("--password", default=None,    help="MySQL password")
 
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd")  # required= not available in Python 3.6
 
     # trace
     sp = sub.add_parser("trace", help="Full call-path trace for a DID")
@@ -809,6 +809,10 @@ def main():
     sp.add_argument("--clear", action="store_true", help="Clear session log after printing")
 
     args = p.parse_args()
+
+    if not args.cmd:
+        p.print_help()
+        sys.exit(1)
 
     _DB_KW["socket"]   = args.socket
     _DB_KW["user"]     = args.db_user
