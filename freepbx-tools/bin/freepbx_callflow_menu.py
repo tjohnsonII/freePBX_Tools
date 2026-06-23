@@ -249,11 +249,16 @@ def run_ops_menu(sock):
             option = input(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
             dest   = input(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
             if ivr_id and option and dest:
-                subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option, "--dest", dest])
-                apply = input(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
-                if apply in ("y", "yes"):
-                    subprocess.call(base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option,
-                                                "--dest", dest, "--apply"])
+                mode = input(Colors.YELLOW + "p=preview only  a=apply directly  Enter=preview then confirm: " + Colors.RESET).strip().lower()
+                set_cmd = base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option, "--dest", dest]
+                if mode == "a":
+                    subprocess.call(set_cmd + ["--apply"])
+                else:
+                    subprocess.call(set_cmd)  # preview
+                    if mode != "p":
+                        apply = input(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
+                        if apply in ("y", "yes"):
+                            subprocess.call(set_cmd + ["--apply"])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             input()
 
@@ -278,6 +283,86 @@ def run_tc_status(sock):
         print((err or out).strip())
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
     input()
+
+
+def run_tc_control(sock):
+    """Show TC status then offer interactive force/clear control."""
+    # Show existing status first
+    run_tc_status(sock)
+
+    # Query TC list from DB
+    sql = ("SELECT timeconditions_id, "
+           "COALESCE(displayname, COALESCE(name, CONCAT('TC ',timeconditions_id))), "
+           "COALESCE(inuse_state,0) FROM timeconditions ORDER BY CAST(timeconditions_id AS UNSIGNED)")
+    rc, out, _ = run(["mysql", "-NBe", sql, "asterisk"])
+    if rc != 0 or not out.strip():
+        print(f"{Colors.YELLOW}Could not query time conditions from database.{Colors.RESET}")
+        return
+
+    tcs = []
+    for line in out.strip().split('\n'):
+        parts = line.split('\t')
+        if len(parts) >= 3:
+            try:
+                tcs.append((int(parts[0]), parts[1], int(parts[2])))
+            except ValueError:
+                pass
+
+    if not tcs:
+        print(f"{Colors.YELLOW}No time conditions found.{Colors.RESET}")
+        return
+
+    STATE_LABELS = {0: f"{Colors.GREEN}Auto{Colors.RESET}",
+                    1: f"{Colors.YELLOW}Forced TRUE{Colors.RESET}",
+                    2: f"{Colors.RED}Forced FALSE{Colors.RESET}"}
+
+    W = 70
+    print(f"\n{Colors.CYAN}╔{'═' * W}╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} ⏰ TC Force / Clear Control{' ' * (W - 27)}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+    for tc_id, name, state in tcs:
+        label = STATE_LABELS.get(state, str(state))
+        raw_label = {0: "Auto", 1: "Forced TRUE", 2: "Forced FALSE"}.get(state, str(state))
+        row = f"  {tc_id:>4}  {name[:38]:<38}  {raw_label}"
+        # print with colour
+        print(f"{Colors.CYAN}║{Colors.WHITE}{f'  {tc_id:>4}  {name[:38]:<38}  '}{label}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.GREEN}  Actions: {Colors.WHITE}1=Force TRUE   2=Force FALSE   3=Clear (Auto)   0=Done{' ' * 4}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
+
+    while True:
+        tc_pick = input(f"\n{Colors.YELLOW}TC ID to control (or 0 to exit): {Colors.RESET}").strip()
+        if tc_pick == "0" or tc_pick == "":
+            break
+        try:
+            tc_id_int = int(tc_pick)
+        except ValueError:
+            print(f"{Colors.RED}Invalid ID.{Colors.RESET}")
+            continue
+        match = next((t for t in tcs if t[0] == tc_id_int), None)
+        if not match:
+            print(f"{Colors.RED}TC {tc_id_int} not found.{Colors.RESET}")
+            continue
+
+        action = input(f"{Colors.YELLOW}Action — 1=Force TRUE  2=Force FALSE  3=Clear: {Colors.RESET}").strip()
+        if action not in ("1", "2", "3"):
+            print(f"{Colors.RED}Invalid action.{Colors.RESET}")
+            continue
+
+        tc_name = match[1]
+        if action == "3":
+            print(f"{Colors.YELLOW}Clearing override for TC {tc_id_int} ({tc_name})...{Colors.RESET}")
+            run(["asterisk", "-rx", f"database del TCTEMP {tc_id_int}"])
+            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state=0 WHERE timeconditions_id={tc_id_int}", "asterisk"])
+            print(f"{Colors.GREEN}✓ TC {tc_id_int} set to Auto (schedule).{Colors.RESET}")
+        else:
+            state_label = "TRUE" if action == "1" else "FALSE"
+            print(f"{Colors.YELLOW}Forcing TC {tc_id_int} ({tc_name}) → {state_label}...{Colors.RESET}")
+            run(["asterisk", "-rx", f"database put TCTEMP {tc_id_int} force {action}"])
+            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state={action} WHERE timeconditions_id={tc_id_int}", "asterisk"])
+            print(f"{Colors.GREEN}✓ TC {tc_id_int} forced {state_label}.{Colors.RESET}")
+
+        _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after TC change
 
 
 def run_module_analyzer(sock):
@@ -1230,6 +1315,13 @@ def summarize(data):
 
 _SORT_CYCLE = ['index', 'did', 'label', 'dest']
 
+# Session state — persists across menu visits within one run
+_SESSION = {"last_filter": "", "last_sort": "index", "last_did": ""}
+
+# Dashboard live-data cache — avoid re-querying Asterisk on every menu render
+_DASH_CACHE: dict = {"ts": 0.0}
+_DASH_CACHE_TTL = 30  # seconds
+
 
 def get_did_rows(data):
     """Extract DID rows from snapshot data without any display."""
@@ -1328,8 +1420,8 @@ def list_dids(data, show_limit=50):
         return rows
 
     page_size = show_limit
-    active_filter = ""
-    sort_key = "index"
+    active_filter = _SESSION.get("last_filter", "")
+    sort_key = _SESSION.get("last_sort", "index")
 
     snap_age = get_snapshot_age_seconds()
     age_tag = f"cache: {format_age(snap_age)}" if snap_age is not None else "cache: unknown"
@@ -1438,6 +1530,8 @@ def list_dids(data, show_limit=50):
             continue
         break
 
+    _SESSION["last_filter"] = active_filter
+    _SESSION["last_sort"] = sort_key
     return rows
 
 def parse_selection(sel, max_index):
@@ -1838,14 +1932,32 @@ def display_system_dashboard(sock, data):
     print("\n" + header_line)
     print(Colors.CYAN + "─" * BOX_TOTAL + Colors.RESET)
     
-    # Get all data first
-    active_calls = get_active_calls(sock)
-    tc_total, forced_count, tc_status_list = get_time_conditions_status(sock)
-    endpoint_status = get_endpoint_status(sock)
-    services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
-    service_status = get_service_status(services)
-    trunk_online, trunk_total = get_trunk_status(sock)
-    recent_errors = get_recent_error_count()
+    # Get all data — use cache if fresh, otherwise re-query
+    _now = time.time()
+    if _now - _DASH_CACHE.get("ts", 0) < _DASH_CACHE_TTL:
+        active_calls   = _DASH_CACHE["active_calls"]
+        tc_total       = _DASH_CACHE["tc_total"]
+        forced_count   = _DASH_CACHE["forced_count"]
+        tc_status_list = _DASH_CACHE["tc_status_list"]
+        endpoint_status = _DASH_CACHE["endpoint_status"]
+        service_status  = _DASH_CACHE["service_status"]
+        trunk_online    = _DASH_CACHE["trunk_online"]
+        trunk_total     = _DASH_CACHE["trunk_total"]
+        recent_errors   = _DASH_CACHE["recent_errors"]
+    else:
+        active_calls = get_active_calls(sock)
+        tc_total, forced_count, tc_status_list = get_time_conditions_status(sock)
+        endpoint_status = get_endpoint_status(sock)
+        services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
+        service_status = get_service_status(services)
+        trunk_online, trunk_total = get_trunk_status(sock)
+        recent_errors = get_recent_error_count()
+        _DASH_CACHE.update({
+            "ts": _now, "active_calls": active_calls,
+            "tc_total": tc_total, "forced_count": forced_count, "tc_status_list": tc_status_list,
+            "endpoint_status": endpoint_status, "service_status": service_status,
+            "trunk_online": trunk_online, "trunk_total": trunk_total, "recent_errors": recent_errors,
+        })
     
     # Calculate metrics
     ep_total = endpoint_status["total"]
@@ -2791,7 +2903,7 @@ def main():
         print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
         print(menu_line("10", "Generate ASCII art call-flows"))
         print(menu_section("PBX Analysis"))
-        print(menu_line("6", "Show Time-Condition status (+ last *code use)"))
+        print(menu_line("6", "Time-Condition status + Force/Clear control"))
         print(menu_line("7", "Run FreePBX module analysis"))
         print(menu_line("8", "Run paging, overhead & fax analysis"))
         print(menu_line("9", "Run comprehensive component analysis"))
@@ -2807,8 +2919,15 @@ def main():
         print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
         print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         print(menu_line("19", "Quit"))
+        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
+        _hint = "Shortcuts: d=DIDs  r=refresh  t=TC  l=log  n=net  c=CDR  p=phones  o=ops  q=quit"
+        _hpad = " " * max(0, menu_width - len(_hint) - 2)
+        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.CYAN + _hint + _hpad + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
-        choice = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+        choice = input("\n" + Colors.YELLOW + "Choose (or d=DIDs r=refresh t=TC l=log n=net c=CDR p=phones o=ops): " + Colors.RESET).strip()
+        # Single-letter shortcuts
+        _shortcuts = {"d": "2", "r": "1", "t": "6", "l": "13", "n": "15", "c": "17", "p": "18", "o": "20", "q": "19"}
+        choice = _shortcuts.get(choice.lower(), choice)
 
         if choice == "0":
             # local monitor mode (does not exit the menu)
@@ -2826,6 +2945,7 @@ def main():
         if choice == "1":
             if refresh_dump(sock):
                 data = load_dump()
+            _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after refresh
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             input()
 
@@ -2875,7 +2995,7 @@ def main():
             input()
 
         elif choice == "6":
-            run_tc_status(sock)
+            run_tc_control(sock)
 
         elif choice == "7":
             run_module_analyzer(sock)
