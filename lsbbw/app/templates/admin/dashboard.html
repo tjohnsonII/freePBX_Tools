@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Dashboard – LSBBW</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .stats-bar {
+      display: flex; gap: 1rem; flex-wrap: wrap;
+      padding: 1rem 1.5rem; background: #000;
+      border-bottom: 1px solid var(--border);
+    }
+    .stat {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.75rem 1.25rem;
+      display: flex; flex-direction: column; gap: 0.2rem; min-width: 110px;
+    }
+    .stat-value { font-size: 1.5rem; font-weight: 800; color: #fff; }
+    .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat.accent .stat-value { color: var(--accent); }
+    .stat.green  .stat-value { color: #6effa0; }
+
+    .admin-toolbar {
+      display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+      padding: 0.85rem 1.5rem; background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+    .admin-toolbar input[type="text"],
+    .admin-toolbar select {
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); padding: 0.45rem 0.75rem;
+      border-radius: var(--radius); font-size: 0.85rem;
+    }
+    .admin-toolbar input[type="text"] { width: 200px; }
+    .admin-toolbar input:focus, .admin-toolbar select:focus { outline: none; border-color: var(--accent2); }
+    .toolbar-btn { padding: 0.45rem 1rem; border-radius: var(--radius); font-size: 0.82rem; font-weight: 700; border: none; cursor: pointer; }
+    .toolbar-btn.search { background: var(--accent); color: #fff; }
+    .toolbar-btn.clear  { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); text-decoration: none; }
+
+    /* ── Approve All Pending ── */
+    .approve-all-btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.5rem 1.1rem; border-radius: var(--radius);
+      font-size: 0.85rem; font-weight: 800; border: none; cursor: pointer;
+      background: #1e6e45; color: #fff;
+      box-shadow: 0 0 0 2px #6effa044;
+      transition: background .15s, box-shadow .15s;
+    }
+    .approve-all-btn:hover { background: #27915c; box-shadow: 0 0 0 3px #6effa077; }
+    .approve-all-btn .badge { background: #6effa0; color: #000; border-radius: 99px; padding: 0 0.5rem; font-size: 0.75rem; font-weight: 900; }
+
+    /* ── Selection bar (always visible when list is non-empty) ── */
+    .selection-bar {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0.6rem 1.5rem; background: #111;
+      border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .sel-label { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); cursor: pointer; user-select: none; }
+    .sel-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+    .sel-count { color: var(--accent2); font-weight: 700; min-width: 90px; }
+    .sel-actions { display: flex; gap: 0.5rem; }
+    .sel-btn { padding: 0.3rem 0.85rem; border-radius: var(--radius); font-size: 0.8rem; font-weight: 700; border: none; cursor: pointer; opacity: 0.35; pointer-events: none; transition: opacity .15s; }
+    .sel-btn.active { opacity: 1; pointer-events: auto; }
+    .sel-btn.approve { background: #1e6e45; color: #fff; }
+    .sel-btn.reject  { background: #7a3a00; color: #fff; }
+    .sel-btn.delete  { background: #7a1a1a; color: #fff; }
+
+    .row-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+    .admin-row.selected { border-color: var(--accent); background: #1a0a0a; }
+  </style>
+</head>
+<body class="admin-body admin-dash">
+
+<div class="admin-header">
+  <span class="logo">LS<span>BBW</span> Admin</span>
+  <div style="display:flex;gap:1rem;align-items:center;">
+    <a href="/" target="_blank" style="font-size:.82rem;color:var(--muted);">View Site</a>
+    <a href="/admin/logout" class="btn-logout">Logout</a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="stat accent">
+    <span class="stat-value">{{ counts.pending }}</span>
+    <span class="stat-label">Pending</span>
+  </div>
+  <div class="stat green">
+    <span class="stat-value">{{ counts.approved }}</span>
+    <span class="stat-label">Approved</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ counts.rejected }}</span>
+    <span class="stat-label">Rejected</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ total_views }}</span>
+    <span class="stat-label">Total Views</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ today_subs }}</span>
+    <span class="stat-label">Today's Subs</span>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="admin-tabs">
+  <a href="/admin/dashboard?status=pending"  class="tab{% if active_status=='pending'  %} active{% endif %}">Pending <span class="badge-count">{{ counts.pending }}</span></a>
+  <a href="/admin/dashboard?status=approved" class="tab{% if active_status=='approved' %} active{% endif %}">Approved <span class="badge-count">{{ counts.approved }}</span></a>
+  <a href="/admin/dashboard?status=rejected" class="tab{% if active_status=='rejected' %} active{% endif %}">Rejected <span class="badge-count">{{ counts.rejected }}</span></a>
+</div>
+
+<!-- Search + Approve All Pending -->
+<form method="get" action="/admin/dashboard">
+  <input type="hidden" name="status" value="{{ active_status }}">
+  <div class="admin-toolbar">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search by title…">
+    <select name="category">
+      <option value="">All categories</option>
+      {% for c in categories %}
+      <option value="{{ c }}"{% if active_cat == c %} selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="toolbar-btn search">Search</button>
+    {% if q or active_cat %}
+    <a href="/admin/dashboard?status={{ active_status }}" class="toolbar-btn clear">Clear</a>
+    {% endif %}
+    <span style="margin-left:auto;color:var(--muted);font-size:.82rem;">{{ videos|length }} result(s)</span>
+    {% if active_status == 'pending' and counts.pending > 0 %}
+    <form method="post" action="/admin/approve-all-pending" style="margin:0"
+          onsubmit="return confirm('Approve ALL {{ counts.pending }} pending videos?')">
+      <button type="submit" class="approve-all-btn">
+        Approve All <span class="badge">{{ counts.pending }}</span>
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Selection bar (always shown when list has items) -->
+{% if videos %}
+<div class="selection-bar">
+  <label class="sel-label">
+    <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select All
+  </label>
+  <span class="sel-count" id="sel-count">0 selected</span>
+  <div class="sel-actions">
+    {% if active_status != 'approved' %}
+    <button class="sel-btn approve" id="bulk-approve"
+            onclick="bulkAction('approve')" disabled>Approve</button>
+    {% endif %}
+    {% if active_status != 'rejected' %}
+    <button class="sel-btn reject" id="bulk-reject"
+            onclick="bulkAction('reject')" disabled>Reject</button>
+    {% endif %}
+    <button class="sel-btn delete" id="bulk-delete"
+            onclick="bulkAction('delete')" disabled>Delete</button>
+  </div>
+</div>
+{% endif %}
+
+<!-- Bulk form (off-screen, checkboxes associated via form= attr) -->
+<form id="bulk-form" method="post" action="/admin/bulk"
+      style="position:absolute;left:-9999px;height:0;overflow:hidden">
+</form>
+
+<!-- Video list -->
+<div class="admin-list">
+  {% for v in videos %}
+  <div class="admin-row" id="row-{{ v.id }}">
+
+    <input type="checkbox" name="selected" value="{{ v.id }}"
+           class="row-check video-check" form="bulk-form"
+           onchange="updateSelection()">
+
+    <div class="admin-thumb">
+      {% if v.thumbnail %}
+      <img src="{{ v.thumbnail }}" alt="">
+      {% else %}
+      <div class="side-thumb-ph"><span>▶</span></div>
+      {% endif %}
+    </div>
+
+    <div class="admin-info">
+      <strong>{{ v.title }}</strong>
+      <p>{{ v.category }} &bull; {{ v.type }} &bull; by {{ v.submitter }} &bull; {{ v.created_at[:16] }} &bull; {{ v.views }} views</p>
+      {% if v.embed_url %}<p class="admin-url">{{ v.embed_url[:80] }}</p>{% endif %}
+      {% if v.file_path %}<p class="admin-url">{{ v.file_path }}</p>{% endif %}
+    </div>
+
+    <div class="admin-actions">
+      {% if active_status != 'approved' %}
+      <button class="btn-approve" onclick="postAction('/admin/approve/{{ v.id }}', this)">Approve</button>
+      {% endif %}
+      {% if active_status != 'rejected' %}
+      <button class="btn-reject" onclick="postAction('/admin/reject/{{ v.id }}', this)">Reject</button>
+      {% endif %}
+      <a href="/admin/edit/{{ v.id }}" class="btn-view">Edit</a>
+      <button class="btn-delete" onclick="confirmDelete('/admin/delete/{{ v.id }}', this)">Delete</button>
+      {% if active_status == 'approved' %}
+      <a href="/v/{{ v.id }}" target="_blank" class="btn-view">View</a>
+      {% endif %}
+    </div>
+
+  </div>
+  {% else %}
+  <p class="empty" style="padding:2rem">Nothing here.</p>
+  {% endfor %}
+</div>
+
+<script>
+  function getChecked() {
+    return [...document.querySelectorAll('.video-check:checked')];
+  }
+
+  function updateSelection() {
+    const checked = getChecked();
+    const n = checked.length;
+    document.getElementById('sel-count').textContent = n + ' selected';
+
+    document.querySelectorAll('.sel-btn').forEach(b => {
+      b.disabled = n === 0;
+      b.classList.toggle('active', n > 0);
+    });
+    document.querySelectorAll('.admin-row').forEach(r => r.classList.remove('selected'));
+    checked.forEach(cb => cb.closest('.admin-row').classList.add('selected'));
+
+    const all = document.querySelectorAll('.video-check');
+    const sa  = document.getElementById('select-all');
+    if (sa) sa.indeterminate = n > 0 && n < all.length;
+    if (sa) sa.checked = n > 0 && n === all.length;
+  }
+
+  function toggleAll(cb) {
+    document.querySelectorAll('.video-check').forEach(c => c.checked = cb.checked);
+    updateSelection();
+  }
+
+  function bulkAction(action) {
+    const checked = getChecked();
+    if (!checked.length) return;
+    if (action === 'delete' && !confirm(`Delete ${checked.length} video(s)?`)) return;
+    if (action === 'approve' && !confirm(`Approve ${checked.length} video(s)?`)) return;
+    const form = document.getElementById('bulk-form');
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'bulk_action';
+    input.value = action;
+    form.appendChild(input);
+    form.submit();
+  }
+
+  function postAction(url, btn) {
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch(url, { method: 'POST' }).then(() => location.reload());
+  }
+
+  function confirmDelete(url, btn) {
+    if (!confirm('Delete this video?')) return;
+    postAction(url, btn);
+  }
+</script>
+
+</body>
+</html>

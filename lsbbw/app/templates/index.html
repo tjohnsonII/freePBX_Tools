@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}LSBBW – {{ active_cat or "Home" }}{% endblock %}
+
+{% block content %}
+<div class="grid-header">
+  <h1>{{ active_cat or "Latest Videos" }}</h1>
+  <span class="count">{{ videos | length }} clips</span>
+</div>
+
+{% if videos %}
+<div class="video-grid">
+  {% for v in videos %}
+  <a href="/v/{{ v.id }}" class="card">
+    <div class="thumb-wrap">
+      {% if v.thumbnail %}
+      <img src="{{ v.thumbnail }}" alt="{{ v.title }}" loading="lazy">
+      {% else %}
+      <div class="thumb-placeholder">
+        <span>▶</span>
+      </div>
+      {% endif %}
+      <span class="badge {{ v.type }}">{{ v.type }}</span>
+    </div>
+    <div class="card-info">
+      <p class="card-title">{{ v.title }}</p>
+      <p class="card-meta">
+        <span>{{ v.category }}</span>
+        <span>{{ v.views }} views</span>
+      </p>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?category={{ active_cat | urlencode }}&page={{ page - 1 }}">&larr; Prev</a>
+  {% endif %}
+  <span>{{ page }} / {{ pages }}</span>
+  {% if page < pages %}
+  <a href="?category={{ active_cat | urlencode }}&page={{ page + 1 }}">Next &rarr;</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty">
+  <p>No videos yet in this category.</p>
+  <a href="/submit" class="btn-big">Be the first to submit &rarr;</a>
+</div>
+{% endif %}
+{% endblock %}

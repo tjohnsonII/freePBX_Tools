@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hmac
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -114,22 +115,6 @@ class _VpbxDeviceConfigsBody(BaseModel):
 class _VpbxSiteConfigsBody(BaseModel):
     records: list[dict[str, Any]]
     now_utc: str
-
-
-class _VpbxCredentialsBody(BaseModel):
-    records: list[dict[str, Any]]
-
-
-class _HeartbeatBody(BaseModel):
-    client_id: str
-    status: str = "idle"
-    vpn_connected: bool = False
-    vpn_ip: str | None = None
-    job_id: str | None = None
-    current_handle: str | None = None
-    handles_done: int | None = None
-    handles_total: int | None = None
-    ts_utc: str
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -264,39 +249,91 @@ def ingest_vpbx_site_configs(body: _VpbxSiteConfigsBody, request: Request) -> di
     return {"inserted": n}
 
 
-@router.post("/vpbx/credentials")
-def ingest_vpbx_credentials(body: _VpbxCredentialsBody, request: Request) -> dict[str, Any]:
-    _require_ingest_auth(request)
-    n = _db.upsert_vpbx_credentials(_dp(), body.records)
-    return {"updated": n}
-
-
-class _OrdersBody(BaseModel):
-    records: list[dict[str, Any]]
+class _VpbxCredentialsBody(BaseModel):
+    handle: str
+    ftp_pass: str
+    ftp_host: str = ""
+    ftp_user: str = ""
+    rest_pass: str = ""
     now_utc: str
 
 
-@router.post("/orders")
-def ingest_orders(body: _OrdersBody, request: Request) -> dict[str, Any]:
+@router.post("/vpbx/credentials")
+def ingest_vpbx_credentials(body: _VpbxCredentialsBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)
-    n = _db.upsert_orders(_dp(), body.records, body.now_utc)
-    return {"upserted": n, "inserted": n}
+    updated = _db.upsert_vpbx_credentials(
+        _dp(), body.handle, body.ftp_pass, body.ftp_host, body.ftp_user, body.rest_pass, body.now_utc
+    )
+    return {"updated": updated}
 
+
+class _HeartbeatBody(BaseModel):
+    client_id: str                  # e.g. hostname or a stable UUID
+    status: str                     # "idle" | "scraping" | "paused" | "error"
+    job_id: str | None = None
+    current_handle: str | None = None
+    handles_done: int = 0
+    handles_total: int = 0
+    client_version: str | None = None
+    ts_utc: str | None = None       # client-side timestamp (informational)
+    vpn_connected: bool | None = None
+    vpn_ip: str | None = None
+
+
+class _OrdersIngestBody(BaseModel):
+    records: list[dict[str, Any]]
+
+
+@router.post("/orders")
+def ingest_orders(body: _OrdersIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    count = _db.upsert_orders(_dp(), body.records, now_utc)
+    return {"ok": True, "upserted": count}
+
+
+class _CircuitsIngestBody(BaseModel):
+    handle: str
+    records: list[dict[str, Any]]
+
+
+@router.post("/circuits")
+def ingest_circuits(body: _CircuitsIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    count = _db.upsert_circuits(_dp(), body.handle, body.records, now_utc)
+    return {"ok": True, "upserted": count}
+
+
+class _CallflowIngestBody(BaseModel):
+    handle: str
+    svg: str
+    freepbx_ip: str | None = None
+
+
+@router.post("/callflow")
+def ingest_callflow(body: _CallflowIngestBody, request: Request) -> dict[str, Any]:
+    _require_ingest_auth(request)
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    _db.upsert_callflow_diagram(_dp(), body.handle, body.svg, body.freepbx_ip, now_utc)
+    return {"ok": True}
 
 
 @router.post("/heartbeat")
 def ingest_heartbeat(body: _HeartbeatBody, request: Request) -> dict[str, Any]:
     _require_ingest_auth(request)
-    _db.upsert_client_heartbeat(
-        _dp(),
-        client_id=body.client_id,
-        status=body.status,
-        vpn_connected=body.vpn_connected,
-        vpn_ip=body.vpn_ip,
-        job_id=body.job_id,
-        current_handle=body.current_handle,
-        handles_done=body.handles_done,
-        handles_total=body.handles_total,
-        ts_utc=body.ts_utc,
-    )
-    return {"ok": True}
+    server_now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    _db.upsert_client_heartbeat(_dp(), {
+        "client_id":       body.client_id,
+        "job_id":          body.job_id,
+        "current_handle":  body.current_handle,
+        "status":          body.status,
+        "handles_done":    body.handles_done,
+        "handles_total":   body.handles_total,
+        "client_version":  body.client_version,
+        "client_ts_utc":   body.ts_utc,
+        "server_seen_utc": server_now,
+        "vpn_connected":   int(body.vpn_connected) if body.vpn_connected is not None else None,
+        "vpn_ip":          body.vpn_ip,
+    })
+    return {"ok": True, "server_seen_utc": server_now}

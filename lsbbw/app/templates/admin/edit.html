@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Edit Video – LSBBW Admin</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="admin-body admin-dash">
+
+<div class="admin-header">
+  <span class="logo">LS<span>BBW</span> Admin</span>
+  <div style="display:flex;gap:1rem;align-items:center;">
+    <a href="/admin/dashboard" style="font-size:.82rem;color:var(--muted);">&larr; Back to Dashboard</a>
+    <a href="/admin/logout" class="btn-logout">Logout</a>
+  </div>
+</div>
+
+<div style="max-width:700px;margin:2rem auto;padding:0 1rem;">
+
+  <h2 style="margin-bottom:1.5rem;">Edit Video #{{ video.id }}</h2>
+
+  {% if saved %}
+  <div class="alert success" style="margin-bottom:1.5rem;">Saved successfully.</div>
+  {% endif %}
+
+  <!-- Preview -->
+  <div style="margin-bottom:1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;display:flex;gap:1rem;align-items:flex-start;">
+    {% if video.thumbnail %}
+    <img src="{{ video.thumbnail }}" style="width:140px;aspect-ratio:16/9;object-fit:cover;border-radius:4px;">
+    {% else %}
+    <div style="width:140px;aspect-ratio:16/9;background:var(--bg3);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);">▶</div>
+    {% endif %}
+    <div>
+      <p style="font-size:.8rem;color:var(--muted);">{{ video.type | upper }} &bull; {{ video.category }} &bull; {{ video.views }} views</p>
+      <p style="font-size:.8rem;color:var(--muted);margin-top:.25rem;">Submitted by {{ video.submitter }} on {{ video.created_at[:10] }}</p>
+      {% if video.embed_url %}<p style="font-size:.75rem;color:#555;margin-top:.25rem;font-family:monospace;">{{ video.embed_url[:80] }}</p>{% endif %}
+      {% if video.file_path %}<p style="font-size:.75rem;color:#555;margin-top:.25rem;font-family:monospace;">{{ video.file_path }}</p>{% endif %}
+    </div>
+  </div>
+
+  <form method="post" class="submit-form">
+
+    <label>Title
+      <input type="text" name="title" value="{{ video.title }}" maxlength="200" required>
+    </label>
+
+    <label>Description
+      <textarea name="description" rows="4" maxlength="2000">{{ video.description or '' }}</textarea>
+    </label>
+
+    <label>Category
+      <select name="category">
+        {% for c in categories %}
+        <option value="{{ c }}"{% if video.category == c %} selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Thumbnail URL (leave blank to keep current)
+      <input type="url" name="thumbnail" value="{{ video.thumbnail or '' }}" placeholder="https://…">
+    </label>
+
+    <div style="display:flex;gap:1rem;align-items:center;">
+      <button type="submit" class="btn-big">Save Changes</button>
+      {% if video.status == 'approved' %}
+      <a href="/v/{{ video.id }}" target="_blank" style="color:var(--accent2);font-size:.85rem;">View live &rarr;</a>
+      {% endif %}
+    </div>
+
+  </form>
+</div>
+
+</body>
+</html>

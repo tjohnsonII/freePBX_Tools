@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Submit a Video – LSBBW{% endblock %}
+
+{% block content %}
+<div class="form-page">
+  <h1>Submit a Video</h1>
+  <p class="form-sub">Paste a link <em>or</em> upload a file. No account required.</p>
+
+  {% if success %}
+  <div class="alert success">
+    Your video was submitted and is pending review. Thanks!
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="submit-form">
+
+    <label>Title <span class="req">*</span>
+      <input type="text" name="title" maxlength="200" required placeholder="Give it a title…">
+    </label>
+
+    <label>Description
+      <textarea name="description" rows="3" maxlength="2000" placeholder="Optional…"></textarea>
+    </label>
+
+    <label>Category
+      <select name="category">
+        {% for c in categories %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Your name (optional)
+      <input type="text" name="submitter" maxlength="80" placeholder="Anonymous">
+    </label>
+
+    <div class="divider">
+      <hr><span>Paste a link</span><hr>
+    </div>
+
+    <label>YouTube / Instagram / TikTok / Twitter URL
+      <input type="url" name="embed_url" placeholder="https://…">
+    </label>
+
+    <div class="divider">
+      <hr><span>or upload a file</span><hr>
+    </div>
+
+    <label>Video file (MP4, MOV, WEBM, MKV — max 8 GB)
+      <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
+    </label>
+
+    <button type="submit" class="btn-big">Submit Video</button>
+  </form>
+</div>
+{% endblock %}

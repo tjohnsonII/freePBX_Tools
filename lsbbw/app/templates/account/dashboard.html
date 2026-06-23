@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}My Account – LSBBW{% endblock %}
+
+{% block content %}
+<div class="account-page">
+  <div class="account-header">
+    <h1>My Account</h1>
+    <a href="/account/logout" class="btn-outline">Sign Out</a>
+  </div>
+
+  <div class="account-cards">
+
+    <div class="account-card">
+      <div class="card-label">Email</div>
+      <div class="card-value">{{ current_user.email }}</div>
+    </div>
+
+    <div class="account-card">
+      <div class="card-label">Plan</div>
+      <div class="card-value">
+        {% if current_user.tier == 'paid' %}
+          <span class="tier-badge paid">PRO</span>
+        {% else %}
+          <span class="tier-badge free">FREE</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="account-card">
+      <div class="card-label">Member since</div>
+      <div class="card-value">{{ current_user.created_at[:10] }}</div>
+    </div>
+
+  </div>
+
+  {% if current_user.tier == 'free' %}
+  <div class="upgrade-cta">
+    <h2>Upgrade to PRO</h2>
+    <p>Get access to exclusive content, HD downloads, and an ad-free experience.</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:1.25rem;">
+      <a href="/billing/checkout?plan=monthly" class="btn-big">$4.99 / month</a>
+      <a href="/billing/checkout?plan=annual" class="btn-big" style="background:#1e6e45;">
+        $39.99 / year <span style="font-size:.8em; opacity:.85;">(save 33%)</span>
+      </a>
+    </div>
+    <p style="margin-top:.75rem; font-size:.83rem; color:var(--muted);">7-day free trial included — cancel anytime.</p>
+  </div>
+  {% else %}
+  <div class="upgrade-cta" style="border-color: #1e6e45;">
+    <h2 style="color: #6effa0;">You're on PRO</h2>
+    <p>Enjoy full access to all content and features.</p>
+    <a href="/billing/portal" class="btn-outline">Manage Subscription</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

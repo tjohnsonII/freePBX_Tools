@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LSBBW{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="/" class="logo">LS<span>BBW</span></a>
+    <nav>
+      <a href="/">Home</a>
+      {% if current_user %}
+        <a href="/account/dashboard" class="nav-account">{{ current_user.email.split('@')[0] }}</a>
+        {% if current_user.tier == 'paid' %}<span class="nav-tier-badge">PRO</span>{% endif %}
+        <a href="/account/logout" class="nav-link">Sign Out</a>
+      {% else %}
+        <a href="/account/login" class="nav-link">Sign In</a>
+        <a href="/account/signup" class="btn-join">Join Free</a>
+      {% endif %}
+      <a href="/submit" class="btn-submit">+ Submit</a>
+    </nav>
+  </div>
+  <div class="cat-bar">
+    {% set cats = ["General","Music Videos","Freestyles","Thick Thursdays","Fan Favorites","Comedy","Other"] %}
+    <a href="/" class="cat{% if not active_cat %} active{% endif %}">All</a>
+    {% for c in cats %}
+    <a href="/?category={{ c | urlencode }}" class="cat{% if active_cat == c %} active{% endif %}">{{ c }}</a>
+    {% endfor %}
+  </div>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  <p>&copy; 2026 LSBBW &mdash; All rights reserved. 18+ only.</p>
+</footer>
+
+</body>
+</html>

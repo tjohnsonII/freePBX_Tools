@@ -326,13 +326,38 @@ def ensure_indexes(db_path: str) -> None:
                 """
             )
 
+            # Migrate vpbx_records to add credential columns
             vpbx_record_columns = table_columns(conn, "vpbx_records")
-            for _col in ["ftp_pass", "ftp_host", "ftp_user", "rest_pass"]:
-                if _col not in vpbx_record_columns:
-                    conn.execute(f"ALTER TABLE vpbx_records ADD COLUMN {_col} TEXT")
+            for col, ddl in [
+                ("ftp_pass",  "TEXT"),
+                ("ftp_host",  "TEXT"),
+                ("ftp_user",  "TEXT"),
+                ("rest_pass", "TEXT"),
+            ]:
+                if col not in vpbx_record_columns:
+                    conn.execute(f"ALTER TABLE vpbx_records ADD COLUMN {col} {ddl}")
 
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS circuits (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    handle          TEXT NOT NULL,
+                    pon             TEXT,
+                    type            TEXT,
+                    circuit_id      TEXT,
+                    service_address TEXT,
+                    scraped_utc     TEXT,
+                    UNIQUE(handle, pon)
+                );
+                CREATE INDEX IF NOT EXISTS idx_circuits_handle ON circuits(handle);
+
+                CREATE TABLE IF NOT EXISTS callflow_diagrams (
+                    handle          TEXT PRIMARY KEY,
+                    svg             TEXT,
+                    generated_utc   TEXT,
+                    freepbx_ip      TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS vpbx_site_configs (
                     handle       TEXT PRIMARY KEY,
                     vpbx_id      TEXT,
@@ -340,22 +365,18 @@ def ensure_indexes(db_path: str) -> None:
                     site_config  TEXT,
                     last_seen_utc TEXT
                 );
-                """
-            )
-
-            conn.executescript(
-                """
                 CREATE TABLE IF NOT EXISTS client_heartbeats (
                     client_id       TEXT PRIMARY KEY,
-                    status          TEXT NOT NULL DEFAULT 'idle',
-                    vpn_connected   INTEGER NOT NULL DEFAULT 0,
-                    vpn_ip          TEXT,
                     job_id          TEXT,
                     current_handle  TEXT,
+                    status          TEXT,
                     handles_done    INTEGER,
                     handles_total   INTEGER,
-                    last_seen_utc   TEXT NOT NULL,
-                    first_seen_utc  TEXT NOT NULL
+                    client_version  TEXT,
+                    client_ts_utc   TEXT,
+                    server_seen_utc TEXT NOT NULL,
+                    vpn_connected   INTEGER,
+                    vpn_ip          TEXT
                 );
                 """
             )
@@ -368,153 +389,107 @@ def ensure_indexes(db_path: str) -> None:
             if "source" not in auth_cookie_columns:
                 conn.execute("ALTER TABLE auth_cookies ADD COLUMN source TEXT")
 
+            # ── Orders ────────────────────────────────────────────────────────
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS orders (
-                    order_id             TEXT PRIMARY KEY,
-                    install_date         TEXT,
-                    customer_name        TEXT,
-                    description          TEXT,
-                    order_type           TEXT,
-                    location             TEXT,
-                    assigned_json        TEXT,
-                    detail_url           TEXT,
-                    scraped_utc          TEXT,
-                    last_seen_utc        TEXT,
-                    -- Phase 1 DETABLE inline enrichment
-                    last_modified        TEXT,
-                    bill_mrc             TEXT,
-                    bill_nrc             TEXT,
-                    assigned_tech        TEXT,
-                    log_count            INTEGER,
-                    last_log_entry       TEXT,
-                    contract_number      TEXT,
-                    forecast_date        TEXT,
-                    customer_email       TEXT,
-                    salesperson          TEXT,
-                    qty_term             TEXT,
-                    -- Phase 2 account enrichment
-                    account_handle       TEXT,
-                    account_company      TEXT,
-                    account_address      TEXT,
-                    account_address2     TEXT,
-                    account_city         TEXT,
-                    account_state        TEXT,
-                    account_zip          TEXT,
-                    account_type         TEXT,
-                    account_billing_ref  TEXT,
-                    account_white_glove  TEXT,
-                    account_past_due     TEXT,
-                    account_balance      TEXT,
-                    account_net_terms    TEXT,
-                    account_phone        TEXT,
-                    account_contact      TEXT,
-                    account_email        TEXT,
-                    account_status_detail TEXT,
-                    account_raw_json     TEXT,
-                    account_scraped_utc  TEXT,
-                    -- Phase 3 dispatch enrichment
-                    dispatch_pm          TEXT,
-                    dispatch_bill_date   TEXT,
-                    dispatch_closed_date TEXT,
-                    dispatch_bill_mrc    TEXT,
-                    dispatch_calendar_context TEXT,
-                    dispatch_tech        TEXT,
-                    dispatch_date        TEXT,
-                    dispatch_time        TEXT,
-                    dispatch_status      TEXT,
-                    dispatch_notes       TEXT,
-                    dispatch_raw_json    TEXT,
-                    dispatch_scraped_utc TEXT,
-                    -- Phase 2 JSON API enrichment (contracts.cgi + resources_json.cgi)
-                    pon                    TEXT,
-                    ckt_id                 TEXT,
-                    sip_trunk              TEXT,
-                    sip_trunk_billby       TEXT,
-                    contract_bill_start    TEXT,
-                    contract_mrc           TEXT,
-                    contract_term_end      TEXT,
-                    account_contracts_json TEXT
+                    order_id        TEXT PRIMARY KEY,
+                    customer_name   TEXT,
+                    customer_abbrev TEXT,
+                    dispatch_date   TEXT,
+                    install_type    TEXT,
+                    task            TEXT,
+                    assigned        TEXT,
+                    engineer        TEXT,
+                    detail_url      TEXT,
+                    seats           TEXT,
+                    pbx_ip          TEXT,
+                    phone_model     TEXT,
+                    location        TEXT,
+                    pon             TEXT,
+                    on_net_ott      TEXT,
+                    scraped_utc     TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS idx_orders_dispatch_date ON orders(dispatch_date);
+                CREATE INDEX IF NOT EXISTS idx_orders_scraped ON orders(scraped_utc DESC);
+
+                CREATE TABLE IF NOT EXISTS orders_suggested (
+                    order_id        TEXT PRIMARY KEY,
+                    customer_name   TEXT,
+                    customer_abbrev TEXT,
+                    dispatch_date   TEXT,
+                    install_type    TEXT,
+                    task            TEXT,
+                    assigned        TEXT,
+                    engineer        TEXT,
+                    detail_url      TEXT,
+                    seats           TEXT,
+                    pbx_ip          TEXT,
+                    phone_model     TEXT,
+                    location        TEXT,
+                    pon             TEXT,
+                    on_net_ott      TEXT,
+                    suggested_utc   TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS enrichment_log (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id        TEXT NOT NULL,
+                    field           TEXT NOT NULL,
+                    old_value       TEXT,
+                    suggested_value TEXT,
+                    confidence      REAL,
+                    source          TEXT,
+                    status          TEXT NOT NULL DEFAULT 'pending',
+                    reviewed_by     TEXT,
+                    reviewed_utc    TEXT,
+                    created_utc     TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_enrichment_order ON enrichment_log(order_id);
+                CREATE INDEX IF NOT EXISTS idx_enrichment_status ON enrichment_log(status);
                 """
             )
 
-            # Migrate pre-existing orders tables that lack the enrichment columns
-            # NOTE: indexes on new columns are created AFTER this migration so they
-            # work on both fresh tables and tables that just had columns ALTERed in.
+            # Migrate: rename pm → engineer for existing databases.
+            # executescript issues an implicit COMMIT, ensuring the rename is
+            # visible to the subsequent index and view creation.
             orders_columns = table_columns(conn, "orders")
-            for _col, _ddl in [
-                # DETABLE inline
-                ("last_modified",        "TEXT"),
-                ("bill_mrc",             "TEXT"),
-                ("bill_nrc",             "TEXT"),
-                ("assigned_tech",        "TEXT"),
-                ("log_count",            "INTEGER"),
-                ("last_log_entry",       "TEXT"),
-                ("contract_number",      "TEXT"),
-                ("forecast_date",        "TEXT"),
-                ("customer_email",       "TEXT"),
-                ("salesperson",          "TEXT"),
-                ("qty_term",             "TEXT"),
-                # Account
-                ("account_handle",       "TEXT"),
-                ("account_company",      "TEXT"),
-                ("account_address",      "TEXT"),
-                ("account_address2",     "TEXT"),
-                ("account_city",         "TEXT"),
-                ("account_state",        "TEXT"),
-                ("account_zip",          "TEXT"),
-                ("account_type",         "TEXT"),
-                ("account_billing_ref",  "TEXT"),
-                ("account_white_glove",  "TEXT"),
-                ("account_past_due",     "TEXT"),
-                ("account_balance",      "TEXT"),
-                ("account_net_terms",    "TEXT"),
-                ("account_phone",        "TEXT"),
-                ("account_contact",      "TEXT"),
-                ("account_email",        "TEXT"),
-                ("account_status_detail","TEXT"),
-                ("account_raw_json",     "TEXT"),
-                ("account_scraped_utc",  "TEXT"),
-                # Dispatch
-                ("dispatch_pm",              "TEXT"),
-                ("dispatch_bill_date",       "TEXT"),
-                ("dispatch_closed_date",     "TEXT"),
-                ("dispatch_bill_mrc",        "TEXT"),
-                ("dispatch_calendar_context","TEXT"),
-                ("dispatch_tech",            "TEXT"),
-                ("dispatch_date",            "TEXT"),
-                ("dispatch_time",            "TEXT"),
-                ("dispatch_status",          "TEXT"),
-                ("dispatch_notes",           "TEXT"),
-                ("dispatch_raw_json",        "TEXT"),
-                ("dispatch_scraped_utc",     "TEXT"),
-                # JSON API enrichment
-                ("pon",                      "TEXT"),
-                ("ckt_id",                   "TEXT"),
-                ("sip_trunk",                "TEXT"),
-                ("sip_trunk_billby",         "TEXT"),
-                ("contract_bill_start",      "TEXT"),
-                ("contract_mrc",             "TEXT"),
-                ("contract_term_end",        "TEXT"),
-                ("account_contracts_json",   "TEXT"),
-                # Derived fields
-                ("on_net_ott",              "TEXT"),
-                ("seat_count",              "INTEGER"),
-                ("extra_descriptions_json", "TEXT"),
-            ]:
-                if _col not in orders_columns:
-                    conn.execute(f"ALTER TABLE orders ADD COLUMN {_col} {_ddl}")
+            if "pm" in orders_columns and "engineer" not in orders_columns:
+                conn.executescript("ALTER TABLE orders RENAME COLUMN pm TO engineer;")
 
-            # Create indexes after migration so columns are guaranteed to exist
+            # Engineer index must be created after the migration in case the
+            # table predates this change and still had a 'pm' column.
+            conn.executescript(
+                "CREATE INDEX IF NOT EXISTS idx_orders_engineer ON orders(engineer);"
+            )
+
+            # Completeness view: counts non-empty values across the 12 data fields
             conn.executescript(
                 """
-                CREATE INDEX IF NOT EXISTS idx_orders_install_date   ON orders(install_date);
-                CREATE INDEX IF NOT EXISTS idx_orders_last_seen       ON orders(last_seen_utc);
-                CREATE INDEX IF NOT EXISTS idx_orders_dispatch_date   ON orders(dispatch_date);
-                CREATE INDEX IF NOT EXISTS idx_orders_account_handle  ON orders(account_handle);
-                CREATE INDEX IF NOT EXISTS idx_orders_bill_mrc        ON orders(bill_mrc);
-                CREATE INDEX IF NOT EXISTS idx_orders_forecast_date   ON orders(forecast_date);
+                DROP VIEW IF EXISTS orders_completeness;
+                CREATE VIEW orders_completeness AS
+                SELECT
+                    order_id,
+                    customer_name,
+                    customer_abbrev,
+                    dispatch_date,
+                    engineer,
+                    (
+                        (CASE WHEN customer_name  != '' AND customer_name  IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN customer_abbrev != '' AND customer_abbrev IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN dispatch_date  != '' AND dispatch_date  IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN install_type   != '' AND install_type   IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN assigned       != '' AND assigned       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN engineer       != '' AND engineer       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN seats          != '' AND seats          IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN pbx_ip         != '' AND pbx_ip         IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN phone_model    != '' AND phone_model    IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN location       != '' AND location       IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN pon            != '' AND pon            IS NOT NULL THEN 1 ELSE 0 END) +
+                        (CASE WHEN on_net_ott     != '' AND on_net_ott     IS NOT NULL THEN 1 ELSE 0 END)
+                    ) AS fields_complete,
+                    12 AS fields_total
+                FROM orders;
                 """
             )
 
@@ -989,6 +964,51 @@ def get_auth_cookie_status(db_path: str) -> dict[str, Any]:
     }
 
 
+def upsert_client_heartbeat(db_path: str, row: dict[str, Any]) -> None:
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            # Migrate existing rows that predate vpn columns
+            cols = {c["name"] for c in conn.execute("PRAGMA table_info(client_heartbeats)").fetchall()}
+            if "vpn_connected" not in cols:
+                conn.execute("ALTER TABLE client_heartbeats ADD COLUMN vpn_connected INTEGER")
+            if "vpn_ip" not in cols:
+                conn.execute("ALTER TABLE client_heartbeats ADD COLUMN vpn_ip TEXT")
+            conn.execute(
+                """
+                INSERT INTO client_heartbeats
+                    (client_id, job_id, current_handle, status, handles_done,
+                     handles_total, client_version, client_ts_utc, server_seen_utc,
+                     vpn_connected, vpn_ip)
+                VALUES (:client_id, :job_id, :current_handle, :status, :handles_done,
+                        :handles_total, :client_version, :client_ts_utc, :server_seen_utc,
+                        :vpn_connected, :vpn_ip)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    job_id          = excluded.job_id,
+                    current_handle  = excluded.current_handle,
+                    status          = excluded.status,
+                    handles_done    = excluded.handles_done,
+                    handles_total   = excluded.handles_total,
+                    client_version  = excluded.client_version,
+                    client_ts_utc   = excluded.client_ts_utc,
+                    server_seen_utc = excluded.server_seen_utc,
+                    vpn_connected   = excluded.vpn_connected,
+                    vpn_ip          = excluded.vpn_ip
+                """,
+                row,
+            )
+
+
+def get_client_heartbeats(db_path: str) -> list[dict[str, Any]]:
+    try:
+        with get_conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_heartbeats ORDER BY server_seen_utc DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 def get_stats(db_path: str) -> dict[str, Any]:
     with get_conn(db_path) as conn:
         total_tickets = conn.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
@@ -1225,6 +1245,39 @@ def list_vpbx_records(db_path: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def upsert_vpbx_credentials(
+    db_path: str,
+    handle: str,
+    ftp_pass: str,
+    ftp_host: str,
+    ftp_user: str,
+    rest_pass: str,
+    now_utc: str,
+) -> bool:
+    """Update credential columns on an existing vpbx_records row.
+
+    Only updates rows that already exist (never inserts).
+    Skips the update if ftp_pass is empty/None.
+    Returns True if a row was updated.
+    """
+    if not ftp_pass:
+        return False
+    handle = handle.strip().upper()
+    if not handle:
+        return False
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            cur = conn.execute(
+                """
+                UPDATE vpbx_records
+                   SET ftp_pass=?, ftp_host=?, ftp_user=?, rest_pass=?, last_seen_utc=?
+                 WHERE handle=?
+                """,
+                (ftp_pass, ftp_host or "", ftp_user or "", rest_pass or "", now_utc, handle),
+            )
+    return cur.rowcount > 0
+
+
 def delete_handle(db_path: str, handle: str) -> bool:
     """Remove a handle row. Returns True if a row was deleted."""
     with WRITE_LOCK:
@@ -1269,38 +1322,6 @@ def upsert_vpbx_records(db_path: str, records: list[dict[str, Any]], now_utc: st
                     ),
                 )
     return len(records)
-
-
-def upsert_vpbx_credentials(db_path: str, records: list[dict[str, Any]]) -> int:
-    """Update credential fields (ftp_pass, ftp_host, ftp_user, rest_pass) for existing vpbx_records rows.
-
-    Never inserts new rows — only updates handles that already exist from a prior vpbx refresh.
-    Skips records where ftp_pass is empty so a failed scrape doesn't wipe good data.
-    """
-    if not records:
-        return 0
-    updated = 0
-    with WRITE_LOCK:
-        with get_conn(db_path) as conn:
-            for rec in records:
-                handle = (rec.get("handle") or "").strip()
-                ftp_pass = (rec.get("ftp_pass") or "").strip()
-                if not handle or not ftp_pass:
-                    continue
-                cur = conn.execute(
-                    """UPDATE vpbx_records
-                       SET ftp_pass=?, ftp_host=?, ftp_user=?, rest_pass=?
-                       WHERE handle=?""",
-                    (
-                        ftp_pass,
-                        (rec.get("ftp_host") or "").strip(),
-                        (rec.get("ftp_user") or "").strip(),
-                        (rec.get("rest_pass") or "").strip(),
-                        handle,
-                    ),
-                )
-                updated += cur.rowcount
-    return updated
 
 
 def list_vpbx_device_configs(db_path: str, handle: str | None = None) -> list[dict[str, Any]]:
@@ -1437,276 +1458,325 @@ def upsert_vpbx_site_configs(db_path: str, records: list[dict[str, Any]], now_ut
     return len(records)
 
 
-# ── Client heartbeats ─────────────────────────────────────────────────────────
+# ── Orders ────────────────────────────────────────────────────────────────────────
 
 
-def upsert_client_heartbeat(
-    db_path: str,
-    client_id: str,
-    status: str,
-    vpn_connected: bool,
-    vpn_ip: str | None,
-    job_id: str | None,
-    current_handle: str | None,
-    handles_done: int | None,
-    handles_total: int | None,
-    ts_utc: str,
-) -> None:
-    with WRITE_LOCK:
-        with get_conn(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO client_heartbeats
-                    (client_id, status, vpn_connected, vpn_ip, job_id,
-                     current_handle, handles_done, handles_total,
-                     last_seen_utc, first_seen_utc)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(client_id) DO UPDATE SET
-                    status         = excluded.status,
-                    vpn_connected  = excluded.vpn_connected,
-                    vpn_ip         = excluded.vpn_ip,
-                    job_id         = excluded.job_id,
-                    current_handle = excluded.current_handle,
-                    handles_done   = excluded.handles_done,
-                    handles_total  = excluded.handles_total,
-                    last_seen_utc  = excluded.last_seen_utc
-                """,
-                (
-                    client_id, status, int(vpn_connected), vpn_ip, job_id,
-                    current_handle, handles_done, handles_total,
-                    ts_utc, ts_utc,
-                ),
-            )
-
-
-def list_client_heartbeats(db_path: str) -> list[dict[str, Any]]:
+def list_orders(db_path: str, engineer: str | None = None) -> list[dict[str, Any]]:
+    sort = (
+        " ORDER BY"
+        " CASE WHEN dispatch_date IS NULL OR dispatch_date = '' THEN 2"
+        "      WHEN dispatch_date >= DATE('now') THEN 0"
+        "      ELSE 1 END ASC,"
+        " dispatch_date ASC,"
+        " order_id ASC"
+    )
+    # Only return real Phase 1 orders (have a customer name) — excludes Phase 3
+    # calendar stubs from other engineers that slipped in via the dispatch scrape.
+    name_filter = " AND customer_name != ''" if engineer else " WHERE customer_name != ''"
     with get_conn(db_path) as conn:
-        rows = conn.execute(
-            "SELECT * FROM client_heartbeats ORDER BY last_seen_utc DESC"
-        ).fetchall()
+        if engineer:
+            rows = conn.execute(
+                "SELECT * FROM orders WHERE engineer=?" + name_filter + sort, [engineer]
+            ).fetchall()
+            if not rows:
+                rows = conn.execute(
+                    "SELECT * FROM orders WHERE customer_name != ''" + sort
+                ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM orders WHERE customer_name != ''" + sort
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
-# ── Orders ────────────────────────────────────────────────────────────────────
+def _str(v: Any) -> str:
+    """Coerce a value to str — joins lists, passes strings through, converts None to ''."""
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return " ".join(str(x) for x in v if x)
+    return str(v)
 
 
 def upsert_orders(db_path: str, records: list[dict[str, Any]], now_utc: str) -> int:
     if not records:
         return 0
+
+    def _pick(*keys: str) -> str:
+        """Return the first non-empty value across multiple possible field names."""
+        for k in keys:
+            v = _str(rec.get(k))
+            if v:
+                return v
+        return ""
+
     with WRITE_LOCK:
         with get_conn(db_path) as conn:
             for rec in records:
-                order_id = (rec.get("order_id") or "").strip()
+                order_id = _str(rec.get("order_id")).strip()
                 if not order_id:
                     continue
-                assigned = rec.get("assigned", [])
-                assigned_json = json.dumps(assigned) if isinstance(assigned, list) else (assigned or "[]")
                 conn.execute(
                     """
-                    INSERT INTO orders(
-                        order_id, install_date, customer_name, description, order_type,
-                        location, assigned_json, detail_url, scraped_utc, last_seen_utc,
-                        last_modified, bill_mrc, bill_nrc, assigned_tech, log_count,
-                        last_log_entry, contract_number, forecast_date, customer_email,
-                        salesperson, qty_term,
-                        account_handle, account_company, account_address, account_address2,
-                        account_city, account_state, account_zip, account_type,
-                        account_billing_ref, account_white_glove,
-                        account_past_due, account_balance, account_net_terms,
-                        account_phone, account_contact, account_email,
-                        account_status_detail, account_raw_json, account_scraped_utc,
-                        dispatch_pm, dispatch_bill_date, dispatch_closed_date, dispatch_bill_mrc,
-                        dispatch_calendar_context,
-                        dispatch_tech, dispatch_date, dispatch_time, dispatch_status,
-                        dispatch_notes, dispatch_raw_json, dispatch_scraped_utc,
-                        pon, ckt_id, sip_trunk, sip_trunk_billby,
-                        contract_bill_start, contract_mrc, contract_term_end,
-                        account_contracts_json,
-                        on_net_ott, seat_count, extra_descriptions_json
-                    )
-                    VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?
-                    )
+                    INSERT INTO orders
+                        (order_id, customer_name, customer_abbrev, dispatch_date,
+                         install_type, task, assigned, engineer, detail_url,
+                         seats, pbx_ip, phone_model, location, pon, on_net_ott,
+                         scraped_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(order_id) DO UPDATE SET
-                        install_date=excluded.install_date,
-                        customer_name=excluded.customer_name,
-                        description=excluded.description,
-                        order_type=excluded.order_type,
-                        location=excluded.location,
-                        assigned_json=excluded.assigned_json,
-                        detail_url=excluded.detail_url,
-                        last_seen_utc=excluded.last_seen_utc,
-                        last_modified=COALESCE(excluded.last_modified, orders.last_modified),
-                        bill_mrc=COALESCE(excluded.bill_mrc, orders.bill_mrc),
-                        bill_nrc=COALESCE(excluded.bill_nrc, orders.bill_nrc),
-                        assigned_tech=COALESCE(excluded.assigned_tech, orders.assigned_tech),
-                        log_count=COALESCE(excluded.log_count, orders.log_count),
-                        last_log_entry=COALESCE(excluded.last_log_entry, orders.last_log_entry),
-                        contract_number=COALESCE(excluded.contract_number, orders.contract_number),
-                        forecast_date=COALESCE(excluded.forecast_date, orders.forecast_date),
-                        customer_email=COALESCE(excluded.customer_email, orders.customer_email),
-                        salesperson=COALESCE(excluded.salesperson, orders.salesperson),
-                        qty_term=COALESCE(excluded.qty_term, orders.qty_term),
-                        account_handle=COALESCE(excluded.account_handle, orders.account_handle),
-                        account_company=COALESCE(excluded.account_company, orders.account_company),
-                        account_address=COALESCE(excluded.account_address, orders.account_address),
-                        account_address2=COALESCE(excluded.account_address2, orders.account_address2),
-                        account_city=COALESCE(excluded.account_city, orders.account_city),
-                        account_state=COALESCE(excluded.account_state, orders.account_state),
-                        account_zip=COALESCE(excluded.account_zip, orders.account_zip),
-                        account_type=COALESCE(excluded.account_type, orders.account_type),
-                        account_billing_ref=COALESCE(excluded.account_billing_ref, orders.account_billing_ref),
-                        account_white_glove=COALESCE(excluded.account_white_glove, orders.account_white_glove),
-                        account_past_due=COALESCE(excluded.account_past_due, orders.account_past_due),
-                        account_balance=COALESCE(excluded.account_balance, orders.account_balance),
-                        account_net_terms=COALESCE(excluded.account_net_terms, orders.account_net_terms),
-                        account_phone=COALESCE(excluded.account_phone, orders.account_phone),
-                        account_contact=COALESCE(excluded.account_contact, orders.account_contact),
-                        account_email=COALESCE(excluded.account_email, orders.account_email),
-                        account_status_detail=COALESCE(excluded.account_status_detail, orders.account_status_detail),
-                        account_raw_json=COALESCE(excluded.account_raw_json, orders.account_raw_json),
-                        account_scraped_utc=COALESCE(excluded.account_scraped_utc, orders.account_scraped_utc),
-                        dispatch_pm=COALESCE(excluded.dispatch_pm, orders.dispatch_pm),
-                        dispatch_bill_date=COALESCE(excluded.dispatch_bill_date, orders.dispatch_bill_date),
-                        dispatch_closed_date=COALESCE(excluded.dispatch_closed_date, orders.dispatch_closed_date),
-                        dispatch_bill_mrc=COALESCE(excluded.dispatch_bill_mrc, orders.dispatch_bill_mrc),
-                        dispatch_calendar_context=COALESCE(excluded.dispatch_calendar_context, orders.dispatch_calendar_context),
-                        dispatch_tech=COALESCE(excluded.dispatch_tech, orders.dispatch_tech),
-                        dispatch_date=COALESCE(excluded.dispatch_date, orders.dispatch_date),
-                        dispatch_time=COALESCE(excluded.dispatch_time, orders.dispatch_time),
-                        dispatch_status=COALESCE(excluded.dispatch_status, orders.dispatch_status),
-                        dispatch_notes=COALESCE(excluded.dispatch_notes, orders.dispatch_notes),
-                        dispatch_raw_json=COALESCE(excluded.dispatch_raw_json, orders.dispatch_raw_json),
-                        dispatch_scraped_utc=COALESCE(excluded.dispatch_scraped_utc, orders.dispatch_scraped_utc),
-                        pon=COALESCE(excluded.pon, orders.pon),
-                        ckt_id=COALESCE(excluded.ckt_id, orders.ckt_id),
-                        sip_trunk=COALESCE(excluded.sip_trunk, orders.sip_trunk),
-                        sip_trunk_billby=COALESCE(excluded.sip_trunk_billby, orders.sip_trunk_billby),
-                        contract_bill_start=COALESCE(excluded.contract_bill_start, orders.contract_bill_start),
-                        contract_mrc=COALESCE(excluded.contract_mrc, orders.contract_mrc),
-                        contract_term_end=COALESCE(excluded.contract_term_end, orders.contract_term_end),
-                        account_contracts_json=COALESCE(excluded.account_contracts_json, orders.account_contracts_json),
-                        on_net_ott=COALESCE(excluded.on_net_ott, orders.on_net_ott),
-                        seat_count=COALESCE(excluded.seat_count, orders.seat_count),
-                        extra_descriptions_json=COALESCE(excluded.extra_descriptions_json, orders.extra_descriptions_json)
+                        customer_name=CASE WHEN excluded.customer_name != '' THEN excluded.customer_name ELSE customer_name END,
+                        customer_abbrev=CASE WHEN excluded.customer_abbrev != '' THEN excluded.customer_abbrev ELSE customer_abbrev END,
+                        dispatch_date=CASE WHEN excluded.dispatch_date != '' THEN excluded.dispatch_date ELSE dispatch_date END,
+                        install_type=CASE WHEN excluded.install_type != '' THEN excluded.install_type ELSE install_type END,
+                        task=CASE WHEN excluded.task != '' THEN excluded.task ELSE task END,
+                        assigned=CASE WHEN excluded.assigned != '' THEN excluded.assigned ELSE assigned END,
+                        engineer=CASE WHEN excluded.engineer != '' THEN excluded.engineer ELSE engineer END,
+                        detail_url=CASE WHEN excluded.detail_url != '' THEN excluded.detail_url ELSE detail_url END,
+                        seats=CASE WHEN excluded.seats != '' THEN excluded.seats ELSE seats END,
+                        pbx_ip=CASE WHEN excluded.pbx_ip != '' THEN excluded.pbx_ip ELSE pbx_ip END,
+                        phone_model=CASE WHEN excluded.phone_model != '' THEN excluded.phone_model ELSE phone_model END,
+                        location=CASE WHEN excluded.location != '' THEN excluded.location ELSE location END,
+                        pon=CASE WHEN excluded.pon != '' THEN excluded.pon ELSE pon END,
+                        on_net_ott=CASE WHEN excluded.on_net_ott != '' THEN excluded.on_net_ott ELSE on_net_ott END,
+                        scraped_utc=excluded.scraped_utc
                     """,
                     (
                         order_id,
-                        rec.get("install_date") or "",
-                        rec.get("customer_name") or "",
-                        rec.get("description") or "",
-                        rec.get("order_type") or "",
-                        rec.get("location") or "",
-                        assigned_json,
-                        rec.get("detail_url") or "",
-                        rec.get("scraped_utc") or now_utc,
-                        now_utc,
-                        # DETABLE inline
-                        rec.get("last_modified") or None,
-                        rec.get("bill_mrc") or None,
-                        rec.get("bill_nrc") or None,
-                        rec.get("assigned_tech") or None,
-                        rec.get("log_count") or None,
-                        rec.get("last_log_entry") or None,
-                        rec.get("contract_number") or None,
-                        rec.get("forecast_date") or None,
-                        rec.get("customer_email") or None,
-                        rec.get("salesperson") or None,
-                        rec.get("qty_term") or None,
-                        # account enrichment
-                        rec.get("account_handle") or None,
-                        rec.get("account_company") or None,
-                        rec.get("account_address") or None,
-                        rec.get("account_address2") or None,
-                        rec.get("account_city") or None,
-                        rec.get("account_state") or None,
-                        rec.get("account_zip") or None,
-                        rec.get("account_type") or None,
-                        rec.get("account_billing_ref") or None,
-                        rec.get("account_white_glove") or None,
-                        rec.get("account_past_due") or None,
-                        rec.get("account_balance") or None,
-                        rec.get("account_net_terms") or None,
-                        rec.get("account_phone") or None,
-                        rec.get("account_contact") or None,
-                        rec.get("account_email") or None,
-                        rec.get("account_status_detail") or None,
-                        rec.get("account_raw_json") or None,
-                        rec.get("account_scraped_utc") or None,
-                        # dispatch enrichment
-                        rec.get("dispatch_pm") or None,
-                        rec.get("dispatch_bill_date") or None,
-                        rec.get("dispatch_closed_date") or None,
-                        rec.get("dispatch_bill_mrc") or None,
-                        rec.get("dispatch_calendar_context") or None,
-                        rec.get("dispatch_tech") or None,
-                        rec.get("dispatch_date") or None,
-                        rec.get("dispatch_time") or None,
-                        rec.get("dispatch_status") or None,
-                        rec.get("dispatch_notes") or None,
-                        rec.get("dispatch_raw_json") or None,
-                        rec.get("dispatch_scraped_utc") or None,
-                        # JSON API enrichment
-                        rec.get("pon") or None,
-                        rec.get("ckt_id") or None,
-                        rec.get("sip_trunk") or None,
-                        rec.get("sip_trunk_billby") or None,
-                        rec.get("contract_bill_start") or None,
-                        rec.get("contract_mrc") or None,
-                        rec.get("contract_term_end") or None,
-                        rec.get("account_contracts_json") or None,
-                        # derived fields
-                        rec.get("on_net_ott") or None,
-                        rec.get("seat_count") or None,
-                        rec.get("extra_descriptions_json") or None,
+                        _pick("customer_name", "company_name", "account_company"),
+                        _pick("customer_abbrev", "account_handle") or order_id.split("-")[0],
+                        _pick("dispatch_date", "install_date"),
+                        _pick("install_type", "order_type"),
+                        _pick("task", "description"),
+                        _pick("assigned", "assigned_tech", "dispatch_tech"),
+                        _pick("engineer", "pm"),
+                        _pick("detail_url"),
+                        _pick("seats"),
+                        _pick("pbx_ip"),
+                        _pick("phone_model"),
+                        _pick("location"),
+                        _pick("pon"),
+                        _pick("on_net_ott"),
+                        _str(rec.get("scraped_utc")) or now_utc,
                     ),
                 )
     return len(records)
 
 
-def list_orders(
+# ── Orders — agent tool layer ──────────────────────────────────────────────────
+
+_ORDER_FIELDS = {
+    "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+    "task", "assigned", "engineer", "detail_url", "seats", "pbx_ip",
+    "phone_model", "location", "pon", "on_net_ott",
+}
+
+
+def get_order_suggested(db_path: str, order_id: str) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM orders_suggested WHERE order_id=?", (order_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_order_suggested(
     db_path: str,
-    assigned_to: str | None = None,
-    order_type: str | None = None,
-    from_date: str | None = None,
-) -> list[dict[str, Any]]:
-    conditions: list[str] = []
-    params: list[Any] = []
-    if assigned_to:
-        conditions.append('assigned_json LIKE ?')
-        params.append(f'%"{assigned_to}"%')
-    if order_type:
-        conditions.append("order_type LIKE ?")
-        params.append(f"%{order_type}%")
-    if from_date:
-        conditions.append("install_date >= ?")
-        params.append(from_date)
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    order_id: str,
+    field: str,
+    value: str,
+    confidence: float,
+    source: str,
+    now_utc: str,
+) -> None:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            # Get current production value for the log
+            row = conn.execute(
+                "SELECT * FROM orders WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Order not found: {order_id!r}")
+            old_value = dict(row).get(field, "")
+
+            # Upsert the suggested field into orders_suggested
+            conn.execute(
+                f"""
+                INSERT INTO orders_suggested (order_id, {field}, suggested_utc)
+                VALUES (?, ?, ?)
+                ON CONFLICT(order_id) DO UPDATE SET
+                    {field}=excluded.{field},
+                    suggested_utc=excluded.suggested_utc
+                """,
+                (order_id, value, now_utc),
+            )
+
+            # Log to enrichment_log
+            conn.execute(
+                """
+                INSERT INTO enrichment_log
+                    (order_id, field, old_value, suggested_value, confidence,
+                     source, status, created_utc)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (order_id, field, old_value or "", value, confidence, source, now_utc),
+            )
+
+
+def flag_order_field(
+    db_path: str,
+    order_id: str,
+    field: str,
+    reason: str,
+    now_utc: str,
+) -> None:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM orders WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Order not found: {order_id!r}")
+            old_value = dict(row).get(field, "")
+            conn.execute(
+                """
+                INSERT INTO enrichment_log
+                    (order_id, field, old_value, suggested_value, confidence,
+                     source, status, created_utc)
+                VALUES (?, ?, ?, NULL, NULL, ?, 'flagged', ?)
+                """,
+                (order_id, field, old_value or "", reason, now_utc),
+            )
+
+
+def confirm_order_suggestion(
+    db_path: str,
+    order_id: str,
+    field: str,
+    reviewed_by: str,
+    now_utc: str,
+) -> dict[str, Any]:
+    if field not in _ORDER_FIELDS:
+        raise ValueError(f"Unknown order field: {field!r}")
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            suggested_row = conn.execute(
+                "SELECT * FROM orders_suggested WHERE order_id=?", (order_id,)
+            ).fetchone()
+            if not suggested_row or dict(suggested_row).get(field) is None:
+                raise ValueError(f"No suggestion found for {order_id!r}.{field}")
+            value = dict(suggested_row)[field]
+
+            # Promote to production
+            conn.execute(
+                f"UPDATE orders SET {field}=? WHERE order_id=?",
+                (value, order_id),
+            )
+
+            # Mark enrichment_log entries for this field as confirmed
+            conn.execute(
+                """
+                UPDATE enrichment_log SET status='confirmed', reviewed_by=?, reviewed_utc=?
+                WHERE order_id=? AND field=? AND status='pending'
+                """,
+                (reviewed_by, now_utc, order_id, field),
+            )
+
+            return {"order_id": order_id, "field": field, "confirmed_value": value}
+
+
+# ── Circuits ──────────────────────────────────────────────────────────────────
+
+_ON_NET_TYPES = {"dia", "loop"}
+
+
+def upsert_circuits(db_path: str, handle: str, records: list[dict[str, Any]], now_utc: str) -> int:
+    if not records:
+        return 0
+    handle = handle.upper()
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            for rec in records:
+                pon = (rec.get("pon") or "").strip()
+                conn.execute(
+                    """
+                    INSERT INTO circuits(handle, pon, type, circuit_id, service_address, scraped_utc)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(handle, pon) DO UPDATE SET
+                        type=excluded.type,
+                        circuit_id=excluded.circuit_id,
+                        service_address=excluded.service_address,
+                        scraped_utc=excluded.scraped_utc
+                    """,
+                    (
+                        handle,
+                        pon,
+                        (rec.get("type") or "").strip(),
+                        (rec.get("circuit_id") or "").strip(),
+                        (rec.get("service_address") or "").strip(),
+                        now_utc,
+                    ),
+                )
+    return len(records)
+
+
+def get_circuits(db_path: str, handle: str) -> dict[str, Any]:
+    handle = handle.upper()
     with get_conn(db_path) as conn:
         rows = conn.execute(
-            f"""SELECT * FROM orders {where}
-                ORDER BY
-                    CASE
-                        WHEN install_date IS NULL OR install_date = '' THEN 2
-                        WHEN install_date >= DATE('now') THEN 0
-                        ELSE 1
-                    END ASC,
-                    install_date ASC""",
-            params,
+            "SELECT pon, type, circuit_id, service_address, scraped_utc FROM circuits WHERE handle=? ORDER BY type ASC, pon ASC",
+            (handle,),
         ).fetchall()
-    result = []
-    for row in rows:
-        d = dict(row)
-        try:
-            d["assigned"] = json.loads(d.pop("assigned_json", "[]"))
-        except (ValueError, TypeError):
-            d["assigned"] = []
-        result.append(d)
-    return result
+    items = [dict(r) for r in rows]
+    on_net = any(r["type"].lower() in _ON_NET_TYPES for r in items if r.get("type"))
+    return {"items": items, "on_net": on_net}
+
+
+def upsert_callflow_diagram(db_path: str, handle: str, svg: str, freepbx_ip: str | None, now_utc: str) -> None:
+    handle = handle.upper()
+    with WRITE_LOCK:
+        with get_conn(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO callflow_diagrams(handle, svg, generated_utc, freepbx_ip)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(handle) DO UPDATE SET
+                    svg=excluded.svg,
+                    generated_utc=excluded.generated_utc,
+                    freepbx_ip=COALESCE(excluded.freepbx_ip, callflow_diagrams.freepbx_ip)
+                """,
+                (handle, svg, now_utc, freepbx_ip),
+            )
+
+
+def get_callflow_diagram(db_path: str, handle: str) -> dict[str, Any] | None:
+    handle = handle.upper()
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT handle, svg, generated_utc, freepbx_ip FROM callflow_diagrams WHERE handle=?",
+            (handle,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_completeness_summary(db_path: str) -> dict[str, Any]:
+    with get_conn(db_path) as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE customer_name != ''"
+        ).fetchone()[0]
+        fields = [
+            "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+            "assigned", "engineer", "seats", "pbx_ip", "phone_model",
+            "location", "pon", "on_net_ott",
+        ]
+        missing: dict[str, int] = {}
+        for f in fields:
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM orders WHERE customer_name != '' AND ({f} IS NULL OR {f} = '')"
+            ).fetchone()[0]
+            missing[f] = count
+    return {"total_orders": total, "missing_by_field": missing}
