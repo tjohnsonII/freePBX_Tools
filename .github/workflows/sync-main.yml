@@ -1,0 +1,33 @@
+name: Sync main branch
+
+on:
+  push:
+    branches:
+      - server
+      - client
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need full history + all branches
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run sync-main.sh
+        run: bash sync-main.sh
+
+      - name: Report result
+        if: always()
+        run: |
+          echo "Triggered by push to: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
