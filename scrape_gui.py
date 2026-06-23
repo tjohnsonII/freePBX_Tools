@@ -26,12 +26,6 @@ from typing import Any
 import requests
 import customtkinter as ctk
 
-# Give this process a unique App User Model ID so Windows taskbar pins use the
-# shortcut icon (123net.ico) instead of the generic pythonw.exe icon.
-if sys.platform == "win32":
-    import ctypes
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("123net.ScrapeManager.1")
-
 # ── Config ────────────────────────────────────────────────────────────────────
 
 _PORT = os.getenv("WEBSCRAPER_PORT", "8789")
