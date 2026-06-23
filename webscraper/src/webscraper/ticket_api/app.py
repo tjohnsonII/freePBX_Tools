@@ -1125,8 +1125,6 @@ def api_vpbx_save_sidecar(device_id: str, body: _SidecarSaveBody, request: Reque
     Only touches the sidecar_config column — never overwrites scraped data.
     Returns 404 if the device_id + vpbx_id combination doesn't exist yet.
     """
-    if not _is_localhost_request(request):
-        raise HTTPException(status_code=403, detail="Sidecar save is localhost-only")
     db.ensure_indexes(db_path())
     updated = db.save_sidecar_config(db_path(), device_id, body.vpbx_id, body.sidecar_config)
     if not updated:
