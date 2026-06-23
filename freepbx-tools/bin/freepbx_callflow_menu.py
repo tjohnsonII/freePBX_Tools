@@ -1696,28 +1696,31 @@ def get_endpoint_status(sock):
                     name = parts[1] if len(parts) > 1 else ""
                     extensions.append((ext, name))
         
-        # Check registration status via Asterisk (prefer contacts which reflect registrations)
+        # Check registration status via Asterisk
         registered = []
         unregistered = []
 
+        # PJSIP: try contacts first; "No such command" in output means chan_sip system
         contact_endpoints = set()
+        pjsip_active = False
         rc, out, _ = run(["asterisk", "-rx", "pjsip show contacts"], timeout=5)
-        if rc == 0 and out:
+        if rc == 0 and out and "no such command" not in out.lower():
+            pjsip_active = True
             for line in out.split('\n'):
                 line = line.strip()
                 if not line.startswith("Contact:"):
                     continue
-                # Example: "Contact: 100/sip:100@1.2.3.4:5060;..." -> endpoint "100"
+                # "Contact: 100/sip:100@1.2.3.4:5060" -> endpoint "100"
                 rest = line[len("Contact:"):].strip()
                 endpoint = rest.split('/', 1)[0].strip()
                 if endpoint:
                     contact_endpoints.add(endpoint)
 
-        # Fallback: chan_sip peers (older systems)
+        # chan_sip fallback — only on systems that don't have PJSIP at all
         sip_ok = set()
-        if not contact_endpoints:
+        if not pjsip_active:
             rc2, out2, _ = run(["asterisk", "-rx", "sip show peers"], timeout=5)
-            if rc2 == 0 and out2:
+            if rc2 == 0 and out2 and "no such command" not in out2.lower():
                 for line in out2.split('\n'):
                     if not line.strip() or line.lower().startswith("name/"):
                         continue
@@ -1725,7 +1728,6 @@ def get_endpoint_status(sock):
                     if not parts:
                         continue
                     name = parts[0].split('/', 1)[0].strip()
-                    # Status is usually the last column
                     status = parts[-1].strip() if parts else ""
                     if name and ("ok" in status.lower() or "unknown" in status.lower()):
                         sip_ok.add(name)
@@ -2070,6 +2072,165 @@ def display_system_dashboard(sock, data):
     print("")
 
 
+def run_stuck_channels_inline():
+    """Show channels that have been up longer than STUCK_MINUTES."""
+    STUCK_MINUTES = 30
+    print(f"\n{Colors.CYAN}Querying active channels...{Colors.RESET}")
+    rc, out, _ = run(["asterisk", "-rx", "core show channels verbose"], timeout=8)
+    if rc != 0 or not out:
+        print(f"{Colors.YELLOW}Could not query Asterisk channels.{Colors.RESET}")
+        return
+
+    stuck = []
+    for line in out.split('\n'):
+        # Skip headers and summary lines
+        if not line.strip() or line.startswith('Channel') or line.startswith('--') or 'active call' in line.lower():
+            continue
+        parts = line.split()
+        # verbose format: Channel App AppData Duration(hh:mm:ss) Accountcode BridgeID ...
+        # Duration is usually in position 3 or 4
+        for p in parts:
+            m = re.match(r'^(\d{2,3}):(\d{2}):(\d{2})$', p)
+            if m:
+                hours, mins, secs = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                total_minutes = hours * 60 + mins + secs / 60
+                if total_minutes >= STUCK_MINUTES:
+                    stuck.append((line.strip(), total_minutes))
+                break
+
+    W = 90
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    title = f" 🔴 STUCK CHANNELS (>{STUCK_MINUTES}m) — {len(stuck)} found "
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.RED + title.center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    if not stuck:
+        print(Colors.CYAN + "║" + Colors.GREEN + "  ✓ No stuck channels detected.".ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    else:
+        for raw, mins in sorted(stuck, key=lambda x: x[1], reverse=True):
+            label = f"  {int(mins):>4}m  {raw[:W - 9]}"
+            print(Colors.CYAN + "║" + Colors.YELLOW + label.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def run_fail2ban_status_inline():
+    """Show fail2ban jail status for SIP-related jails."""
+    jails_to_check = ["asterisk", "sip-auth", "freepbx"]
+
+    print(f"\n{Colors.CYAN}Querying fail2ban...{Colors.RESET}")
+
+    # Get list of active jails
+    rc, out, _ = run(["fail2ban-client", "status"], timeout=5)
+    if rc != 0:
+        print(f"{Colors.YELLOW}fail2ban-client not available or not running.{Colors.RESET}")
+        return
+
+    active_jails = []
+    for line in out.split('\n'):
+        if 'Jail list:' in line:
+            jails_str = line.split(':', 1)[-1].strip()
+            active_jails = [j.strip() for j in jails_str.split(',') if j.strip()]
+            break
+
+    # Check configured jails, fallback to all active jails if none match
+    targets = [j for j in jails_to_check if j in active_jails] or active_jails[:5]
+
+    W = 72
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW +
+          " 🔒 FAIL2BAN STATUS ".center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+
+    if not targets:
+        print(Colors.CYAN + "║" + Colors.GREEN + "  ✓ No relevant jails found.".ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    else:
+        for jail in targets:
+            rc2, detail, _ = run(["fail2ban-client", "status", jail], timeout=5)
+            if rc2 != 0:
+                continue
+            currently_banned = 0
+            total_banned = 0
+            banned_ips = []
+            for ln in detail.split('\n'):
+                if 'Currently banned:' in ln:
+                    try: currently_banned = int(ln.split(':')[-1].strip())
+                    except ValueError: pass
+                elif 'Total banned:' in ln:
+                    try: total_banned = int(ln.split(':')[-1].strip())
+                    except ValueError: pass
+                elif 'Banned IP list:' in ln:
+                    ips_str = ln.split(':', 1)[-1].strip()
+                    banned_ips = [ip for ip in ips_str.split() if ip]
+
+            color = Colors.RED if currently_banned > 0 else Colors.GREEN
+            header = f"  Jail: {jail:<20} Currently banned: {color}{currently_banned}{Colors.WHITE}  Total: {total_banned}"
+            print(Colors.CYAN + "║" + Colors.WHITE + header.ljust(W + len(color) + len(Colors.WHITE)) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+            for ip in banned_ips[:8]:
+                print(Colors.CYAN + "║" + Colors.YELLOW + f"    Banned: {ip}".ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def run_inline_log_analysis_timed(hours=1):
+    """Inline log analysis with configurable time window."""
+    from collections import defaultdict
+
+    full_log = "/var/log/asterisk/full"
+    if not os.path.isfile(full_log):
+        print(f"{Colors.RED}Log not found: {full_log}{Colors.RESET}")
+        return
+
+    tail_lines = min(max(hours * 5000, 1000), 50000)
+
+    print(f"\n{Colors.CYAN}📊 Inline log analysis — last ~{hours}h (~{tail_lines} lines){Colors.RESET}\n")
+
+    def _grep(pattern, lines=None):
+        n = lines or tail_lines
+        cmd = f"tail -{n} {full_log} | grep -iE '{pattern}'"
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        return r.stdout.strip().split('\n') if r.stdout.strip() else []
+
+    # Errors
+    errors = _grep(r'ERROR|CRITICAL')
+    if errors:
+        etype = defaultdict(int)
+        for e in errors:
+            m = re.search(r'(ERROR|CRITICAL)[^:]*:\s*(.+)', e)
+            if m:
+                etype[m.group(2)[:80]] += 1
+        print(f"{Colors.RED}🔴 {len(errors)} error(s):{Colors.RESET}")
+        for msg, cnt in sorted(etype.items(), key=lambda x: x[1], reverse=True)[:8]:
+            print(f"   {cnt:>4}x {msg}")
+    else:
+        print(f"{Colors.GREEN}✅ No errors{Colors.RESET}")
+
+    # Registration failures
+    reg_fails = _grep(r'failed.*register|registration.*failed|401.*REGISTER|403.*REGISTER', lines=tail_lines)
+    if reg_fails:
+        print(f"\n{Colors.YELLOW}⚠  {len(reg_fails)} registration failure(s) — last 3:{Colors.RESET}")
+        for l in reg_fails[-3:]:
+            print(f"   {l[:120]}")
+    else:
+        print(f"\n{Colors.GREEN}✅ No registration failures{Colors.RESET}")
+
+    # Auth/security events
+    sec = _grep(r'failed.*auth|SECURITY|auth.*failed|SecurityEvent')
+    ips = defaultdict(int)
+    for l in sec:
+        m = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', l)
+        if m:
+            ips[m.group(1)] += 1
+    if ips:
+        top = sorted(ips.items(), key=lambda x: x[1], reverse=True)[:5]
+        print(f"\n{Colors.RED}🔒 Auth failures by IP:{Colors.RESET}")
+        for ip, cnt in top:
+            print(f"   {ip:<20} {cnt} attempts")
+    else:
+        print(f"\n{Colors.GREEN}✅ No auth failures{Colors.RESET}")
+
+    print(f"\n{Colors.CYAN}{'─' * 60}{Colors.RESET}")
+    print(f"{Colors.GREEN}✅ Inline analysis complete{Colors.RESET}")
+
+
 def run_log_analysis():
     """Run automated log analysis to detect issues"""
     analyzer_script = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
@@ -2172,60 +2333,102 @@ def run_inline_log_analysis():
     print(f"{Colors.GREEN}✅ Log analysis complete{Colors.RESET}")
 
 
-def run_enhanced_log_analysis_menu():
-    """Interactive enhanced log analysis menu with dmesg, journalctl, and regex search."""
-    if not os.path.isfile(LOG_ANALYZER_SCRIPT):
-        print(f"{Colors.RED}❌ Log analyzer tool not found.{Colors.RESET}")
-        return
-    
+def run_log_analysis_menu():
+    """Unified log & system analysis menu."""
+    has_script = os.path.isfile(LOG_ANALYZER_SCRIPT)
+
     while True:
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 Enhanced Log Analysis{' ' * 52}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 Log & System Analysis{' ' * 52}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Standard log analysis (Asterisk full log){' ' * 31}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Comprehensive analysis (Asterisk + system + patterns){' ' * 21}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Kernel log analysis (dmesg){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} System journal analysis (journalctl){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Search Asterisk logs with regex{' ' * 41}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Search common Asterisk issue patterns{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Evaluate error codes (SIP/Q.850 mapping){' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Look up specific SIP code{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.RED}  9){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.CYAN}{'─' * 30} Live (no script needed) {'─' * 22}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Quick inline log scan (errors / auth / trunk){' ' * 27}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show stuck channels (active >30 min){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Fail2ban jail status{' ' * 52}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.CYAN}{'─' * 32} Script-based analysis {'─' * 23}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Standard Asterisk log analysis{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Comprehensive (Asterisk + system + patterns){' ' * 29}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Kernel log (dmesg){' ' * 55}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} System journal (journalctl){' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Search Asterisk logs with regex{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Search common Asterisk issue patterns{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Evaluate error codes (SIP/Q.850 mapping){' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Look up specific SIP code{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 12){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
-        
-        choice = input(f"{Colors.YELLOW}Choose analysis option (1-9): {Colors.RESET}").strip()
-        
+
+        choice = input(f"{Colors.YELLOW}Choose option (1-12): {Colors.RESET}").strip()
+
         if choice == "1":
-            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
+            hours = input(f"{Colors.YELLOW}Time window in hours (default: 1): {Colors.RESET}").strip() or "1"
+            try:
+                h = int(hours)
+            except ValueError:
+                h = 1
+            if has_script:
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--hours", str(h)])
+            else:
+                run_inline_log_analysis_timed(h)
         elif choice == "2":
-            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+            run_stuck_channels_inline()
         elif choice == "3":
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--dmesg"])
+            run_fail2ban_status_inline()
         elif choice == "4":
-            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
+            if not has_script:
+                print(f"{Colors.YELLOW}Script not found, running inline scan.{Colors.RESET}")
+                run_inline_log_analysis_timed(1)
+            else:
+                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
         elif choice == "5":
-            pattern = input(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
-            if pattern:
-                log_file = input(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
-                log_file = log_file or "/var/log/asterisk/full"
-                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
         elif choice == "6":
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--search-patterns"])
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--dmesg"])
         elif choice == "7":
-            run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--codes-only"])
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
         elif choice == "8":
-            code = input(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
-            if code:
-                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                pattern = input(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
+                if pattern:
+                    log_file = input(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
+                    log_file = log_file or "/var/log/asterisk/full"
+                    run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
         elif choice == "9":
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--search-patterns"])
+        elif choice == "10":
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--codes-only"])
+        elif choice == "11":
+            if not has_script:
+                print(f"{Colors.RED}Script not available.{Colors.RESET}")
+            else:
+                code = input(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
+                if code:
+                    run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
+        elif choice == "12":
             break
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-9.{Colors.RESET}")
-        
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-12.{Colors.RESET}")
+
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
         input()
 
@@ -2240,54 +2443,80 @@ def run_cdr_analysis_menu():
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 CDR/CEL Call Log Analysis{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Comprehensive call analysis{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Call statistics summary{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Top callers{' ' * 62}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Top destinations{' ' * 57}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Call distribution by hour{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Disposition breakdown{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Failed/busy calls analysis{' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Trunk usage analysis{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Call duration distribution{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Export calls to JSON{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.RED} 11){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Find calls by number (src or dst){' ' * 40}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Comprehensive call analysis{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Call statistics summary{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Top callers{' ' * 62}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Top destinations{' ' * 57}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Call distribution by hour{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Disposition breakdown{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Failed/busy calls analysis{' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Trunk usage analysis{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Call duration distribution{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Export calls to JSON{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 12){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
-        
-        choice = input(f"{Colors.YELLOW}Choose analysis option (1-11): {Colors.RESET}").strip()
-        
-        hours = None
-        if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
-            hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
-        
+
+        choice = input(f"{Colors.YELLOW}Choose analysis option (1-12): {Colors.RESET}").strip()
+
         if choice == "1":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
-        elif choice == "2":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
-        elif choice == "3":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
-        elif choice == "4":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
-        elif choice == "5":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
-        elif choice == "6":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
-        elif choice == "7":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
-        elif choice == "8":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
-        elif choice == "9":
-            run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
-        elif choice == "10":
-            filename = input(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
-            if filename:
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
-            else:
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
-        elif choice == "11":
+            number = input(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
+            if number:
+                hours = input(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
+                if os.path.isfile(CDR_ANALYZER_SCRIPT):
+                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number, "--hours", hours])
+                else:
+                    # Inline fallback: direct MySQL query
+                    sql = (f"SELECT calldate, src, dst, disposition, duration, billsec "
+                           f"FROM cdr WHERE (src LIKE '%{number}%' OR dst LIKE '%{number}%') "
+                           f"AND calldate >= DATE_SUB(NOW(), INTERVAL {hours} HOUR) "
+                           f"ORDER BY calldate DESC LIMIT 50;")
+                    rc, out, err = run(["mysql", "-NBe", sql, "asteriskcdrdb"])
+                    if rc == 0 and out.strip():
+                        print(f"\n{Colors.CYAN}Calls matching '{number}' (last {hours}h):{Colors.RESET}")
+                        for row in out.strip().split('\n'):
+                            print(f"  {row}")
+                    else:
+                        alt_rc, alt_out, _ = run(["mysql", "-NBe", sql.replace("asteriskcdrdb", "asterisk")])
+                        if alt_rc == 0 and alt_out.strip():
+                            print(f"\n{Colors.CYAN}Calls matching '{number}' (last {hours}h):{Colors.RESET}")
+                            for row in alt_out.strip().split('\n'):
+                                print(f"  {row}")
+                        else:
+                            print(f"{Colors.YELLOW}No results or CDR database not accessible.{Colors.RESET}")
+        elif choice == "12":
             break
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-11.{Colors.RESET}")
+            hours = None
+            if choice in ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11']:
+                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
+            if choice == "2":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+            elif choice == "3":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
+            elif choice == "4":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
+            elif choice == "5":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
+            elif choice == "6":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
+            elif choice == "7":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
+            elif choice == "8":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
+            elif choice == "9":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
+            elif choice == "10":
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
+            elif choice == "11":
+                filename = input(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
+                if filename:
+                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
+                else:
+                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
+            else:
+                print(f"{Colors.RED}❌ Invalid choice. Please select 1-12.{Colors.RESET}")
         
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
         input()
@@ -2569,11 +2798,10 @@ def main():
         print(menu_section("Diagnostics"))
         print(menu_line("11", "Call Simulation & Validation"))
         print(menu_line("12", "Run full Asterisk diagnostic"))
-        print(menu_line("13", "Automated log analysis (detect issues)"))
+        print(menu_line("13", "Log & System Analysis (errors / stuck channels / fail2ban / journal)"))
         print(menu_line("14", "SIP / Q.850 code lookup"))
         print(menu_line("15", "Network Diagnostics & Packet Capture"))
-        print(menu_line("16", "Enhanced Log Analysis (dmesg/journal/regex)"))
-        print(menu_line("17", "CDR/CEL Call Log Analysis"))
+        print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
         print(menu_line("18", "Phone/Endpoint Analysis"))
         print(menu_section("Ops Tools"))
         print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
@@ -2677,16 +2905,13 @@ def main():
             input()
 
         elif choice == "13":
-            run_log_analysis()
+            run_log_analysis_menu()
 
         elif choice == "14":
             show_error_map_quick_reference()
 
         elif choice == "15":
             run_network_diagnostics_menu()
-
-        elif choice == "16":
-            run_enhanced_log_analysis_menu()
 
         elif choice == "17":
             run_cdr_analysis_menu()
