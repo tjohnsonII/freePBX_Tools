@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import importlib.util
 import json
 import os
 import re
 import sqlite3
 import sys
+import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +55,10 @@ TIMELINE_CATEGORIES: tuple[str, ...] = (
 
 LOGGER = setup_logging("ticket_api")
 
+# Background job cancellation events keyed by job_id
+_SCRAPE_CANCEL_EVENTS: dict[str, threading.Event] = {}
+_SCRAPE_PAUSE_EVENTS: dict[str, threading.Event] = {}
+
 # ── DB / time helpers ────────────────────────────────────────────────────────
 
 
@@ -61,6 +68,45 @@ def db_path() -> str:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+_LOCALHOST = {"127.0.0.1", "::1"}
+
+
+def _require_ingest_auth(request: Request) -> None:
+    key = os.getenv("INGEST_API_KEY", "").strip()
+    client_host = (request.client.host if request.client else "") or ""
+    if not key:
+        if client_host not in _LOCALHOST:
+            raise HTTPException(
+                status_code=403,
+                detail="Set INGEST_API_KEY on the server to allow remote access.",
+            )
+        return
+    provided = request.headers.get("X-Ingest-Key", "")
+    if not hmac.compare_digest(key, provided):
+        raise HTTPException(status_code=403, detail="Invalid API key.")
+
+
+def _update_scrape_job(
+    job_id: str,
+    *,
+    status: str,
+    progress_completed: int = 0,
+    progress_total: int = 0,
+    result: dict[str, Any] | None = None,
+) -> None:
+    now = _iso_now()
+    db.update_scrape_job(
+        db_path(),
+        job_id,
+        status=status,
+        progress_completed=progress_completed,
+        progress_total=progress_total,
+        started_utc=now if status == "running" else None,
+        finished_utc=now if status in ("done", "failed", "cancelled") else None,
+        result=result,
+    )
 
 
 def _append_event(
@@ -721,6 +767,20 @@ def api_company_timeline(handle: str, limit: int = Query(default=200, ge=1, le=5
     return company_timeline(handle, limit=limit)
 
 
+@app.get("/api/companies/{handle}/circuits")
+def api_company_circuits(handle: str):
+    result = db.get_circuits(db_path(), handle)
+    return result
+
+
+@app.get("/api/companies/{handle}/callflow")
+def api_company_callflow(handle: str):
+    row = db.get_callflow_diagram(db_path(), handle)
+    if not row:
+        return {"svg": None, "generated_utc": None}
+    return row
+
+
 @app.post("/api/jobs/build-timeline")
 def api_jobs_build_timeline(payload: dict[str, Any]):
     return jobs_build_timeline(payload)
@@ -798,6 +858,215 @@ def api_handle_delete(handle: str, request: Request):
 # ── NOC Queue endpoints ───────────────────────────────────────────────────────
 
 
+@app.get("/api/orders")
+def api_orders(engineer: str | None = Query(None)):
+    """Return orders, optionally filtered by engineer username."""
+    db.ensure_indexes(db_path())
+    return {"items": db.list_orders(db_path(), engineer=engineer)}
+
+
+@app.get("/api/orders/incomplete")
+def api_orders_incomplete(field: str | None = Query(None)):
+    """Return orders missing a specific field, or all orders with any empty key field."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        if field:
+            safe_fields = {
+                "customer_name", "customer_abbrev", "dispatch_date", "install_type",
+                "assigned", "engineer", "seats", "pbx_ip", "phone_model",
+                "location", "pon", "on_net_ott",
+            }
+            if field not in safe_fields:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail=f"Unknown field: {field}")
+            rows = conn.execute(
+                f"SELECT * FROM orders WHERE ({field} IS NULL OR {field} = '') AND customer_name != '' ORDER BY dispatch_date ASC, order_id ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM orders WHERE customer_name != '' AND (
+                    dispatch_date IS NULL OR dispatch_date = '' OR
+                    assigned IS NULL OR assigned = '' OR
+                    pbx_ip IS NULL OR pbx_ip = '' OR
+                    pon IS NULL OR pon = ''
+                ) ORDER BY dispatch_date ASC, order_id ASC
+                """
+            ).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/api/orders/incomplete/summary")
+def api_orders_incomplete_summary():
+    """Return count of orders missing each key field."""
+    db.ensure_indexes(db_path())
+    return db.get_completeness_summary(db_path())
+
+
+@app.get("/api/orders/{order_id}")
+def api_order_detail(order_id: str):
+    """Return a single order by ID, merged with any pending suggestions."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found")
+    result = dict(row)
+    suggested = db.get_order_suggested(db_path(), order_id) or {}
+    result["_suggested"] = {k: v for k, v in suggested.items() if k != "order_id" and v}
+    return result
+
+
+@app.get("/api/orders/{order_id}/dispatch")
+def api_order_dispatch(order_id: str):
+    """Return dispatch-relevant fields plus correlated vpbx/handles data for this order."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        order = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        o = dict(order)
+        handle = o.get("customer_abbrev", "").upper()
+
+        dispatch_fields = {
+            "order_id":      o["order_id"],
+            "dispatch_date": o.get("dispatch_date") or "",
+            "assigned":      o.get("assigned") or "",
+            "location":      o.get("location") or "",
+            "task":          o.get("task") or "",
+            "install_type":  o.get("install_type") or "",
+            "customer_name": o.get("customer_name") or "",
+        }
+
+        # Correlate vpbx_records by handle (customer_abbrev)
+        vpbx = conn.execute(
+            "SELECT * FROM vpbx_records WHERE handle=?", (handle,)
+        ).fetchone()
+        dispatch_fields["vpbx"] = dict(vpbx) if vpbx else None
+
+    return dispatch_fields
+
+
+@app.get("/api/orders/{order_id}/account")
+def api_order_account(order_id: str):
+    """Return account/configuration fields plus correlated vpbx and handles data."""
+    db.ensure_indexes(db_path())
+    import sqlite3
+    with sqlite3.connect(db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        order = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        o = dict(order)
+        handle = o.get("customer_abbrev", "").upper()
+
+        account_fields = {
+            "order_id":        o["order_id"],
+            "customer_name":   o.get("customer_name") or "",
+            "customer_abbrev": o.get("customer_abbrev") or "",
+            "pbx_ip":          o.get("pbx_ip") or "",
+            "seats":           o.get("seats") or "",
+            "phone_model":     o.get("phone_model") or "",
+            "pon":             o.get("pon") or "",
+            "on_net_ott":      o.get("on_net_ott") or "",
+            "detail_url":      o.get("detail_url") or "",
+        }
+
+        vpbx = conn.execute(
+            "SELECT * FROM vpbx_records WHERE handle=?", (handle,)
+        ).fetchone()
+        account_fields["vpbx"] = dict(vpbx) if vpbx else None
+
+        acct = conn.execute(
+            "SELECT * FROM handles WHERE handle=?", (handle,)
+        ).fetchone()
+        account_fields["account"] = dict(acct) if acct else None
+
+    return account_fields
+
+
+# ── Orders — agent write endpoints ───────────────────────────────────────────
+
+
+class _SuggestBody(BaseModel):
+    field: str
+    value: str
+    confidence: float = 0.8
+    source: str = "agent"
+
+
+class _FlagBody(BaseModel):
+    field: str
+    reason: str
+
+
+class _ConfirmBody(BaseModel):
+    field: str
+    reviewed_by: str
+
+
+def _require_human_confirm(request: Request) -> None:
+    key = os.getenv("HUMAN_CONFIRM_KEY", "").strip()
+    client_host = (request.client.host if request.client else "") or ""
+    if not key:
+        if client_host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Set HUMAN_CONFIRM_KEY on the server to allow remote confirms.",
+            )
+        return
+    provided = request.headers.get("X-Human-Confirm", "")
+    if not hmac.compare_digest(key, provided):
+        raise HTTPException(status_code=403, detail="Invalid confirm key.")
+
+
+@app.post("/api/orders/{order_id}/suggest")
+def api_order_suggest(order_id: str, body: _SuggestBody, request: Request):
+    """Agent writes a field suggestion to orders_suggested (never touches orders)."""
+    _require_ingest_auth(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        db.upsert_order_suggested(db_path(), order_id, body.field, body.value,
+                                   body.confidence, body.source, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "order_id": order_id, "field": body.field, "value": body.value}
+
+
+@app.post("/api/orders/{order_id}/flag")
+def api_order_flag(order_id: str, body: _FlagBody, request: Request):
+    """Agent flags a field as needing human review."""
+    _require_ingest_auth(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        db.flag_order_field(db_path(), order_id, body.field, body.reason, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "order_id": order_id, "field": body.field, "flagged": True}
+
+
+@app.post("/api/orders/{order_id}/confirm")
+def api_order_confirm(order_id: str, body: _ConfirmBody, request: Request):
+    """Human-only: promote a suggested value into the production orders table."""
+    _require_human_confirm(request)
+    db.ensure_indexes(db_path())
+    now_utc = _iso_now()
+    try:
+        result = db.confirm_order_suggestion(db_path(), order_id, body.field,
+                                              body.reviewed_by, now_utc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
 @app.get("/api/noc-queue/records")
 def api_noc_queue_records(view: str | None = Query(None)):
     """Return cached NOC queue tickets. Optionally filter by view: hosted|noc|all|local."""
@@ -856,8 +1125,6 @@ def api_vpbx_save_sidecar(device_id: str, body: _SidecarSaveBody, request: Reque
     Only touches the sidecar_config column — never overwrites scraped data.
     Returns 404 if the device_id + vpbx_id combination doesn't exist yet.
     """
-    if not _is_localhost_request(request):
-        raise HTTPException(status_code=403, detail="Sidecar save is localhost-only")
     db.ensure_indexes(db_path())
     updated = db.save_sidecar_config(db_path(), device_id, body.vpbx_id, body.sidecar_config)
     if not updated:
@@ -901,6 +1168,88 @@ def api_vpbx_site_config_by_handle(handle: str):
 def api_vpbx_site_configs_refresh(body: _VpbxSiteConfigsRefreshBody, request: Request):
     """VPBX site config scraping runs on the client. Data arrives via /api/ingest/vpbx/site-configs."""
     raise HTTPException(status_code=501, detail="VPBX site config scraping is handled by the client. Use the client branch.")
+
+
+# ── VPBX credential scraping ──────────────────────────────────────────────────
+
+
+class _VpbxCredentialsRefreshBody(BaseModel):
+    handles: list[str] | None = None  # limit to specific handles; omit for all
+
+
+@app.post("/api/vpbx/credentials/refresh")
+def api_vpbx_credentials_refresh(body: _VpbxCredentialsRefreshBody, request: Request):
+    """Start a background Selenium job to scrape FTP/REST credentials from vpbx_detail pages.
+
+    Visits each handle's vpbx_detail page and extracts ftp_pass, ftp_host, ftp_user, rest_pass.
+    Only updates existing vpbx_records rows — never inserts. Skips handles with no ftp_pass.
+
+    Localhost-only. Pass {"handles": ["ACG", "NTR"]} to limit to specific handles.
+    """
+    if not _is_localhost_request(request):
+        raise HTTPException(status_code=403, detail="VPBX credentials refresh is localhost-only")
+
+    _explicit_handles = [h.upper() for h in body.handles] if body.handles else None
+    mode = f"vpbx_credentials:{','.join(_explicit_handles)}" if _explicit_handles else "vpbx_credentials"
+
+    job_id = str(uuid.uuid4())
+    now = _iso_now()
+    db.ensure_indexes(db_path())
+    db.create_scrape_job(
+        db_path(), job_id=job_id, handle=None, mode=mode,
+        ticket_limit=None, status="queued", created_utc=now,
+    )
+    _append_event("info", f"vpbx_credentials_refresh_queued handles={_explicit_handles or 'all'}", job_id=job_id)
+
+    cancel_event = threading.Event()
+    _SCRAPE_CANCEL_EVENTS[job_id] = cancel_event
+
+    def _run() -> None:
+        from webscraper.vpbx.device_configs import fetch_vpbx_credentials  # noqa: PLC0415
+
+        base_url = (os.getenv("WEBSCRAPER_BASE_URL") or "https://secure.123.net").rstrip("/")
+        login_timeout = int(os.getenv("SELENIUM_FALLBACK_LOGIN_TIMEOUT_SECONDS", "300"))
+
+        def _emit(msg: str) -> None:
+            _append_event("info", f"vpbx_credentials:{msg}", job_id=job_id)
+
+        def _on_handle_done(handle: str, record: dict) -> None:
+            finished = _iso_now()
+            updated = db.upsert_vpbx_credentials(
+                db_path(),
+                handle=record["handle"],
+                ftp_pass=record.get("ftp_pass", ""),
+                ftp_host=record.get("ftp_host", ""),
+                ftp_user=record.get("ftp_user", ""),
+                rest_pass=record.get("rest_pass", ""),
+                now_utc=finished,
+            )
+            if updated:
+                _emit(f"saved credentials for {handle}")
+            else:
+                _emit(f"skipped {handle} — no matching vpbx_records row or empty ftp_pass")
+
+        try:
+            _update_scrape_job(job_id=job_id, status="running")
+            records = fetch_vpbx_credentials(
+                base_url,
+                handles=_explicit_handles,
+                on_handle_done=_on_handle_done,
+                login_timeout_seconds=login_timeout,
+                emit_fn=_emit,
+            )
+            _update_scrape_job(
+                job_id=job_id, status="done",
+                result={"credentials_saved": len(records)},
+            )
+            _append_event("info", f"vpbx_credentials_done count={len(records)}", job_id=job_id)
+        except Exception:
+            LOGGER.exception("vpbx_credentials_refresh_failed job_id=%s", job_id)
+            _update_scrape_job(job_id=job_id, status="failed")
+            _append_event("error", "vpbx_credentials_refresh_failed", job_id=job_id)
+
+    threading.Thread(target=_run, daemon=True, name=f"vpbx-creds-{job_id[:8]}").start()
+    return {"job_id": job_id, "status": "queued", "mode": mode}
 
 
 @app.get("/api/clients")
