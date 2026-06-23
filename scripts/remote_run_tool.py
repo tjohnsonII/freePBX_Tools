@@ -83,6 +83,7 @@ MENU_OPTIONS: dict = {
     "16": "Enhanced log analysis (dmesg/journal)",
     "17": "CDR/CEL call log analysis",
     "18": "Phone/endpoint analysis",
+    "20": "Ops Tools (trace/find/validate/snapshot/set-ivr/ticket)",
 }
 
 _ALLOWED_CHOICES = frozenset(MENU_OPTIONS.keys())
@@ -221,6 +222,29 @@ def _build_input_sequence(
     # Sub-menu: 1-8 no extra params; 9=exit
     if choice == "18":
         return ["18", sc, "", "9"] + quit_main
+
+    # ── Option 20: Ops Tools (freepbx_ops.py sub-commands) ──────────────────
+    # Sub-menu: 1=trace, 2=decode, 3=find, 4=snapshot, 5=validate,
+    #           6=set-ivr (dry-run), 7=ticket, 0=back
+    # Each sub-command prints "Press ENTER to continue" → consumed by ""
+    # "0" returns to main menu, then quit_main exits cleanly.
+    if choice == "20":
+        if sc == "1":   # trace DID
+            return ["20", "1", ep(0, ""), "", "0"] + quit_main
+        if sc == "2":   # decode destination string
+            return ["20", "2", ep(0, ""), "", "0"] + quit_main
+        if sc == "3":   # find / search
+            return ["20", "3", ep(0, ""), "", "0"] + quit_main
+        if sc == "4":   # snapshot
+            return ["20", "4", ep(0, ""), "", "0"] + quit_main
+        if sc == "5":   # validate
+            return ["20", "5", "", "0"] + quit_main
+        if sc == "6":   # set-ivr dry-run (ivr_id, option, dest via extra_params)
+            return ["20", "6", ep(0, ""), ep(1, ""), ep(2, ""), "n", "", "0"] + quit_main
+        if sc == "7":   # ticket summary
+            return ["20", "7", "", "0"] + quit_main
+        # Default: open submenu and back out immediately
+        return ["20", "0"] + quit_main
 
     # ── Fallback ─────────────────────────────────────────────────────────────
     return [choice] + ["19"] * 12
