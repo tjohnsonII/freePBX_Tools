@@ -324,34 +324,51 @@ def run_comprehensive_analyzer(sock):
 
 def run_call_simulation_menu(sock, did_rows):
     """Interactive call simulation and validation menu."""
-    print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-    print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation Menu{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-    print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-    print(f"{Colors.CYAN}║{Colors.WHITE} Test real call behavior against predicted call flows{' ' * 24}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-    print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
-    print()
-    
+    # Pre-flight: check which tools are available
+    simulator_ok   = os.path.isfile(CALL_SIMULATOR_SCRIPT)
+    validator_ok   = os.path.isfile(CALLFLOW_VALIDATOR_SCRIPT)
+    monitoring_ok  = os.path.isfile(SIMULATE_CALLS_SCRIPT)
+
+    W = 78
     while True:
-        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation Options{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 1){Colors.WHITE} Test specific DID with call simulation (makes actual test call){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 2){Colors.WHITE} Validate call flow configuration for DID (checks database only){' ' * 6}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 3){Colors.WHITE} Test extension call (internal extension-to-extension){' ' * 17}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 4){Colors.WHITE} Test voicemail call (voicemail access and functionality){' ' * 14}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 5){Colors.WHITE} Validate ring group configuration (checks members & settings){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 6){Colors.WHITE} Run comprehensive call validation (all checks across system){' ' * 9}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 7){Colors.WHITE} Monitor active call simulations (real-time status){' ' * 20}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.RED} 8){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+        print(f"\n{Colors.CYAN}╔{'═' * W}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+
+        # ── Safe section ──────────────────────────────────────────────────────
+        safe_hdr = " ── Database Checks (safe — no live calls) ── "
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.GREEN}{safe_hdr:<{W}}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+        avail = Colors.GREEN if validator_ok else Colors.RED
+        print(f"{Colors.CYAN}║{avail} 1){Colors.WHITE} Validate DID call-flow config  (database only){' ' * 22}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        # ── Live call section ─────────────────────────────────────────────────
+        live_hdr = " ── ⚠  LIVE CALL TESTS — makes real calls on this system ── "
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.RED}{live_hdr:<{W}}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+        avail = Colors.GREEN if simulator_ok else Colors.RED
+        na    = "" if simulator_ok else "  [⚠ simulator not installed]"
+        print(f"{Colors.CYAN}║{avail} 2){Colors.WHITE} Test specific DID{na}{' ' * max(0, 51 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 3){Colors.WHITE} Test extension-to-extension call{na}{' ' * max(0, 37 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 4){Colors.WHITE} Test voicemail access{na}{' ' * max(0, 48 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 5){Colors.WHITE} Test audio playback  (plays a sound file){na}{' ' * max(0, 28 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 6){Colors.RED}{Colors.BOLD} ⚠ Comprehensive validation  (many real calls — use in test env){' ' * 7}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        # ── Monitoring ────────────────────────────────────────────────────────
+        avail = Colors.GREEN if monitoring_ok else Colors.RED
+        print(f"{Colors.CYAN}║{avail} 7){Colors.WHITE} Monitor active call simulations{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+
+        print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 0){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
         print()
-        
-        choice = input(f"{Colors.YELLOW}Choose simulation option (1-8): {Colors.RESET}").strip()
-        
-        if choice == "1":
-            run_did_call_test(did_rows)
-        elif choice == "2":
+
+        choice = input(f"{Colors.YELLOW}Choose option (0-7): {Colors.RESET}").strip()
+
+        if choice == "0":
+            break
+        elif choice == "1":
             run_callflow_validation(did_rows)
+        elif choice == "2":
+            run_did_call_test(did_rows)
         elif choice == "3":
             run_extension_test()
         elif choice == "4":
@@ -362,10 +379,8 @@ def run_call_simulation_menu(sock, did_rows):
             run_comprehensive_validation()
         elif choice == "7":
             run_call_monitoring()
-        elif choice == "8":
-            break
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-8.{Colors.RESET}")
+            print(f"{Colors.RED}❌ Invalid choice. Please select 0-7.{Colors.RESET}")
 
 
 def run_did_call_test(did_rows):
@@ -373,9 +388,15 @@ def run_did_call_test(did_rows):
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print(f"{Colors.RED}❌ Call simulator not found. Please run deployment first.{Colors.RESET}")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     if not did_rows:
-        print(f"{Colors.RED}❌ No DID data available. Please refresh the snapshot first.{Colors.RESET}")
+        print(f"{Colors.RED}❌ No DID data available. Please refresh the data cache first.{Colors.RESET}")
         return
     
     print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
@@ -453,7 +474,7 @@ def run_callflow_validation(did_rows):
         return
     
     if not did_rows:
-        print("❌ No DID data available. Please refresh the snapshot first.")
+        print("❌ No DID data available. Please refresh the data cache first.")
         return
     
     print("\n🔍 Call Flow Validation Test")
@@ -513,7 +534,13 @@ def run_extension_test():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     print("\n📱 Extension Call Test")
     
     extension = input("Enter extension number to test: ").strip()
@@ -546,7 +573,13 @@ def run_voicemail_test():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
     print("\n📧 Voicemail Call Test")
     
     mailbox = input("Enter voicemail mailbox to test: ").strip()
@@ -575,12 +608,18 @@ def run_voicemail_test():
 
 
 def run_playback_test():
-    """Test playback application (like zombies example)."""
+    """Test audio playback via Asterisk (plays a sound file)."""
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
-    print("\n🎵 Playback Application Test")
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
+    print("\n🎵 Audio Playback Test")
     print("Common sound files: demo-congrats, demo-thanks, zombies, beep")
     
     sound_file = input("Enter sound file to play: ").strip()
@@ -613,20 +652,17 @@ def run_comprehensive_validation():
     if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
         print("❌ Call simulator not found. Please run deployment first.")
         return
-    
-    print("\n🧪 Comprehensive Call Validation")
-    print("This will run a full test suite including:")
-    print("- DID routing tests")
-    print("- Extension tests")
-    print("- Voicemail tests")
-    print("- Application tests")
-    print("- Performance measurement")
+
+    print(f"\n{Colors.RED}{Colors.BOLD}{'═' * 70}")
+    print(f"⚠  COMPREHENSIVE LIVE CALL TEST")
+    print(f"   This will create MULTIPLE real calls across the production system:")
+    print(f"   DID routing tests, extension tests, voicemail tests,")
+    print(f"   application tests, and performance measurement.")
+    print(f"   DO NOT run this on a live customer system during business hours.")
+    print(f"{'═' * 70}{Colors.RESET}")
     print()
-    
-    print("⚠️  WARNING: This will create multiple real calls in your system!")
-    
-    confirm = input("Continue with comprehensive testing? (y/N): ").strip().lower()
-    if confirm != 'y':
+    confirm = input(f"{Colors.YELLOW}Type CONFIRM to proceed, or press Enter to cancel: {Colors.RESET}").strip()
+    if confirm != "CONFIRM":
         print("❌ Testing cancelled.")
         return
     
@@ -691,7 +727,7 @@ def run_ascii_callflow(sock, did_rows):
         elif choice == "1":
             # Original DID-specific flow generation
             if not did_rows:
-                print("No DID data available. Please refresh the snapshot first.")
+                print("No DID data available. Please refresh the data cache first.")
                 continue
             
             print("\nSelect DID(s) for ASCII flow chart generation:")
@@ -797,36 +833,8 @@ def run_ascii_callflow(sock, did_rows):
 
 
 def show_error_map_quick_reference():
-    """Display interactive error map and quick reference tables"""
-    while True:
-        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*80}")
-        print(f"  📚 FreePBX Error Map & Quick Reference")
-        print(f"{'='*80}{Colors.RESET}\n")
-        
-        print(f"{Colors.YELLOW}Choose a reference:{Colors.RESET}")
-        print(f"  {Colors.CYAN}1){Colors.RESET} SIP/Q.850 Code Lookup")
-        print(f"  {Colors.CYAN}2){Colors.RESET} Common Issues Quick Reference")
-        print(f"  {Colors.CYAN}3){Colors.RESET} Diagnostic Symptoms Guide")
-        print(f"  {Colors.CYAN}4){Colors.RESET} Response Playbooks Summary")
-        print(f"  {Colors.CYAN}5){Colors.RESET} Return to main menu")
-        print()
-        
-        choice = input(f"{Colors.YELLOW}Enter choice (1-5): {Colors.RESET}").strip()
-        
-        if choice == "5":
-            break
-        elif choice == "1":
-            show_sip_code_reference()
-        elif choice == "2":
-            show_common_issues_matrix()
-        elif choice == "3":
-            show_diagnostic_symptoms()
-        elif choice == "4":
-            show_playbooks_summary()
-        else:
-            print(f"{Colors.RED}Invalid choice. Please enter 1-5.{Colors.RESET}")
-        
-        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.RESET}")
+    """SIP/Q.850 code lookup — direct, no sub-menu."""
+    show_sip_code_reference()
 
 
 def show_sip_code_reference():
@@ -1180,7 +1188,7 @@ def load_dump():
 
 def refresh_dump(sock):
     ensure_outdir()
-    print("\n[+] Refreshing FreePBX snapshot (this reads MySQL)...")
+    print("\n[+] Refreshing FreePBX data cache (this reads MySQL)...")
     cmd = ["python3", DUMP_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--out", DUMP_PATH]
     rc, out, err = run(cmd)
     if rc == 0:
@@ -2308,7 +2316,7 @@ def main():
     parser.add_argument(
         "--watch-refresh-snapshot",
         action="store_true",
-        help="When using --watch, refresh the DB snapshot every cycle (can be heavy).",
+        help="When using --watch, refresh the data cache every cycle (can be heavy).",
     )
     args = parser.parse_args()
 
@@ -2332,7 +2340,7 @@ def main():
     sock = detect_mysql_socket()
     data = load_dump()
     if not data:
-        # first run: force snapshot so menu has content
+        # first run: force data cache so menu has content
         if not refresh_dump(sock):
             sys.exit(1)
         data = load_dump()
@@ -2387,7 +2395,7 @@ def main():
 
         print(menu_section("Snapshot & Inventory"))
         print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
-        print(menu_line("1", "Refresh DB snapshot"))
+        print(menu_line("1", "Refresh data cache"))
         print(menu_line("2", "Show inventory (counts) + list DIDs"))
         print(menu_section("Render Call Flows"))
         print(menu_line("3", "Generate call-flow for selected DID(s)"))
@@ -2403,7 +2411,7 @@ def main():
         print(menu_line("11", "Call Simulation & Validation"))
         print(menu_line("12", "Run full Asterisk diagnostic"))
         print(menu_line("13", "Automated log analysis (detect issues)"))
-        print(menu_line("14", "Error Map & Quick Reference"))
+        print(menu_line("14", "SIP / Q.850 code lookup"))
         print(menu_line("15", "Network Diagnostics & Packet Capture"))
         print(menu_line("16", "Enhanced Log Analysis (dmesg/journal/regex)"))
         print(menu_line("17", "CDR/CEL Call Log Analysis"))
@@ -2420,7 +2428,7 @@ def main():
             try:
                 interval = input(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
                 args.interval = interval
-                refresh_each = input(Colors.YELLOW + "Refresh DB snapshot each cycle? (y/N): " + Colors.RESET).strip().lower()
+                refresh_each = input(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
                 args.watch_refresh_snapshot = refresh_each in ("y", "yes")
             except Exception:
                 args.interval = "2"
