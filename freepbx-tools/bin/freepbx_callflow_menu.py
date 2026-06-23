@@ -1240,6 +1240,60 @@ def get_did_rows(data):
     return rows
 
 
+def _decode_dest_from_cache(dest, data):
+    """Map a FreePBX destination string to a human label using cached data."""
+    if not dest or not data:
+        return dest or ""
+    parts = dest.split(",")
+    ctx  = parts[0].strip()
+    arg1 = parts[1].strip() if len(parts) > 1 else ""
+    ctx_lower = ctx.lower()
+
+    if ctx_lower == "timeconditions":
+        for tc in (data.get("timeconditions") or []):
+            if str(tc.get("timeconditions_id", "")) == arg1:
+                return f"TC: {tc.get('displayname', arg1)}"
+
+    if ctx_lower == "ext-group":
+        for rg in (data.get("ringgroups") or []):
+            if str(rg.get("grpnum", "")) == arg1:
+                return f"RG: {rg.get('description', arg1)}"
+
+    if ctx_lower.startswith("ivr-"):
+        ivr_id = ctx[4:]
+        for m in (data.get("ivrs", {}).get("menus") or []):
+            if str(m.get("ivr_id", "")) == ivr_id:
+                return f"IVR: {m.get('name', ivr_id)}"
+
+    if ctx_lower == "ivr":
+        for m in (data.get("ivrs", {}).get("menus") or []):
+            if str(m.get("ivr_id", "")) == arg1:
+                return f"IVR: {m.get('name', arg1)}"
+
+    if ctx_lower == "ext-queues":
+        for q in (data.get("queues") or []):
+            if isinstance(q, dict) and str(q.get("queue", "")) == arg1:
+                return f"Queue: {q.get('queue_name', arg1)}"
+
+    if ctx_lower in ("app-announce", "ext-announce", "app-recordings-custom"):
+        for ann in (data.get("announcements") or []):
+            if str(ann.get("announcement_id", "")) == arg1:
+                return f"Ann: {ann.get('description', arg1)}"
+
+    if ctx_lower == "from-did-direct":
+        for ext in (data.get("extensions") or []):
+            if str(ext.get("extension", "")) == arg1:
+                return f"Ext {arg1}: {ext.get('name', '')}".strip()
+        return f"Ext: {arg1}"
+
+    if ctx.isdigit():
+        for ext in (data.get("extensions") or []):
+            if str(ext.get("extension", "")) == ctx:
+                return f"Ext {ctx}: {ext.get('name', '')}".strip()
+
+    return dest
+
+
 def _filter_rows(rows, query):
     q = query.strip().lower()
     if not q:
@@ -1277,12 +1331,16 @@ def list_dids(data, show_limit=50):
     active_filter = ""
     sort_key = "index"
 
+    snap_age = get_snapshot_age_seconds()
+    age_tag = f"cache: {format_age(snap_age)}" if snap_age is not None else "cache: unknown"
+
     def _tbl_header(shown, total, sk, af):
         meta = []
         if af:
             meta.append(f"filter: {af}")
         if sk != "index":
             meta.append(f"sort: {sk}")
+        meta.append(age_tag)
         suffix = ("[" + ", ".join(meta) + "] ") if meta else ""
         count = f"({shown}" + (f"/{total}" if af else "") + ")"
         title = f" 📞 DID ROUTING TABLE {suffix}{count} "
@@ -1290,13 +1348,14 @@ def list_dids(data, show_limit=50):
         print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + title.center(115) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
         print(Colors.CYAN + "║ " + Colors.BOLD + Colors.WHITE +
-              "Index │ DID           │ Label                         │ CID   │ Destination                    " +
+              "Index │ DID           │ Label                         │ CID   │ Destination (decoded)          " +
               Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
         print(Colors.CYAN + "╠" + "═" * 115 + "╣" + Colors.RESET)
 
     def _tbl_row(idx, did, label, cid, dest):
+        decoded = _decode_dest_from_cache(dest, data)
         print(Colors.CYAN + "║ " + Colors.RESET + "{:>5} │ {:<13} │ {:<29} │ {:<5} │ {:<32}".format(
-            idx, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], dest[:32]) + Colors.CYAN + " ║" + Colors.RESET)
+            idx, Colors.GREEN + did + Colors.RESET, label[:29], cid[:5], decoded[:32]) + Colors.CYAN + " ║" + Colors.RESET)
 
     def _next_sort():
         i = _SORT_CYCLE.index(sort_key) if sort_key in _SORT_CYCLE else 0
@@ -1697,6 +1756,45 @@ def get_endpoint_status(sock):
     except Exception:
         return {"registered": 0, "unregistered": 0, "total": 0, "details": []}
 
+def get_trunk_status(sock):
+    """Return (online, total) trunk registration counts."""
+    try:
+        rc, out, _ = run(["asterisk", "-rx", "pjsip show registrations"], timeout=5)
+        if rc == 0 and out:
+            online = sum(1 for l in out.split('\n') if 'Registered' in l)
+            total = sum(1 for l in out.split('\n') if re.search(r'^\s*\S+.*sip', l, re.IGNORECASE))
+            if total == 0:
+                total = out.lower().count('sip')
+            return online, max(online, total)
+        # fallback: chan_sip
+        rc2, out2, _ = run(["asterisk", "-rx", "sip show registry"], timeout=5)
+        if rc2 == 0 and out2:
+            online = sum(1 for l in out2.split('\n') if 'Registered' in l)
+            total = sum(1 for l in out2.split('\n')
+                        if l.strip() and not l.lower().startswith('host') and not l.startswith('-'))
+            return online, max(online, total)
+    except Exception:
+        pass
+    return None, None
+
+
+def get_recent_error_count():
+    """Return count of ERROR lines in last 200 lines of Asterisk full log, or None."""
+    try:
+        log = "/var/log/asterisk/full"
+        if not os.path.isfile(log):
+            return None
+        result = subprocess.run(
+            ["bash", "-c", f"tail -200 {log} | grep -c ERROR"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=5)
+        if result.returncode in (0, 1):
+            return int(result.stdout.strip() or 0)
+    except Exception:
+        pass
+    return None
+
+
 def display_system_dashboard(sock, data):
     """Display key system information in a professional tile-based dashboard layout"""
     import os
@@ -1744,6 +1842,8 @@ def display_system_dashboard(sock, data):
     endpoint_status = get_endpoint_status(sock)
     services = ["asterisk", "httpd", "mariadb", "fail2ban", "php-fpm", "crond"]
     service_status = get_service_status(services)
+    trunk_online, trunk_total = get_trunk_status(sock)
+    recent_errors = get_recent_error_count()
     
     # Calculate metrics
     ep_total = endpoint_status["total"]
@@ -1943,7 +2043,29 @@ def display_system_dashboard(sock, data):
     else:
         ep_display = Colors.RED + Colors.BOLD + str(ep_pct) + "%" + Colors.RESET
     status_parts.append("📱 Endpoint Health: " + ep_display)
-    
+
+    # Trunk status
+    if trunk_online is not None and trunk_total is not None:
+        if trunk_total == 0:
+            trunk_display = Colors.YELLOW + "N/A" + Colors.RESET
+        elif trunk_online == trunk_total:
+            trunk_display = Colors.GREEN + f"{trunk_online}/{trunk_total}" + Colors.RESET
+        elif trunk_online > 0:
+            trunk_display = Colors.YELLOW + f"{trunk_online}/{trunk_total}" + Colors.RESET
+        else:
+            trunk_display = Colors.RED + Colors.BOLD + f"0/{trunk_total}" + Colors.RESET
+        status_parts.append("📡 Trunks: " + trunk_display)
+
+    # Recent errors badge
+    if recent_errors is not None:
+        if recent_errors == 0:
+            err_display = Colors.GREEN + "0" + Colors.RESET
+        elif recent_errors < 10:
+            err_display = Colors.YELLOW + str(recent_errors) + Colors.RESET
+        else:
+            err_display = Colors.RED + Colors.BOLD + str(recent_errors) + Colors.RESET
+        status_parts.append("⚠ Errors(200L): " + err_display)
+
     print("\n  " + "  │  ".join(status_parts))
     print("")
 
@@ -2181,46 +2303,40 @@ def run_network_diagnostics_menu():
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🌐 Network Diagnostics & Packet Capture{' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show network interfaces (ip addr / ifconfig){' ' * 28}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show routing table (ip route / route){' ' * 35}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Show ARP table (address resolution){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Show network statistics (netstat / ss){' ' * 33}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Ping test (connectivity check){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Traceroute (path analysis){' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} DNS lookup (dig / nslookup){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Capture packets with tcpdump{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Analyze SIP traffic (port 5060){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Monitor RTP traffic (audio streams){' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Show Asterisk SIP peers{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN} 13){Colors.WHITE} Show active Asterisk channels{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Show Asterisk SIP peers{' ' * 49}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Show active Asterisk channels{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Analyze SIP traffic (port 5060){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Monitor RTP traffic (audio streams){' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Capture packets with tcpdump{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Ping test (connectivity check){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Traceroute (path analysis){' ' * 46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} DNS lookup (dig / nslookup){' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Show network interfaces (ip addr / ifconfig){' ' * 28}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Show routing table (ip route / route){' ' * 35}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Show ARP table (address resolution){' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 13){Colors.WHITE} Show network statistics (netstat / ss){' ' * 33}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN} 14){Colors.WHITE} Run comprehensive network diagnostic{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.RED} 15){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
-        
+
         choice = input(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
-        
+
         if choice == "1":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
+            print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
         elif choice == "2":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
         elif choice == "3":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
         elif choice == "4":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
+            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
         elif choice == "5":
-            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
         elif choice == "6":
-            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
-            if host:
-                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
-        elif choice == "7":
-            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
-            if domain:
-                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
-        elif choice == "8":
             duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
             port = input(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
             host = input(f"{Colors.YELLOW}Filter by host (optional, press Enter to skip): {Colors.RESET}").strip()
@@ -2230,19 +2346,25 @@ def run_network_diagnostics_menu():
             if host:
                 cmd.extend(["--host", host])
             run_interactive(cmd)
+        elif choice == "7":
+            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
+        elif choice == "8":
+            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
+            if host:
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
         elif choice == "9":
-            print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
+            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
+            if domain:
+                run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
         elif choice == "10":
-            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--interfaces"])
         elif choice == "11":
-            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--routing"])
         elif choice == "12":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-peers"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--arp"])
         elif choice == "13":
-            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
+            run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--netstat"])
         elif choice == "14":
             print(f"{Colors.CYAN}Running comprehensive network diagnostic...{Colors.RESET}\n")
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--comprehensive"])
@@ -2257,52 +2379,86 @@ def run_network_diagnostics_menu():
 
 # ---------------- menu ----------------
 
-def run_phone_analysis_menu():
+def run_show_unregistered_phones(sock):
+    """Show unregistered phones inline using live Asterisk data."""
+    print(f"\n{Colors.CYAN}Querying endpoint registration status...{Colors.RESET}")
+    ep = get_endpoint_status(sock)
+    details = ep.get("details", [])
+    unreg = [(ext, name, status) for ext, name, status in details
+             if status.lower() not in ("registered", "ok")]
+    reg = [(ext, name, status) for ext, name, status in details
+           if status.lower() in ("registered", "ok")]
+
+    W = 68
+    print(Colors.CYAN + "╔" + "═" * W + "╗" + Colors.RESET)
+    title = f" 📵 UNREGISTERED PHONES — {len(unreg)} of {ep['total']} offline "
+    print(Colors.CYAN + "║" + Colors.BOLD + Colors.RED + title.center(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    if not unreg:
+        line = "  ✓ All extensions registered."
+        print(Colors.CYAN + "║" + Colors.GREEN + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    else:
+        hdr = f"  {'Ext':<8} {'Name':<28} Status"
+        print(Colors.CYAN + "║" + Colors.BOLD + Colors.WHITE + hdr.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠" + "─" * W + "╣" + Colors.RESET)
+        for ext, name, status in sorted(unreg, key=lambda r: r[0]):
+            line = f"  {ext:<8} {name[:28]:<28} {status}"
+            print(Colors.CYAN + "║" + Colors.YELLOW + line.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╠" + "═" * W + "╣" + Colors.RESET)
+    summary = f"  Registered: {len(reg)}  │  Unregistered: {len(unreg)}  │  Total: {ep['total']}"
+    print(Colors.CYAN + "║" + Colors.WHITE + summary.ljust(W) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+    print(Colors.CYAN + "╚" + "═" * W + "╝" + Colors.RESET)
+
+
+def run_phone_analysis_menu(sock):
     """Interactive phone/endpoint analysis menu."""
     PHONE_ANALYZER_SCRIPT = os.path.join(os.path.dirname(__file__), "freepbx_phone_analyzer.py")
-    
+
     if not os.path.isfile(PHONE_ANALYZER_SCRIPT):
         print(f"{Colors.RED}❌ Phone analyzer tool not found.{Colors.RESET}")
         return
-    
+
     while True:
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 Phone & Endpoint Analysis{' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Analyze SIP peer registrations{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Analyze PJSIP endpoints{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Analyze extension configuration{' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Check provisioning status{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Check firmware versions{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Check 123NET configuration standards{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Analyze call quality metrics{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Generate comprehensive phone report{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show unregistered phones (live){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  2){Colors.WHITE} Analyze SIP peer registrations{' ' * 43}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  3){Colors.WHITE} Analyze PJSIP endpoints{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  4){Colors.WHITE} Analyze extension configuration{' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  5){Colors.WHITE} Check provisioning status{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  6){Colors.WHITE} Check firmware versions{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  7){Colors.WHITE} Check 123NET configuration standards{' ' * 36}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  8){Colors.WHITE} Analyze call quality metrics{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Generate comprehensive phone report{' ' * 38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
-        
-        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-9): {Colors.RESET}").strip()
-        
-        if choice == '9':
+
+        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-10): {Colors.RESET}").strip()
+
+        if choice == '10':
             break
         elif choice == '1':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--sip-peers'])
+            run_show_unregistered_phones(sock)
         elif choice == '2':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--pjsip'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--sip-peers'])
         elif choice == '3':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--extensions'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--pjsip'])
         elif choice == '4':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--provisioning'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--extensions'])
         elif choice == '5':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--firmware'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--provisioning'])
         elif choice == '6':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--standards'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--firmware'])
         elif choice == '7':
-            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--call-quality'])
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--standards'])
         elif choice == '8':
+            run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--call-quality'])
+        elif choice == '9':
             run_interactive([sys.executable, PHONE_ANALYZER_SCRIPT, '--comprehensive'])
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 1-9.{Colors.RESET}")
-        
+            print(f"{Colors.RED}❌ Invalid choice. Please select 1-10.{Colors.RESET}")
+
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
         input()
 
@@ -2378,12 +2534,12 @@ def main():
         print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 freePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
         
-        # Helper function to format menu line with proper alignment
+        # Helper function to format menu line with proper alignment (ANSI-safe)
         def menu_line(num, text):
-            visible_content = f" {num:>2}) {text}"
-            padding_needed = menu_width - len(visible_content) - 2
-            padding = " " * max(0, padding_needed)
             num_part = f" {num:>2})"
+            inner = num_part + " " + text
+            padding_needed = menu_width - visible_len(inner) - 2
+            padding = " " * max(0, padding_needed)
             return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET +
                     " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
 
@@ -2393,9 +2549,12 @@ def main():
             line = (dashes + inner + dashes).ljust(menu_width)
             return Colors.CYAN + "║" + Colors.BOLD + Colors.CYAN + line + Colors.RESET + Colors.CYAN + "║" + Colors.RESET
 
+        _cache_age_s = get_snapshot_age_seconds()
+        _cache_tag = (f"  {Colors.CYAN}[cache: {format_age(_cache_age_s)}]{Colors.RESET}"
+                      if _cache_age_s is not None else "")
         print(menu_section("Snapshot & Inventory"))
         print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
-        print(menu_line("1", "Refresh data cache"))
+        print(menu_line("1", "Refresh data cache" + _cache_tag))
         print(menu_line("2", "Show inventory (counts) + list DIDs"))
         print(menu_section("Render Call Flows"))
         print(menu_line("3", "Generate call-flow for selected DID(s)"))
@@ -2533,7 +2692,7 @@ def main():
             run_cdr_analysis_menu()
 
         elif choice == "18":
-            run_phone_analysis_menu()
+            run_phone_analysis_menu(sock)
 
         elif choice == "20":
             run_ops_menu(sock)
