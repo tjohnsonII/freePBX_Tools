@@ -2,6 +2,11 @@
 # Secrets
 # =========================
 .env
+.env.local
+**/.env.local
+
+# AAM client data (contains SIP secrets/MACs — never commit)
+PhoneConfigs/AAM/
 
 # =========================
 # Python / Virtual Envs
