@@ -8,6 +8,9 @@
 # AAM client data (contains SIP secrets/MACs — never commit)
 PhoneConfigs/AAM/
 
+# Stripe backup code (payment processor secret — never commit)
+stripe_backup_code.txt
+
 # =========================
 # Python / Virtual Envs
 # =========================
