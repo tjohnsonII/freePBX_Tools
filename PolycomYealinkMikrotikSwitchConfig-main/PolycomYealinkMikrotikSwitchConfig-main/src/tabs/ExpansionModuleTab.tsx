@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import styles from './ExpansionModuleTab.module.css';
 import { EXP_TYPE_ICONS, EXP_TYPE_TOOLTIPS, POLYCOM_PAGE_LABELS, POLYCOM_KEYS_PER_PAGE } from '../constants/expansionModule';
+import BulkSidecarPanel from './BulkSidecarPanel';
 
 const SCRAPER_BASE = import.meta.env.VITE_SCRAPER_BASE || 'http://localhost:8788';
 
 type VpbxRecord = { handle: string; name: string; account_status: string };
-type DeviceConfig = {
+export type DeviceConfig = {
   device_id: string; vpbx_id: string; handle: string;
   directory_name: string; extension: string; mac: string;
   make: string; model: string;
@@ -363,6 +364,10 @@ const ExpansionModuleTab: React.FC = () => {
               placeholder="Generate keys below and they'll accumulate here — or paste a full sidecar config to edit."
             />
           </div>
+        )}
+
+        {selectedHandle && devices.length > 0 && (
+          <BulkSidecarPanel handle={selectedHandle} devices={devices} scraperBase={SCRAPER_BASE} />
         )}
       </div>
 

@@ -19,6 +19,7 @@ import PhoneConfigGeneratorTab from './tabs/PhoneConfigGeneratorTab';
 import FbpxImportTab from './tabs/FbpxImportTab';
 import CopyUserExtensionsTab from './tabs/CopyUserExtensionsTab';
 import DidsTab from './tabs/DidsTab';
+import BulkSidecarPanel from './tabs/BulkSidecarPanel';
 
 // List of supported phone models for config generation
 const MODEL_OPTIONS = [
@@ -1880,6 +1881,10 @@ function App() {
                   placeholder="Generate keys below and they'll appear here — or paste a full sidecar config to edit."
                   spellCheck={false} title="Editable sidecar config for this device" />
               </div>
+            )}
+
+            {expHandle && expDevices.length > 0 && (
+              <BulkSidecarPanel handle={expHandle} devices={expDevices} scraperBase={SCRAPER_BASE_PHONE} />
             )}
           </div>
 
