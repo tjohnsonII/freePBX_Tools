@@ -69,6 +69,8 @@ import time
 import re
 import zipfile
 import hashlib
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
@@ -424,6 +426,49 @@ def read_server_list(filename):
         print_error(f"Error reading server list: {e}")
         return []
 
+REPO_ROOT = "/var/www/freePBX_Tools"
+
+
+def _generate_version_file():
+    """Stamp the exact repo commit being deployed into a VERSION file, so the
+    installed tool can show on its dashboard whether it's current or stale
+    without anyone having to remember to bump a version number by hand.
+
+    Returns the path to a temp file to include in the deploy (rel_path
+    "VERSION", landing at the root of the install dir), or None if this isn't
+    running from a git checkout (e.g. an ad-hoc copy) — the tool just won't
+    show a version line in that case rather than failing the deploy over it.
+    """
+    def _git(*args):
+        try:
+            out = subprocess.run(
+                ["git", "-C", REPO_ROOT] + list(args),
+                capture_output=True, text=True, timeout=10,
+            )
+            return out.stdout.strip() if out.returncode == 0 else None
+        except Exception:
+            return None
+
+    commit = _git("rev-parse", "--short", "HEAD")
+    if not commit:
+        return None
+    commit_date = _git("log", "-1", "--format=%cI") or ""
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD") or ""
+    deployed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    content = (
+        f"COMMIT={commit}\n"
+        f"COMMIT_DATE={commit_date}\n"
+        f"BRANCH={branch}\n"
+        f"DEPLOYED={deployed_at}\n"
+    )
+
+    fd, path = tempfile.mkstemp(prefix="freepbx_tools_version_", suffix=".txt")
+    with os.fdopen(fd, "w") as f:
+        f.write(content)
+    return path
+
+
 def get_local_files():
     """
     Recursively collect all files to deploy from LOCAL_SOURCE_DIR.
@@ -431,7 +476,7 @@ def get_local_files():
     Returns: List of (local_path, rel_path) tuples.
     """
     files_to_deploy = []
-    
+
     # Make source directory absolute
     source_dir = os.path.abspath(LOCAL_SOURCE_DIR)
     
@@ -455,7 +500,13 @@ def get_local_files():
                 # Create relative path for remote - use forward slashes for Unix
                 rel_path = os.path.relpath(local_path, source_dir).replace('\\', '/')
                 files_to_deploy.append((local_path, rel_path))
-    
+
+    # Stamp the exact commit being deployed so the installed tool can show
+    # its own version on the dashboard (see _generate_version_file()).
+    version_file = _generate_version_file()
+    if version_file:
+        files_to_deploy.append((version_file, "VERSION"))
+
     return files_to_deploy
 
 
