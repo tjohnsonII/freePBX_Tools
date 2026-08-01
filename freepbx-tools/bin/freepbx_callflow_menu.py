@@ -177,6 +177,7 @@ SIMULATE_CALLS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/simulate_calls.sh"
 NETWORK_DIAGNOSTICS_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_network_diagnostics.py"
 LOG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.py"
 CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.py"
+CALL_LEG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_call_leg_analyzer.py"
 OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
 
 
@@ -2555,12 +2556,12 @@ def run_log_analysis_menu():
         input()
 
 
-def run_cdr_analysis_menu():
+def run_cdr_analysis_menu(sock):
     """Interactive CDR/CEL call log analysis menu."""
     if not os.path.isfile(CDR_ANALYZER_SCRIPT):
         print(f"{Colors.RED}❌ CDR analyzer tool not found.{Colors.RESET}")
         return
-    
+
     while True:
         print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 CDR/CEL Call Log Analysis{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -2576,11 +2577,12 @@ def run_cdr_analysis_menu():
         print(f"{Colors.CYAN}║{Colors.GREEN}  9){Colors.WHITE} Trunk usage analysis{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Call duration distribution{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN} 11){Colors.WHITE} Export calls to JSON{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{Colors.RED} 12){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.GREEN} 12){Colors.WHITE} Full call-leg trace (linkedid or number){' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RED} 13){Colors.WHITE} Return to main menu{' ' * 53}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = input(f"{Colors.YELLOW}Choose analysis option (1-12): {Colors.RESET}").strip()
+        choice = input(f"{Colors.YELLOW}Choose analysis option (1-13): {Colors.RESET}").strip()
 
         if choice == "1":
             number = input(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
@@ -2608,6 +2610,26 @@ def run_cdr_analysis_menu():
                         else:
                             print(f"{Colors.YELLOW}No results or CDR database not accessible.{Colors.RESET}")
         elif choice == "12":
+            if not os.path.isfile(CALL_LEG_ANALYZER_SCRIPT):
+                print(f"{Colors.RED}❌ Call-leg analyzer tool not found.{Colors.RESET}")
+            else:
+                linkedid = input(f"{Colors.YELLOW}Linkedid (Enter to search by number instead): {Colors.RESET}").strip()
+                cmd = ["python3", CALL_LEG_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER]
+                if linkedid:
+                    cmd += ["--linkedid", linkedid]
+                else:
+                    number = input(f"{Colors.YELLOW}Phone number to search: {Colors.RESET}").strip()
+                    if not number:
+                        print(f"{Colors.RED}A linkedid or number is required.{Colors.RESET}")
+                        print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
+                        input()
+                        continue
+                    leg_hours = input(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
+                    cmd += ["--number", number, "--hours", leg_hours]
+                fmt = input(f"{Colors.YELLOW}Format tree/summary/json (default: tree): {Colors.RESET}").strip() or "tree"
+                cmd += ["--format", fmt]
+                run_interactive(cmd)
+        elif choice == "13":
             break
         else:
             hours = None
@@ -2638,7 +2660,7 @@ def run_cdr_analysis_menu():
                 else:
                     run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", "/tmp/cdr_export.json", "--hours", hours])
             else:
-                print(f"{Colors.RED}❌ Invalid choice. Please select 1-12.{Colors.RESET}")
+                print(f"{Colors.RED}❌ Invalid choice. Please select 1-13.{Colors.RESET}")
         
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
         input()
@@ -3044,7 +3066,7 @@ def main():
             run_network_diagnostics_menu()
 
         elif choice == "17":
-            run_cdr_analysis_menu()
+            run_cdr_analysis_menu(sock)
 
         elif choice == "18":
             run_phone_analysis_menu(sock)
