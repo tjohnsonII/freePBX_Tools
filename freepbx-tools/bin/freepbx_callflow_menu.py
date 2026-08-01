@@ -42,7 +42,7 @@ See function docstrings for additional details on arguments and return values.
         main                     : Main menu loop and entry point
 """
 
-import json, os, sys, subprocess, time, shutil, re
+import json, os, sys, subprocess, time, shutil, re, threading
 
 try:
     import termios, tty
@@ -94,6 +94,26 @@ def pad_ansi(text, width, align='left'):
         right = pad - left
         return ' ' * left + text + ' ' * right
     raise ValueError(f"Unsupported alignment: {align}")
+
+
+def print_progress_bar(current, total, label="", width=30):
+    """Render a count-based progress bar in place via \\r. Only meaningful when
+    the total is known ahead of time (a loop over a fixed list, e.g. per-DID
+    rendering) — don't fake a percentage for a single opaque operation with an
+    unknown duration; use run_with_spinner() for those instead."""
+    total = max(total, 1)
+    frac = min(current / total, 1.0)
+    filled = int(width * frac)
+    bar = "█" * filled + "-" * (width - filled)
+    pct = int(frac * 100)
+    sys.stdout.write(f"\r{Colors.CYAN}[{bar}] {current}/{total} ({pct}%){Colors.RESET} — {label}" + " " * 10)
+    sys.stdout.flush()
+
+
+def print_tip(text):
+    """Print a contextual hint just above a prompt, matching the existing
+    💡-prefixed convention (previously only used once, for SIP code lookup)."""
+    print(f"{Colors.WHITE}💡 {text}{Colors.RESET}")
 
 
 def prompt(msg=""):
@@ -283,7 +303,8 @@ def run_ops_menu(sock):
     base_cmd = ["python3", OPS_SCRIPT, "--socket", sock]
 
     while True:
-        print("\n" + Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
+        print(f"\n{Colors.CYAN}Main Menu › Call-Flow Ops Tools{Colors.RESET}")
+        print(Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "║   🔧  Call-Flow Ops Tools                ║" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "╠══════════════════════════════════════════╣" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  1) Trace DID  — full call-path tree     " + Colors.CYAN + "║" + Colors.RESET)
@@ -296,9 +317,9 @@ def run_ops_menu(sock):
         print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
-        ch = prompt("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+        ch = prompt("\n" + Colors.YELLOW + "Choose (0/b=back): " + Colors.RESET).strip()
 
-        if ch == "0":
+        if ch == "0" or ch.lower() == "b":
             break
 
         elif ch == "1":
@@ -316,6 +337,7 @@ def run_ops_menu(sock):
             prompt()
 
         elif ch == "3":
+            print_tip("Matches against DIDs, labels, extensions, and destinations.")
             query = prompt(Colors.YELLOW + "Search term: " + Colors.RESET).strip()
             if query:
                 subprocess.call(base_cmd + ["find", query])
@@ -337,6 +359,7 @@ def run_ops_menu(sock):
             prompt()
 
         elif ch == "6":
+            print_tip("Numeric IVR ID as shown in the DID table (option 2's inventory).")
             ivr_id = prompt(Colors.YELLOW + "IVR ID: " + Colors.RESET).strip()
             option = prompt(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
             dest   = prompt(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
@@ -462,11 +485,11 @@ def run_module_analyzer(sock):
     if not os.path.isfile(MODULE_ANALYZER_SCRIPT):
         print("Module analyzer tool not found at", MODULE_ANALYZER_SCRIPT)
         return
-    rc, out, err = run(["python3", MODULE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
-    if rc == 0:
-        print(out, end="")
-    else:
-        print((err or out).strip())
+    # run_interactive (not run/spinner): the analyzer prints its own progress
+    # as it works, so let that stream live instead of buffering it all until done.
+    rc = run_interactive(["python3", MODULE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc != 0:
+        print(f"{Colors.RED}Module analyzer exited with code {rc}.{Colors.RESET}")
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
     prompt()
 
@@ -476,7 +499,10 @@ def run_paging_fax_analyzer(sock):
     if not os.path.isfile(PAGING_FAX_ANALYZER_SCRIPT):
         print("Paging/Fax analyzer tool not found at", PAGING_FAX_ANALYZER_SCRIPT)
         return
-    rc, out, err = run(["python3", PAGING_FAX_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    rc, out, err = run_with_spinner(
+        ["python3", PAGING_FAX_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER],
+        "Analyzing paging & fax configuration",
+    )
     if rc == 0:
         print(out, end="")
     else:
@@ -490,11 +516,11 @@ def run_comprehensive_analyzer(sock):
     if not os.path.isfile(COMPREHENSIVE_ANALYZER_SCRIPT):
         print("Comprehensive analyzer tool not found at", COMPREHENSIVE_ANALYZER_SCRIPT)
         return
-    rc, out, err = run(["python3", COMPREHENSIVE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
-    if rc == 0:
-        print(out, end="")
-    else:
-        print((err or out).strip())
+    # run_interactive (not run/spinner): the analyzer prints "[i/16] ..." step
+    # markers as it works, so let that stream live instead of buffering it all.
+    rc = run_interactive(["python3", COMPREHENSIVE_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER])
+    if rc != 0:
+        print(f"{Colors.RED}Comprehensive analyzer exited with code {rc}.{Colors.RESET}")
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
     prompt()
 
@@ -508,7 +534,8 @@ def run_call_simulation_menu(sock, did_rows):
 
     W = 78
     while True:
-        print(f"\n{Colors.CYAN}╔{'═' * W}╗{Colors.RESET}")
+        print(f"\n{Colors.CYAN}Main Menu › Call Simulation & Validation{Colors.RESET}")
+        print(f"{Colors.CYAN}╔{'═' * W}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 Call Simulation & Validation{' ' * 44}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
 
@@ -538,9 +565,9 @@ def run_call_simulation_menu(sock, did_rows):
         print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
         print()
 
-        choice = prompt(f"{Colors.YELLOW}Choose option (0-7): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose option (0/b=back, 1-7): {Colors.RESET}").strip()
 
-        if choice == "0":
+        if choice == "0" or choice.lower() == "b":
             break
         elif choice == "1":
             run_callflow_validation(did_rows)
@@ -598,6 +625,7 @@ def run_did_call_test(did_rows):
     print()
     
     try:
+        print_tip("List index, or the DID itself in any format (2485551212, (248) 555-1212, +12485551212).")
         raw_choice = prompt(f"{Colors.YELLOW}Enter DID number to test (or 0 to cancel): {Colors.RESET}").strip()
         if raw_choice == "0":
             return
@@ -637,15 +665,13 @@ def run_did_call_test(did_rows):
         if destination:
             cmd += ["--destination", destination]
         print(f"{Colors.CYAN}Executing: {' '.join(cmd)}{Colors.RESET}\n")
-        
-        rc, out, err = run(cmd)
+
+        rc = run_interactive(cmd)
         if rc == 0:
             print(f"\n{Colors.GREEN}✅ Call simulation completed successfully!{Colors.RESET}")
-            print(out)
         else:
-            print(f"\n{Colors.RED}❌ Call simulation failed:{Colors.RESET}")
-            print(err or out)
-            
+            print(f"\n{Colors.RED}❌ Call simulation failed (exit code {rc}).{Colors.RESET}")
+
     except ValueError:
         print(f"{Colors.RED}❌ Invalid input. Please enter a number.{Colors.RESET}")
     except KeyboardInterrupt:
@@ -675,6 +701,7 @@ def run_callflow_validation(did_rows):
     
     print()
     try:
+        print_tip("List index, or the DID itself in any format (2485551212, (248) 555-1212, +12485551212).")
         raw_choice = prompt("Enter DID number to validate (or 0 to cancel): ").strip()
         if raw_choice == "0":
             return
@@ -700,9 +727,8 @@ def run_callflow_validation(did_rows):
         
         # Run the validation
         cmd = ["python3", CALLFLOW_VALIDATOR_SCRIPT, str(did)]
-        print(f"Executing: {' '.join(cmd)}")
-        
-        rc, out, err = run(cmd)
+
+        rc, out, err = run_with_spinner(cmd, f"Validating call flow for DID {did}")
         if rc == 0:
             print("✅ Call flow validation completed!")
             print(out)
@@ -729,7 +755,8 @@ def run_extension_test():
         return
 
     print("\n📱 Extension Call Test")
-    
+
+    print_tip("3-5 digit internal extension, e.g. 963.")
     extension = prompt("Enter extension number to test: ").strip()
     if not extension:
         print("❌ Extension number required.")
@@ -745,14 +772,12 @@ def run_extension_test():
         return
     
     cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--extension", extension, "--caller-id", caller_id, "--debug"]
-    rc, out, err = run(cmd)
-    
+    rc = run_interactive(cmd)
+
     if rc == 0:
         print("✅ Extension test completed!")
-        print(out)
     else:
-        print("❌ Extension test failed:")
-        print(err or out)
+        print(f"❌ Extension test failed (exit code {rc}).")
 
 
 def run_voicemail_test():
@@ -768,7 +793,8 @@ def run_voicemail_test():
         return
 
     print("\n📧 Voicemail Call Test")
-    
+
+    print_tip("Mailbox number, usually the same as the extension, e.g. 963.")
     mailbox = prompt("Enter voicemail mailbox to test: ").strip()
     if not mailbox:
         print("❌ Mailbox number required.")
@@ -784,14 +810,12 @@ def run_voicemail_test():
         return
     
     cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--voicemail", mailbox, "--caller-id", caller_id, "--debug"]
-    rc, out, err = run(cmd)
-    
+    rc = run_interactive(cmd)
+
     if rc == 0:
         print("✅ Voicemail test completed!")
-        print(out)
     else:
-        print("❌ Voicemail test failed:")
-        print(err or out)
+        print(f"❌ Voicemail test failed (exit code {rc}).")
 
 
 def run_playback_test():
@@ -824,14 +848,12 @@ def run_playback_test():
         return
     
     cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--playback", sound_file, "--caller-id", caller_id, "--debug"]
-    rc, out, err = run(cmd)
-    
+    rc = run_interactive(cmd)
+
     if rc == 0:
         print("✅ Playback test completed!")
-        print(out)
     else:
-        print("❌ Playback test failed:")
-        print(err or out)
+        print(f"❌ Playback test failed (exit code {rc}).")
 
 
 def run_comprehensive_validation():
@@ -854,14 +876,12 @@ def run_comprehensive_validation():
         return
     
     cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--comprehensive", "--debug"]
-    rc, out, err = run(cmd)
-    
+    rc = run_interactive(cmd)
+
     if rc == 0:
         print("✅ Comprehensive validation completed!")
-        print(out)
     else:
-        print("❌ Comprehensive validation failed:")
-        print(err or out)
+        print(f"❌ Comprehensive validation failed (exit code {rc}).")
 
 
 def run_call_monitoring():
@@ -1328,8 +1348,12 @@ def run_full_diagnostic_legacy():
         print("Diagnostic script not found at", diag)
     else:
         print("\nRunning full diagnostic (this may take ~10-30s)...\n")
-        rc, out, err = run([diag])
-        # The script prints its own output
+        # run_interactive (not run): the script prints its own section-by-section
+        # output as it works — previously captured silently via run() and never
+        # actually printed anywhere, so this produced no visible output at all.
+        rc = run_interactive([diag])
+        if rc != 0:
+            print(f"{Colors.RED}Diagnostic script exited with code {rc}.{Colors.RESET}")
 
 
 # ---------------- helpers ----------------
@@ -1353,8 +1377,70 @@ def run(cmd, env=None, timeout=None):
 
 
 def run_interactive(cmd, env=None):
-    """Run command with output streaming directly to terminal."""
-    subprocess.run(cmd, env=env)
+    """Run command with output streaming directly to terminal. Returns the
+    exit code (existing callers that ignore the return value are unaffected)."""
+    return subprocess.run(cmd, env=env).returncode
+
+
+def run_with_spinner(cmd, label, env=None, timeout=None):
+    """Like run(), but shows a spinner + elapsed time while the subprocess runs.
+
+    For opaque single blocking calls that produce no progress output of their
+    own (e.g. a plain MySQL dump, or waiting on a live call to set up) — where
+    run() would otherwise leave the terminal looking frozen for however long
+    the call takes. Do NOT use this for subprocesses that already print their
+    own progress (those should use run_interactive() instead so their real
+    output streams live; layering a spinner on top would visually collide
+    with it). Returns the same (rc, out, err) tuple as run().
+
+    Implementation runs the actual subprocess via subprocess.run() (which
+    handles stdout/stderr draining correctly via communicate()) on a
+    background thread, and only polls thread-liveness from the main thread
+    to animate the spinner — this avoids the classic PIPE-deadlock risk of
+    polling Popen.poll() directly without also draining its pipes.
+    """
+    frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    result = {}
+
+    def _target():
+        try:
+            p = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, env=env, timeout=timeout,
+            )
+            result['rc'] = p.returncode
+            result['out'] = p.stdout or ""
+            result['err'] = p.stderr or ""
+        except subprocess.TimeoutExpired as e:
+            result['rc'] = 1
+            result['out'] = ""
+            result['err'] = f"Timeout running {e.cmd} after {e.timeout} seconds"
+        except Exception as e:
+            result['rc'] = 1
+            result['out'] = ""
+            result['err'] = str(e)
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+
+    interactive = sys.stdout.isatty()
+    start = time.time()
+    i = 0
+    while thread.is_alive():
+        if interactive:
+            elapsed = time.time() - start
+            frame = frames[i % len(frames)]
+            sys.stdout.write(f"\r{Colors.CYAN}{frame} {label}... ({elapsed:.0f}s){Colors.RESET}")
+            sys.stdout.flush()
+            i += 1
+        thread.join(timeout=0.1)
+
+    if interactive:
+        sys.stdout.write("\r" + " " * (len(label) + 20) + "\r")
+        sys.stdout.flush()
+
+    return result.get('rc', 1), result.get('out', ""), result.get('err', "")
+
 
 def detect_mysql_socket():
     rc, out, _ = run(["bash", "-lc", "mysql -NBe 'SHOW VARIABLES LIKE \"socket\";' 2>/dev/null | awk '{print $2}'"])
@@ -1375,9 +1461,8 @@ def load_dump():
 
 def refresh_dump(sock):
     ensure_outdir()
-    print("\n[+] Refreshing FreePBX data cache (this reads MySQL)...")
     cmd = ["python3", DUMP_SCRIPT, "--socket", sock, "--db-user", DB_USER, "--out", DUMP_PATH]
-    rc, out, err = run(cmd)
+    rc, out, err = run_with_spinner(cmd, "Refreshing FreePBX data cache (reads MySQL)")
     if rc == 0:
         print("    ✓ Snapshot written to", DUMP_PATH)
         return True
@@ -1706,7 +1791,8 @@ def render_dids(did_rows, indexes, sock, skip_labels=None):
     ensure_outdir()
     ok = 0
     bad = 0
-    for idx in indexes:
+    total = len(indexes)
+    for i, idx in enumerate(indexes, 1):
         _, did, label, _, _ = did_rows[idx-1]
 
         if skip_labels and label and label.strip().lower() in skip_labels:
@@ -1715,8 +1801,7 @@ def render_dids(did_rows, indexes, sock, skip_labels=None):
 
         out_file = os.path.join(OUT_DIR, f"callflow_{did}.svg")
 
-        # Debug so you can see exactly where it hangs
-        print(f"[INFO] Rendering DID {did} -> {out_file}")
+        print_progress_bar(i, total, f"Rendering DID {did}")
 
         cmd = [
             "python3",
@@ -1731,10 +1816,10 @@ def render_dids(did_rows, indexes, sock, skip_labels=None):
         rc, out, err = run(cmd, timeout=120)
 
         if rc == 0 and os.path.isfile(out_file):
-            print(f"✓ DID {did} -> {out_file}")
+            print(f"\n✓ DID {did} -> {out_file}")
             ok += 1
         else:
-            print(f"✖ DID {did} FAILED: {(err or out).strip()}")
+            print(f"\n✖ DID {did} FAILED: {(err or out).strip()}")
             bad += 1
 
     print(f"\nDone. Success: {ok}, Failed: {bad}")
@@ -2607,7 +2692,8 @@ def run_log_analysis_menu():
     has_script = os.path.isfile(LOG_ANALYZER_SCRIPT)
 
     while True:
-        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"\n{Colors.CYAN}Main Menu › Log & System Analysis{Colors.RESET}")
+        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔍 Log & System Analysis{' ' * 52}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.CYAN}{'─' * 30} Live (no script needed) {'─' * 22}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -2627,9 +2713,11 @@ def run_log_analysis_menu():
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = prompt(f"{Colors.YELLOW}Choose option (1-12): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose option (1-12, 0/b=back): {Colors.RESET}").strip()
 
-        if choice == "1":
+        if choice == "0" or choice.lower() == "b":
+            break
+        elif choice == "1":
             hours = prompt(f"{Colors.YELLOW}Time window in hours (default: 1): {Colors.RESET}").strip() or "1"
             try:
                 h = int(hours)
@@ -2671,6 +2759,7 @@ def run_log_analysis_menu():
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
+                print_tip("Standard Python regex, matched against each log line, e.g. ERROR|WARNING.")
                 pattern = prompt(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
                 if pattern:
                     log_file = prompt(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
@@ -2690,6 +2779,7 @@ def run_log_analysis_menu():
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
+                print_tip("3-digit SIP response code (not the Q.850 cause number), e.g. 404, 486, 503.")
                 code = prompt(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
                 if code:
                     run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
@@ -2709,7 +2799,8 @@ def run_cdr_analysis_menu(sock):
         return
 
     while True:
-        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"\n{Colors.CYAN}Main Menu › CDR/CEL Call Log Analysis{Colors.RESET}")
+        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 CDR/CEL Call Log Analysis{' ' * 48}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Find calls by number (src or dst){' ' * 40}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -2728,9 +2819,12 @@ def run_cdr_analysis_menu(sock):
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = prompt(f"{Colors.YELLOW}Choose analysis option (1-13): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose analysis option (1-13, 0/b=back): {Colors.RESET}").strip()
 
-        if choice == "1":
+        if choice == "0" or choice.lower() == "b":
+            break
+        elif choice == "1":
+            print_tip("Formatted numbers work too — dashes, parens, and a leading 1 are all fine.")
             number = prompt(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
             if number:
                 hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
@@ -2759,11 +2853,13 @@ def run_cdr_analysis_menu(sock):
             if not os.path.isfile(CALL_LEG_ANALYZER_SCRIPT):
                 print(f"{Colors.RED}❌ Call-leg analyzer tool not found.{Colors.RESET}")
             else:
+                print_tip("Linkedid format is epoch.sequence, e.g. 1690000000.123 — leave blank to search by number.")
                 linkedid = prompt(f"{Colors.YELLOW}Linkedid (Enter to search by number instead): {Colors.RESET}").strip()
                 cmd = ["python3", CALL_LEG_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER]
                 if linkedid:
                     cmd += ["--linkedid", linkedid]
                 else:
+                    print_tip("Full DID, extension, or any formatted phone number all work.")
                     number = prompt(f"{Colors.YELLOW}Phone number to search: {Colors.RESET}").strip()
                     if not number:
                         print(f"{Colors.RED}A linkedid or number is required.{Colors.RESET}")
@@ -2819,7 +2915,8 @@ def run_network_diagnostics_menu():
         return
     
     while True:
-        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"\n{Colors.CYAN}Main Menu › Network Diagnostics & Packet Capture{Colors.RESET}")
+        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🌐 Network Diagnostics & Packet Capture{' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Launch sngrep (SIP packet analyzer){' ' * 37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -2840,9 +2937,11 @@ def run_network_diagnostics_menu():
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = prompt(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose diagnostic option (1-15, 0/b=back): {Colors.RESET}").strip()
 
-        if choice == "1":
+        if choice == "0" or choice.lower() == "b":
+            break
+        elif choice == "1":
             print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sngrep"])
         elif choice == "2":
@@ -2938,7 +3037,8 @@ def run_phone_analysis_menu(sock):
         return
 
     while True:
-        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"\n{Colors.CYAN}Main Menu › Phone & Endpoint Analysis{Colors.RESET}")
+        print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 Phone & Endpoint Analysis{' ' * 47}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.GREEN}  1){Colors.WHITE} Show unregistered phones (live){' ' * 42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
@@ -2953,9 +3053,9 @@ def run_phone_analysis_menu(sock):
         print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
 
-        choice = prompt(f"\n{Colors.YELLOW}Choose phone analysis option (1-10): {Colors.RESET}").strip()
+        choice = prompt(f"\n{Colors.YELLOW}Choose phone analysis option (1-10, 0/b=back): {Colors.RESET}").strip()
 
-        if choice == '10':
+        if choice in ('10', '0') or choice.lower() == 'b':
             break
         elif choice == '1':
             run_show_unregistered_phones(sock)
@@ -3099,7 +3199,7 @@ def main():
             print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
             print(menu_line("19", "Quit"))
             print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
-            _hint = "Shortcuts: d=DIDs  r=refresh  t=TC  l=log  n=net  c=CDR  p=phones  o=ops  q=quit"
+            _hint = "Shortcuts: d=DIDs  r=refresh  t=TC  l=log  n=net  c=CDR  p=phones  o=ops  q=quit  Ctrl+C=back"
             _hpad = " " * max(0, menu_width - len(_hint) - 2)
             print(Colors.CYAN + "║ " + Colors.BOLD + Colors.CYAN + _hint + _hpad + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
             print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
