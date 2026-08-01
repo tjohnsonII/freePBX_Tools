@@ -1,5 +1,5 @@
 {
-    "python.defaultInterpreterPath": ".venv-web-manager/bin/python",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv-web-manager/Scripts/python.exe",
     "python.terminal.activateEnvironment": false,
     "python.linting.enabled": true,
     "python.linting.pylintEnabled": false,
