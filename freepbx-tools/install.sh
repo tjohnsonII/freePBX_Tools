@@ -267,8 +267,34 @@ install_files() {
 
   mkdir -p "$CALLFLOWS_DIR"  # Ensure output directory exists
   mkdir -p "$CALLFLOWS_DIR/snapshots"  # Snapshot dir for freepbx_ops
+  mkdir -p "$CALLFLOWS_DIR/self_test"  # Self-test report output dir
   if id asterisk >/dev/null 2>&1; then
     chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true  # Set ownership if asterisk user exists
+  fi
+}
+
+# Seed an empty SMTP config template for the "email a file" feature, if one
+# doesn't already exist — never overwrites a config an operator has already
+# filled in. Real values (relay host, port, auth) must be added manually;
+# this just ensures the file/directory exist with safe (non-functional until
+# configured) defaults.
+ensure_smtp_config_template() {
+  local smtp_dir="/etc/123net-freepbx-tools"
+  local smtp_file="$smtp_dir/smtp.json"
+  mkdir -p "$smtp_dir"
+  if [[ ! -f "$smtp_file" ]]; then
+    cat > "$smtp_file" <<'EOF'
+{
+  "host": "",
+  "port": 587,
+  "use_tls": true,
+  "username": "",
+  "password": "",
+  "from_addr": ""
+}
+EOF
+    chmod 600 "$smtp_file"  # may contain a relay password once filled in
+    log "Seeded empty SMTP config template at $smtp_file — fill in 'host' to enable emailing files."
   fi
 }
 # Make subprocess.run(..., text=True) work on Python < 3.7
@@ -566,6 +592,7 @@ main() {
   ensure_python_packages # Install Python packages for GUI tools
   check_after_installs   # Check for missing dependencies
   install_files          # Copy and normalize all scripts
+  ensure_smtp_config_template  # Seed empty SMTP config template if missing
   patch_py36_text_kwarg  # Patch subprocess.run for Python <3.7
   install_symlinks       # Create all CLI symlinks
   verify_symlinks         # Validate symlinks/PATH
