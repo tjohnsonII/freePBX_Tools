@@ -53,6 +53,12 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 
+try:
+    import termios, tty
+    _HAS_TERMIOS = True
+except ImportError:
+    _HAS_TERMIOS = False  # e.g. Windows — fall back to plain input()
+
 # Make sibling-module imports work regardless of invocation cwd (matches how
 # freepbx_callflow_menu.py already imports from freepbx_log_analyzer).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +81,56 @@ class Colors:
     CYAN = '\033[96m'
     MAGENTA = '\033[95m'
     WHITE = '\033[97m'
+
+
+def prompt(msg=""):
+    """Drop-in replacement for input() with backspace/delete handling that doesn't
+    depend on the remote pty's own stty erase-char setting (mirrors the same helper
+    in freepbx_callflow_menu.py — kept duplicated here since this script is meant to
+    run standalone). Falls back to plain input() when stdin isn't a real tty."""
+    if msg:
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+    if not _HAS_TERMIOS or not sys.stdin.isatty():
+        return input()
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    buf = []
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                break
+            elif ch in ("\x7f", "\x08"):
+                if buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            elif ch == "\x15":
+                while buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            elif ch == "\x03":
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                raise KeyboardInterrupt
+            elif ch == "\x04" and not buf:
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                raise EOFError
+            elif ch >= " " or ch == "\t":
+                buf.append(ch)
+                sys.stdout.write(ch)
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return "".join(buf)
 
 
 ASTERISK_CDR_DB = "asteriskcdrdb"
@@ -619,7 +675,7 @@ def main():
             for i, c in enumerate(candidates, 1):
                 print(f"  {i}) {c['first_seen']}  {c['src']} -> {c['dst']}  "
                       f"{c['disposition']}  {c['duration']}s  linkedid={c['linkedid']}")
-            sel = input(f"\n{Colors.YELLOW}Select a call (1-{len(candidates)}): {Colors.RESET}").strip()
+            sel = prompt(f"\n{Colors.YELLOW}Select a call (1-{len(candidates)}): {Colors.RESET}").strip()
             try:
                 linkedid = candidates[int(sel) - 1]['linkedid']
             except (ValueError, IndexError):

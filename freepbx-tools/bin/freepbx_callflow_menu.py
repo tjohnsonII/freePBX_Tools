@@ -44,6 +44,12 @@ See function docstrings for additional details on arguments and return values.
 
 import json, os, sys, subprocess, time, shutil, re
 
+try:
+    import termios, tty
+    _HAS_TERMIOS = True
+except ImportError:
+    _HAS_TERMIOS = False  # e.g. Windows — fall back to plain prompt()
+
 # ANSI Color codes
 class Colors:
     RESET = '\033[0m'
@@ -88,6 +94,62 @@ def pad_ansi(text, width, align='left'):
         right = pad - left
         return ' ' * left + text + ' ' * right
     raise ValueError(f"Unsupported alignment: {align}")
+
+
+def prompt(msg=""):
+    """Drop-in replacement for prompt() with backspace/delete handling that doesn't
+    depend on the remote pty's own stty erase-char setting.
+
+    Some SSH clients/terminal proxies forward Backspace as 0x7F (DEL) or 0x08 (BS)
+    inconsistently with what the pty's line discipline expects, which makes cooked-mode
+    prompt() echo a literal ^H instead of erasing the character. This reads raw bytes and
+    manually erases/re-echoes, so it behaves the same regardless of that mismatch.
+    Also adds Ctrl-U (clear line). Falls back to plain prompt() when stdin isn't a real
+    tty (piped/non-interactive use) or termios/tty aren't available (e.g. Windows).
+    """
+    if msg:
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+    if not _HAS_TERMIOS or not sys.stdin.isatty():
+        return input()
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    buf = []
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                break
+            elif ch in ("\x7f", "\x08"):  # DEL or BS — erase previous char
+                if buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            elif ch == "\x15":  # Ctrl-U — clear the whole line
+                while buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            elif ch == "\x03":  # Ctrl-C
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                raise KeyboardInterrupt
+            elif ch == "\x04" and not buf:  # Ctrl-D on empty line = EOF
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                raise EOFError
+            elif ch >= " " or ch == "\t":  # printable — anything else (escape
+                buf.append(ch)             # sequences, arrow keys, etc.) is ignored
+                sys.stdout.write(ch)       # rather than corrupting the buffer
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return "".join(buf)
 
 
 def _safe_float(value, default):
@@ -186,7 +248,7 @@ def run_ops_menu(sock):
     if not os.path.isfile(OPS_SCRIPT):
         print(Colors.RED + "\n❌ freepbx_ops.py not found at " + OPS_SCRIPT + Colors.RESET)
         print(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-        input()
+        prompt()
         return
 
     base_cmd = ["python3", OPS_SCRIPT, "--socket", sock]
@@ -205,68 +267,68 @@ def run_ops_menu(sock):
         print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
-        ch = input("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
+        ch = prompt("\n" + Colors.YELLOW + "Choose: " + Colors.RESET).strip()
 
         if ch == "0":
             break
 
         elif ch == "1":
-            did = input(Colors.YELLOW + "DID number: " + Colors.RESET).strip()
+            did = prompt(Colors.YELLOW + "DID number: " + Colors.RESET).strip()
             if did:
                 subprocess.call(base_cmd + ["trace", did])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "2":
-            dest = input(Colors.YELLOW + "Destination string (e.g. ext-group,7004,1): " + Colors.RESET).strip()
+            dest = prompt(Colors.YELLOW + "Destination string (e.g. ext-group,7004,1): " + Colors.RESET).strip()
             if dest:
                 subprocess.call(base_cmd + ["decode", dest])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "3":
-            query = input(Colors.YELLOW + "Search term: " + Colors.RESET).strip()
+            query = prompt(Colors.YELLOW + "Search term: " + Colors.RESET).strip()
             if query:
                 subprocess.call(base_cmd + ["find", query])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "4":
-            reason = input(Colors.YELLOW + "Reason (optional): " + Colors.RESET).strip()
+            reason = prompt(Colors.YELLOW + "Reason (optional): " + Colors.RESET).strip()
             cmd = base_cmd + ["snapshot"]
             if reason:
                 cmd += ["--reason", reason]
             subprocess.call(cmd)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "5":
             subprocess.call(base_cmd + ["validate"])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "6":
-            ivr_id = input(Colors.YELLOW + "IVR ID: " + Colors.RESET).strip()
-            option = input(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
-            dest   = input(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
+            ivr_id = prompt(Colors.YELLOW + "IVR ID: " + Colors.RESET).strip()
+            option = prompt(Colors.YELLOW + "Option (1, 2, t, i, ...): " + Colors.RESET).strip()
+            dest   = prompt(Colors.YELLOW + "New destination: " + Colors.RESET).strip()
             if ivr_id and option and dest:
-                mode = input(Colors.YELLOW + "p=preview only  a=apply directly  Enter=preview then confirm: " + Colors.RESET).strip().lower()
+                mode = prompt(Colors.YELLOW + "p=preview only  a=apply directly  Enter=preview then confirm: " + Colors.RESET).strip().lower()
                 set_cmd = base_cmd + ["set-ivr", "--ivr", ivr_id, "--option", option, "--dest", dest]
                 if mode == "a":
                     subprocess.call(set_cmd + ["--apply"])
                 else:
                     subprocess.call(set_cmd)  # preview
                     if mode != "p":
-                        apply = input(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
+                        apply = prompt(Colors.YELLOW + "\nApply change? (y/N): " + Colors.RESET).strip().lower()
                         if apply in ("y", "yes"):
                             subprocess.call(set_cmd + ["--apply"])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif ch == "7":
             subprocess.call(base_cmd + ["ticket"])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         else:
             print(Colors.RED + "Invalid choice." + Colors.RESET)
@@ -283,7 +345,7 @@ def run_tc_status(sock):
     else:
         print((err or out).strip())
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-    input()
+    prompt()
 
 
 def run_tc_control(sock):
@@ -332,7 +394,7 @@ def run_tc_control(sock):
     print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
 
     while True:
-        tc_pick = input(f"\n{Colors.YELLOW}TC ID to control (or 0 to exit): {Colors.RESET}").strip()
+        tc_pick = prompt(f"\n{Colors.YELLOW}TC ID to control (or 0 to exit): {Colors.RESET}").strip()
         if tc_pick == "0" or tc_pick == "":
             break
         try:
@@ -345,7 +407,7 @@ def run_tc_control(sock):
             print(f"{Colors.RED}TC {tc_id_int} not found.{Colors.RESET}")
             continue
 
-        action = input(f"{Colors.YELLOW}Action — 1=Force TRUE  2=Force FALSE  3=Clear: {Colors.RESET}").strip()
+        action = prompt(f"{Colors.YELLOW}Action — 1=Force TRUE  2=Force FALSE  3=Clear: {Colors.RESET}").strip()
         if action not in ("1", "2", "3"):
             print(f"{Colors.RED}Invalid action.{Colors.RESET}")
             continue
@@ -377,7 +439,7 @@ def run_module_analyzer(sock):
     else:
         print((err or out).strip())
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-    input()
+    prompt()
 
 
 def run_paging_fax_analyzer(sock):
@@ -391,7 +453,7 @@ def run_paging_fax_analyzer(sock):
     else:
         print((err or out).strip())
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-    input()
+    prompt()
 
 
 def run_comprehensive_analyzer(sock):
@@ -405,7 +467,7 @@ def run_comprehensive_analyzer(sock):
     else:
         print((err or out).strip())
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-    input()
+    prompt()
 
 
 def run_call_simulation_menu(sock, did_rows):
@@ -447,7 +509,7 @@ def run_call_simulation_menu(sock, did_rows):
         print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
         print()
 
-        choice = input(f"{Colors.YELLOW}Choose option (0-7): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose option (0-7): {Colors.RESET}").strip()
 
         if choice == "0":
             break
@@ -476,7 +538,7 @@ def run_did_call_test(did_rows):
         return
 
     print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
-    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
     if gate != "y":
         print("Cancelled.")
         return
@@ -507,15 +569,17 @@ def run_did_call_test(did_rows):
     print()
     
     try:
-        choice = int(input(f"{Colors.YELLOW}Enter DID number to test (or 0 to cancel): {Colors.RESET}").strip())
-        if choice == 0:
+        raw_choice = prompt(f"{Colors.YELLOW}Enter DID number to test (or 0 to cancel): {Colors.RESET}").strip()
+        if raw_choice == "0":
             return
+        did_idx = _find_did_index(raw_choice, did_rows)
+        choice = did_idx if did_idx is not None else int(raw_choice)
         if choice < 1 or choice > len(did_rows):
             print(f"{Colors.RED}❌ Invalid selection.{Colors.RESET}")
             return
-        
+
         _, did, label, _, _ = did_rows[choice - 1]
-        destination = input(f"{Colors.YELLOW}Enter destination number (where to ring the call, e.g., your cell): {Colors.RESET}").strip()
+        destination = prompt(f"{Colors.YELLOW}Enter destination number (where to ring the call, e.g., your cell): {Colors.RESET}").strip()
         if not destination:
             print(f"{Colors.RED}❌ Destination number required.{Colors.RESET}")
             return
@@ -529,7 +593,7 @@ def run_did_call_test(did_rows):
         print(f"{Colors.GREEN}╚{'═' * 78}╝{Colors.RESET}")
         print()
         
-        confirm = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+        confirm = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
         if confirm != 'y':
             print(f"{Colors.RED}❌ Test cancelled.{Colors.RESET}")
             return
@@ -576,13 +640,15 @@ def run_callflow_validation(did_rows):
     
     print()
     try:
-        choice = int(input("Enter DID number to validate (or 0 to cancel): ").strip())
-        if choice == 0:
+        raw_choice = prompt("Enter DID number to validate (or 0 to cancel): ").strip()
+        if raw_choice == "0":
             return
+        did_idx = _find_did_index(raw_choice, did_rows)
+        choice = did_idx if did_idx is not None else int(raw_choice)
         if choice < 1 or choice > len(did_rows):
             print("❌ Invalid selection.")
             return
-        
+
         _, did, label, _, _ = did_rows[choice - 1]
         
         print(f"\n🔍 Validating call flow for DID {did} ({label})")
@@ -592,7 +658,7 @@ def run_callflow_validation(did_rows):
         print("3. Compare prediction vs reality")
         print("4. Provide accuracy score")
         
-        confirm = input("\nContinue with validation? (y/N): ").strip().lower()
+        confirm = prompt("\nContinue with validation? (y/N): ").strip().lower()
         if confirm != 'y':
             print("❌ Validation cancelled.")
             return
@@ -622,23 +688,23 @@ def run_extension_test():
         return
 
     print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
-    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
     if gate != "y":
         print("Cancelled.")
         return
 
     print("\n📱 Extension Call Test")
     
-    extension = input("Enter extension number to test: ").strip()
+    extension = prompt("Enter extension number to test: ").strip()
     if not extension:
         print("❌ Extension number required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
+    caller_id = prompt("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing extension {extension} with caller ID {caller_id}")
     
-    confirm = input("Continue? (y/N): ").strip().lower()
+    confirm = prompt("Continue? (y/N): ").strip().lower()
     if confirm != 'y':
         print("❌ Test cancelled.")
         return
@@ -661,23 +727,23 @@ def run_voicemail_test():
         return
 
     print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
-    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
     if gate != "y":
         print("Cancelled.")
         return
 
     print("\n📧 Voicemail Call Test")
     
-    mailbox = input("Enter voicemail mailbox to test: ").strip()
+    mailbox = prompt("Enter voicemail mailbox to test: ").strip()
     if not mailbox:
         print("❌ Mailbox number required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
+    caller_id = prompt("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing voicemail {mailbox} with caller ID {caller_id}")
     
-    confirm = input("Continue? (y/N): ").strip().lower()
+    confirm = prompt("Continue? (y/N): ").strip().lower()
     if confirm != 'y':
         print("❌ Test cancelled.")
         return
@@ -700,7 +766,7 @@ def run_playback_test():
         return
 
     print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
-    gate = input(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
     if gate != "y":
         print("Cancelled.")
         return
@@ -708,16 +774,16 @@ def run_playback_test():
     print("\n🎵 Audio Playback Test")
     print("Common sound files: demo-congrats, demo-thanks, zombies, beep")
     
-    sound_file = input("Enter sound file to play: ").strip()
+    sound_file = prompt("Enter sound file to play: ").strip()
     if not sound_file:
         print("❌ Sound file required.")
         return
     
-    caller_id = input("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
+    caller_id = prompt("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
     
     print(f"\n🚀 Testing playback of '{sound_file}' with caller ID {caller_id}")
     
-    confirm = input("Continue? (y/N): ").strip().lower()
+    confirm = prompt("Continue? (y/N): ").strip().lower()
     if confirm != 'y':
         print("❌ Test cancelled.")
         return
@@ -747,7 +813,7 @@ def run_comprehensive_validation():
     print(f"   DO NOT run this on a live customer system during business hours.")
     print(f"{'═' * 70}{Colors.RESET}")
     print()
-    confirm = input(f"{Colors.YELLOW}Type CONFIRM to proceed, or press Enter to cancel: {Colors.RESET}").strip()
+    confirm = prompt(f"{Colors.YELLOW}Type CONFIRM to proceed, or press Enter to cancel: {Colors.RESET}").strip()
     if confirm != "CONFIRM":
         print("❌ Testing cancelled.")
         return
@@ -803,7 +869,7 @@ def run_ascii_callflow(sock, did_rows):
         print("6. Return to main menu")
         print()
         
-        choice = input("Enter choice (1-6): ").strip()
+        choice = prompt("Enter choice (1-6): ").strip()
         
         if choice == "6":
             # Return to main menu
@@ -827,7 +893,7 @@ def run_ascii_callflow(sock, did_rows):
                 print(f"... and {len(did_rows) - 20} more DIDs")
             
             print()
-            selection = input("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
+            selection = prompt("Enter DID number(s) or 'all' (e.g., 1,3,5 or 1-5): ").strip()
             
             if not selection:
                 continue
@@ -837,7 +903,7 @@ def run_ascii_callflow(sock, did_rows):
                 selected_indices = list(range(1, min(len(did_rows) + 1, 11)))  # Limit to first 10 for ASCII
                 print("Note: Limited to first 10 DIDs for ASCII output")
             else:
-                selected_indices = parse_selection(selection, len(did_rows))
+                selected_indices = parse_selection(selection, did_rows)
             
             if not selected_indices:
                 print("No valid selection.")
@@ -914,7 +980,7 @@ def run_ascii_callflow(sock, did_rows):
         
         # After completing any action (except return to main menu), loop back
         if choice != "6":
-            input("\nPress Enter to continue...")
+            prompt("\nPress Enter to continue...")
 
 
 
@@ -951,7 +1017,7 @@ def show_sip_code_reference():
     
     # Interactive lookup
     print(f"\n{Colors.WHITE}💡 Enter a SIP code to see details (or press Enter to skip): {Colors.RESET}", end="")
-    code = input().strip()
+    code = prompt().strip()
     if code:
         from freepbx_log_analyzer import lookup_cause_code, format_cause_code
         info = lookup_cause_code(code)
@@ -1460,7 +1526,7 @@ def list_dids(data, show_limit=50):
                  f"f <text>=filter │ s=sort({sort_key}) │ d<N>=detail │ q=quit: ")
         else:
             h = "End of list │ ENTER=done │ f <text>=filter │ s=sort │ d<N>=detail: "
-        return input(Colors.YELLOW + h + Colors.RESET).strip().lower()
+        return prompt(Colors.YELLOW + h + Colors.RESET).strip().lower()
 
     def _handle_detail(ans, display):
         try:
@@ -1468,7 +1534,7 @@ def list_dids(data, show_limit=50):
             match = next((r for r in display if r[0] == n), None)
             if match:
                 _show_did_detail(match)
-                input(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             else:
                 print(Colors.RED + f"Index {n} not found in current view." + Colors.RESET)
         except ValueError:
@@ -1479,7 +1545,7 @@ def list_dids(data, show_limit=50):
 
         if not display:
             print(Colors.YELLOW + f"No results for '{active_filter}'. Press ENTER to clear filter." + Colors.RESET)
-            input()
+            prompt()
             active_filter = ""
             continue
 
@@ -1509,7 +1575,7 @@ def list_dids(data, show_limit=50):
                     remaining = 0
                     continue  # fall through to end-of-list prompt
                 elif ans.startswith("f"):
-                    active_filter = ans[1:].strip() or input(Colors.YELLOW + "Filter (DID/label/dest, blank=clear): " + Colors.RESET).strip()
+                    active_filter = ans[1:].strip() or prompt(Colors.YELLOW + "Filter (DID/label/dest, blank=clear): " + Colors.RESET).strip()
                     redo = True
                     break
                 elif ans == "s":
@@ -1535,28 +1601,70 @@ def list_dids(data, show_limit=50):
     _SESSION["last_sort"] = sort_key
     return rows
 
-def parse_selection(sel, max_index):
+def _normalize_did_digits(raw):
+    """Strip non-digits and drop a leading '1' from an 11-digit NANP number, so
+    DID entry matches regardless of formatting — mirrors the normalization used
+    by the call-leg analyzer's --number search."""
+    digits = re.sub(r'\D', '', raw or '')
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    return digits
+
+
+def _find_did_index(part, did_rows):
+    """Resolve a typed DID/phone number (any formatting) to its 1-based index in
+    the currently displayed did_rows list. Returns None if no DID matches — short
+    inputs that don't look like a real DID (e.g. a bare '5') essentially never
+    collide with an actual DID value, so trying this before falling back to plain
+    index parsing is safe in practice."""
+    target = _normalize_did_digits(part)
+    if not target:
+        return None
+    for i, row in enumerate(did_rows, 1):
+        if _normalize_did_digits(row[1]) == target:
+            return i
+    return None
+
+
+def parse_selection(sel, did_rows):
+    """Accepts index numbers/ranges (e.g. '1,3,5-8') AND/OR literal DID/phone
+    numbers in any formatting, mixed freely in the same comma-separated input —
+    e.g. '3,2485551212,7-9'. DID matching is tried first for each comma-separated
+    part; ranges ('N-M') are always treated as index ranges, since a range of
+    phone numbers wouldn't be meaningful here."""
     sel = sel.strip()
+    max_index = len(did_rows)
     if sel in ("*", "all", "ALL"):
         return list(range(1, max_index+1))
     chosen = set()
     for part in sel.split(","):
         part = part.strip()
         if not part: continue
-        if "-" in part:
+        if "-" in part and re.fullmatch(r"\d+-\d+", part):
             a,b = part.split("-",1)
             try:
                 a, b = int(a), int(b)
-                for x in range(min(a,b), max(a,b)+1):
-                    if 1 <= x <= max_index: chosen.add(x)
+                # Clamp to [1, max_index] BEFORE iterating — a's/b's could be
+                # arbitrarily large (a mistyped or dash-formatted phone number
+                # looks exactly like "N-M" here), and iterating an unclamped
+                # multi-billion-entry range while filtering each value pegs
+                # the CPU for minutes instead of erroring.
+                lo = max(min(a,b), 1)
+                hi = min(max(a,b), max_index)
+                for x in range(lo, hi+1):
+                    chosen.add(x)
             except ValueError:
                 pass
-        else:
-            try:
-                x = int(part)
-                if 1 <= x <= max_index: chosen.add(x)
-            except ValueError:
-                pass
+            continue
+        did_idx = _find_did_index(part, did_rows)
+        if did_idx is not None:
+            chosen.add(did_idx)
+            continue
+        try:
+            x = int(part)
+            if 1 <= x <= max_index: chosen.add(x)
+        except ValueError:
+            pass
     return sorted(chosen)
 
 def render_dids(did_rows, indexes, sock, skip_labels=None):
@@ -2375,7 +2483,7 @@ def run_log_analysis():
         print(err or out)
     
     print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-    input()
+    prompt()
 
 
 def run_inline_log_analysis():
@@ -2481,10 +2589,10 @@ def run_log_analysis_menu():
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = input(f"{Colors.YELLOW}Choose option (1-12): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose option (1-12): {Colors.RESET}").strip()
 
         if choice == "1":
-            hours = input(f"{Colors.YELLOW}Time window in hours (default: 1): {Colors.RESET}").strip() or "1"
+            hours = prompt(f"{Colors.YELLOW}Time window in hours (default: 1): {Colors.RESET}").strip() or "1"
             try:
                 h = int(hours)
             except ValueError:
@@ -2502,13 +2610,13 @@ def run_log_analysis_menu():
                 print(f"{Colors.YELLOW}Script not found, running inline scan.{Colors.RESET}")
                 run_inline_log_analysis_timed(1)
             else:
-                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
                 run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--hours", hours])
         elif choice == "5":
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
-                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
                 run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
         elif choice == "6":
             if not has_script:
@@ -2519,15 +2627,15 @@ def run_log_analysis_menu():
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
-                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
+                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 1): {Colors.RESET}").strip() or "1"
                 run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--journal", "--hours", hours])
         elif choice == "8":
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
-                pattern = input(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
+                pattern = prompt(f"{Colors.YELLOW}Enter regex pattern to search: {Colors.RESET}").strip()
                 if pattern:
-                    log_file = input(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
+                    log_file = prompt(f"{Colors.YELLOW}Log file (default: /var/log/asterisk/full): {Colors.RESET}").strip()
                     log_file = log_file or "/var/log/asterisk/full"
                     run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--grep", pattern, "--log-file", log_file])
         elif choice == "9":
@@ -2544,7 +2652,7 @@ def run_log_analysis_menu():
             if not has_script:
                 print(f"{Colors.RED}Script not available.{Colors.RESET}")
             else:
-                code = input(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
+                code = prompt(f"{Colors.YELLOW}Enter SIP code to lookup: {Colors.RESET}").strip()
                 if code:
                     run_interactive(["python3", LOG_ANALYZER_SCRIPT, "--lookup", code])
         elif choice == "12":
@@ -2553,7 +2661,7 @@ def run_log_analysis_menu():
             print(f"{Colors.RED}❌ Invalid choice. Please select 1-12.{Colors.RESET}")
 
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
-        input()
+        prompt()
 
 
 def run_cdr_analysis_menu(sock):
@@ -2582,12 +2690,12 @@ def run_cdr_analysis_menu(sock):
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = input(f"{Colors.YELLOW}Choose analysis option (1-13): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose analysis option (1-13): {Colors.RESET}").strip()
 
         if choice == "1":
-            number = input(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
+            number = prompt(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
             if number:
-                hours = input(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
+                hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
                 if os.path.isfile(CDR_ANALYZER_SCRIPT):
                     run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number, "--hours", hours])
                 else:
@@ -2613,20 +2721,20 @@ def run_cdr_analysis_menu(sock):
             if not os.path.isfile(CALL_LEG_ANALYZER_SCRIPT):
                 print(f"{Colors.RED}❌ Call-leg analyzer tool not found.{Colors.RESET}")
             else:
-                linkedid = input(f"{Colors.YELLOW}Linkedid (Enter to search by number instead): {Colors.RESET}").strip()
+                linkedid = prompt(f"{Colors.YELLOW}Linkedid (Enter to search by number instead): {Colors.RESET}").strip()
                 cmd = ["python3", CALL_LEG_ANALYZER_SCRIPT, "--socket", sock, "--db-user", DB_USER]
                 if linkedid:
                     cmd += ["--linkedid", linkedid]
                 else:
-                    number = input(f"{Colors.YELLOW}Phone number to search: {Colors.RESET}").strip()
+                    number = prompt(f"{Colors.YELLOW}Phone number to search: {Colors.RESET}").strip()
                     if not number:
                         print(f"{Colors.RED}A linkedid or number is required.{Colors.RESET}")
                         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
-                        input()
+                        prompt()
                         continue
-                    leg_hours = input(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
+                    leg_hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
                     cmd += ["--number", number, "--hours", leg_hours]
-                fmt = input(f"{Colors.YELLOW}Format tree/summary/json (default: tree): {Colors.RESET}").strip() or "tree"
+                fmt = prompt(f"{Colors.YELLOW}Format tree/summary/json (default: tree): {Colors.RESET}").strip() or "tree"
                 cmd += ["--format", fmt]
                 run_interactive(cmd)
         elif choice == "13":
@@ -2634,7 +2742,7 @@ def run_cdr_analysis_menu(sock):
         else:
             hours = None
             if choice in ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11']:
-                hours = input(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
+                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
             if choice == "2":
                 run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
             elif choice == "3":
@@ -2654,7 +2762,7 @@ def run_cdr_analysis_menu(sock):
             elif choice == "10":
                 run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
             elif choice == "11":
-                filename = input(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
+                filename = prompt(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
                 if filename:
                     run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
                 else:
@@ -2663,7 +2771,7 @@ def run_cdr_analysis_menu(sock):
                 print(f"{Colors.RED}❌ Invalid choice. Please select 1-13.{Colors.RESET}")
         
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
-        input()
+        prompt()
 
 
 def run_network_diagnostics_menu():
@@ -2694,7 +2802,7 @@ def run_network_diagnostics_menu():
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
         print()
 
-        choice = input(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose diagnostic option (1-15): {Colors.RESET}").strip()
 
         if choice == "1":
             print(f"{Colors.CYAN}Launching sngrep... (Press 'q' to quit){Colors.RESET}\n")
@@ -2704,15 +2812,15 @@ def run_network_diagnostics_menu():
         elif choice == "3":
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--asterisk-channels"])
         elif choice == "4":
-            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            duration = prompt(f"{Colors.YELLOW}Capture duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--sip-traffic", "--duration", duration])
         elif choice == "5":
-            duration = input(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
+            duration = prompt(f"{Colors.YELLOW}Monitor duration in seconds (default: 30): {Colors.RESET}").strip() or "30"
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--rtp-traffic", "--duration", duration])
         elif choice == "6":
-            duration = input(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
-            port = input(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
-            host = input(f"{Colors.YELLOW}Filter by host (optional, press Enter to skip): {Colors.RESET}").strip()
+            duration = prompt(f"{Colors.YELLOW}Capture duration in seconds (default: 60): {Colors.RESET}").strip() or "60"
+            port = prompt(f"{Colors.YELLOW}Filter by port (optional, press Enter to skip): {Colors.RESET}").strip()
+            host = prompt(f"{Colors.YELLOW}Filter by host (optional, press Enter to skip): {Colors.RESET}").strip()
             cmd = ["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--tcpdump", "--duration", duration]
             if port:
                 cmd.extend(["--port", port])
@@ -2720,14 +2828,14 @@ def run_network_diagnostics_menu():
                 cmd.extend(["--host", host])
             run_interactive(cmd)
         elif choice == "7":
-            host = input(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
+            host = prompt(f"{Colors.YELLOW}Enter host to ping (default: 8.8.8.8): {Colors.RESET}").strip() or "8.8.8.8"
             run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--ping", host])
         elif choice == "8":
-            host = input(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
+            host = prompt(f"{Colors.YELLOW}Enter host for traceroute: {Colors.RESET}").strip()
             if host:
                 run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--traceroute", host])
         elif choice == "9":
-            domain = input(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
+            domain = prompt(f"{Colors.YELLOW}Enter domain for DNS lookup: {Colors.RESET}").strip()
             if domain:
                 run_interactive(["python3", NETWORK_DIAGNOSTICS_SCRIPT, "--dns", domain])
         elif choice == "10":
@@ -2747,7 +2855,7 @@ def run_network_diagnostics_menu():
             print(f"{Colors.RED}❌ Invalid choice. Please select 1-15.{Colors.RESET}")
         
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
-        input()
+        prompt()
 
 
 # ---------------- menu ----------------
@@ -2807,7 +2915,7 @@ def run_phone_analysis_menu(sock):
         print(f"{Colors.CYAN}║{Colors.GREEN} 10){Colors.WHITE} Return to main menu{' ' * 54}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
 
-        choice = input(f"\n{Colors.YELLOW}Choose phone analysis option (1-10): {Colors.RESET}").strip()
+        choice = prompt(f"\n{Colors.YELLOW}Choose phone analysis option (1-10): {Colors.RESET}").strip()
 
         if choice == '10':
             break
@@ -2833,7 +2941,7 @@ def run_phone_analysis_menu(sock):
             print(f"{Colors.RED}❌ Invalid choice. Please select 1-10.{Colors.RESET}")
 
         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
-        input()
+        prompt()
 
 
 def main():
@@ -2956,7 +3064,7 @@ def main():
         _hpad = " " * max(0, menu_width - len(_hint) - 2)
         print(Colors.CYAN + "║ " + Colors.BOLD + Colors.CYAN + _hint + _hpad + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
         print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
-        choice = input("\n" + Colors.YELLOW + "Choose (or d=DIDs r=refresh t=TC l=log n=net c=CDR p=phones o=ops): " + Colors.RESET).strip()
+        choice = prompt("\n" + Colors.YELLOW + "Choose (or d=DIDs r=refresh t=TC l=log n=net c=CDR p=phones o=ops): " + Colors.RESET).strip()
         # Single-letter shortcuts
         _shortcuts = {"d": "2", "r": "1", "t": "6", "l": "13", "n": "15", "c": "17", "p": "18", "o": "20", "q": "19"}
         choice = _shortcuts.get(choice.lower(), choice)
@@ -2964,9 +3072,9 @@ def main():
         if choice == "0":
             # local monitor mode (does not exit the menu)
             try:
-                interval = input(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
+                interval = prompt(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
                 args.interval = interval
-                refresh_each = input(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
+                refresh_each = prompt(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
                 args.watch_refresh_snapshot = refresh_each in ("y", "yes")
             except Exception:
                 args.interval = "2"
@@ -2979,52 +3087,52 @@ def main():
                 data = load_dump()
             _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after refresh
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "2":
             summarize(data)
             list_dids(data)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "3":
             did_rows = list_dids(data)
             if not did_rows: 
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                input()
+                prompt()
                 continue
-            sel = input("\nEnter indexes (e.g. 1,3,5-8) or * for all: ")
-            idxs = parse_selection(sel, len(did_rows))
+            sel = prompt("\nEnter indexes (e.g. 1,3,5-8), DID number(s), or * for all: ")
+            idxs = parse_selection(sel, did_rows)
             if not idxs:
                 print("No valid selection.")
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                input()
+                prompt()
                 continue
             render_dids(did_rows, idxs, sock)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "4":
             did_rows = get_did_rows(data)
             if not did_rows:
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                input()
+                prompt()
                 continue
             render_dids(did_rows, list(range(1, len(did_rows)+1)), sock)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "5":
             did_rows = get_did_rows(data)
             if not did_rows: 
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                input()
+                prompt()
                 continue
             # lowercase match set; you can add more labels here if you want to exclude them
             render_dids(did_rows, list(range(1, len(did_rows)+1)), sock,
                         skip_labels=set(["open"]))
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "6":
             run_tc_control(sock)
@@ -3043,18 +3151,18 @@ def main():
             if did_rows:
                 run_ascii_callflow(sock, did_rows)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "11":
             did_rows = list_dids(data)
             run_call_simulation_menu(sock, did_rows)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "12":
             run_full_diagnostic()
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
         elif choice == "13":
             run_log_analysis_menu()
@@ -3080,7 +3188,7 @@ def main():
         else:
             print(Colors.RED + "Invalid choice." + Colors.RESET)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            input()
+            prompt()
 
 if __name__ == "__main__":
     main()
