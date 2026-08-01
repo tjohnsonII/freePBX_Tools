@@ -9,9 +9,12 @@ SERVER_UNIQUE_FILES=(
     "webscraper_manager/api/server.py"
 )
 
-# Entire directories that exist ONLY on Server — all files overlaid onto main.
+# Entire directories where Server is authoritative — all files overlaid onto main.
+# (lsbbw exists only on Server; freepbx-tools exists on both but Server has the
+# actively-developed copy — client's version is stale and should always lose.)
 SERVER_UNIQUE_DIRS=(
     "lsbbw"
+    "freepbx-tools"
 )
 
 # Files that exist on BOTH branches but Server is authoritative
