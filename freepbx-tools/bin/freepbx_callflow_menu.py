@@ -222,6 +222,35 @@ def get_asterisk_version_live():
             return parts[1]
     return line
 
+
+def get_tool_version():
+    """Read the VERSION file stamped at deploy time (see deploy_freepbx_tools.py's
+    _generate_version_file()), so the dashboard can show at a glance whether this
+    install is current. Returns e.g. "ffb4016 (2026-08-01)", or None if this
+    install predates version stamping (older/manual installs — no VERSION file
+    shipped) or the file can't be parsed, so the header just omits it rather
+    than showing something broken."""
+    version_path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "VERSION")
+    )
+    try:
+        info = {}
+        with open(version_path) as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    info[k] = v
+    except OSError:
+        return None
+    commit = info.get("COMMIT", "")
+    if not commit:
+        return None
+    commit_date = info.get("COMMIT_DATE", "")
+    date_short = commit_date[:10] if commit_date else ""
+    return commit + (f" ({date_short})" if date_short else "")
+
+
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"
 GRAPH_SCRIPT  = "/usr/local/bin/freepbx_callflow_graph.py"
 OUT_DIR       = "/home/123net/callflows"
@@ -579,28 +608,34 @@ def run_did_call_test(did_rows):
             return
 
         _, did, label, _, _ = did_rows[choice - 1]
-        destination = prompt(f"{Colors.YELLOW}Enter destination number (where to ring the call, e.g., your cell): {Colors.RESET}").strip()
-        if not destination:
-            print(f"{Colors.RED}❌ Destination number required.{Colors.RESET}")
-            return
-        
+        destination = prompt(
+            f"{Colors.YELLOW}Force ring to a specific number (optional — leave blank to follow "
+            f"the DID's actual configured routing, e.g. its queue/IVR/ring group): {Colors.RESET}"
+        ).strip()
+
         print(f"\n{Colors.GREEN}╔{'═' * 78}╗{Colors.RESET}")
         print(f"{Colors.GREEN}║{Colors.YELLOW}{Colors.BOLD} 🚀 Testing DID {did} ({label[:40]}){' ' * (31 - len(label[:40]))}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
         print(f"{Colors.GREEN}╠{'═' * 78}╣{Colors.RESET}")
         print(f"{Colors.GREEN}║{Colors.WHITE}   Incoming call from: {Colors.CYAN}{Colors.BOLD}{did:<49}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
-        print(f"{Colors.GREEN}║{Colors.WHITE}   Ringing to: {Colors.MAGENTA}{Colors.BOLD}{destination:<57}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        if destination:
+            print(f"{Colors.GREEN}║{Colors.WHITE}   Forcing ring to: {Colors.MAGENTA}{Colors.BOLD}{destination:<53}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
+        else:
+            print(f"{Colors.GREEN}║{Colors.WHITE}   Following the DID's actual configured routing{' ' * 25}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
         print(f"{Colors.GREEN}║{Colors.YELLOW}   This will create a real call in the Asterisk system...{' ' * 17}{Colors.RESET}{Colors.GREEN} ║{Colors.RESET}")
         print(f"{Colors.GREEN}╚{'═' * 78}╝{Colors.RESET}")
         print()
-        
+
         confirm = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
         if confirm != 'y':
             print(f"{Colors.RED}❌ Test cancelled.{Colors.RESET}")
             return
-        
-        # Run the call simulation
-        # Note: --caller-id is the source (DID), destination is where it rings
-        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--destination", destination, "--debug"]
+
+        # Run the call simulation. Omitting --destination (blank input) makes
+        # call_simulator.py enter through from-did-direct — the DID's real
+        # inbound entry point — instead of forcing an artificial destination.
+        cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--did", str(did), "--debug"]
+        if destination:
+            cmd += ["--destination", destination]
         print(f"{Colors.CYAN}Executing: {' '.join(cmd)}{Colors.RESET}\n")
         
         rc, out, err = run(cmd)
@@ -2041,9 +2076,12 @@ def display_system_dashboard(sock, data):
     hostname = meta.get("hostname", "Unknown")
     freepbx_ver = get_freepbx_version_live() or meta.get("freepbx_version", "N/A")
     asterisk_ver = get_asterisk_version_live() or meta.get("asterisk_version", "N/A")
-    
+    tool_ver = get_tool_version()
+
     # Dashboard Header with system info - full width, properly aligned
     header_text = f"📊 SYSTEM DASHBOARD  │  Host: {hostname[:25].ljust(25)}  │  FreePBX: {freepbx_ver[:15].ljust(15)}  │  Asterisk: {asterisk_ver[:30].ljust(30)}"
+    if tool_ver:
+        header_text += f"  │  Tools: {tool_ver}"
     # Pad to full terminal width
     header_padding = " " * max(0, BOX_TOTAL - len(header_text) - 2)
     header_line = (Colors.BG_CYAN + Colors.WHITE + Colors.BOLD + 
