@@ -3039,194 +3039,198 @@ def main():
         return
 
     while True:
-        # Display system dashboard at top
-        display_system_dashboard(sock, data)
-        
-        # Get terminal width for menu
         try:
-            menu_width = shutil.get_terminal_size().columns - 4  # Leave margin
-        except:
-            menu_width = 78  # Default fallback
-        
-        # Menu with full width alignment
-        print("\n" + Colors.CYAN + "╔" + "═" * menu_width + "╗" + Colors.RESET)
-        print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 freePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
-        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
-        
-        # Helper function to format menu line with proper alignment (ANSI-safe)
-        def menu_line(num, text):
-            num_part = f" {num:>2})"
-            inner = num_part + " " + text
-            padding_needed = menu_width - visible_len(inner) - 2
-            padding = " " * max(0, padding_needed)
-            return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET +
-                    " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
+            # Display system dashboard at top
+            display_system_dashboard(sock, data)
 
-        def menu_section(title):
-            inner = f" {title} "
-            dashes = "─" * ((menu_width - len(inner)) // 2)
-            line = (dashes + inner + dashes).ljust(menu_width)
-            return Colors.CYAN + "║" + Colors.BOLD + Colors.CYAN + line + Colors.RESET + Colors.CYAN + "║" + Colors.RESET
-
-        _cache_age_s = get_snapshot_age_seconds()
-        _cache_tag = (f"  {Colors.CYAN}[cache: {format_age(_cache_age_s)}]{Colors.RESET}"
-                      if _cache_age_s is not None else "")
-        print(menu_section("Snapshot & Inventory"))
-        print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
-        print(menu_line("1", "Refresh data cache" + _cache_tag))
-        print(menu_line("2", "Show inventory (counts) + list DIDs"))
-        print(menu_section("Render Call Flows"))
-        print(menu_line("3", "Generate call-flow for selected DID(s)"))
-        print(menu_line("4", "Generate call-flows for ALL DIDs"))
-        print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
-        print(menu_line("10", "Generate ASCII art call-flows"))
-        print(menu_section("PBX Analysis"))
-        print(menu_line("6", "Time-Condition status + Force/Clear control"))
-        print(menu_line("7", "Run FreePBX module analysis"))
-        print(menu_line("8", "Run paging, overhead & fax analysis"))
-        print(menu_line("9", "Run comprehensive component analysis"))
-        print(menu_section("Diagnostics"))
-        print(menu_line("11", "Call Simulation & Validation"))
-        print(menu_line("12", "Run full Asterisk diagnostic"))
-        print(menu_line("13", "Log & System Analysis (errors / stuck channels / fail2ban / journal)"))
-        print(menu_line("14", "SIP / Q.850 code lookup"))
-        print(menu_line("15", "Network Diagnostics & Packet Capture"))
-        print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
-        print(menu_line("18", "Phone/Endpoint Analysis"))
-        print(menu_section("Ops Tools"))
-        print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
-        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
-        print(menu_line("19", "Quit"))
-        print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
-        _hint = "Shortcuts: d=DIDs  r=refresh  t=TC  l=log  n=net  c=CDR  p=phones  o=ops  q=quit"
-        _hpad = " " * max(0, menu_width - len(_hint) - 2)
-        print(Colors.CYAN + "║ " + Colors.BOLD + Colors.CYAN + _hint + _hpad + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
-        print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
-        choice = prompt("\n" + Colors.YELLOW + "Choose (or d=DIDs r=refresh t=TC l=log n=net c=CDR p=phones o=ops): " + Colors.RESET).strip()
-        # Single-letter shortcuts
-        _shortcuts = {"d": "2", "r": "1", "t": "6", "l": "13", "n": "15", "c": "17", "p": "18", "o": "20", "q": "19"}
-        choice = _shortcuts.get(choice.lower(), choice)
-
-        if choice == "0":
-            # local monitor mode (does not exit the menu)
+            # Get terminal width for menu
             try:
-                interval = prompt(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
-                args.interval = interval
-                refresh_each = prompt(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
-                args.watch_refresh_snapshot = refresh_each in ("y", "yes")
-            except Exception:
-                args.interval = "2"
-                args.watch_refresh_snapshot = False
-            data = run_live_monitor(data)
+                menu_width = shutil.get_terminal_size().columns - 4  # Leave margin
+            except:
+                menu_width = 78  # Default fallback
+
+            # Menu with full width alignment
+            print("\n" + Colors.CYAN + "╔" + "═" * menu_width + "╗" + Colors.RESET)
+            print(Colors.CYAN + "║" + Colors.BOLD + Colors.YELLOW + " 📞 freePBX Call-Flow Menu ".center(menu_width) + Colors.RESET + Colors.CYAN + "║" + Colors.RESET)
+            print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
+
+            # Helper function to format menu line with proper alignment (ANSI-safe)
+            def menu_line(num, text):
+                num_part = f" {num:>2})"
+                inner = num_part + " " + text
+                padding_needed = menu_width - visible_len(inner) - 2
+                padding = " " * max(0, padding_needed)
+                return (Colors.CYAN + "║" + Colors.BOLD + num_part + Colors.RESET +
+                        " " + text + padding + Colors.CYAN + " ║" + Colors.RESET)
+
+            def menu_section(title):
+                inner = f" {title} "
+                dashes = "─" * ((menu_width - len(inner)) // 2)
+                line = (dashes + inner + dashes).ljust(menu_width)
+                return Colors.CYAN + "║" + Colors.BOLD + Colors.CYAN + line + Colors.RESET + Colors.CYAN + "║" + Colors.RESET
+
+            _cache_age_s = get_snapshot_age_seconds()
+            _cache_tag = (f"  {Colors.CYAN}[cache: {format_age(_cache_age_s)}]{Colors.RESET}"
+                          if _cache_age_s is not None else "")
+            print(menu_section("Snapshot & Inventory"))
+            print(menu_line("0", "Live dashboard monitor (auto-refresh)"))
+            print(menu_line("1", "Refresh data cache" + _cache_tag))
+            print(menu_line("2", "Show inventory (counts) + list DIDs"))
+            print(menu_section("Render Call Flows"))
+            print(menu_line("3", "Generate call-flow for selected DID(s)"))
+            print(menu_line("4", "Generate call-flows for ALL DIDs"))
+            print(menu_line("5", "Generate call-flows for ALL DIDs (skip labels: OPEN)"))
+            print(menu_line("10", "Generate ASCII art call-flows"))
+            print(menu_section("PBX Analysis"))
+            print(menu_line("6", "Time-Condition status + Force/Clear control"))
+            print(menu_line("7", "Run FreePBX module analysis"))
+            print(menu_line("8", "Run paging, overhead & fax analysis"))
+            print(menu_line("9", "Run comprehensive component analysis"))
+            print(menu_section("Diagnostics"))
+            print(menu_line("11", "Call Simulation & Validation"))
+            print(menu_line("12", "Run full Asterisk diagnostic"))
+            print(menu_line("13", "Log & System Analysis (errors / stuck channels / fail2ban / journal)"))
+            print(menu_line("14", "SIP / Q.850 code lookup"))
+            print(menu_line("15", "Network Diagnostics & Packet Capture"))
+            print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
+            print(menu_line("18", "Phone/Endpoint Analysis"))
+            print(menu_section("Ops Tools"))
+            print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
+            print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
+            print(menu_line("19", "Quit"))
+            print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
+            _hint = "Shortcuts: d=DIDs  r=refresh  t=TC  l=log  n=net  c=CDR  p=phones  o=ops  q=quit"
+            _hpad = " " * max(0, menu_width - len(_hint) - 2)
+            print(Colors.CYAN + "║ " + Colors.BOLD + Colors.CYAN + _hint + _hpad + Colors.RESET + Colors.CYAN + " ║" + Colors.RESET)
+            print(Colors.CYAN + "╚" + "═" * menu_width + "╝" + Colors.RESET)
+            choice = prompt("\n" + Colors.YELLOW + "Choose (or d=DIDs r=refresh t=TC l=log n=net c=CDR p=phones o=ops): " + Colors.RESET).strip()
+            # Single-letter shortcuts
+            _shortcuts = {"d": "2", "r": "1", "t": "6", "l": "13", "n": "15", "c": "17", "p": "18", "o": "20", "q": "19"}
+            choice = _shortcuts.get(choice.lower(), choice)
+
+            if choice == "0":
+                # local monitor mode (does not exit the menu)
+                try:
+                    interval = prompt(Colors.YELLOW + "Refresh interval seconds (default 2): " + Colors.RESET).strip() or "2"
+                    args.interval = interval
+                    refresh_each = prompt(Colors.YELLOW + "Refresh data cache each cycle? (y/N): " + Colors.RESET).strip().lower()
+                    args.watch_refresh_snapshot = refresh_each in ("y", "yes")
+                except Exception:
+                    args.interval = "2"
+                    args.watch_refresh_snapshot = False
+                data = run_live_monitor(data)
+                continue
+
+            if choice == "1":
+                if refresh_dump(sock):
+                    data = load_dump()
+                _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after refresh
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "2":
+                summarize(data)
+                list_dids(data)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "3":
+                did_rows = list_dids(data)
+                if not did_rows: 
+                    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                    prompt()
+                    continue
+                sel = prompt("\nEnter indexes (e.g. 1,3,5-8), DID number(s), or * for all: ")
+                idxs = parse_selection(sel, did_rows)
+                if not idxs:
+                    print("No valid selection.")
+                    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                    prompt()
+                    continue
+                render_dids(did_rows, idxs, sock)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "4":
+                did_rows = get_did_rows(data)
+                if not did_rows:
+                    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                    prompt()
+                    continue
+                render_dids(did_rows, list(range(1, len(did_rows)+1)), sock)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "5":
+                did_rows = get_did_rows(data)
+                if not did_rows: 
+                    print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                    prompt()
+                    continue
+                # lowercase match set; you can add more labels here if you want to exclude them
+                render_dids(did_rows, list(range(1, len(did_rows)+1)), sock,
+                            skip_labels=set(["open"]))
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "6":
+                run_tc_control(sock)
+
+            elif choice == "7":
+                run_module_analyzer(sock)
+
+            elif choice == "8":
+                run_paging_fax_analyzer(sock)
+
+            elif choice == "9":
+                run_comprehensive_analyzer(sock)
+
+            elif choice == "10":
+                did_rows = list_dids(data)
+                if did_rows:
+                    run_ascii_callflow(sock, did_rows)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "11":
+                did_rows = list_dids(data)
+                run_call_simulation_menu(sock, did_rows)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "12":
+                run_full_diagnostic()
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+
+            elif choice == "13":
+                run_log_analysis_menu()
+
+            elif choice == "14":
+                show_error_map_quick_reference()
+
+            elif choice == "15":
+                run_network_diagnostics_menu()
+
+            elif choice == "17":
+                run_cdr_analysis_menu(sock)
+
+            elif choice == "18":
+                run_phone_analysis_menu(sock)
+
+            elif choice == "20":
+                run_ops_menu(sock)
+
+            elif choice == "19":
+                print("Bye.")
+                break
+            else:
+                print(Colors.RED + "Invalid choice." + Colors.RESET)
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}↩  Cancelled — returning to main menu.{Colors.RESET}")
             continue
-
-        if choice == "1":
-            if refresh_dump(sock):
-                data = load_dump()
-            _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after refresh
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "2":
-            summarize(data)
-            list_dids(data)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "3":
-            did_rows = list_dids(data)
-            if not did_rows: 
-                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                prompt()
-                continue
-            sel = prompt("\nEnter indexes (e.g. 1,3,5-8), DID number(s), or * for all: ")
-            idxs = parse_selection(sel, did_rows)
-            if not idxs:
-                print("No valid selection.")
-                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                prompt()
-                continue
-            render_dids(did_rows, idxs, sock)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "4":
-            did_rows = get_did_rows(data)
-            if not did_rows:
-                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                prompt()
-                continue
-            render_dids(did_rows, list(range(1, len(did_rows)+1)), sock)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "5":
-            did_rows = get_did_rows(data)
-            if not did_rows: 
-                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-                prompt()
-                continue
-            # lowercase match set; you can add more labels here if you want to exclude them
-            render_dids(did_rows, list(range(1, len(did_rows)+1)), sock,
-                        skip_labels=set(["open"]))
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "6":
-            run_tc_control(sock)
-
-        elif choice == "7":
-            run_module_analyzer(sock)
-
-        elif choice == "8":
-            run_paging_fax_analyzer(sock)
-
-        elif choice == "9":
-            run_comprehensive_analyzer(sock)
-
-        elif choice == "10":
-            did_rows = list_dids(data)
-            if did_rows:
-                run_ascii_callflow(sock, did_rows)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "11":
-            did_rows = list_dids(data)
-            run_call_simulation_menu(sock, did_rows)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "12":
-            run_full_diagnostic()
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
-
-        elif choice == "13":
-            run_log_analysis_menu()
-
-        elif choice == "14":
-            show_error_map_quick_reference()
-
-        elif choice == "15":
-            run_network_diagnostics_menu()
-
-        elif choice == "17":
-            run_cdr_analysis_menu(sock)
-
-        elif choice == "18":
-            run_phone_analysis_menu(sock)
-
-        elif choice == "20":
-            run_ops_menu(sock)
-
-        elif choice == "19":
-            print("Bye.")
-            break
-        else:
-            print(Colors.RED + "Invalid choice." + Colors.RESET)
-            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
-            prompt()
 
 if __name__ == "__main__":
     main()
