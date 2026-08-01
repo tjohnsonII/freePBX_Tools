@@ -64,6 +64,12 @@ Script Flow:
 import sys
 import os
 import argparse
+import atexit
+import io
+import shutil
+import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
@@ -71,7 +77,7 @@ import re
 import zipfile
 import hashlib
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 paramiko: Any
 try:
@@ -413,38 +419,93 @@ def read_server_list(filename):
         print_error(f"Error reading server list: {e}")
         return []
 
+def _git_repo_root() -> Optional[Path]:
+    """Walk up from this script until we find a .git directory."""
+    here = Path(__file__).resolve().parent
+    for p in [here] + list(here.parents):
+        if (p / ".git").exists():
+            return p
+    return None
+
+
+def _fetch_server_branch_files() -> Optional[str]:
+    """Fetch freepbx-tools/ from origin/server and extract to a temp dir.
+
+    Returns the path to the extracted freepbx-tools/ directory, or None if
+    the fetch fails (caller falls back to local disk copy).
+    Temp dir is cleaned up automatically on process exit via atexit.
+    """
+    repo_root = _git_repo_root()
+    if not repo_root:
+        print_warning("Could not locate .git — falling back to local freepbx-tools/")
+        return None
+
+    fetch = subprocess.run(
+        ["git", "fetch", "--quiet", "origin", "server"],
+        cwd=str(repo_root),
+        capture_output=True,
+        timeout=30,
+    )
+    if fetch.returncode != 0:
+        msg = fetch.stderr.decode("utf-8", errors="replace").strip()
+        print_warning(f"git fetch origin server failed: {msg} — falling back to local freepbx-tools/")
+        return None
+
+    archive = subprocess.run(
+        ["git", "archive", "origin/server", "--", "freepbx-tools/"],
+        cwd=str(repo_root),
+        capture_output=True,
+        timeout=30,
+    )
+    if archive.returncode != 0 or not archive.stdout:
+        msg = archive.stderr.decode("utf-8", errors="replace").strip()
+        print_warning(f"git archive origin/server failed: {msg} — falling back to local freepbx-tools/")
+        return None
+
+    tmpdir = tempfile.mkdtemp(prefix="freepbx-deploy-")
+    atexit.register(shutil.rmtree, tmpdir, ignore_errors=True)
+
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+        tar.extractall(tmpdir)
+
+    source = os.path.join(tmpdir, "freepbx-tools")
+    if not os.path.isdir(source):
+        print_warning("freepbx-tools/ not found in server branch — falling back to local freepbx-tools/")
+        return None
+
+    return source
+
+
 def get_local_files():
+    """Collect all files to deploy from freepbx-tools/.
+
+    Always tries to fetch the latest from origin/server first so that
+    pushing to the server branch is all that's needed before deploying.
+    Falls back to the local freepbx-tools/ copy on disk if git is
+    unavailable or the fetch fails.
     """
-    Recursively collect all files to deploy from LOCAL_SOURCE_DIR.
-    Skips __pycache__, .git, .vscode, docs, and test files.
-    Returns: List of (local_path, rel_path) tuples.
-    """
-    files_to_deploy = []
-    
-    # Make source directory absolute
-    source_dir = os.path.abspath(LOCAL_SOURCE_DIR)
-    
+    source_dir = _fetch_server_branch_files()
+    if source_dir:
+        print_info("Source: freepbx-tools/ from origin/server (latest pushed version)")
+    else:
+        source_dir = os.path.abspath(LOCAL_SOURCE_DIR)
+        print_info(f"Source: local freepbx-tools/ at {source_dir}")
+
     if not os.path.exists(source_dir):
         print_error(f"Source directory not found: {source_dir}")
         return []
-    
-    # Get all files in the source directory
+
+    files_to_deploy = []
     for root, dirs, files in os.walk(source_dir):
-        # Skip __pycache__, .git, .vscode, and 123net_internal_docs directories
         dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git', '.vscode', '123net_internal_docs']]
-        
         for file in files:
-            # Skip markdown files (documentation) and test files
             if file.startswith('test_') or file == 'version_outliers.csv':
                 continue
-            
-            # Only include essential files
             if file.endswith(('.py', '.sh', '.json', '.txt')) and not file.endswith('.md'):
                 local_path = os.path.join(root, file)
-                # Create relative path for remote - use forward slashes for Unix
                 rel_path = os.path.relpath(local_path, source_dir).replace('\\', '/')
                 files_to_deploy.append((local_path, rel_path))
-    
+
     return files_to_deploy
 
 
