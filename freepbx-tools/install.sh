@@ -273,11 +273,16 @@ install_files() {
   fi
 }
 
-# Seed an empty SMTP config template for the "email a file" feature, if one
-# doesn't already exist — never overwrites a config an operator has already
-# filled in. Real values (relay host, port, auth) must be added manually;
-# this just ensures the file/directory exist with safe (non-functional until
-# configured) defaults.
+# Seed an SMTP config template for the "email a file" feature, if one doesn't
+# already exist — never overwrites a config an operator has already filled
+# in. Defaults to relaying through the box's own local Postfix on
+# 127.0.0.1:25 with no auth/TLS, matching the pattern confirmed on
+# pbx-i11-lab: FreePBX/Asterisk already submit mail locally via sendmail ->
+# Postfix (loopback-only, not an exposed relay) -> smtp-internal.123.net.
+# Riding that same already-working path means this typically needs zero
+# manual configuration on a standard 123NET-managed FreePBX box. If a given
+# box's Postfix isn't set up the same way, override host/port/auth in
+# $smtp_file after install.
 ensure_smtp_config_template() {
   local smtp_dir="/etc/123net-freepbx-tools"
   local smtp_file="$smtp_dir/smtp.json"
@@ -285,16 +290,16 @@ ensure_smtp_config_template() {
   if [[ ! -f "$smtp_file" ]]; then
     cat > "$smtp_file" <<'EOF'
 {
-  "host": "",
-  "port": 587,
-  "use_tls": true,
+  "host": "127.0.0.1",
+  "port": 25,
+  "use_tls": false,
   "username": "",
   "password": "",
   "from_addr": ""
 }
 EOF
-    chmod 600 "$smtp_file"  # may contain a relay password once filled in
-    log "Seeded empty SMTP config template at $smtp_file — fill in 'host' to enable emailing files."
+    chmod 600 "$smtp_file"  # may hold relay credentials if a box needs them overridden
+    log "Seeded SMTP config at $smtp_file (defaults to local Postfix relay, 127.0.0.1:25)."
   fi
 }
 # Make subprocess.run(..., text=True) work on Python < 3.7
