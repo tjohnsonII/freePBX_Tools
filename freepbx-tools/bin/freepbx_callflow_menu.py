@@ -71,6 +71,19 @@ class Colors:
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
+_UNSAFE_TERMINAL_CHARS_RE = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')
+
+def sanitize_for_terminal(s):
+    """Strip control/escape bytes from untrusted log content before printing.
+
+    Malformed or malicious traffic (garbled SIP packets, binary payloads)
+    sometimes ends up logged verbatim. Printing that raw can include a stray
+    ANSI/VT100 escape sequence — e.g. one that switches the terminal into
+    DEC Special Graphics mode — which then silently remaps every character
+    printed afterward for the rest of the session, well past this one line.
+    """
+    return _UNSAFE_TERMINAL_CHARS_RE.sub('', s)
+
 
 def visible_len(text):
     """Return the printable length of a string that may contain ANSI codes."""
@@ -2661,7 +2674,7 @@ def run_inline_log_analysis_timed(hours=1):
                 etype[m.group(2)[:80]] += 1
         print(f"{Colors.RED}🔴 {len(errors)} error(s):{Colors.RESET}")
         for msg, cnt in sorted(etype.items(), key=lambda x: x[1], reverse=True)[:8]:
-            print(f"   {cnt:>4}x {msg}")
+            print(f"   {cnt:>4}x {sanitize_for_terminal(msg)}")
     else:
         print(f"{Colors.GREEN}✅ No errors{Colors.RESET}")
 
@@ -2670,7 +2683,7 @@ def run_inline_log_analysis_timed(hours=1):
     if reg_fails:
         print(f"\n{Colors.YELLOW}⚠  {len(reg_fails)} registration failure(s) — last 3:{Colors.RESET}")
         for l in reg_fails[-3:]:
-            print(f"   {l[:120]}")
+            print(f"   {sanitize_for_terminal(l[:120])}")
     else:
         print(f"\n{Colors.GREEN}✅ No registration failures{Colors.RESET}")
 
