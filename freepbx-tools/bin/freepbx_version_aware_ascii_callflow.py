@@ -912,6 +912,9 @@ class FreePBXUniversalCollector:
         if not route:
             print(Colors.RED + f"\n❌ No inbound route found for DID: {did}" + Colors.RESET)
             return
+
+        self._render_simple_flow(did, route)
+
     def _render_simple_flow(self, did, route):
         """Render a complete ASCII call flow tree."""
         print(Colors.CYAN + "\n╔" + "═" * 68 + "╗" + Colors.RESET)
@@ -1552,6 +1555,7 @@ def main():
     parser.add_argument("--detailed", action="store_true", help="Show detailed output")
     parser.add_argument("--did", help="Generate ASCII call flow for specific DID")
     parser.add_argument("--generate-flow", action="store_true", help="Generate ASCII call flow diagrams")
+    parser.add_argument("--export", metavar="PATH", help="Write all collected data to PATH as JSON")
     
     args = parser.parse_args()
     
@@ -1584,9 +1588,14 @@ def main():
         
     if args.generate_flow:
         collector.generate_ascii_callflow()
-        
+
+    if args.export:
+        with open(args.export, "w") as f:
+            json.dump(collector.data, f, indent=2)
+        print(f"\n✅ Exported {len(collector.data)} components to: {args.export}")
+
     # Show usage examples if no specific action requested
-    if not any([args.print_data, args.did, args.generate_flow]):
+    if not any([args.print_data, args.did, args.generate_flow, args.export]):
         print("🔄 Next: Use this data to generate intelligent ASCII call flow diagrams.")
         print("\n💡 USAGE EXAMPLES:")
         print("  # Print summary of collected data:")

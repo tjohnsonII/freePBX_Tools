@@ -206,7 +206,7 @@ class CallFlowValidator:
         
         return flow_data
     
-    def simulate_call_and_monitor(self, did, caller_id="7140"):
+    def simulate_call_and_monitor(self, did, caller_id="8884400123"):
         """Simulate call and monitor actual Asterisk behavior"""
         self.logger.info(f"Starting call simulation for DID {did} with caller ID {caller_id}")
         print(f"🚀 Simulating call to {did} and monitoring behavior...")
@@ -395,11 +395,25 @@ Archive: no
     def _analyze_asterisk_logs(self, call_id):
         """Analyze Asterisk logs for call behavior"""
         try:
-            # Get logs since baseline
-            cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", 
-                   f"tail -n +{self.log_baseline + 1} /var/log/asterisk/full | grep -E '(NOTICE|WARNING|ERROR|VERBOSE)' | tail -50"]
+            # Check if we should run locally (same detection used elsewhere in
+            # this class) — without it, this always SSHes to self.server_ip
+            # even when already running on that exact box, which can hang or
+            # time out if local SSH access isn't set up.
+            local_hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(local_hostname)
+            is_local = (
+                self.server_ip in ['localhost', '127.0.0.1', local_ip] or
+                local_hostname.startswith('pbx') or
+                self.server_ip == local_ip
+            )
+
+            log_cmd = f"tail -n +{self.log_baseline + 1} /var/log/asterisk/full | grep -E '(NOTICE|WARNING|ERROR|VERBOSE)' | tail -50"
+            if is_local:
+                cmd = ["bash", "-c", log_cmd]
+            else:
+                cmd = ["ssh", f"{self.ssh_user}@{self.server_ip}", log_cmd]
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
-            
+
             if result.returncode != 0:
                 return {'error': 'Could not retrieve logs'}
             

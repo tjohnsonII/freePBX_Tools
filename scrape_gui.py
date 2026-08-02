@@ -26,6 +26,11 @@ from typing import Any
 import requests
 import customtkinter as ctk
 
+# Must match the AppUserModelID stamped on the desktop shortcut by create_shortcut.bat
+# so the pinned taskbar button groups with the running window and shows 123net.ico.
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("123net.ScrapeManager.1")
 # ── Config ────────────────────────────────────────────────────────────────────
 
 _PORT = os.getenv("WEBSCRAPER_PORT", "8789")
@@ -2300,6 +2305,7 @@ class ScrapeManagerApp(ctk.CTk):
         self._kill_ssh_tunnel()
         target = f"{user}@{ip}" if user else ip
         try:
+            _tunnel_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             proc = subprocess.Popen(
                 ["ssh",
                  "-o", "StrictHostKeyChecking=no",
@@ -2311,6 +2317,7 @@ class ScrapeManagerApp(ctk.CTk):
                  target, "-N"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
+                creationflags=_tunnel_flags,
             )
             self._ssh_tunnel_proc = proc
             time.sleep(2)

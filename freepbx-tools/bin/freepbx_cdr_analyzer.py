@@ -93,7 +93,7 @@ class CDRAnalyzer:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 timeout=30
             )
@@ -370,6 +370,56 @@ class CDRAnalyzer:
         else:
             print(f"{Colors.GREEN}✅ No failed calls found{Colors.RESET}")
     
+    def find_calls_by_number(self, number, hours=72, limit=50):
+        """Find calls where src or dst matches (partial ok) a phone number"""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*78}")
+        print(f"  🔎 CALLS MATCHING '{number}' (Last {hours} hours)")
+        print(f"{'='*78}{Colors.RESET}\n")
+
+        digits = re.sub(r"\D", "", number)
+        if not digits:
+            print(f"{Colors.RED}❌ No digits found in search term.{Colors.RESET}")
+            return
+
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+
+        sql = f"""
+        SELECT
+            calldate,
+            src,
+            dst,
+            disposition,
+            duration,
+            billsec
+        FROM cdr
+        WHERE calldate >= '{cutoff}'
+        AND (src LIKE '%{digits}%' OR dst LIKE '%{digits}%')
+        ORDER BY calldate DESC
+        LIMIT {limit}
+        """
+
+        results = self.query_db(sql)
+        if results:
+            print(f"{Colors.YELLOW}Found {len(results)} matching call(s):{Colors.RESET}\n")
+
+            for row in results:
+                data = row.split('\t')
+                calldate = data[0] if len(data) > 0 else 'N/A'
+                src = data[1] if len(data) > 1 else 'N/A'
+                dst = data[2] if len(data) > 2 else 'N/A'
+                disposition = data[3] if len(data) > 3 else 'N/A'
+                duration = int(data[4]) if len(data) > 4 and data[4].isdigit() else 0
+                billsec = int(data[5]) if len(data) > 5 and data[5].isdigit() else 0
+
+                disp_color = Colors.GREEN if disposition == 'ANSWERED' else Colors.RED
+                print(f"{Colors.WHITE}{calldate}{Colors.RESET}")
+                print(f"  From: {Colors.GREEN}{src}{Colors.RESET} → To: {Colors.MAGENTA}{dst}{Colors.RESET}")
+                print(f"  Status: {disp_color}{disposition}{Colors.RESET}  "
+                      f"Duration: {self.format_duration(duration)}  Billsec: {self.format_duration(billsec)}")
+                print()
+        else:
+            print(f"{Colors.YELLOW}No calls found matching '{number}' in the last {hours} hours.{Colors.RESET}")
+
     def get_trunk_usage(self, hours=24):
         """Analyze trunk usage patterns"""
         print(f"\n{Colors.CYAN}{Colors.BOLD}{'='*78}")
@@ -561,6 +611,7 @@ def main():
     parser.add_argument("--trunk-usage", action="store_true", help="Show trunk usage")
     parser.add_argument("--duration-dist", action="store_true", help="Show duration distribution")
     parser.add_argument("--export-json", type=str, metavar="FILE", help="Export to JSON file")
+    parser.add_argument("--find-number", type=str, metavar="NUMBER", help="Find calls matching a phone number (partial ok)")
     parser.add_argument("--comprehensive", action="store_true", help="Run all analyses")
     parser.add_argument("--db-user", default="root", help="MySQL username")
     parser.add_argument("--socket", default="/var/lib/mysql/mysql.sock", help="MySQL socket path")
@@ -585,6 +636,11 @@ def main():
     # Export mode
     if args.export_json:
         analyzer.export_to_json(hours=args.hours, output_file=args.export_json)
+        sys.exit(0)
+
+    # Find-by-number mode
+    if args.find_number:
+        analyzer.find_calls_by_number(args.find_number, hours=args.hours)
         sys.exit(0)
     
     # Comprehensive mode

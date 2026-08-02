@@ -52,7 +52,7 @@ class CallFlowValidator:
             cmd.insert(-2, f"-p{self.password}")
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
             print(f"Database query failed: {e}")
@@ -63,7 +63,7 @@ class CallFlowValidator:
         cmd = ["python3", "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py", "--did", str(did)]
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=True)
             return result.stdout
         except subprocess.CalledProcessError as e:
             print(f"Call flow tool failed: {e}")

@@ -351,12 +351,13 @@ class FreePBXCallSimulator:
                 print(f"   {Colors.CYAN}📋 Spool file: {verify_spool_result.stdout.strip()}{Colors.RESET}")
                 self.debug_print("Call file successfully placed in spool - Asterisk will process it", "SUCCESS")
             else:
-                self.debug_print("File not found in spool after move", "ERROR")
-                return {
-                    'success': False,
-                    'error': f"File not found in spool directory after move",
-                    'call_id': call_id
-                }
+                # Asterisk's spool watcher can pick up and consume a .call file
+                # within milliseconds of it landing — the file already being
+                # gone this fast is a GOOD sign (Asterisk grabbed it
+                # immediately), not a failure. The "processed" check below
+                # (after a short wait) is what actually confirms this.
+                print(f"   {Colors.GREEN}📁 Call file already claimed by Asterisk (processed instantly){Colors.RESET}")
+                self.debug_print("Spool file already gone — Asterisk likely processed it immediately", "INFO")
             
             # Verify temp file was removed (successful move)
             self.debug_print("Verifying temp file was removed...", "INFO")
@@ -457,9 +458,45 @@ class FreePBXCallSimulator:
         Returns:
             dict: Result of the call simulation.
         """
-        if caller_id is None:
-            caller_id = did
-            
+        # Create call file. The correct way to simulate "a real call arriving at
+        # this DID" is to enter Asterisk's dialplan at the exact point a real
+        # inbound PSTN call would land after trunk/DID matching: context
+        # "from-did-direct" with the DID itself as the extension. FreePBX
+        # resolves from there to whatever's actually configured (queue, IVR,
+        # ring group, follow-me, etc.) — see freepbx_ops.py's decode(), which
+        # already treats from-did-direct+extension this same way. This is what
+        # makes the simulated call behave identically to a manually-dialed test
+        # call (same routing, same log trail), which is the entire point of
+        # this tool for troubleshooting.
+        #
+        # A previous version of this method built entirely different
+        # "dest_app"/"dest_data" values for a from-pstn/Goto approach but never
+        # actually passed them to create_call_file() — both branches silently
+        # fell through to create_call_file()'s from-internal default instead,
+        # so DID tests never exercised real DID routing at all.
+        if destination:
+            # Force the call through to a specific destination instead of the
+            # DID's own configured routing. This still needs to go through
+            # from-internal's outbound-route pattern matching to reach an
+            # external number, which — like a real phone placing a call —
+            # requires a caller ID FreePBX's outbound route permissions
+            # actually recognize. Spoofing the DID itself as the caller ID
+            # (the old default) silently fails that check with no error, which
+            # is exactly what happened during testing: a manual call from a
+            # real extension rang through fine, but this forced-destination
+            # path never did. Default to a real, permitted extension's CID.
+            if caller_id is None:
+                caller_id = "8884400123"
+            channel = f"Local/{destination}@from-internal"
+            context = "from-internal"
+            call_destination = destination
+        else:
+            if caller_id is None:
+                caller_id = did
+            channel = f"Local/{did}@from-did-direct"
+            context = "from-did-direct"
+            call_destination = did
+
         print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 SIMULATING INCOMING CALL TO DID: {did:<31}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╠{'═' * 68}╣{Colors.RESET}")
@@ -467,27 +504,14 @@ class FreePBXCallSimulator:
         if destination:
             print(f"{Colors.CYAN}║{Colors.WHITE}  Forcing ring to: {Colors.MAGENTA}{Colors.BOLD}{destination:<46}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         else:
-            print(f"{Colors.CYAN}║{Colors.WHITE}  Following configured DID routing{' ' * 32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+            print(f"{Colors.CYAN}║{Colors.WHITE}  Following configured DID routing (from-did-direct){' ' * 14}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
-        
-        # Create call file
-        # For DID simulation: use Local channel that enters through from-trunk context
-        # This mimics an incoming call from the PSTN
-        if destination:
-            # Direct call to destination, bypassing DID routing
-            channel = f"Local/{destination}@from-internal"
-            dest_app = "Answer"
-            dest_data = ""
-        else:
-            # Route through DID configuration
-            channel = f"Local/{did}@from-pstn"
-            dest_app = "Goto"
-            dest_data = f"from-did-direct,{did},1"
-            
+
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
-            destination=did if not destination else destination,
+            destination=call_destination,
+            context=context,
             wait_time=wait_time,
             max_retries=0
         )
@@ -539,7 +563,7 @@ class FreePBXCallSimulator:
         
         return result
     
-    def test_extension_call(self, extension, caller_id="7140"):
+    def test_extension_call(self, extension, caller_id="8884400123"):
         """
         Test calling a specific extension.
         Args:
@@ -552,7 +576,10 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 TESTING EXTENSION CALL: {extension:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must be the extension under test, never caller_id —
+        # caller_id can be an arbitrary 10-digit number, and from-internal will
+        # route anything matching an outbound pattern as a REAL PSTN call.
+        channel = f"Local/{extension}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -579,7 +606,7 @@ class FreePBXCallSimulator:
         
         return result
     
-    def test_voicemail_call(self, mailbox, caller_id="7140"):
+    def test_voicemail_call(self, mailbox, caller_id="8884400123"):
         """
         Test calling directly to voicemail.
         Args:
@@ -592,7 +619,10 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📧 TESTING VOICEMAIL CALL: {mailbox:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must be the mailbox's own extension, never caller_id —
+        # caller_id can be an arbitrary 10-digit number, and from-internal will
+        # route anything matching an outbound pattern as a REAL PSTN call.
+        channel = f"Local/{mailbox}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -621,7 +651,7 @@ class FreePBXCallSimulator:
         
         return result
     
-    def test_playback_application(self, sound_file="demo-congrats", caller_id="7140"):
+    def test_playback_application(self, sound_file="demo-congrats", caller_id="8884400123"):
         """
         Test playback application (e.g., play a sound file).
         Args:
@@ -634,7 +664,12 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🎵 TESTING PLAYBACK APPLICATION: {sound_file:<32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must never be caller_id — caller_id can be an
+        # arbitrary 10-digit number, and from-internal will route anything
+        # matching an outbound pattern as a REAL PSTN call. This method takes
+        # no extension of its own, so loop back through the lab's designated
+        # test extension (963) rather than dialing anything external.
+        channel = "Local/963@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -828,13 +863,13 @@ def main():
     elif args.did:
         simulator.simulate_did_call(args.did, destination=args.destination, caller_id=args.caller_id)
     elif args.extension:
-        caller = args.caller_id or "7140"
+        caller = args.caller_id or "8884400123"
         simulator.test_extension_call(args.extension, caller)
     elif args.voicemail:
-        caller = args.caller_id or "7140"
+        caller = args.caller_id or "8884400123"
         simulator.test_voicemail_call(args.voicemail, caller)
     elif args.playback:
-        caller = args.caller_id or "7140"
+        caller = args.caller_id or "8884400123"
         simulator.test_playback_application(args.playback, caller)
     else:
         # Print usage examples if no valid arguments provided

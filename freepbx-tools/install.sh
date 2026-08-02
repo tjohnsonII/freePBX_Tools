@@ -266,8 +266,40 @@ install_files() {
   chmod +x "$INSTALL_DIR"/uninstall.sh                   2>/dev/null || true
 
   mkdir -p "$CALLFLOWS_DIR"  # Ensure output directory exists
+  mkdir -p "$CALLFLOWS_DIR/snapshots"  # Snapshot dir for freepbx_ops
+  mkdir -p "$CALLFLOWS_DIR/self_test"  # Self-test report output dir
   if id asterisk >/dev/null 2>&1; then
     chown -R asterisk:asterisk "$CALLFLOWS_DIR" || true  # Set ownership if asterisk user exists
+  fi
+}
+
+# Seed an SMTP config template for the "email a file" feature, if one doesn't
+# already exist — never overwrites a config an operator has already filled
+# in. Defaults to relaying through the box's own local Postfix on
+# 127.0.0.1:25 with no auth/TLS, matching the pattern confirmed on
+# pbx-i11-lab: FreePBX/Asterisk already submit mail locally via sendmail ->
+# Postfix (loopback-only, not an exposed relay) -> smtp-internal.123.net.
+# Riding that same already-working path means this typically needs zero
+# manual configuration on a standard 123NET-managed FreePBX box. If a given
+# box's Postfix isn't set up the same way, override host/port/auth in
+# $smtp_file after install.
+ensure_smtp_config_template() {
+  local smtp_dir="/etc/123net-freepbx-tools"
+  local smtp_file="$smtp_dir/smtp.json"
+  mkdir -p "$smtp_dir"
+  if [[ ! -f "$smtp_file" ]]; then
+    cat > "$smtp_file" <<'EOF'
+{
+  "host": "127.0.0.1",
+  "port": 25,
+  "use_tls": false,
+  "username": "",
+  "password": "",
+  "from_addr": ""
+}
+EOF
+    chmod 600 "$smtp_file"  # may hold relay credentials if a box needs them overridden
+    log "Seeded SMTP config at $smtp_file (defaults to local Postfix relay, 127.0.0.1:25)."
   fi
 }
 # Make subprocess.run(..., text=True) work on Python < 3.7
@@ -309,6 +341,7 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_comprehensive_analyzer.py" "$BIN_DIR/freepbx-comprehensive-analyzer" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_version_aware_ascii_callflow.py" "$BIN_DIR/freepbx-ascii-callflow" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/callflow_validator.py" "$BIN_DIR/callflow-validator" 2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_ops.py"       "$BIN_DIR/freepbx-ops"       2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
@@ -564,6 +597,7 @@ main() {
   ensure_python_packages # Install Python packages for GUI tools
   check_after_installs   # Check for missing dependencies
   install_files          # Copy and normalize all scripts
+  ensure_smtp_config_template  # Seed empty SMTP config template if missing
   patch_py36_text_kwarg  # Patch subprocess.run for Python <3.7
   install_symlinks       # Create all CLI symlinks
   verify_symlinks         # Validate symlinks/PATH

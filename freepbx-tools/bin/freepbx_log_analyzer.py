@@ -57,6 +57,19 @@ class Colors:
     MAGENTA = '\033[95m'
     WHITE = '\033[97m'
 
+_UNSAFE_TERMINAL_CHARS_RE = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')
+
+def sanitize_for_terminal(s):
+    """Strip control/escape bytes from untrusted log content before printing.
+
+    Malformed or malicious traffic (garbled SIP packets, binary payloads)
+    sometimes ends up logged verbatim. Printing that raw can include a stray
+    ANSI/VT100 escape sequence — e.g. one that switches the terminal into
+    DEC Special Graphics mode — which then silently remaps every character
+    printed afterward for the rest of the session, well past this one line.
+    """
+    return _UNSAFE_TERMINAL_CHARS_RE.sub('', s)
+
 # SIP/Q.850/Asterisk Cause Code Mapping
 CAUSE_CODE_MAP = {
     # SIP Code: (Q.850, Description, Asterisk Cause, Meaning)
@@ -494,8 +507,8 @@ class LogAnalyzer:
         try:
             result = subprocess.run(
                 ["dmesg", "-T"],  # -T for human-readable timestamps
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=10
             )
             
@@ -528,7 +541,7 @@ class LogAnalyzer:
                     if matches:
                         print(f"{Colors.YELLOW}  {category.replace('_', ' ').title()}:{Colors.RESET}")
                         for match in matches[-5:]:  # Show last 5
-                            print(f"    {Colors.WHITE}{match[:90]}{Colors.RESET}")
+                            print(f"    {Colors.WHITE}{sanitize_for_terminal(match[:90])}{Colors.RESET}")
                         if len(matches) > 5:
                             print(f"    {Colors.CYAN}... and {len(matches)-5} more{Colors.RESET}")
                         print()
@@ -571,8 +584,8 @@ class LogAnalyzer:
             # Check for errors across all services
             result = subprocess.run(
                 ["journalctl", "--since", since, "-p", "err", "--no-pager"],
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=15
             )
             
@@ -591,7 +604,7 @@ class LogAnalyzer:
                 for service, errors in sorted(error_groups.items(), key=lambda x: len(x[1]), reverse=True)[:10]:
                     print(f"    {Colors.WHITE}{service}:{Colors.RESET} {Colors.RED}{len(errors)}{Colors.RESET} errors")
                     for error in errors[-3:]:  # Show last 3
-                        print(f"      └─ {Colors.WHITE}{error[:80]}{Colors.RESET}")
+                        print(f"      └─ {Colors.WHITE}{sanitize_for_terminal(error[:80])}{Colors.RESET}")
                     print()
                     
                     self.issues.append({
@@ -608,8 +621,8 @@ class LogAnalyzer:
                 try:
                     status_result = subprocess.run(
                         ["systemctl", "is-active", service],
-                        capture_output=True,
-                        text=True,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        universal_newlines=True,
                         timeout=5
                     )
                     status = status_result.stdout.strip()
@@ -653,8 +666,8 @@ class LogAnalyzer:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=30
             )
             
@@ -667,11 +680,12 @@ class LogAnalyzer:
                 
                 # Show first 20 matches
                 for line in lines[:20]:
+                    clean_line = sanitize_for_terminal(line)
                     # Color the matching part
                     colored_line = re.sub(
                         f'({pattern})',
                         f'{Colors.YELLOW}\\1{Colors.RESET}',
-                        line,
+                        clean_line,
                         flags=re.IGNORECASE
                     )
                     print(f"  {Colors.WHITE}{colored_line}{Colors.RESET}")

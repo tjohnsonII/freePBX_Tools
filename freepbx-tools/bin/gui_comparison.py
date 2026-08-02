@@ -142,12 +142,12 @@ class FreePBXGUIComparator:
         # Get tool data
         cmd = ["python", "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py", "--did", str(did)]
         try:
-            tool_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            tool_result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             # Fallback for different Python command or missing file
             try:
                 cmd = ["python3", "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py", "--did", str(did)]
-                tool_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                tool_result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 print(f"❌ Could not execute call flow tool for DID {did}")
                 return False
