@@ -3241,7 +3241,10 @@ def _self_test_defaults(did_rows):
     return {
         "did": first_did,
         "extension": "963",
-        "caller_id": "7346427842",
+        # Safe placeholder caller ID — never a real phone number. call_simulator.py's
+        # own methods default to "7140" for exactly this reason; a real number here
+        # previously caused the self-test to place an actual outbound call to it.
+        "caller_id": "7140",
         "sip_code": "404",
         "ping_host": "8.8.8.8",
         "traceroute_host": "8.8.8.8",
