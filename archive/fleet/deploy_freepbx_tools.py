@@ -466,7 +466,7 @@ def _fetch_server_branch_files() -> Optional[str]:
     atexit.register(shutil.rmtree, tmpdir, ignore_errors=True)
 
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
-        tar.extractall(tmpdir)
+        tar.extractall(tmpdir, filter='data')
 
     source = os.path.join(tmpdir, "freepbx-tools")
     if not os.path.isdir(source):
@@ -657,8 +657,13 @@ def deploy_to_server(
             result['success'] = True
             return result
         
-        # Create temporary upload directory in user's home
-        temp_dir = "/home/123net/freepbx-tools"
+        # Detect the SSH user's actual home directory so staging works for any user
+        stdin, stdout, stderr = ssh.exec_command("echo $HOME")
+        stdout.channel.recv_exit_status()
+        remote_home = stdout.read().decode("utf-8", errors="ignore").strip()
+        if not remote_home or not remote_home.startswith("/"):
+            remote_home = f"/home/{username}"
+        temp_dir = f"{remote_home}/freepbx-tools"
         print(f"[{server_ip}] Creating temporary directory: {temp_dir}")
         stdin, stdout, stderr = ssh.exec_command(f"rm -rf {temp_dir} && mkdir -p {temp_dir}/bin")
         stdout.channel.recv_exit_status()
