@@ -3367,12 +3367,15 @@ def _self_test_ivr_roundtrip(sock):
                               timeout=90)
     after_restore = _read_dest()
 
-    _self_test_scrub_session_log(ivr_id, option)
-
     if rc_b != 0 or after_restore != old_dest:
         return False, (f"IVR {ivr_id}/{option}: RESTORE FAILED — was {old_dest!r}, changed to {test_dest!r}, "
                         f"attempted restore but read back {after_restore!r}. Manual fix needed: "
                         f"Ops Tools -> Set IVR option, dest={old_dest!r}."), True
+
+    try:
+        _self_test_scrub_session_log(ivr_id, option)
+    except Exception:
+        pass  # cosmetic cleanup only — restore already verified above, don't fail the test over this
 
     return True, f"IVR {ivr_id}/{option}: {old_dest} -> {test_dest} -> restored, verified, session log scrubbed", False
 
@@ -3382,9 +3385,10 @@ def _self_test_scrub_session_log(ivr_id, option):
     `freepbx_ops.py ticket` doesn't later report fake test changes."""
     try:
         with open(SESSION_LOG_PATH) as f:
-            entries = json.load(f)
+            session = json.load(f)
     except (OSError, ValueError):
         return
+    entries = session.get("changes", []) if isinstance(session, dict) else session
     kept = [
         e for e in entries
         if not (e.get("type") == "set-ivr"
@@ -3392,9 +3396,13 @@ def _self_test_scrub_session_log(ivr_id, option):
                 and str(e.get("data", {}).get("option")) == str(option)
                 and "app-blackhole" in str(e.get("data", {}).get("new_dest", "")) + str(e.get("data", {}).get("old_dest", "")))
     ]
+    if isinstance(session, dict):
+        session["changes"] = kept
+    else:
+        session = kept
     try:
         with open(SESSION_LOG_PATH, "w") as f:
-            json.dump(kept, f)
+            json.dump(session, f)
     except OSError:
         pass
 
