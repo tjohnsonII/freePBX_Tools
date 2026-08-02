@@ -3153,7 +3153,7 @@ def run_show_unregistered_phones(sock):
 
 def run_phone_analysis_menu(sock):
     """Interactive phone/endpoint analysis menu."""
-    PHONE_ANALYZER_SCRIPT = os.path.join(os.path.dirname(__file__), "freepbx_phone_analyzer.py")
+    PHONE_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_phone_analyzer.py"
 
     if not os.path.isfile(PHONE_ANALYZER_SCRIPT):
         print(f"{Colors.RED}❌ Phone analyzer tool not found.{Colors.RESET}")
@@ -3425,7 +3425,7 @@ def _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls):
     (section, label, classification, run_callable) where run_callable
     returns (passed: bool, detail: str)."""
     did = defaults["did"]
-    phone_analyzer_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "freepbx_phone_analyzer.py")
+    phone_analyzer_script = "/usr/local/123net/freepbx-tools/bin/freepbx_phone_analyzer.py"
     cases = []
 
     def add(section, label, cls, fn):

@@ -167,14 +167,13 @@ def _rg_label(grpnum):
     return f"Ring Group {grpnum}" + (f" — {name}" if name else "")
 
 def _tc_label(tcid):
-    tbl = "time_conditions" if has_table("time_conditions") else "timeconditions"
-    col = "name" if has_col(tbl, "name") else "displayname"
-    row = qone(f"SELECT {col} FROM {tbl} WHERE timeconditions_id='{tcid}';", ["name"])
+    col = "displayname" if has_col("timeconditions", "displayname") else "name"
+    row = qone(f"SELECT {col} FROM timeconditions WHERE timeconditions_id='{tcid}';", ["name"])
     name = row["name"] if row else None
     return f"Time Condition {tcid}" + (f" — {name}" if name else "")
 
 def _ivr_name(ivr_id):
-    row = qone(f"SELECT displayname FROM ivr_details WHERE id='{ivr_id}' AND keyword='name';", ["name"])
+    row = qone(f"SELECT name FROM ivr_details WHERE id='{ivr_id}';", ["name"])
     return row["name"] if row else None
 
 def _ivr_label(ivr_id):
@@ -215,13 +214,12 @@ def load_did(did):
     return None
 
 def load_tc(tcid):
-    tbl = "time_conditions" if has_table("time_conditions") else "timeconditions"
-    col_name = "name" if has_col(tbl, "name") else "displayname"
-    col_true = "truedest" if has_col(tbl, "truedest") else "truedest"
-    col_false = "falsedest" if has_col(tbl, "falsedest") else "falsedest"
+    col_name = "displayname" if has_col("timeconditions", "displayname") else "name"
+    col_true = "truegoto" if has_col("timeconditions", "truegoto") else "truedest"
+    col_false = "falsegoto" if has_col("timeconditions", "falsegoto") else "falsedest"
     return qone(
         f"SELECT timeconditions_id, {col_name}, {col_true}, {col_false} "
-        f"FROM {tbl} WHERE timeconditions_id='{tcid}';",
+        f"FROM timeconditions WHERE timeconditions_id='{tcid}';",
         ["id", "name", "truedest", "falsedest"]
     )
 
@@ -352,15 +350,15 @@ def cmd_find(args):
 
     # Extensions / Users
     rows = qrows(
-        f"SELECT extension, name, email FROM users "
-        f"WHERE extension LIKE '%{q}%' OR name LIKE '%{q}%' OR email LIKE '%{q}%' LIMIT 20;",
-        ["ext", "name", "email"]
+        f"SELECT extension, name FROM users "
+        f"WHERE extension LIKE '%{q}%' OR name LIKE '%{q}%' LIMIT 20;",
+        ["ext", "name"]
     )
     if rows:
         found = True
         print(f"{C.BOLD}Extensions:{C.RESET}")
         for r in rows:
-            print(f"  {C.GREEN}{r['ext']:<8}{C.RESET} {r['name']:<30} {r['email']}")
+            print(f"  {C.GREEN}{r['ext']:<8}{C.RESET} {r['name']}")
         print()
 
     # Ring Groups
@@ -378,8 +376,8 @@ def cmd_find(args):
 
     # IVRs
     rows = qrows(
-        f"SELECT id, displayname FROM ivr_details "
-        f"WHERE keyword='name' AND (id LIKE '%{q}%' OR displayname LIKE '%{q}%') LIMIT 10;",
+        f"SELECT id, name FROM ivr_details "
+        f"WHERE id LIKE '%{q}%' OR name LIKE '%{q}%' LIMIT 10;",
         ["id", "name"]
     )
     if rows:
@@ -418,10 +416,9 @@ def cmd_find(args):
         print()
 
     # Time Conditions
-    tbl = "time_conditions" if has_table("time_conditions") else "timeconditions"
-    col = "name" if has_col(tbl, "name") else "displayname"
+    col = "displayname" if has_col("timeconditions", "displayname") else "name"
     rows = qrows(
-        f"SELECT timeconditions_id, {col} FROM {tbl} "
+        f"SELECT timeconditions_id, {col} FROM timeconditions "
         f"WHERE {col} LIKE '%{q}%' OR timeconditions_id LIKE '%{q}%' LIMIT 10;",
         ["id", "name"]
     )
@@ -489,11 +486,10 @@ def cmd_snapshot(args):
     ok(f"IVR entries: {len(rows)}")
 
     # Time conditions
-    tbl     = "time_conditions" if has_table("time_conditions") else "timeconditions"
-    col_n   = "name" if has_col(tbl, "name") else "displayname"
-    col_t   = "truedest"
-    col_f   = "falsedest"
-    rows    = qrows(f"SELECT timeconditions_id, {col_n}, {col_t}, {col_f} FROM {tbl};",
+    col_n   = "displayname" if has_col("timeconditions", "displayname") else "name"
+    col_t   = "truegoto" if has_col("timeconditions", "truegoto") else "truedest"
+    col_f   = "falsegoto" if has_col("timeconditions", "falsegoto") else "falsedest"
+    rows    = qrows(f"SELECT timeconditions_id, {col_n}, {col_t}, {col_f} FROM timeconditions;",
                     ["id", "name", "truedest", "falsedest"])
     snap["time_conditions"] = rows
     ok(f"Time conditions: {len(rows)}")
@@ -584,9 +580,10 @@ def cmd_validate(args):
             issues.append(f"Ring Group {rg['grpnum']} ({rg['description']}): no members")
 
     # 3. Time conditions missing true or false destination
-    tbl   = "time_conditions" if has_table("time_conditions") else "timeconditions"
-    col_n = "name" if has_col(tbl, "name") else "displayname"
-    rows  = qrows(f"SELECT timeconditions_id, {col_n}, truedest, falsedest FROM {tbl};",
+    col_n = "displayname" if has_col("timeconditions", "displayname") else "name"
+    col_t = "truegoto" if has_col("timeconditions", "truegoto") else "truedest"
+    col_f = "falsegoto" if has_col("timeconditions", "falsegoto") else "falsedest"
+    rows  = qrows(f"SELECT timeconditions_id, {col_n}, {col_t}, {col_f} FROM timeconditions;",
                   ["id", "name", "truedest", "falsedest"])
     for tc in rows:
         if not tc.get("truedest"):
