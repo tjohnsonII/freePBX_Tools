@@ -2936,12 +2936,15 @@ def run_cdr_analysis_menu(sock):
             number = prompt(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
             if number:
                 hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
+                if not hours.isdigit():
+                    hours = "72"
                 if os.path.isfile(CDR_ANALYZER_SCRIPT):
                     run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number, "--hours", hours])
                 else:
                     # Inline fallback: direct MySQL query
+                    digits = re.sub(r"\D", "", number)
                     sql = (f"SELECT calldate, src, dst, disposition, duration, billsec "
-                           f"FROM cdr WHERE (src LIKE '%{number}%' OR dst LIKE '%{number}%') "
+                           f"FROM cdr WHERE (src LIKE '%{digits}%' OR dst LIKE '%{digits}%') "
                            f"AND calldate >= DATE_SUB(NOW(), INTERVAL {hours} HOUR) "
                            f"ORDER BY calldate DESC LIMIT 50;")
                     rc, out, err = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asteriskcdrdb"])
