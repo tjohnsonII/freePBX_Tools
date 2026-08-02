@@ -87,10 +87,13 @@ class FreePBXCallSimulator:
         """
         Initialize the call simulator.
         Args:
-            server_ip (str): Target FreePBX/Asterisk server IP.
+            server_ip (str): Target FreePBX/Asterisk server IP. If not given,
+                defaults to THIS box's own IP — a tool deployed to a given
+                PBX must test that PBX by default, not silently target
+                whichever server it happened to be developed against.
             ssh_user (str): SSH username for remote execution.
         """
-        self.server_ip = server_ip or "69.39.69.102"  # Default server IP
+        self.server_ip = server_ip or self._detect_local_ip()
         self.ssh_user = ssh_user                      # SSH user
         self.spool_dir = "/var/spool/asterisk/outgoing"  # Asterisk call file spool
         self.tmp_dir = "/tmp"                        # Temp directory for file staging
@@ -98,7 +101,22 @@ class FreePBXCallSimulator:
         self.test_results = []                        # Store test results
         self.debug = False                            # Enable debug output when True
         self.is_local_execution = self._is_local_execution()  # Detect local/remote
-        
+
+    def _detect_local_ip(self):
+        """Best-effort detection of this box's own primary IP, used as the
+        default test target when none is explicitly given."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except OSError:
+                return "127.0.0.1"
+
 
     def debug_print(self, message, level="INFO"):
         """
@@ -832,7 +850,7 @@ def main():
     Parses command-line arguments and dispatches to the appropriate test method.
     """
     parser = argparse.ArgumentParser(description="FreePBX Call Simulator")
-    parser.add_argument("--server", default="69.39.69.102", help="FreePBX server IP")
+    parser.add_argument("--server", default=None, help="FreePBX server IP (default: this box's own IP)")
     parser.add_argument("--user", default="123net", help="SSH username")
     parser.add_argument("--did", help="Test specific DID (incoming call)")
     parser.add_argument("--destination", help="Destination number to ring (e.g., cell phone)")
@@ -852,7 +870,7 @@ def main():
     print(f"{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
     print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 FREEPBX CALL SIMULATOR{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     print(f"{Colors.CYAN}╠{'═' * 78}╣{Colors.RESET}")
-    print(f"{Colors.CYAN}║{Colors.WHITE} Server: {Colors.GREEN}{Colors.BOLD}{args.server:<67}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.WHITE} Server: {Colors.GREEN}{Colors.BOLD}{simulator.server_ip:<67}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     print(f"{Colors.CYAN}║{Colors.WHITE} User: {Colors.CYAN}{Colors.BOLD}{args.user:<69}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
     if args.caller_id:
         print(f"{Colors.CYAN}║{Colors.WHITE} Caller ID: {Colors.MAGENTA}{Colors.BOLD}{args.caller_id:<64}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")

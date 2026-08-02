@@ -399,6 +399,7 @@ LOG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_log_analyzer.
 CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.py"
 CALL_LEG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_call_leg_analyzer.py"
 OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
+CERT_CHECK_SCRIPT  = "/usr/local/123net/freepbx-tools/bin/freepbx_cert_check.py"
 SMTP_CONFIG_PATH   = "/etc/123net-freepbx-tools/smtp.json"
 SELF_TEST_DIR       = os.path.join(OUT_DIR, "self_test")
 
@@ -867,17 +868,23 @@ def run_extension_test():
         print("Cancelled.")
         return
 
-    print("\n📱 Extension Call Test")
+    print("\n📱 Extension-to-Extension Call Test")
 
     print_tip("3-5 digit internal extension, e.g. 963.")
-    extension = prompt("Enter extension number to test: ").strip()
-    if not extension:
-        print("❌ Extension number required.")
+    source_ext = prompt("Source extension (shown as caller ID): ").strip()
+    if not source_ext:
+        print("❌ Source extension required.")
         return
-    
-    caller_id = prompt("Enter caller ID to use (default 7346427842): ").strip() or "7346427842"
-    
-    print(f"\n🚀 Testing extension {extension} with caller ID {caller_id}")
+
+    dest_ext = prompt("Destination extension (who gets called): ").strip()
+    if not dest_ext:
+        print("❌ Destination extension required.")
+        return
+
+    extension = dest_ext
+    caller_id = source_ext
+
+    print(f"\n🚀 Testing {source_ext} -> {dest_ext}")
     
     confirm = prompt("Continue? (y/N): ").strip().lower()
     if confirm != 'y':
@@ -3217,32 +3224,16 @@ def run_phone_analysis_menu(sock):
 SESSION_LOG_PATH = "/tmp/freepbx_ops_session.json"
 
 
-def _self_test_is_local_target():
-    """Replicates call_simulator.py's _is_local_execution() check against its
-    own hardcoded default server_ip (69.39.69.102) — if this host isn't that
-    one, every LIVE_CALL test would silently SSH out and test THAT box
-    instead of this one, which the self-test must never do unannounced."""
-    import socket
-    target_ip = "69.39.69.102"  # call_simulator.py's FreePBXCallSimulator default
-    try:
-        local_ips = {"127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())}
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ips.add(s.getsockname()[0])
-            s.close()
-        except OSError:
-            pass
-        return target_ip in local_ips
-    except OSError:
-        return False
-
-
-def _self_test_defaults(did_rows, chosen_did=None):
+def _self_test_defaults(did_rows, data=None, chosen_did=None):
     first_did = chosen_did or (str(did_rows[0][1]) if did_rows else "2485551212")
+    # Pick a real extension from THIS box's own data rather than hardcoding
+    # one from wherever this tool was originally developed — different PBXs
+    # have entirely different extension numbering.
+    extensions = (data or {}).get("extensions") or []
+    first_extension = str(extensions[0].get("extension")) if extensions else "100"
     return {
         "did": first_did,
-        "extension": "963",
+        "extension": first_extension,
         # Standard safe caller ID for test calls — a known 123.net number, not
         # a real person's phone. Decoupled from the DID under test (which the
         # user picks separately) now that call_simulator.py never dials
@@ -3587,6 +3578,8 @@ def _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls):
         lambda: _st_run(["python3", OPS_SCRIPT, "--socket", sock, "validate"], timeout=90))
     add("Ops Tools", "Print ticket note", "SAFE_READONLY",
         lambda: _st_run(["python3", OPS_SCRIPT, "--socket", sock, "ticket"]))
+    add("Main Menu", "Certificate status (web GUI + SIP TLS)", "SAFE_READONLY",
+        lambda: _st_run(["python3", CERT_CHECK_SCRIPT]))
 
     # ---- MUTATING (only if include_live_calls, since these have live side effects too) ----
     if include_live_calls:
@@ -3670,13 +3663,11 @@ def run_self_test(sock, data, did_rows):
     print(f"\n{Colors.CYAN}{Colors.BOLD}=== Self-Test: Full Program Diagnostic ==={Colors.RESET}\n")
     print("Exercises every menu option's underlying action and writes a report.")
 
-    is_local = _self_test_is_local_target()
+    # call_simulator.py now defaults to THIS box's own IP when no --server is
+    # given (which the self-test never does), so live-call tests always
+    # target the system the self-test is actually running on — no more
+    # "wrong box" risk to gate on here.
     include_live_calls = True
-    if not is_local:
-        print(f"\n{Colors.RED}{Colors.BOLD}⚠  This host does not match call_simulator.py's default target (69.39.69.102).{Colors.RESET}")
-        print(f"{Colors.YELLOW}   Live-call and mutating tests would SSH there and test THAT system, not this one.{Colors.RESET}")
-        ans = prompt(f"{Colors.YELLOW}Include them anyway, targeting the remote box? (y/N): {Colors.RESET}").strip().lower()
-        include_live_calls = ans == "y"
 
     chosen_did = None
     if include_live_calls and did_rows:
@@ -3726,7 +3717,7 @@ def run_self_test(sock, data, did_rows):
         if snap_rc != 0:
             print(f"{Colors.YELLOW}⚠ Pre-test snapshot failed — proceeding anyway: {(snap_err or snap_out)[:200]}{Colors.RESET}")
 
-    defaults = _self_test_defaults(did_rows, chosen_did=chosen_did)
+    defaults = _self_test_defaults(did_rows, data=data, chosen_did=chosen_did)
     cases = _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls)
 
     results = []
@@ -3880,6 +3871,7 @@ def main():
             print(menu_line("16", "Run full self-test (exercises every menu option, writes a report)"))
             print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
             print(menu_line("18", "Phone/Endpoint Analysis"))
+            print(menu_line("21", "Certificate Status (web GUI + SIP TLS)"))
             print(menu_section("Ops Tools"))
             print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
             print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
@@ -4006,6 +3998,14 @@ def main():
 
             elif choice == "18":
                 run_phone_analysis_menu(sock)
+
+            elif choice == "21":
+                if os.path.isfile(CERT_CHECK_SCRIPT):
+                    run_interactive(["python3", CERT_CHECK_SCRIPT])
+                else:
+                    print(f"{Colors.RED}Certificate check tool not found.{Colors.RESET}")
+                print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+                prompt()
 
             elif choice == "20":
                 run_ops_menu(sock)

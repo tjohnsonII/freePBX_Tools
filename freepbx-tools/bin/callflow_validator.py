@@ -94,8 +94,11 @@ def setup_logging(debug=False):
 logger = None
 
 class CallFlowValidator:
-    def __init__(self, server_ip="69.39.69.102", ssh_user="123net", debug=False):
-        self.server_ip = server_ip
+    def __init__(self, server_ip=None, ssh_user="123net", debug=False):
+        # No server_ip given -> default to THIS box's own IP, not a
+        # hardcoded lab server. A tool deployed to a given PBX must
+        # validate that PBX by default.
+        self.server_ip = server_ip or self._detect_local_ip()
         self.ssh_user = ssh_user
         self.debug = debug
         self.callflow_tool = "/usr/local/123net/freepbx-tools/bin/freepbx_version_aware_ascii_callflow.py"
@@ -108,7 +111,22 @@ class CallFlowValidator:
         self.logger.info(f"  Server IP: {self.server_ip}")
         self.logger.info(f"  SSH User: {self.ssh_user}")
         self.logger.info(f"  Debug Mode: {self.debug}")
-        
+
+    def _detect_local_ip(self):
+        """Best-effort detection of this box's own primary IP, used as the
+        default validation target when none is explicitly given."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except OSError:
+                return "127.0.0.1"
+
     def get_predicted_flow(self, did):
         """Get predicted call flow from our ASCII tool"""
         self.logger.info(f"Getting predicted call flow for DID: {did}")
@@ -628,15 +646,15 @@ Archive: no
 def main():
     parser = argparse.ArgumentParser(description='FreePBX Call Flow Validator')
     parser.add_argument('did', help='DID number to validate')
-    parser.add_argument('--server', default='69.39.69.102', help='Server IP (default: 69.39.69.102)')
+    parser.add_argument('--server', default=None, help="Server IP (default: this box's own IP)")
     parser.add_argument('--user', default='123net', help='SSH user (default: 123net)')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-    
+
     # Handle both new and old argument formats
     if len(sys.argv) >= 2 and not sys.argv[1].startswith('-') and '--' not in ' '.join(sys.argv):
         # Old format: script.py DID [server] [user] (no -- flags present)
         did = sys.argv[1]
-        server_ip = sys.argv[2] if len(sys.argv) > 2 else "69.39.69.102"
+        server_ip = sys.argv[2] if len(sys.argv) > 2 else None
         ssh_user = sys.argv[3] if len(sys.argv) > 3 else "123net"
         debug = False
     else:
@@ -645,7 +663,7 @@ def main():
             print("Usage: python3 callflow_validator.py <DID> [--server IP] [--user USER] [--debug]")
             print("Example: python3 callflow_validator.py 2485815200 --debug")
             sys.exit(1)
-        
+
         args = parser.parse_args()
         did = args.did
         server_ip = args.server
@@ -660,11 +678,11 @@ def main():
     logger.info(f"Arguments: DID={did}, Server={server_ip}, User={ssh_user}, Debug={debug}")
     
     validator = CallFlowValidator(server_ip, ssh_user, debug)
-    
+
     print("🎯 FREEPBX CALL FLOW VALIDATOR")
     print("=" * 40)
     print(f"DID: {did}")
-    print(f"Server: {server_ip}")
+    print(f"Server: {validator.server_ip}")
     print(f"User: {ssh_user}")
     if debug:
         print(f"Debug: ENABLED (logs to /tmp/callflow_validator.log)")
