@@ -429,18 +429,21 @@ def cmd_find(args):
             print(f"  {C.GREEN}{r['id']:<8}{C.RESET} {r['name']}")
         print()
 
-    # Voicemail
-    rows = qrows(
-        f"SELECT mailbox, fullname, email FROM voicemail WHERE "
-        f"mailbox LIKE '%{q}%' OR fullname LIKE '%{q}%' OR email LIKE '%{q}%' LIMIT 10;",
-        ["mailbox", "fullname", "email"]
-    )
-    if rows:
-        found = True
-        print(f"{C.BOLD}Voicemail:{C.RESET}")
-        for r in rows:
-            print(f"  {C.GREEN}{r['mailbox']:<8}{C.RESET} {r['fullname']:<30} {r['email']}")
-        print()
+    # Voicemail (some FreePBX schemas keep this as its own table; others fold
+    # voicemail settings into the users table with no standalone equivalent —
+    # skip gracefully rather than erroring when it's not there)
+    if has_table("voicemail"):
+        rows = qrows(
+            f"SELECT mailbox, fullname, email FROM voicemail WHERE "
+            f"mailbox LIKE '%{q}%' OR fullname LIKE '%{q}%' OR email LIKE '%{q}%' LIMIT 10;",
+            ["mailbox", "fullname", "email"]
+        )
+        if rows:
+            found = True
+            print(f"{C.BOLD}Voicemail:{C.RESET}")
+            for r in rows:
+                print(f"  {C.GREEN}{r['mailbox']:<8}{C.RESET} {r['fullname']:<30} {r['email']}")
+            print()
 
     # Queues
     if has_table("queues_config"):
@@ -601,12 +604,14 @@ def cmd_validate(args):
         if not dest:
             issues.append(f"DID {r[dc]} ({r['description']}): no destination configured")
 
-    # 5. Voicemail boxes with no email
-    rows = qrows("SELECT mailbox, fullname, email FROM voicemail WHERE context='default';",
-                 ["mailbox", "fullname", "email"])
-    for vm in rows:
-        if not vm.get("email","").strip():
-            issues.append(f"Voicemail {vm['mailbox']} ({vm['fullname']}): no email address")
+    # 5. Voicemail boxes with no email (only on schemas with a standalone
+    # voicemail table — see the matching note in cmd_find())
+    if has_table("voicemail"):
+        rows = qrows("SELECT mailbox, fullname, email FROM voicemail WHERE context='default';",
+                     ["mailbox", "fullname", "email"])
+        for vm in rows:
+            if not vm.get("email","").strip():
+                issues.append(f"Voicemail {vm['mailbox']} ({vm['fullname']}): no email address")
 
     # 6. IVR entries with duplicate selections
     rows = qrows(
@@ -844,7 +849,13 @@ def main():
     try:
         fn = dispatch.get(args.cmd)
         if fn:
-            sys.exit(fn(args) or 0)
+            # cmd_snapshot() returns its filename (reused internally by
+            # cmd_set_ivr()'s auto-snapshot step) rather than an int exit
+            # code — sys.exit() given a non-empty string prints it to
+            # stderr and exits 1, so only treat an actual int as an exit
+            # code; anything else (including that filename) means success.
+            result = fn(args)
+            sys.exit(result if isinstance(result, int) else 0)
         else:
             p.print_help()
     except RuntimeError as e:
