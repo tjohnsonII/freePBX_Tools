@@ -42,7 +42,7 @@ See function docstrings for additional details on arguments and return values.
         main                     : Main menu loop and entry point
 """
 
-import json, os, sys, subprocess, time, shutil, re, threading, smtplib
+import json, os, sys, subprocess, time, shutil, re, threading, smtplib, zipfile
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -1924,11 +1924,14 @@ def render_dids(did_rows, indexes, sock, skip_labels=None):
             bad += 1
 
     print(f"\nDone. Success: {ok}, Failed: {bad}")
-    # Only offer to email when exactly one file was rendered — bulk "ALL DIDs"
-    # renders can produce dozens of SVGs, and emailing each individually (or
-    # bundling them) isn't worth the complexity for this pass.
     if len(ok_files) == 1:
         maybe_email_file(ok_files[0], default_subject="freepbx-tools: call-flow diagram")
+    elif len(ok_files) > 1:
+        zip_path = os.path.join(OUT_DIR, f"callflows_{int(time.time())}.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in ok_files:
+                zf.write(f, arcname=os.path.basename(f))
+        maybe_email_file(zip_path, default_subject="freepbx-tools: call-flow diagrams")
 
 
 def get_service_status(services):
