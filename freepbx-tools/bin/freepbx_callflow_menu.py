@@ -3604,7 +3604,7 @@ def _st_sip_lookup(code):
         return False, f"exception: {e}"
 
 
-def _write_self_test_report(results, loud_failures, is_local, include_live_calls, total_elapsed, data):
+def _write_self_test_report(results, loud_failures, include_live_calls, total_elapsed, data):
     ts = time.strftime("%Y%m%d_%H%M%S")
     os.makedirs(SELF_TEST_DIR, exist_ok=True)
     path = os.path.join(SELF_TEST_DIR, f"self_test_{ts}.txt")
@@ -3621,8 +3621,7 @@ def _write_self_test_report(results, loud_failures, is_local, include_live_calls
         f"Generated:        {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"Host:             {hostname}",
         f"Tool version:     {tool_ver}",
-        f"Live calls run:   {'yes' if include_live_calls else 'no (skipped)'} "
-        f"(local-target check: {'passed' if is_local else 'FAILED — would have targeted a remote box'})",
+        f"Live calls run:   {'yes' if include_live_calls else 'no (skipped)'}",
         f"Total runtime:    {total_elapsed:.0f}s",
         f"Results:          {pass_n} passed, {fail_n} failed, {skip_n} skipped (of {len(results)})",
         "",
@@ -3753,7 +3752,7 @@ def run_self_test(sock, data, did_rows):
         print(f"\n{Colors.RED}{Colors.BOLD}⚠⚠⚠  {len(loud_failures)} mutating test(s) may have left live state "
               f"changed — see the report for exact manual-fix steps ⚠⚠⚠{Colors.RESET}")
 
-    report_path = _write_self_test_report(results, loud_failures, is_local, include_live_calls, total_elapsed, data)
+    report_path = _write_self_test_report(results, loud_failures, include_live_calls, total_elapsed, data)
     print(f"\nReport written to: {report_path}")
     maybe_email_file(report_path, default_subject="freepbx-tools: self-test report")
 
