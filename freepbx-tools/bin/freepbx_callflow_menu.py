@@ -747,6 +747,8 @@ def run_did_call_test(did_rows):
             return
 
         _, did, label, _, _ = did_rows[choice - 1]
+        print_tip("A number here actually dials out to it (e.g. your own cell) — it "
+                  "will really ring. Leave blank unless that's what you want to test.")
         destination = prompt(
             f"{Colors.YELLOW}Force ring to a specific number (optional — leave blank to follow "
             f"the DID's actual configured routing, e.g. its queue/IVR/ring group): {Colors.RESET}"
@@ -3241,12 +3243,12 @@ def _self_test_defaults(did_rows, chosen_did=None):
     return {
         "did": first_did,
         "extension": "963",
-        # Use a real DID already configured on this system (picked by the user,
-        # or the first one on file) rather than a synthetic number — legitimate
-        # and safe now that call_simulator.py never dials caller_id as a
-        # destination (see the earlier fix: it previously did, and a fake or
-        # real-but-unrelated number here caused an actual outbound call).
-        "caller_id": first_did,
+        # Standard safe caller ID for test calls — a known 123.net number, not
+        # a real person's phone. Decoupled from the DID under test (which the
+        # user picks separately) now that call_simulator.py never dials
+        # caller_id as a destination (see the earlier fix: it previously did,
+        # and a real-but-unrelated number here caused an actual outbound call).
+        "caller_id": "8884400123",
         "sip_code": "404",
         "ping_host": "8.8.8.8",
         "traceroute_host": "8.8.8.8",
