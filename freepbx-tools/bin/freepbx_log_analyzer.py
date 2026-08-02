@@ -494,8 +494,8 @@ class LogAnalyzer:
         try:
             result = subprocess.run(
                 ["dmesg", "-T"],  # -T for human-readable timestamps
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=10
             )
             
@@ -571,8 +571,8 @@ class LogAnalyzer:
             # Check for errors across all services
             result = subprocess.run(
                 ["journalctl", "--since", since, "-p", "err", "--no-pager"],
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=15
             )
             
@@ -608,8 +608,8 @@ class LogAnalyzer:
                 try:
                     status_result = subprocess.run(
                         ["systemctl", "is-active", service],
-                        capture_output=True,
-                        text=True,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        universal_newlines=True,
                         timeout=5
                     )
                     status = status_result.stdout.strip()
@@ -653,8 +653,8 @@ class LogAnalyzer:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=30
             )
             

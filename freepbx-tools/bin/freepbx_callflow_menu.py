@@ -2649,7 +2649,7 @@ def run_inline_log_analysis_timed(hours=1):
     def _grep(pattern, lines=None):
         n = lines or tail_lines
         cmd = f"tail -{n} {full_log} | grep -iE '{pattern}'"
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        r = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15)
         return r.stdout.strip().split('\n') if r.stdout.strip() else []
 
     # Errors
@@ -2729,7 +2729,7 @@ def run_inline_log_analysis():
     
     # Check errors
     cmd = f"tail -1000 {full_log} | grep -E 'ERROR|CRITICAL'"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
     
     if result.stdout.strip():
         errors = result.stdout.strip().split('\n')
@@ -2758,7 +2758,7 @@ def run_inline_log_analysis():
     # Check trunk status
     print(f"\n{Colors.CYAN}📡 Checking trunk status...{Colors.RESET}")
     cmd = f"tail -500 {full_log} | grep -E 'trunk.*Unreachable|Registration.*failed'"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
     
     if result.stdout.strip():
         trunk_issues = result.stdout.strip().split('\n')
@@ -2771,7 +2771,7 @@ def run_inline_log_analysis():
     # Check authentication failures
     print(f"\n{Colors.CYAN}🔒 Checking security events...{Colors.RESET}")
     cmd = f"tail -500 {full_log} | grep -i 'failed.*auth\\|SECURITY'"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
     
     if result.stdout.strip():
         security_events = result.stdout.strip().split('\n')
