@@ -152,24 +152,34 @@ class FreePBXCallSimulator:
         """
         Check if we're running on the same server as the target.
         Returns True if the script is running on the same host as the target server_ip.
+        Checks every IP on every local interface (via `hostname -I`), not just
+        hostname resolution or the single interface used for outbound
+        routing — a multi-homed box (e.g. separate management/VoIP NICs)
+        needs every interface checked, or this silently falls through to
+        SSHing to itself and prompting for a password mid-test.
         """
         try:
-            # Get local IP addresses
-            hostname = socket.gethostname()
-            local_ips = set()
-            local_ips.add(socket.gethostbyname(hostname))
-            local_ips.add("127.0.0.1")
-            local_ips.add("localhost")
-            # Add all local interface IPs
+            local_ips = {"127.0.0.1", "localhost"}
+            try:
+                local_ips.add(socket.gethostbyname(socket.gethostname()))
+            except OSError:
+                pass
+            try:
+                out = subprocess.run(["hostname", "-I"], stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, universal_newlines=True, timeout=5)
+                if out.returncode == 0:
+                    local_ips.update(out.stdout.split())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ips.add(s.getsockname()[0])
                 s.close()
-            except:
+            except OSError:
                 pass
             return self.server_ip in local_ips
-        except:
+        except OSError:
             return False
     
 

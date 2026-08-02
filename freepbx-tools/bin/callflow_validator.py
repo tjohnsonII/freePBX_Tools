@@ -46,6 +46,36 @@ import argparse
 import logging
 from datetime import datetime
 
+def get_all_local_ips():
+    """Enumerate every IPv4 address configured on this host's network
+    interfaces — not just the one hostname resolution or a single
+    outbound-routing check happens to return. A multi-homed box (e.g.
+    separate management/VoIP NICs) can have its "local-execution" checks
+    silently disagree if they each only look at one interface, which
+    otherwise falls through to SSHing to itself and prompting for a
+    password mid-test."""
+    ips = {"127.0.0.1", "localhost"}
+    try:
+        out = subprocess.run(["hostname", "-I"], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True, timeout=5)
+        if out.returncode == 0:
+            ips.update(out.stdout.split())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        ips.add(socket.gethostbyname(socket.gethostname()))
+    except OSError:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    return ips
+
+
 class Colors:
     """ANSI color codes for terminal output"""
     CYAN = '\033[96m'
@@ -132,21 +162,12 @@ class CallFlowValidator:
         self.logger.info(f"Getting predicted call flow for DID: {did}")
         
         try:
-            # Check if we're running on the same server - if so, run locally
-            local_hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(local_hostname)
-            
-            self.logger.debug(f"Localhost detection:")
-            self.logger.debug(f"  Local hostname: {local_hostname}")
-            self.logger.debug(f"  Local IP: {local_ip}")
-            self.logger.debug(f"  Target server IP: {self.server_ip}")
-            
-            # Check if we should run locally
-            is_local = (
-                self.server_ip in ['localhost', '127.0.0.1', local_ip] or 
-                local_hostname.startswith('pbx') or
-                self.server_ip in local_ip  # Additional check
-            )
+            # Check if we're running on the same server - if so, run locally.
+            # Checks every local IP (multi-homed boxes have more than one),
+            # not just whatever hostname resolution happens to return.
+            local_ips = get_all_local_ips()
+            self.logger.debug(f"Localhost detection: local IPs={local_ips}, target={self.server_ip}")
+            is_local = self.server_ip in local_ips
             
             self.logger.info(f"Running locally: {is_local}")
             
@@ -305,16 +326,9 @@ Archive: no
         self.logger.debug(f"Call file content:\n{call_content}")
         
         try:
-            # Check if we should run locally
-            local_hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(local_hostname)
-            
-            is_local = (
-                self.server_ip in ['localhost', '127.0.0.1', local_ip] or 
-                local_hostname.startswith('pbx') or
-                self.server_ip == local_ip
-            )
-            
+            # Check if we should run locally (every local IP, not just one)
+            is_local = self.server_ip in get_all_local_ips()
+
             self.logger.info(f"Call file execution - running locally: {is_local}")
             
             if is_local:
@@ -413,17 +427,12 @@ Archive: no
     def _analyze_asterisk_logs(self, call_id):
         """Analyze Asterisk logs for call behavior"""
         try:
-            # Check if we should run locally (same detection used elsewhere in
-            # this class) — without it, this always SSHes to self.server_ip
-            # even when already running on that exact box, which can hang or
-            # time out if local SSH access isn't set up.
-            local_hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(local_hostname)
-            is_local = (
-                self.server_ip in ['localhost', '127.0.0.1', local_ip] or
-                local_hostname.startswith('pbx') or
-                self.server_ip == local_ip
-            )
+            # Check if we should run locally (every local IP, not just one —
+            # see get_all_local_ips()) — without it, this always SSHes to
+            # self.server_ip even when already running on that exact box,
+            # which can hang or prompt for a password if local SSH access
+            # isn't set up.
+            is_local = self.server_ip in get_all_local_ips()
 
             log_cmd = f"tail -n +{self.log_baseline + 1} /var/log/asterisk/full | grep -E '(NOTICE|WARNING|ERROR|VERBOSE)' | tail -50"
             if is_local:
