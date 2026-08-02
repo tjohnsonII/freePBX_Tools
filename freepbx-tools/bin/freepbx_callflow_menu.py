@@ -3236,15 +3236,17 @@ def _self_test_is_local_target():
         return False
 
 
-def _self_test_defaults(did_rows):
-    first_did = str(did_rows[0][1]) if did_rows else "2485551212"
+def _self_test_defaults(did_rows, chosen_did=None):
+    first_did = chosen_did or (str(did_rows[0][1]) if did_rows else "2485551212")
     return {
         "did": first_did,
         "extension": "963",
-        # Safe placeholder caller ID — never a real phone number. call_simulator.py's
-        # own methods default to "7140" for exactly this reason; a real number here
-        # previously caused the self-test to place an actual outbound call to it.
-        "caller_id": "7140",
+        # Use a real DID already configured on this system (picked by the user,
+        # or the first one on file) rather than a synthetic number — legitimate
+        # and safe now that call_simulator.py never dials caller_id as a
+        # destination (see the earlier fix: it previously did, and a fake or
+        # real-but-unrelated number here caused an actual outbound call).
+        "caller_id": first_did,
         "sip_code": "404",
         "ping_host": "8.8.8.8",
         "traceroute_host": "8.8.8.8",
@@ -3666,6 +3668,30 @@ def run_self_test(sock, data, did_rows):
         ans = prompt(f"{Colors.YELLOW}Include them anyway, targeting the remote box? (y/N): {Colors.RESET}").strip().lower()
         include_live_calls = ans == "y"
 
+    chosen_did = None
+    if include_live_calls and did_rows:
+        print(f"\n{Colors.CYAN}DIDs configured on this system:{Colors.RESET}")
+        for row in did_rows:
+            idx, did, label = row[0], row[1], row[2]
+            print(f"  {idx}) {did}" + (f"  {label}" if label else ""))
+        pick = prompt(
+            f"{Colors.YELLOW}Pick a DID to use for live-call tests "
+            f"(Enter for #{did_rows[0][0]}): {Colors.RESET}"
+        ).strip()
+        chosen_did = str(did_rows[0][1])
+        if pick:
+            try:
+                idx = int(pick)
+                match = next((r for r in did_rows if r[0] == idx), None)
+                if match:
+                    chosen_did = str(match[1])
+                else:
+                    print(f"{Colors.YELLOW}No DID at index {idx} — using #{did_rows[0][0]}.{Colors.RESET}")
+            except ValueError:
+                print(f"{Colors.YELLOW}Not a number — using #{did_rows[0][0]}.{Colors.RESET}")
+        print(f"{Colors.GREEN}Using DID {chosen_did} for live-call tests (as both the target DID "
+              f"and the caller ID presented on extension/voicemail/playback tests).{Colors.RESET}")
+
     print(f"\n{Colors.RED}{Colors.BOLD}This self-test will, for real:{Colors.RESET}")
     if include_live_calls:
         print("  - Place several real test calls (DID, extension, voicemail, playback, comprehensive)")
@@ -3690,7 +3716,7 @@ def run_self_test(sock, data, did_rows):
         if snap_rc != 0:
             print(f"{Colors.YELLOW}⚠ Pre-test snapshot failed — proceeding anyway: {(snap_err or snap_out)[:200]}{Colors.RESET}")
 
-    defaults = _self_test_defaults(did_rows)
+    defaults = _self_test_defaults(did_rows, chosen_did=chosen_did)
     cases = _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls)
 
     results = []
