@@ -441,8 +441,13 @@ def _generate_version_file():
     """
     def _git(*args):
         try:
+            # -c safe.directory=... bypasses git's "dubious ownership" check
+            # via the command line instead of ~/.gitconfig — this deploy
+            # backend runs as a long-lived process with no HOME set, so git
+            # has nowhere to look up a safe.directory exception and silently
+            # fails (caught below, returning None) without one.
             out = subprocess.run(
-                ["git", "-C", REPO_ROOT] + list(args),
+                ["git", "-c", f"safe.directory={REPO_ROOT}", "-C", REPO_ROOT] + list(args),
                 capture_output=True, text=True, timeout=10,
             )
             return out.stdout.strip() if out.returncode == 0 else None
