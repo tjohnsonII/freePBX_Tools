@@ -347,7 +347,7 @@ def get_tool_version():
     shipped) or the file can't be parsed, so the header just omits it rather
     than showing something broken."""
     version_path = os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "VERSION")
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "VERSION")
     )
     try:
         info = {}
