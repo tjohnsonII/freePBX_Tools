@@ -507,7 +507,7 @@ def run_tc_control(sock):
     sql = ("SELECT timeconditions_id, "
            "COALESCE(displayname, COALESCE(name, CONCAT('TC ',timeconditions_id))), "
            "COALESCE(inuse_state,0) FROM timeconditions ORDER BY CAST(timeconditions_id AS UNSIGNED)")
-    rc, out, _ = run(["mysql", "-NBe", sql, "asterisk"])
+    rc, out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asterisk"])
     if rc != 0 or not out.strip():
         print(f"{Colors.YELLOW}Could not query time conditions from database.{Colors.RESET}")
         return
@@ -566,13 +566,13 @@ def run_tc_control(sock):
         if action == "3":
             print(f"{Colors.YELLOW}Clearing override for TC {tc_id_int} ({tc_name})...{Colors.RESET}")
             run(["asterisk", "-rx", f"database del TCTEMP {tc_id_int}"])
-            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state=0 WHERE timeconditions_id={tc_id_int}", "asterisk"])
+            run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", f"UPDATE timeconditions SET inuse_state=0 WHERE timeconditions_id={tc_id_int}", "asterisk"])
             print(f"{Colors.GREEN}✓ TC {tc_id_int} set to Auto (schedule).{Colors.RESET}")
         else:
             state_label = "TRUE" if action == "1" else "FALSE"
             print(f"{Colors.YELLOW}Forcing TC {tc_id_int} ({tc_name}) → {state_label}...{Colors.RESET}")
             run(["asterisk", "-rx", f"database put TCTEMP {tc_id_int} force {action}"])
-            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state={action} WHERE timeconditions_id={tc_id_int}", "asterisk"])
+            run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", f"UPDATE timeconditions SET inuse_state={action} WHERE timeconditions_id={tc_id_int}", "asterisk"])
             print(f"{Colors.GREEN}✓ TC {tc_id_int} forced {state_label}.{Colors.RESET}")
 
         _DASH_CACHE["ts"] = 0.0  # invalidate dashboard cache after TC change
@@ -1280,12 +1280,14 @@ def run_full_diagnostic():
     print(f"{'='*80}{Colors.RESET}\n")
     
     print(f"{Colors.YELLOW}Collecting system information...{Colors.RESET}\n")
-    
+
+    sock = detect_mysql_socket()
+
     # System Information Table
     print(f"{Colors.CYAN}{Colors.BOLD}╔{'═'*78}╗")
     print(f"║{' SYSTEM INFORMATION':^78}║")
     print(f"╠{'═'*78}╣{Colors.RESET}")
-    
+
     # Hostname
     rc, hostname, _ = run(["hostname"])
     hostname = hostname.strip() or "Unknown"
@@ -1392,7 +1394,7 @@ def run_full_diagnostic():
     print(f"╠{'═'*78}╣{Colors.RESET}")
     
     # Check database connectivity
-    rc, db_out, _ = run(["mysql", "-NBe", "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='asterisk';"])
+    rc, db_out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='asterisk';"])
     if rc == 0:
         table_count = db_out.strip()
         print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Asterisk DB Status:{Colors.RESET} {Colors.GREEN}Connected{Colors.RESET}{' '*52}{Colors.CYAN}║{Colors.RESET}")
@@ -1401,7 +1403,7 @@ def run_full_diagnostic():
         print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}Asterisk DB Status:{Colors.RESET} {Colors.RED}Connection Failed{Colors.RESET}{' '*45}{Colors.CYAN}║{Colors.RESET}")
     
     # Recent CDRs
-    rc, cdr_out, _ = run(["mysql", "-NBe", "SELECT COUNT(*) FROM asteriskcdrdb.cdr WHERE calldate > DATE_SUB(NOW(), INTERVAL 24 HOUR);"])
+    rc, cdr_out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", "SELECT COUNT(*) FROM asteriskcdrdb.cdr WHERE calldate > DATE_SUB(NOW(), INTERVAL 24 HOUR);"])
     if rc == 0:
         recent_calls = cdr_out.strip()
         print(f"{Colors.CYAN}║{Colors.RESET} {Colors.WHITE}CDRs (Last 24h):{Colors.RESET} {Colors.YELLOW}{recent_calls:<58}{Colors.RESET} {Colors.CYAN}║{Colors.RESET}")
@@ -2010,23 +2012,21 @@ def get_active_calls(sock):
 def get_time_conditions_status(sock):
     """Get time conditions count using direct MySQL query - returns (total_count, forced_count, status_list)"""
     try:
-        # Simple query - just like typing "mysql" then running SQL
-        # No socket, no user flags - just plain mysql command like manual use
         sql = "SELECT COUNT(*) FROM timeconditions"
-        cmd = ["mysql", "-NBe", sql, "asterisk"]
+        cmd = ["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asterisk"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
-        
+
         if result.returncode != 0 or not result.stdout.strip():
             err_msg = result.stderr.strip()[:50] if result.stderr else "Query failed"
             return (0, 0, ["DB Error: " + err_msg])
-        
+
         total_count = int(result.stdout.strip())
-        
+
         # Now get forced count (schema varies; fail gracefully)
         forced_count = 0
         sql2 = "SELECT COUNT(*) FROM timeconditions WHERE inuse_state IN (1,2)"
-        cmd2 = ["mysql", "-NBe", sql2, "asterisk"]
+        cmd2 = ["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql2, "asterisk"]
         result2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                universal_newlines=True, timeout=5)
         if result2.returncode == 0 and (result2.stdout or "").strip():
@@ -2120,9 +2120,8 @@ def get_recent_package_updates():
 def get_endpoint_status(sock):
     """Get SIP endpoint registration status"""
     try:
-        # Get list of extensions from database - simple mysql command
         sql = "SELECT extension, name FROM users ORDER BY CAST(extension AS UNSIGNED)"
-        cmd = ["mysql", "-NBe", sql, "asterisk"]
+        cmd = ["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asterisk"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               universal_newlines=True, timeout=5)
         
@@ -2945,13 +2944,13 @@ def run_cdr_analysis_menu(sock):
                            f"FROM cdr WHERE (src LIKE '%{number}%' OR dst LIKE '%{number}%') "
                            f"AND calldate >= DATE_SUB(NOW(), INTERVAL {hours} HOUR) "
                            f"ORDER BY calldate DESC LIMIT 50;")
-                    rc, out, err = run(["mysql", "-NBe", sql, "asteriskcdrdb"])
+                    rc, out, err = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asteriskcdrdb"])
                     if rc == 0 and out.strip():
                         print(f"\n{Colors.CYAN}Calls matching '{number}' (last {hours}h):{Colors.RESET}")
                         for row in out.strip().split('\n'):
                             print(f"  {row}")
                     else:
-                        alt_rc, alt_out, _ = run(["mysql", "-NBe", sql.replace("asteriskcdrdb", "asterisk")])
+                        alt_rc, alt_out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql.replace("asteriskcdrdb", "asterisk")])
                         if alt_rc == 0 and alt_out.strip():
                             print(f"\n{Colors.CYAN}Calls matching '{number}' (last {hours}h):{Colors.RESET}")
                             for row in alt_out.strip().split('\n'):
@@ -3266,7 +3265,7 @@ def _self_test_tc_roundtrip(sock):
     """
     sql = ("SELECT timeconditions_id, COALESCE(inuse_state,0) FROM timeconditions "
            "ORDER BY CAST(timeconditions_id AS UNSIGNED) LIMIT 1")
-    rc, out, _ = run(["mysql", "-NBe", sql, "asterisk"])
+    rc, out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", sql, "asterisk"])
     if rc != 0 or not out.strip():
         return True, "SKIP: no time conditions configured to test", False
 
@@ -3276,7 +3275,7 @@ def _self_test_tc_roundtrip(sock):
     tc_id, original_state = parts[0], parts[1]
 
     def _read_state():
-        rc2, out2, _ = run(["mysql", "-NBe",
+        rc2, out2, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe",
                              f"SELECT COALESCE(inuse_state,0) FROM timeconditions WHERE timeconditions_id={tc_id}",
                              "asterisk"])
         return out2.strip() if rc2 == 0 else None
@@ -3284,10 +3283,10 @@ def _self_test_tc_roundtrip(sock):
     def _apply(action):
         if action == "0":
             run(["asterisk", "-rx", f"database del TCTEMP {tc_id}"])
-            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state=0 WHERE timeconditions_id={tc_id}", "asterisk"])
+            run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", f"UPDATE timeconditions SET inuse_state=0 WHERE timeconditions_id={tc_id}", "asterisk"])
         else:
             run(["asterisk", "-rx", f"database put TCTEMP {tc_id} force {action}"])
-            run(["mysql", "-NBe", f"UPDATE timeconditions SET inuse_state={action} WHERE timeconditions_id={tc_id}", "asterisk"])
+            run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe", f"UPDATE timeconditions SET inuse_state={action} WHERE timeconditions_id={tc_id}", "asterisk"])
 
     test_value = "2" if original_state != "2" else "1"
     _apply(test_value)
@@ -3314,7 +3313,7 @@ def _self_test_ivr_roundtrip(sock):
     reload — this is the slowest single test in the suite by design.
     Returns (passed, detail, loud_failure).
     """
-    rc, out, _ = run(["mysql", "-NBe",
+    rc, out, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe",
                        "SELECT ivr_id, selection, dest FROM ivr_entries LIMIT 1", "asterisk"])
     if rc != 0 or not out.strip():
         return True, "SKIP: no IVR options configured to test", False
@@ -3325,7 +3324,7 @@ def _self_test_ivr_roundtrip(sock):
     ivr_id, option, old_dest = parts[0], parts[1], parts[2]
 
     def _read_dest():
-        rc2, out2, _ = run(["mysql", "-NBe",
+        rc2, out2, _ = run(["mysql", "--user", DB_USER, "--socket", sock, "-NBe",
                              f"SELECT dest FROM ivr_entries WHERE ivr_id='{ivr_id}' AND selection='{option}'",
                              "asterisk"])
         return out2.strip() if rc2 == 0 else None
