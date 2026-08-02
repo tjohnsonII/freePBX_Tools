@@ -44,6 +44,7 @@ import subprocess
 import sys
 import os
 import time
+import threading
 import argparse
 import re
 from datetime import datetime
@@ -117,23 +118,53 @@ class NetworkDiagnostics:
         
         try:
             if stream_output:
-                # Stream output in real-time
+                # Stream output in real-time. A background reader thread drains
+                # stdout as it arrives; the main thread enforces `timeout` itself
+                # (long-running captures like tcpdump never exit on their own) and
+                # shows a countdown while nothing is coming through.
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     universal_newlines=True
                 )
-                
+
                 output_lines = []
-                stdout = process.stdout
-                if stdout is not None:
-                    for line in stdout:
-                        print(f"{Colors.GREEN}│{Colors.RESET} {line}", end='')
-                        output_lines.append(line)
-                
-                process.wait(timeout=timeout)
-                return process.returncode, ''.join(output_lines), ''
+                got_output = threading.Event()
+
+                def _reader():
+                    stdout = process.stdout
+                    if stdout is not None:
+                        for line in stdout:
+                            got_output.set()
+                            print(f"{Colors.GREEN}│{Colors.RESET} {line}", end='')
+                            output_lines.append(line)
+
+                reader_thread = threading.Thread(target=_reader, daemon=True)
+                reader_thread.start()
+
+                start = time.time()
+                last_tick = -1
+                while process.poll() is None and (time.time() - start) < timeout:
+                    elapsed = time.time() - start
+                    if int(elapsed) != last_tick and not got_output.is_set():
+                        remaining = max(0, int(timeout - elapsed))
+                        print(f"\r{Colors.CYAN}  ⏳ {remaining}s remaining...{Colors.RESET}   ", end='', flush=True)
+                        last_tick = int(elapsed)
+                    got_output.clear()
+                    time.sleep(0.2)
+
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+
+                reader_thread.join(timeout=5)
+                print()
+                return (process.returncode or 0), ''.join(output_lines), ''
             else:
                 result = subprocess.run(
                     cmd,
@@ -632,10 +663,10 @@ class NetworkDiagnostics:
         
         if asterisk_cmd:
             try:
-                self.run_command([asterisk_cmd, "-rx", "sip show peers"])
-                
-                print(f"\n{Colors.GREEN}📊 SIP Registry:{Colors.RESET}\n")
-                self.run_command([asterisk_cmd, "-rx", "sip show registry"])
+                self.run_command([asterisk_cmd, "-rx", "pjsip show endpoints"])
+
+                print(f"\n{Colors.GREEN}📊 SIP Registrations:{Colors.RESET}\n")
+                self.run_command([asterisk_cmd, "-rx", "pjsip show registrations"])
                 return
             except:
                 pass
