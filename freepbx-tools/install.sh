@@ -405,25 +405,40 @@ ensure_path_profile() {
     return 0
   fi
 
-  # Only write the helper if we can detect that a login shell PATH is missing /usr/local/bin.
-  # Prefer checking as the typical operator user (123net) when present.
-  local login_path=""
+  # Only write the helper if we can detect that a login shell PATH is missing
+  # /usr/local/bin. Check both root's own login PATH and the typical operator
+  # user (123net) when present — different users can have different PATH
+  # defaults (e.g. 123net's includes /usr/local/bin out of the box while
+  # root's doesn't), and this installer always runs as root, so root's PATH
+  # is the one that actually matters for `freepbx-callflows` to be found
+  # right after install. The helper itself is idempotent (no-ops if PATH
+  # already has the entry), so there's no downside to writing it whenever
+  # either check is inconclusive or missing the entry.
+  local root_login_path="" user_login_path="" have_check=0
   if have bash; then
+    root_login_path="$(bash -lc 'printf %s "$PATH"' 2>/dev/null || true)"
+    [[ -n "$root_login_path" ]] && have_check=1
     if id 123net >/dev/null 2>&1; then
-      login_path="$(su - 123net -c 'bash -lc "printf %s \"\$PATH\""' 2>/dev/null || true)"
-    else
-      login_path="$(bash -lc 'printf %s "$PATH"' 2>/dev/null || true)"
+      user_login_path="$(su - 123net -c 'bash -lc "printf %s \"\$PATH\""' 2>/dev/null || true)"
+      [[ -n "$user_login_path" ]] && have_check=1
     fi
   fi
 
-  if [[ -z "$login_path" ]]; then
+  if [[ "$have_check" -eq 0 ]]; then
     warn "Could not reliably detect login-shell PATH; leaving /etc/profile.d untouched."
     warn "If freepbx-* commands are not found after reconnect, add /usr/local/bin to PATH or create $pf manually."
     return 0
   fi
 
-  if [[ ":$login_path:" == *":/usr/local/bin:"* ]]; then
-    echo ">>> Login shell PATH already includes /usr/local/bin; skipping $pf"
+  local root_ok=0 user_ok=1
+  [[ -n "$root_login_path" && ":$root_login_path:" == *":/usr/local/bin:"* ]] && root_ok=1
+  if [[ -n "$user_login_path" ]]; then
+    user_ok=0
+    [[ ":$user_login_path:" == *":/usr/local/bin:"* ]] && user_ok=1
+  fi
+
+  if [[ "$root_ok" -eq 1 && "$user_ok" -eq 1 ]]; then
+    echo ">>> Login shell PATH already includes /usr/local/bin (root and operator user); skipping $pf"
     return 0
   fi
 
