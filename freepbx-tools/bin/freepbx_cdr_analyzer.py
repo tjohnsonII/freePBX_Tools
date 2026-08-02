@@ -93,7 +93,7 @@ class CDRAnalyzer:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 timeout=30
             )

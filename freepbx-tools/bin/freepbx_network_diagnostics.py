@@ -96,7 +96,7 @@ class NetworkDiagnostics:
         try:
             result = subprocess.run(
                 ["ip", "route", "show", "default"],
-                capture_output=True, universal_newlines=True, timeout=5
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=5
             )
             if result.returncode == 0 and result.stdout:
                 # Extract interface from: default via 192.168.1.1 dev eth0
@@ -137,7 +137,7 @@ class NetworkDiagnostics:
             else:
                 result = subprocess.run(
                     cmd,
-                    capture_output=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     universal_newlines=True,
                     timeout=timeout
                 )
@@ -156,7 +156,7 @@ class NetworkDiagnostics:
             # Try which command first
             result = subprocess.run(
                 ["which", tool_name],
-                capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 timeout=5
             )
@@ -169,7 +169,7 @@ class NetworkDiagnostics:
         try:
             result = subprocess.run(
                 ["bash", "-c", f"command -v {tool_name}"],
-                capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 timeout=5
             )
@@ -182,7 +182,7 @@ class NetworkDiagnostics:
         try:
             result = subprocess.run(
                 [tool_name, "--help"],
-                capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 timeout=2
             )

@@ -742,7 +742,7 @@ def cmd_ticket(args):
 def _fwconsole_reload():
     print(f"  {C.YELLOW}Running fwconsole reload...{C.RESET}")
     try:
-        p = subprocess.run(["fwconsole", "reload"], capture_output=True,
+        p = subprocess.run(["fwconsole", "reload"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True, timeout=60)
         if p.returncode == 0:
             ok("Reload complete.")
