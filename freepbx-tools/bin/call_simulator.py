@@ -575,7 +575,10 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📱 TESTING EXTENSION CALL: {extension:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must be the extension under test, never caller_id —
+        # caller_id can be an arbitrary 10-digit number, and from-internal will
+        # route anything matching an outbound pattern as a REAL PSTN call.
+        channel = f"Local/{extension}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -615,7 +618,10 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📧 TESTING VOICEMAIL CALL: {mailbox:<38}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must be the mailbox's own extension, never caller_id —
+        # caller_id can be an arbitrary 10-digit number, and from-internal will
+        # route anything matching an outbound pattern as a REAL PSTN call.
+        channel = f"Local/{mailbox}@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
@@ -657,7 +663,12 @@ class FreePBXCallSimulator:
         print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🎵 TESTING PLAYBACK APPLICATION: {sound_file:<32}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
         
-        channel = f"local/{caller_id}@from-internal"
+        # Origination target must never be caller_id — caller_id can be an
+        # arbitrary 10-digit number, and from-internal will route anything
+        # matching an outbound pattern as a REAL PSTN call. This method takes
+        # no extension of its own, so loop back through the lab's designated
+        # test extension (963) rather than dialing anything external.
+        channel = "Local/963@from-internal"
         call_content = self.create_call_file(
             channel=channel,
             caller_id=caller_id,
