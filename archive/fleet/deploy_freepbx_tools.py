@@ -71,6 +71,7 @@ import zipfile
 import hashlib
 import subprocess
 import tempfile
+import shutil
 from datetime import datetime, timezone
 from typing import Any
 
@@ -147,7 +148,17 @@ ROOT_PASSWORD = _creds["root_password"]
 # IMPORTANT: Store credentials in environment variables or a secure config file
 # Never commit passwords to git!
 REMOTE_INSTALL_DIR = "/usr/local/123net/freepbx-tools"
-LOCAL_SOURCE_DIR = "/var/www/freePBX_Tools/freepbx-tools"
+
+# Computed relative to this script's own location (archive/fleet/) rather
+# than hardcoded to one specific machine's path — this script is meant to
+# run unmodified from any checkout of this repo, on any OS (the 123.net dev
+# server, or a technician's Windows laptop). FREEPBX_TOOLS_REPO_ROOT can
+# still override it for an unusual layout.
+REPO_ROOT = os.environ.get(
+    "FREEPBX_TOOLS_REPO_ROOT",
+    os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")),
+)
+LOCAL_SOURCE_DIR = os.path.join(REPO_ROOT, "freepbx-tools")
 
 
 def _configure_stdio_errors_replace() -> None:
@@ -426,19 +437,23 @@ def read_server_list(filename):
         print_error(f"Error reading server list: {e}")
         return []
 
-REPO_ROOT = "/var/www/freePBX_Tools"
-
-
-def _generate_version_file():
+def _generate_version_file(repo_root=None):
     """Stamp the exact repo commit being deployed into a VERSION file, so the
     installed tool can show on its dashboard whether it's current or stale
     without anyone having to remember to bump a version number by hand.
+
+    repo_root defaults to REPO_ROOT (this script's own checkout) but is
+    overridden when deploying from a --branch fetch, so the VERSION file
+    reflects the branch actually being deployed, not wherever this script
+    happens to live.
 
     Returns the path to a temp file to include in the deploy (rel_path
     "VERSION", landing at the root of the install dir), or None if this isn't
     running from a git checkout (e.g. an ad-hoc copy) — the tool just won't
     show a version line in that case rather than failing the deploy over it.
     """
+    repo_root = repo_root or REPO_ROOT
+
     def _git(*args):
         try:
             # -c safe.directory=... bypasses git's "dubious ownership" check
@@ -447,7 +462,7 @@ def _generate_version_file():
             # has nowhere to look up a safe.directory exception and silently
             # fails (caught below, returning None) without one.
             out = subprocess.run(
-                ["git", "-c", f"safe.directory={REPO_ROOT}", "-C", REPO_ROOT] + list(args),
+                ["git", "-c", f"safe.directory={repo_root}", "-C", repo_root] + list(args),
                 capture_output=True, text=True, timeout=10,
             )
             return out.stdout.strip() if out.returncode == 0 else None
@@ -474,31 +489,92 @@ def _generate_version_file():
     return path
 
 
-def get_local_files():
+DEFAULT_REPO_URL = "https://github.com/tjohnsonII/freePBX_Tools.git"
+
+# Set by get_local_files() when --branch triggers a fresh clone, so main()
+# can clean the temp directory up afterward. Not thread-local/re-entrant —
+# fine here since deploys run one CLI invocation at a time.
+_branch_fetch_tmpdir = None
+
+
+def _fetch_branch_source(branch, repo_url=DEFAULT_REPO_URL):
+    """Shallow-clone `branch` fresh from GitHub into a new temp directory and
+    return (repo_root, source_dir) pointing at that clone's freepbx-tools/.
+
+    Used for --branch deploys — lets a beta/dev branch (e.g. lab-timsablab)
+    be deployed to a test box without touching whatever's checked out
+    locally on the machine running this script, and without that local
+    checkout needing to already be on the right branch itself.
     """
-    Recursively collect all files to deploy from LOCAL_SOURCE_DIR.
+    global _branch_fetch_tmpdir
+    tmp_root = tempfile.mkdtemp(prefix="freepbx_tools_branch_")
+    _branch_fetch_tmpdir = tmp_root
+    result = subprocess.run(
+        ["git", "clone", "--branch", branch, "--depth", "1", repo_url, tmp_root],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to fetch branch '{branch}': {(result.stderr or result.stdout).strip()}")
+    source_dir = os.path.join(tmp_root, "freepbx-tools")
+    if not os.path.isdir(source_dir):
+        raise RuntimeError(f"Branch '{branch}' was fetched but has no freepbx-tools/ directory in it")
+    return tmp_root, source_dir
+
+
+def cleanup_branch_fetch():
+    """Remove the temp clone created by a --branch fetch, if any. Safe to
+    call even when no branch fetch happened (no-op)."""
+    global _branch_fetch_tmpdir
+    if _branch_fetch_tmpdir and os.path.isdir(_branch_fetch_tmpdir):
+        shutil.rmtree(_branch_fetch_tmpdir, ignore_errors=True)
+    _branch_fetch_tmpdir = None
+
+
+def get_local_files(branch=None):
+    """
+    Recursively collect all files to deploy.
     Skips __pycache__, .git, .vscode, docs, and test files.
+
+    branch: if given, freshly clones that branch from GitHub instead of
+    using LOCAL_SOURCE_DIR — see _fetch_branch_source(). Anything other
+    than "server" prints a loud development-deploy warning, since this is
+    how a beta/lab branch gets deployed to a test box rather than
+    production.
+
     Returns: List of (local_path, rel_path) tuples.
     """
     files_to_deploy = []
+    repo_root = REPO_ROOT
+
+    if branch:
+        print_info(f"Fetching branch '{branch}' from {DEFAULT_REPO_URL} ...")
+        try:
+            repo_root, source_dir = _fetch_branch_source(branch)
+        except RuntimeError as e:
+            print_error(str(e))
+            return []
+        if branch != "server":
+            print_warning(f"⚠ DEVELOPMENT DEPLOY from branch '{branch}' — not for production PBXs")
+    else:
+        source_dir = LOCAL_SOURCE_DIR
 
     # Make source directory absolute
-    source_dir = os.path.abspath(LOCAL_SOURCE_DIR)
-    
+    source_dir = os.path.abspath(source_dir)
+
     if not os.path.exists(source_dir):
         print_error(f"Source directory not found: {source_dir}")
         return []
-    
+
     # Get all files in the source directory
     for root, dirs, files in os.walk(source_dir):
         # Skip __pycache__, .git, .vscode, and 123net_internal_docs directories
         dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git', '.vscode', '123net_internal_docs']]
-        
+
         for file in files:
             # Skip markdown files (documentation) and test files
             if file.startswith('test_') or file == 'version_outliers.csv':
                 continue
-            
+
             # Only include essential files
             if file.endswith(('.py', '.sh', '.json', '.txt')) and not file.endswith('.md'):
                 local_path = os.path.join(root, file)
@@ -508,7 +584,7 @@ def get_local_files():
 
     # Stamp the exact commit being deployed so the installed tool can show
     # its own version on the dashboard (see _generate_version_file()).
-    version_file = _generate_version_file()
+    version_file = _generate_version_file(repo_root=repo_root)
     if version_file:
         files_to_deploy.append((version_file, "VERSION"))
 
@@ -945,6 +1021,10 @@ Examples:
     parser.add_argument('--connect-only', action='store_true', help='Only test SSH connect + remote exec (no upload/install)')
     parser.add_argument('--upload-only', action='store_true', help='Upload files but skip root install')
     parser.add_argument('--bundle', metavar='ZIP', help='Create an offline zip bundle of deployable files and exit')
+    parser.add_argument('--branch', metavar='NAME',
+                         help="Deploy from a specific git branch, freshly fetched from GitHub, instead of "
+                              "this script's local checkout (e.g. --branch lab-timsablab for a beta/test "
+                              "deploy). Anything other than 'server' prints a loud development-deploy warning.")
     args = parser.parse_args()
 
     if args.connect_only and args.upload_only:
@@ -956,69 +1036,72 @@ Examples:
         args.password = ""
     if _is_placeholder_secret(args.root_password):
         args.root_password = ""
-    # Offline bundle mode (no network, no servers required)
-    if args.bundle:
-        files = get_local_files()
-        if not files:
-            print_error("No files found to bundle")
-            sys.exit(1)
-        out = args.bundle
-        sha = create_offline_bundle(files, out)
-        out_path = os.path.abspath(out if out.lower().endswith('.zip') else out + '.zip')
-        print_header("Offline Bundle Created")
-        print(f"Output: {out_path}")
-        print(f"Files: {len(files)} (+ BUNDLE_README.txt)")
-        print(f"SHA256: {sha}")
-        sys.exit(0)
+    try:
+        # Offline bundle mode (no network, no servers required)
+        if args.bundle:
+            files = get_local_files(branch=args.branch)
+            if not files:
+                print_error("No files found to bundle")
+                sys.exit(1)
+            out = args.bundle
+            sha = create_offline_bundle(files, out)
+            out_path = os.path.abspath(out if out.lower().endswith('.zip') else out + '.zip')
+            print_header("Offline Bundle Created")
+            print(f"Output: {out_path}")
+            print(f"Files: {len(files)} (+ BUNDLE_README.txt)")
+            print(f"SHA256: {sha}")
+            sys.exit(0)
 
-    # Get list of servers
-    servers = []
-    if args.servers:
-        servers = args.servers
-    elif args.server_file:
-        servers = read_server_list(args.server_file)
-    else:
-        parser.print_help()
-        sys.exit(1)
-    if not servers:
-        print_error("No servers specified")
-        sys.exit(1)
-
-    # Get files to deploy (skipped for connect-only — no upload needed)
-    if args.connect_only:
-        files = []
-    else:
-        files = get_local_files()
-        if not files:
-            print_error("No files found to deploy")
+        # Get list of servers
+        servers = []
+        if args.servers:
+            servers = args.servers
+        elif args.server_file:
+            servers = read_server_list(args.server_file)
+        else:
+            parser.print_help()
             sys.exit(1)
-    print_header("FreePBX Tools Deployment")
-    if not args.connect_only:
-        print(f"Source: {LOCAL_SOURCE_DIR}")
-    print(f"Target: {REMOTE_INSTALL_DIR}")
-    print(f"Servers: {len(servers)}")
-    # Start deployment
-    _ensure_paramiko()
-    start_time = time.time()
-    results = deploy_parallel(
-        servers,
-        args.user,
-        args.password,
-        args.root_password,
-        files,
-        args.workers,
-        args.dry_run,
-        args.connect_only,
-        args.upload_only,
-        password_map=load_password_map(),
-    )
-    elapsed = time.time() - start_time
-    # Print summary
-    print_summary(results)
-    print(f"\nTotal time: {elapsed:.1f} seconds")
-    # Exit with error code if any deployments failed
-    failed_count = len([r for r in results if not r['success']])
-    sys.exit(1 if failed_count > 0 else 0)
+        if not servers:
+            print_error("No servers specified")
+            sys.exit(1)
+
+        # Get files to deploy (skipped for connect-only — no upload needed)
+        if args.connect_only:
+            files = []
+        else:
+            files = get_local_files(branch=args.branch)
+            if not files:
+                print_error("No files found to deploy")
+                sys.exit(1)
+        print_header("FreePBX Tools Deployment")
+        if not args.connect_only:
+            print(f"Source: {'branch ' + args.branch + ' (fetched from GitHub)' if args.branch else LOCAL_SOURCE_DIR}")
+        print(f"Target: {REMOTE_INSTALL_DIR}")
+        print(f"Servers: {len(servers)}")
+        # Start deployment
+        _ensure_paramiko()
+        start_time = time.time()
+        results = deploy_parallel(
+            servers,
+            args.user,
+            args.password,
+            args.root_password,
+            files,
+            args.workers,
+            args.dry_run,
+            args.connect_only,
+            args.upload_only,
+            password_map=load_password_map(),
+        )
+        elapsed = time.time() - start_time
+        # Print summary
+        print_summary(results)
+        print(f"\nTotal time: {elapsed:.1f} seconds")
+        # Exit with error code if any deployments failed
+        failed_count = len([r for r in results if not r['success']])
+        sys.exit(1 if failed_count > 0 else 0)
+    finally:
+        cleanup_branch_fetch()
 
 if __name__ == "__main__":
     main()
