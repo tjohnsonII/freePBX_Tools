@@ -428,8 +428,8 @@ def _git_repo_root() -> Optional[Path]:
     return None
 
 
-def _fetch_server_branch_files() -> Optional[str]:
-    """Fetch freepbx-tools/ from origin/server and extract to a temp dir.
+def _fetch_server_branch_files(branch: str = "server") -> Optional[str]:
+    """Fetch freepbx-tools/ from origin/<branch> and extract to a temp dir.
 
     Returns the path to the extracted freepbx-tools/ directory, or None if
     the fetch fails (caller falls back to local disk copy).
@@ -441,25 +441,25 @@ def _fetch_server_branch_files() -> Optional[str]:
         return None
 
     fetch = subprocess.run(
-        ["git", "fetch", "--quiet", "origin", "server"],
+        ["git", "fetch", "--quiet", "origin", branch],
         cwd=str(repo_root),
         capture_output=True,
         timeout=30,
     )
     if fetch.returncode != 0:
         msg = fetch.stderr.decode("utf-8", errors="replace").strip()
-        print_warning(f"git fetch origin server failed: {msg} — falling back to local freepbx-tools/")
+        print_warning(f"git fetch origin {branch} failed: {msg} — falling back to local freepbx-tools/")
         return None
 
     archive = subprocess.run(
-        ["git", "archive", "origin/server", "--", "freepbx-tools/"],
+        ["git", "archive", f"origin/{branch}", "--", "freepbx-tools/"],
         cwd=str(repo_root),
         capture_output=True,
         timeout=30,
     )
     if archive.returncode != 0 or not archive.stdout:
         msg = archive.stderr.decode("utf-8", errors="replace").strip()
-        print_warning(f"git archive origin/server failed: {msg} — falling back to local freepbx-tools/")
+        print_warning(f"git archive origin/{branch} failed: {msg} — falling back to local freepbx-tools/")
         return None
 
     tmpdir = tempfile.mkdtemp(prefix="freepbx-deploy-")
@@ -476,17 +476,17 @@ def _fetch_server_branch_files() -> Optional[str]:
     return source
 
 
-def get_local_files():
+def get_local_files(branch: str = "server"):
     """Collect all files to deploy from freepbx-tools/.
 
-    Always tries to fetch the latest from origin/server first so that
-    pushing to the server branch is all that's needed before deploying.
+    Always tries to fetch the latest from origin/<branch> first so that
+    pushing to the branch is all that's needed before deploying.
     Falls back to the local freepbx-tools/ copy on disk if git is
     unavailable or the fetch fails.
     """
-    source_dir = _fetch_server_branch_files()
+    source_dir = _fetch_server_branch_files(branch)
     if source_dir:
-        print_info("Source: freepbx-tools/ from origin/server (latest pushed version)")
+        print_info(f"Source: freepbx-tools/ from origin/{branch} (latest pushed version)")
     else:
         source_dir = os.path.abspath(LOCAL_SOURCE_DIR)
         print_info(f"Source: local freepbx-tools/ at {source_dir}")
@@ -942,6 +942,8 @@ Examples:
     parser.add_argument('--connect-only', action='store_true', help='Only test SSH connect + remote exec (no upload/install)')
     parser.add_argument('--upload-only', action='store_true', help='Upload files but skip root install')
     parser.add_argument('--bundle', metavar='ZIP', help='Create an offline zip bundle of deployable files and exit')
+    parser.add_argument('--branch', default='server',
+        help='Git branch to fetch freepbx-tools/ from (default: server)')
     args = parser.parse_args()
 
     if args.connect_only and args.upload_only:
@@ -982,7 +984,7 @@ Examples:
         sys.exit(1)
 
     # Get files to deploy
-    files = get_local_files()
+    files = get_local_files(args.branch)
     if not files:
         print_error("No files found to deploy")
         sys.exit(1)

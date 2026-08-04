@@ -2192,15 +2192,25 @@ class ScrapeManagerApp(ctk.CTk):
         w["tunnel_user_entry"].insert(0, os.getenv("DEPLOY_SSH_USER", "tim2"))
         w["tunnel_user_entry"].grid(row=3, column=3, padx=(0, 12), pady=(4, 8), sticky="w")
 
+        ctk.CTkLabel(form, text="Source Branch:", font=ctk.CTkFont(size=12)).grid(
+            row=3, column=4, padx=(12, 4), pady=(4, 8), sticky="w"
+        )
+        w["branch_var"] = tk.StringVar(value="server")
+        ctk.CTkOptionMenu(
+            form, variable=w["branch_var"],
+            values=["server", "lab-timsablab"],
+            width=160, height=32,
+        ).grid(row=3, column=5, padx=(0, 12), pady=(4, 8), sticky="w")
+
         w["tunnel_dot"] = ctk.CTkLabel(
             form, text="●", font=ctk.CTkFont(size=16), text_color="#e74c3c", width=20,
         )
-        w["tunnel_dot"].grid(row=3, column=4, padx=(4, 2), pady=(4, 8))
+        w["tunnel_dot"].grid(row=3, column=6, padx=(4, 2), pady=(4, 8))
 
         w["tunnel_status_lbl"] = ctk.CTkLabel(
             form, text="Connecting…", font=ctk.CTkFont(size=11), text_color="#7f8c8d",
         )
-        w["tunnel_status_lbl"].grid(row=3, column=5, padx=(0, 12), pady=(4, 8), sticky="w")
+        w["tunnel_status_lbl"].grid(row=3, column=7, padx=(0, 12), pady=(4, 8), sticky="w")
 
         w["btn_tunnel"] = ctk.CTkButton(
             form, text="↻ Reconnect",
@@ -2208,7 +2218,7 @@ class ScrapeManagerApp(ctk.CTk):
             height=30, font=ctk.CTkFont(size=12), width=120,
             command=self._on_deploy_force_reconnect,
         )
-        w["btn_tunnel"].grid(row=3, column=6, columnspan=2, padx=(0, 12), pady=(4, 8), sticky="w")
+        w["btn_tunnel"].grid(row=3, column=8, columnspan=2, padx=(0, 12), pady=(4, 8), sticky="w")
 
         w["lbl_status"] = ctk.CTkLabel(
             form, text="Deploy backend: checking…",
@@ -2427,6 +2437,7 @@ class ScrapeManagerApp(ctk.CTk):
         action_label = w["action_var"].get()
         action = next((a for a, l in _DEPLOY_ACTIONS if l == action_label), "deploy")
         is_bundle = (action == "bundle")
+        branch = w["branch_var"].get()
 
         workers_str = w["workers_var"].get().strip()
         workers = int(workers_str) if workers_str.isdigit() and int(workers_str) > 0 else 1
@@ -2446,6 +2457,7 @@ class ScrapeManagerApp(ctk.CTk):
                     password=g["password"],
                     root_password=g["root_password"],
                     bundle_name=bundle_name,
+                    branch=branch,
                 )
             return
 
@@ -2481,6 +2493,7 @@ class ScrapeManagerApp(ctk.CTk):
                     workers=min(len(ips), workers),
                     username=username, password=pass_key,
                     root_password=root_password, bundle_name=bundle_name,
+                    branch=branch,
                 )
             return
         username = w["username_entry"].get().strip() or "123net"
@@ -2491,11 +2504,13 @@ class ScrapeManagerApp(ctk.CTk):
             action=action, servers=servers, workers=workers,
             username=username, password=password,
             root_password=root_password, bundle_name=bundle_name,
+            branch=branch,
         )
 
     def _do_deploy_start(
         self, action: str, servers: str, workers: int,
         username: str, password: str, root_password: str, bundle_name: str,
+        branch: str = "server",
     ) -> None:
         w = self._deploy_w
         self.after(0, lambda: w["btn_start"].configure(state="disabled", text="Running…"))
@@ -2505,6 +2520,7 @@ class ScrapeManagerApp(ctk.CTk):
                 "action": action, "servers": servers, "workers": workers,
                 "username": username, "password": password,
                 "root_password": root_password, "bundle_name": bundle_name,
+                "branch": branch,
             })
             self._deploy_active_job = data
             jid = data.get("id", "")

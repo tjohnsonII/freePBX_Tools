@@ -64,6 +64,7 @@ class JobCreate(BaseModel):
     password: str = ""
     root_password: str = ""
     bundle_name: str = "freepbx-tools-bundle.zip"
+    branch: str = Field("server", description="Git branch to fetch freepbx-tools/ from")
 
 
 class DiagnosticsSummaryRequest(BaseModel):
@@ -112,6 +113,7 @@ class Job:
     password: str
     root_password: str
     bundle_name: str
+    branch: str = "server"   # git branch to fetch freepbx-tools/ from
     menu_choice: str = ""   # populated for remote_run action
     grab_dump: bool = False  # populated for remote_run action
     sub_choice: str = ""    # optional sub-menu choice for remote_run
@@ -294,7 +296,7 @@ async def _run_job(job: Job) -> None:
         elif job.action in {"deploy", "connect_only", "upload_only"}:
             if not job.servers:
                 raise RuntimeError("No servers provided")
-            args = [_python_exe(), "deploy_freepbx_tools.py", "--workers", str(job.workers), "--servers", *job.servers]
+            args = [_python_exe(), "deploy_freepbx_tools.py", "--branch", job.branch, "--workers", str(job.workers), "--servers", *job.servers]
             if job.action == "connect_only":
                 args.insert(2, "--connect-only")
             elif job.action == "upload_only":
@@ -315,7 +317,7 @@ async def _run_job(job: Job) -> None:
             )
             rc2 = await _run_one(
                 job,
-                [_python_exe(), "deploy_freepbx_tools.py", "--workers", str(job.workers), "--servers", *job.servers],
+                [_python_exe(), "deploy_freepbx_tools.py", "--branch", job.branch, "--workers", str(job.workers), "--servers", *job.servers],
                 "Step 2/2: Install",
             )
             rc = 0 if (rc1 == 0 and rc2 == 0) else (rc2 or rc1)
@@ -571,6 +573,7 @@ async def create_job(req: JobCreate) -> JobInfo:
         password=req.password,
         root_password=req.root_password,
         bundle_name=req.bundle_name,
+        branch=req.branch,
     )
 
     async with JOBS_LOCK:
