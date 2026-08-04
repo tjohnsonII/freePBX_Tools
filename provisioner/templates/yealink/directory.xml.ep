@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<YealinkIPPhoneDirectory>
+  <Title>Provisioning Lab</Title>
+  <Menu Name="Lab Contacts">
+    <Unit Name="<%= Mojo::Util::xml_escape($device->{display_name} // $device->{label} // $device->{mac}) %>" Phone1="<%= Mojo::Util::xml_escape($device->{extension} // '') %>"/>
+  </Menu>
+</YealinkIPPhoneDirectory>

@@ -1,0 +1,21 @@
+[Unit]
+Description=Provisioner Mojolicious/Hypnotoad service
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=forking
+User=tim2
+Group=tim2
+WorkingDirectory=/home/tim2/provisioner
+Environment=MOJO_MODE=production
+PIDFile=/home/tim2/provisioner/hypnotoad.pid
+ExecStart=/usr/local/bin/carton exec -- hypnotoad script/provisioner
+ExecStop=/usr/local/bin/carton exec -- hypnotoad -s script/provisioner
+ExecReload=/usr/local/bin/carton exec -- hypnotoad script/provisioner
+KillMode=none
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

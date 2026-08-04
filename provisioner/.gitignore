@@ -1,0 +1,5 @@
+local/
+log/*.log
+.db_password
+.session_secret
+data/uploads/*

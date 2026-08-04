@@ -1,0 +1,2 @@
+requires 'Mojolicious', '9.00';
+requires 'Mojo::mysql', '1.20';
