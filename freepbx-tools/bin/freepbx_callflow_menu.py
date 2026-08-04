@@ -42,7 +42,7 @@ See function docstrings for additional details on arguments and return values.
         main                     : Main menu loop and entry point
 """
 
-import json, os, sys, subprocess, time, shutil, re, threading, smtplib, zipfile
+import json, os, sys, subprocess, time, shutil, re, threading, smtplib, zipfile, socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -157,7 +157,13 @@ def send_email_with_attachment(to_addr, subject, body, attachment_path=None):
         return False, f"SMTP not configured (expected {SMTP_CONFIG_PATH})"
 
     msg = MIMEMultipart()
-    msg["From"] = cfg.get("from_addr") or cfg.get("username") or "freepbx-tools@localhost"
+    # "@localhost" as a fallback sender is almost always rejected outright by
+    # a real SASL-authenticated relay (envelope-sender/username mismatch) or
+    # silently dropped by an upstream rewrite map that doesn't know about
+    # it — confirmed in production. This box's own real hostname is at least
+    # a real, resolvable domain a relay's rewrite rules have a chance of
+    # already covering, and gives a saner address to debug a bounce from.
+    msg["From"] = cfg.get("from_addr") or cfg.get("username") or f"freepbx-tools@{socket.getfqdn()}"
     msg["To"] = to_addr
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
@@ -207,9 +213,14 @@ def maybe_email_file(path, default_subject=None):
     unconfigured."""
     if not os.path.isfile(path):
         return
-    if not load_smtp_config():
+    cfg = load_smtp_config()
+    if not cfg:
         print(f"{Colors.YELLOW}(Email not configured — see {SMTP_CONFIG_PATH} to enable this.){Colors.RESET}")
         return
+    if not cfg.get("from_addr"):
+        print_tip(f"No from_addr set in {SMTP_CONFIG_PATH} — if your relay requires "
+                  f"authentication, the sender must match the authenticated username or "
+                  f"it may be rejected. Set from_addr explicitly to avoid that.")
     to_addr = prompt(f"{Colors.YELLOW}Email this file to (blank to skip): {Colors.RESET}").strip()
     if not to_addr:
         return
