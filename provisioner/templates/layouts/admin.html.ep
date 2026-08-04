@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= title %> - Provisioner Admin</title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #1a1a1a; }
+    header { background: #1f2937; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+    header a { color: #fff; text-decoration: none; font-weight: 600; }
+    header nav a { color: #cbd5e1; font-weight: 400; margin-left: 1rem; }
+    main { padding: 1.5rem; max-width: 960px; margin: 0 auto; }
+    table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }
+    th { background: #f9fafb; font-weight: 600; }
+    tr:hover td { background: #f9fafb; }
+    .btn { display: inline-block; padding: 0.4rem 0.8rem; background: #2563eb; color: #fff; border-radius: 4px; text-decoration: none; font-size: 0.85rem; border: none; cursor: pointer; }
+    .btn.danger { background: #dc2626; }
+    .btn.secondary { background: #6b7280; }
+    form.inline { display: inline; }
+    .card { background: #fff; padding: 1.25rem; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-top: 0.75rem; margin-bottom: 0.25rem; }
+    input, select { width: 100%; padding: 0.4rem; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box; font-size: 0.9rem; }
+    .error { background: #fef2f2; color: #991b1b; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; }
+    pre { background: #111827; color: #e5e7eb; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+    .muted { color: #6b7280; font-size: 0.85rem; }
+    .search { margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/admin/devices">Provisioner Admin</a>
+    <nav><a href="/admin/devices">Devices</a></nav>
+  </header>
+  <main><%= content %></main>
+</body>
+</html>

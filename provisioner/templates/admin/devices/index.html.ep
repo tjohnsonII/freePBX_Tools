@@ -1,0 +1,41 @@
+% title 'Devices';
+<div style="display:flex; justify-content:space-between; align-items:center;">
+  <h1>Devices</h1>
+  <a class="btn" href="/admin/devices/new">+ Add device</a>
+</div>
+
+<form class="search" method="get" action="/admin/devices">
+  <input type="text" name="q" value="<%= $q %>" placeholder="Search MAC, label, extension...">
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>MAC</th>
+      <th>Vendor</th>
+      <th>Model</th>
+      <th>Label</th>
+      <th>Extension</th>
+      <th>SIP Server</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    % for my $device (@$devices) {
+      <tr>
+        <td><a href="/admin/devices/<%= $device->{mac} %>"><%= $device->{mac} %></a></td>
+        <td><%= $device->{vendor} %></td>
+        <td><%= $device->{model} %></td>
+        <td><%= $device->{label} %></td>
+        <td><%= $device->{extension} %></td>
+        <td><%= $device->{sip_server} %></td>
+        <td>
+          <a class="btn secondary" href="/admin/devices/<%= $device->{mac} %>/edit">Edit</a>
+        </td>
+      </tr>
+    % }
+    % unless (@$devices) {
+      <tr><td colspan="7" class="muted">No devices found.</td></tr>
+    % }
+  </tbody>
+</table>

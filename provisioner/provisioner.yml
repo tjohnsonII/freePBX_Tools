@@ -6,6 +6,10 @@ db:
   user: provisioner
   # password is intentionally not here - see .db_password
 
+admin:
+  username: admin
+  # password is intentionally not here - see .admin_password
+
 hypnotoad:
   listen:
     - http://127.0.0.1:3000

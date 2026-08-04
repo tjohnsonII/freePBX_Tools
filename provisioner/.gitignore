@@ -2,4 +2,6 @@ local/
 log/*.log
 .db_password
 .session_secret
+.phone_admin_password
+.admin_password
 data/uploads/*

@@ -1,0 +1,55 @@
+% my $is_new = !$device->{mac};
+% title $is_new ? 'Add device' : "Edit $device->{mac}";
+<h1><%= $is_new ? 'Add device' : "Edit $device->{mac}" %></h1>
+
+% if ($error) {
+  <div class="error"><%= $error %></div>
+% }
+
+<div class="card">
+  <form method="post" action="<%= $action %>">
+    % if ($is_new) {
+      <label for="mac">MAC address</label>
+      <input type="text" id="mac" name="mac" value="<%= $device->{mac} // '' %>" placeholder="001565abcdef" required>
+    % } else {
+      <label>MAC address</label>
+      <input type="text" value="<%= $device->{mac} %>" disabled>
+    % }
+
+    <label for="vendor">Vendor</label>
+    <select id="vendor" name="vendor" required>
+      % for my $v (@$vendors) {
+        <option value="<%= $v %>" <%= (($device->{vendor} // '') eq $v) ? 'selected' : '' %>><%= $v %></option>
+      % }
+    </select>
+
+    <label for="model">Model</label>
+    <input type="text" id="model" name="model" value="<%= $device->{model} // '' %>">
+
+    <label for="label">Label</label>
+    <input type="text" id="label" name="label" value="<%= $device->{label} // '' %>">
+
+    <label for="extension">Extension</label>
+    <input type="text" id="extension" name="extension" value="<%= $device->{extension} // '' %>">
+
+    <label for="display_name">Display name</label>
+    <input type="text" id="display_name" name="display_name" value="<%= $device->{display_name} // '' %>">
+
+    <label for="sip_server">SIP server</label>
+    <input type="text" id="sip_server" name="sip_server" value="<%= $device->{sip_server} // '192.168.142.42' %>">
+
+    <label for="sip_port">SIP port</label>
+    <input type="text" id="sip_port" name="sip_port" value="<%= $device->{sip_port} // 5060 %>">
+
+    <label for="sip_user">SIP user</label>
+    <input type="text" id="sip_user" name="sip_user" value="<%= $device->{sip_user} // '' %>">
+
+    <label for="sip_password">SIP password</label>
+    <input type="text" id="sip_password" name="sip_password" value="<%= $device->{sip_password} // '' %>">
+
+    <p style="margin-top:1.25rem;">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn secondary" href="/admin/devices">Cancel</a>
+    </p>
+  </form>
+</div>

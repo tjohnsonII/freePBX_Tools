@@ -1,0 +1,57 @@
+% title $device->{mac};
+<div style="display:flex; justify-content:space-between; align-items:center;">
+  <h1><%= $device->{label} || $device->{mac} %></h1>
+  <div>
+    <a class="btn secondary" href="/admin/devices/<%= $device->{mac} %>/edit">Edit</a>
+    <form class="inline" method="post" action="/admin/devices/<%= $device->{mac} %>/delete"
+          onsubmit="return confirm('Delete this device?');">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <tr><th>MAC</th><td><%= $device->{mac} %></td></tr>
+    <tr><th>Vendor</th><td><%= $device->{vendor} %></td></tr>
+    <tr><th>Model</th><td><%= $device->{model} %></td></tr>
+    <tr><th>Extension</th><td><%= $device->{extension} %></td></tr>
+    <tr><th>Display name</th><td><%= $device->{display_name} %></td></tr>
+    <tr><th>SIP server</th><td><%= $device->{sip_server} %>:<%= $device->{sip_port} %></td></tr>
+    <tr><th>SIP user</th><td><%= $device->{sip_user} %></td></tr>
+    <tr><th>Created</th><td><%= $device->{created_at} %></td></tr>
+    <tr><th>Updated</th><td><%= $device->{updated_at} %></td></tr>
+  </table>
+</div>
+
+<h2>Rendered config</h2>
+<div class="card">
+  % if ($config) {
+    <pre><%= $config %></pre>
+  % } else {
+    <p class="muted">Unsupported vendor - no template available.</p>
+  % }
+</div>
+
+<h2>Recent provisioning requests</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Path</th><th>Remote</th><th>User-Agent</th><th>Matched</th></tr>
+    </thead>
+    <tbody>
+      % for my $req (@$requests) {
+        <tr>
+          <td><%= $req->{created_at} %></td>
+          <td><%= $req->{path} %></td>
+          <td><%= $req->{remote_addr} %></td>
+          <td class="muted"><%= $req->{user_agent} %></td>
+          <td><%= $req->{matched} ? 'yes' : 'no' %></td>
+        </tr>
+      % }
+      % unless (@$requests) {
+        <tr><td colspan="5" class="muted">No requests logged yet.</td></tr>
+      % }
+    </tbody>
+  </table>
+</div>

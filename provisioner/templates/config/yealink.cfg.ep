@@ -17,3 +17,6 @@ account.1.auth_name = <%= $device->{sip_user} // $device->{extension} // '' %>
 account.1.password = <%= $device->{sip_password} // '' %>
 account.1.sip_server.1.address = <%= $device->{sip_server} // '' %>
 account.1.sip_server.1.port = <%= $device->{sip_port} // 5060 %>
+
+# Phone web-UI / management login (not the SIP account above)
+static.security.user_password = admin:<%= $c->phone_admin_password %>
