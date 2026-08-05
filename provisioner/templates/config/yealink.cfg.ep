@@ -8,15 +8,10 @@ local_time.ntp_server1 = pool.ntp.org
 # Device
 device.label = <%= $device->{label} // $device->{mac} %>
 
-# Account 1
-account.1.enable = 1
-account.1.label = <%= $device->{display_name} // $device->{extension} // '' %>
-account.1.display_name = <%= $device->{display_name} // '' %>
-account.1.user_name = <%= $device->{sip_user} // $device->{extension} // '' %>
-account.1.auth_name = <%= $device->{sip_user} // $device->{extension} // '' %>
-account.1.password = <%= $device->{sip_password} // '' %>
-account.1.sip_server.1.address = <%= $device->{sip_server} // '' %>
-account.1.sip_server.1.port = <%= $device->{sip_port} // 5060 %>
+# Arbitrary attributes (editable via the admin UI)
+% for my $attr (@$attributes) {
+<%= $attr->{attr_key} %> = <%= $attr->{attr_value} // '' %>
+% }
 
 # Phone web-UI / management login (not the SIP account above)
 static.security.user_password = admin:<%= $c->phone_admin_password %>

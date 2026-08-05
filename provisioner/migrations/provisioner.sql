@@ -34,3 +34,22 @@ CREATE TABLE provisioning_requests (
 -- 1 down
 DROP TABLE provisioning_requests;
 DROP TABLE devices;
+
+-- 2 up
+CREATE TABLE device_attributes (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    mac           CHAR(12)     NOT NULL,
+    attr_key      VARCHAR(128) NOT NULL,
+    attr_value    VARCHAR(255) NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                  ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY device_attributes_mac_key_uniq (mac, attr_key),
+    KEY device_attributes_mac_idx (mac),
+    CONSTRAINT device_attributes_mac_fk FOREIGN KEY (mac)
+        REFERENCES devices (mac) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2 down
+DROP TABLE device_attributes;

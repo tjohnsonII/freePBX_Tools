@@ -162,6 +162,9 @@ sub startup ($self) {
     $admin->get('/devices/:mac/edit')->to('admin#edit_form');
     $admin->post('/devices/:mac')->to('admin#update');
     $admin->post('/devices/:mac/delete')->to('admin#destroy');
+    $admin->post('/devices/:mac/attributes')->to('admin#add_attribute');
+    $admin->post('/devices/:mac/attributes/#key/delete')
+      ->to('admin#delete_attribute');
 }
 
 sub _session_secret ($self) {

@@ -50,9 +50,10 @@ sub boot_config ($self) {
     );
 
     return $self->render(
-        template => $template,
-        format   => 'cfg',
-        device   => $device,
+        template   => $template,
+        format     => 'cfg',
+        device     => $device,
+        attributes => $self->_find_attributes($mac),
     );
 }
 
@@ -116,6 +117,14 @@ sub _find_device ($self, $mac) {
     return $self->mysql->db->query(
         'SELECT * FROM devices WHERE mac = ?', $mac
     )->hash;
+}
+
+sub _find_attributes ($self, $mac) {
+    return $self->mysql->db->query(
+        'SELECT attr_key, attr_value FROM device_attributes
+             WHERE mac = ? ORDER BY attr_key',
+        $mac
+    )->hashes;
 }
 
 sub _log_request ($self, $mac, $device) {

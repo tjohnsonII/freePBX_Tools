@@ -24,6 +24,45 @@
   </table>
 </div>
 
+<h2>Arbitrary attributes</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Key</th><th>Value</th><th></th></tr>
+    </thead>
+    <tbody>
+      % for my $attr (@$attributes) {
+        <tr>
+          <td><%= $attr->{attr_key} %></td>
+          <td><%= $attr->{attr_value} %></td>
+          <td>
+            <form class="inline" method="post"
+                  action="/admin/devices/<%= $device->{mac} %>/attributes/<%= $attr->{attr_key} %>/delete"
+                  onsubmit="return confirm('Delete this attribute?');">
+              <button class="btn danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      % }
+      % unless (@$attributes) {
+        <tr><td colspan="3" class="muted">No attributes yet.</td></tr>
+      % }
+    </tbody>
+  </table>
+
+  <form method="post" action="/admin/devices/<%= $device->{mac} %>/attributes" style="margin-top:1rem; display:flex; gap:0.5rem; align-items:flex-end;">
+    <div style="flex:1;">
+      <label for="attr_key">Key</label>
+      <input type="text" id="attr_key" name="attr_key" placeholder="reg.1.address" required>
+    </div>
+    <div style="flex:1;">
+      <label for="attr_value">Value</label>
+      <input type="text" id="attr_value" name="attr_value">
+    </div>
+    <button class="btn" type="submit">Add / update</button>
+  </form>
+</div>
+
 <h2>Rendered config</h2>
 <div class="card">
   % if ($config) {

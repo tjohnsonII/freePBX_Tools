@@ -5,7 +5,40 @@ my @VENDORS = qw(yealink polycom);
 
 my %VENDOR_TEMPLATE = (
     yealink => 'config/yealink',
-    polycom => 'config/polycom',
+    polycom => 'config/polycom_phone',
+);
+
+my %DEFAULT_ATTRIBUTES = (
+    yealink => sub ($d) {
+        my $user = $d->{sip_user} || $d->{extension} || '';
+        my $name = $d->{display_name} || $d->{label}
+          || $d->{extension} || $d->{mac};
+        return (
+            'account.1.enable'              => 1,
+            'account.1.label'                => $name,
+            'account.1.display_name'         => $name,
+            'account.1.user_name'            => $user,
+            'account.1.auth_name'            => $user,
+            'account.1.password'             => $d->{sip_password} || '',
+            'account.1.sip_server.1.address' => $d->{sip_server} || '',
+            'account.1.sip_server.1.port'    => $d->{sip_port} || 5060,
+        );
+    },
+    polycom => sub ($d) {
+        my $user = $d->{sip_user} || $d->{extension} || '';
+        my $name = $d->{display_name} || $d->{label}
+          || $d->{extension} || $d->{mac};
+        return (
+            'reg.1.address'          => $user,
+            'reg.1.auth.userId'      => $user,
+            'reg.1.auth.password'    => $d->{sip_password} || '',
+            'reg.1.displayName'      => $name,
+            'reg.1.label'            => $name,
+            'reg.1.line.1.label'     => "Ext. " . ($d->{extension} || ''),
+            'reg.1.server.1.address' => $d->{sip_server} || '',
+            'reg.1.server.1.port'    => $d->{sip_port} || 5060,
+        );
+    },
 );
 
 sub index ($self) {
@@ -85,6 +118,9 @@ sub create ($self) {
         );
     };
 
+    $fields->{mac} = $mac;
+    $self->_generate_default_attributes($fields);
+
     return $self->redirect_to("/admin/devices/$mac");
 }
 
@@ -140,25 +176,64 @@ sub show ($self) {
         $device->{mac}
     )->hashes;
 
+    my $attributes = $self->mysql->db->query(
+        'SELECT attr_key, attr_value FROM device_attributes
+             WHERE mac = ? ORDER BY attr_key',
+        $device->{mac}
+    )->hashes;
+
     my $template = $VENDOR_TEMPLATE{ $device->{vendor} };
 
     my $rendered_config =
       $template
       ? $self->render_to_string(
-          template => $template,
-          format   => 'cfg',
-          device   => $device,
+          template   => $template,
+          format     => 'cfg',
+          device     => $device,
+          attributes => $attributes,
         )
       : undef;
 
     return $self->render(
-        template => 'admin/devices/show',
-        format   => 'html',
-        layout   => 'admin',
-        device   => $device,
-        requests => $requests,
-        config   => $rendered_config,
+        template   => 'admin/devices/show',
+        format     => 'html',
+        layout     => 'admin',
+        device     => $device,
+        requests   => $requests,
+        attributes => $attributes,
+        config     => $rendered_config,
     );
+}
+
+sub add_attribute ($self) {
+    my $mac = $self->stash('mac');
+    $self->_find_or_404($mac) or return;
+
+    my $key = $self->param('attr_key') // '';
+    my $value = $self->param('attr_value') // '';
+
+    if (length $key) {
+        $self->mysql->db->query(
+            'INSERT INTO device_attributes (mac, attr_key, attr_value)
+                 VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE attr_value = VALUES(attr_value)',
+            $mac, $key, $value
+        );
+    }
+
+    return $self->redirect_to("/admin/devices/$mac");
+}
+
+sub delete_attribute ($self) {
+    my $mac = $self->stash('mac');
+    $self->_find_or_404($mac) or return;
+
+    $self->mysql->db->query(
+        'DELETE FROM device_attributes WHERE mac = ? AND attr_key = ?',
+        $mac, $self->stash('key')
+    );
+
+    return $self->redirect_to("/admin/devices/$mac");
 }
 
 sub _device_params ($self) {
@@ -173,6 +248,20 @@ sub _device_params ($self) {
         sip_user     => $self->param('sip_user') // '',
         sip_password => $self->param('sip_password') // '',
     };
+}
+
+sub _generate_default_attributes ($self, $device) {
+    my $generator = $DEFAULT_ATTRIBUTES{ $device->{vendor} } or return;
+    my %attrs = $generator->($device);
+
+    for my $key (keys %attrs) {
+        $self->mysql->db->query(
+            'INSERT INTO device_attributes (mac, attr_key, attr_value)
+                 VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE attr_value = VALUES(attr_value)',
+            $device->{mac}, $key, $attrs{$key}
+        );
+    }
 }
 
 sub _find_or_404 ($self, $mac) {
