@@ -7,13 +7,17 @@ my %VENDOR_TEMPLATE = (
 );
 
 # Primary boot config, e.g. /001565abcdef.cfg
+# Polycom per-phone override, chained from the master file above,
+# e.g. /0004f2d49347-phone.cfg
 sub boot_config ($self) {
     my $filename = $self->param('filename') // '';
+
+    my $is_phone_override = $filename =~ /\A([0-9a-f]{12})-phone\.cfg\z/i;
 
     return $self->render(
         text   => "Invalid configuration filename\n",
         status => 400,
-    ) unless $filename =~ /\A(.+)\.cfg\z/i;
+    ) unless $is_phone_override || $filename =~ /\A(.+)\.cfg\z/i;
 
     my $mac = $self->normalize_mac($1);
 
@@ -30,7 +34,10 @@ sub boot_config ($self) {
         status => 404,
     ) unless $device;
 
-    my $template = $VENDOR_TEMPLATE{ $device->{vendor} };
+    my $template =
+      $is_phone_override
+      ? 'config/polycom_phone'
+      : $VENDOR_TEMPLATE{ $device->{vendor} };
 
     return $self->render(
         text   => "Unsupported vendor: $device->{vendor}\n",
@@ -81,6 +88,28 @@ sub yealink_directory ($self) {
         format   => 'xml',
         device   => $device,
     );
+}
+
+# Devices PUT their own boot/app logs back to us, e.g.
+# PUT /0004f2d49347-boot.log
+sub upload_log ($self) {
+    my $filename = $self->param('filename') // '';
+
+    return $self->render(text => "Invalid filename\n", status => 400)
+      unless $filename =~ /\A[a-f0-9]{12}-(boot|app)\.log\z/i;
+
+    my $uploads_dir = $self->app->home->child('data', 'uploads');
+    $uploads_dir->make_path;
+
+    $uploads_dir->child($filename)->spurt($self->req->body);
+
+    $self->app->log->info(
+        "Received device log upload: $filename ("
+          . length($self->req->body)
+          . " bytes)"
+    );
+
+    return $self->render(text => '', status => 204);
 }
 
 sub _find_device ($self, $mac) {

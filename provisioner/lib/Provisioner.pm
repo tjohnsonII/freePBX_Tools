@@ -129,6 +129,10 @@ sub startup ($self) {
     # /001565abcdef.cfg
     $r->get('/#filename')->to('provision#boot_config');
 
+    # Phones PUT their own boot/app logs back to the provisioning server;
+    # accept them so we can read real device-side error output.
+    $r->put('/#filename')->to('provision#upload_log');
+
     my $admin = $r->under(
         '/admin' => sub ($c) {
             my $header = $c->req->headers->authorization // '';
