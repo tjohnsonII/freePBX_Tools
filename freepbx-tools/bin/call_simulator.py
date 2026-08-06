@@ -631,9 +631,95 @@ class FreePBXCallSimulator:
             print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Extension call failed: {error_msg:<35}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
         
         print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
-        
+
         return result
-    
+
+    def test_ring_group_call(self, grpnum, caller_id="8884400123"):
+        """
+        Test calling a specific ring group. Ring groups are dialable via
+        their own group number in from-internal, exactly like an extension,
+        so this exercises the group's actual configured ring strategy
+        (ringall/hunt/memoryhunt/etc.) and its members/failover.
+        Args:
+            grpnum (str): Ring group number to call.
+            caller_id (str): Caller ID to use.
+        Returns:
+            dict: Result of the ring group call test.
+        """
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 🔔 TESTING RING GROUP CALL: {grpnum:<37}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
+
+        channel = f"Local/{grpnum}@from-internal"
+        call_content = self.create_call_file(
+            channel=channel,
+            caller_id=caller_id,
+            destination=grpnum,
+            wait_time=15,
+            max_retries=1
+        )
+
+        call_id = f"rg_{grpnum}_{int(time.time())}"
+        result = self.execute_call_file(call_content, call_id)
+
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 RING GROUP TEST RESULTS{' ' * 38}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+
+        if result['success']:
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Ring group call initiated{' ' * 36}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            print(f"{Colors.MAGENTA}║{Colors.CYAN}   🔔 Target: Ring Group {grpnum:<42}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        else:
+            error_msg = result['error'][:40] if len(result['error']) > 40 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Ring group call failed: {error_msg:<34}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
+
+        return result
+
+    def test_queue_call(self, extension, caller_id="8884400123"):
+        """
+        Test calling a specific queue. Queues are dialable via their own
+        extension number in from-internal, exactly like a regular extension,
+        so this exercises the queue's actual configured strategy, members,
+        and timeout/failover behavior.
+        Args:
+            extension (str): Queue extension number to call.
+            caller_id (str): Caller ID to use.
+        Returns:
+            dict: Result of the queue call test.
+        """
+        print(f"\n{Colors.CYAN}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.YELLOW}{Colors.BOLD} 📞 TESTING QUEUE CALL: {extension:<42}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}")
+
+        channel = f"Local/{extension}@from-internal"
+        call_content = self.create_call_file(
+            channel=channel,
+            caller_id=caller_id,
+            destination=extension,
+            wait_time=15,
+            max_retries=1
+        )
+
+        call_id = f"queue_{extension}_{int(time.time())}"
+        result = self.execute_call_file(call_content, call_id)
+
+        print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
+        print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 QUEUE TEST RESULTS{' ' * 43}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        print(f"{Colors.MAGENTA}╠{'═' * 68}╣{Colors.RESET}")
+
+        if result['success']:
+            print(f"{Colors.MAGENTA}║{Colors.GREEN}   ✅ Queue call initiated{' ' * 41}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+            print(f"{Colors.MAGENTA}║{Colors.CYAN}   📞 Target: Queue {extension:<47}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+        else:
+            error_msg = result['error'][:40] if len(result['error']) > 40 else result['error']
+            print(f"{Colors.MAGENTA}║{Colors.RED}   ❌ Queue call failed: {error_msg:<39}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
+
+        print(f"{Colors.MAGENTA}╚{'═' * 68}╝{Colors.RESET}")
+
+        return result
+
     def test_voicemail_call(self, mailbox, caller_id="8884400123"):
         """
         Test calling directly to voicemail.
@@ -865,6 +951,8 @@ def main():
     parser.add_argument("--did", help="Test specific DID (incoming call)")
     parser.add_argument("--destination", help="Destination number to ring (e.g., cell phone)")
     parser.add_argument("--extension", help="Test specific extension")
+    parser.add_argument("--ring-group", help="Test specific ring group (by group number)")
+    parser.add_argument("--queue", help="Test specific queue (by extension number)")
     parser.add_argument("--voicemail", help="Test specific voicemail box")
     parser.add_argument("--playback", help="Test playback application with sound file")
     parser.add_argument("--caller-id", help="Override caller ID (defaults to DID for DID tests)")
@@ -893,6 +981,12 @@ def main():
     elif args.extension:
         caller = args.caller_id or "8884400123"
         simulator.test_extension_call(args.extension, caller)
+    elif args.ring_group:
+        caller = args.caller_id or "8884400123"
+        simulator.test_ring_group_call(args.ring_group, caller)
+    elif args.queue:
+        caller = args.caller_id or "8884400123"
+        simulator.test_queue_call(args.queue, caller)
     elif args.voicemail:
         caller = args.caller_id or "8884400123"
         simulator.test_voicemail_call(args.voicemail, caller)

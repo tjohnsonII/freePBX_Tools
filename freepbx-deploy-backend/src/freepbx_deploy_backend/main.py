@@ -113,7 +113,7 @@ class Job:
     password: str
     root_password: str
     bundle_name: str
-    branch: str = "server"  # git branch to fetch freepbx-tools/ from
+    branch: str = "server"   # git branch to fetch freepbx-tools/ from
     menu_choice: str = ""   # populated for remote_run action
     grab_dump: bool = False  # populated for remote_run action
     sub_choice: str = ""    # optional sub-menu choice for remote_run

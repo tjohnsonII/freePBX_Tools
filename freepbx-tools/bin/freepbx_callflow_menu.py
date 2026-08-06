@@ -648,7 +648,7 @@ def run_comprehensive_analyzer(sock):
     prompt()
 
 
-def run_call_simulation_menu(sock, did_rows):
+def run_call_simulation_menu(sock, did_rows, data=None):
     """Interactive call simulation and validation menu."""
     # Pre-flight: check which tools are available
     simulator_ok   = os.path.isfile(CALL_SIMULATOR_SCRIPT)
@@ -677,18 +677,20 @@ def run_call_simulation_menu(sock, did_rows):
         print(f"{Colors.CYAN}║{avail} 3){Colors.WHITE} Test extension-to-extension call{na}{' ' * max(0, 37 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{avail} 4){Colors.WHITE} Test voicemail access{na}{' ' * max(0, 48 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}║{avail} 5){Colors.WHITE} Test audio playback  (plays a sound file){na}{' ' * max(0, 28 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
-        print(f"{Colors.CYAN}║{avail} 6){Colors.RED}{Colors.BOLD} ⚠ Comprehensive validation  (many real calls — use in test env){' ' * 7}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 6){Colors.WHITE} Test ring group{na}{' ' * max(0, 55 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 7){Colors.WHITE} Test queue{na}{' ' * max(0, 60 - len(na))}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 8){Colors.RED}{Colors.BOLD} ⚠ Comprehensive validation  (many real calls — use in test env){' ' * 7}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
 
         # ── Monitoring ────────────────────────────────────────────────────────
         avail = Colors.GREEN if monitoring_ok else Colors.RED
-        print(f"{Colors.CYAN}║{avail} 7){Colors.WHITE} Monitor active call simulations{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}║{avail} 9){Colors.WHITE} Monitor active call simulations{' ' * 39}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
 
         print(f"{Colors.CYAN}╠{'═' * W}╣{Colors.RESET}")
         print(f"{Colors.CYAN}║{Colors.RED} 0){Colors.WHITE} Return to main menu{' ' * 51}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
         print(f"{Colors.CYAN}╚{'═' * W}╝{Colors.RESET}")
         print()
 
-        choice = prompt(f"{Colors.YELLOW}Choose option (0/b=back, 1-7): {Colors.RESET}").strip()
+        choice = prompt(f"{Colors.YELLOW}Choose option (0/b=back, 1-9): {Colors.RESET}").strip()
 
         if choice == "0" or choice.lower() == "b":
             break
@@ -703,11 +705,15 @@ def run_call_simulation_menu(sock, did_rows):
         elif choice == "5":
             run_playback_test()
         elif choice == "6":
-            run_comprehensive_validation()
+            run_ring_group_test(data)
         elif choice == "7":
+            run_queue_test(data)
+        elif choice == "8":
+            run_comprehensive_validation()
+        elif choice == "9":
             run_call_monitoring()
         else:
-            print(f"{Colors.RED}❌ Invalid choice. Please select 0-7.{Colors.RESET}")
+            print(f"{Colors.RED}❌ Invalid choice. Please select 0-9.{Colors.RESET}")
 
 
 def run_did_call_test(did_rows):
@@ -909,6 +915,150 @@ def run_extension_test():
         print("✅ Extension test completed!")
     else:
         print(f"❌ Extension test failed (exit code {rc}).")
+
+
+def _pick_from_list(items, label_fn, prompt_label):
+    """Generic 1-based picker: prints each item via label_fn, prompts for a
+    choice (Enter defaults to #1), returns the picked item or None."""
+    for i, item in enumerate(items, 1):
+        print(f"  {i}) {label_fn(item)}")
+    pick = prompt(f"{Colors.YELLOW}Pick a {prompt_label} (Enter for #1): {Colors.RESET}").strip()
+    idx = 1
+    if pick:
+        try:
+            idx = int(pick)
+        except ValueError:
+            print(f"{Colors.RED}Not a number — using #1.{Colors.RESET}")
+            idx = 1
+    if idx < 1 or idx > len(items):
+        print(f"{Colors.RED}Invalid selection — using #1.{Colors.RESET}")
+        idx = 1
+    return items[idx - 1]
+
+
+def _resolve_ext_names(ext_list, data):
+    """Map raw extension numbers to 'ext (name)' labels using cached
+    extension data, so a ring group/queue member list is actually useful
+    for knowing which physical phone to watch, not just bare numbers."""
+    ext_names = {str(e.get("extension")): e.get("name", "") for e in (data or {}).get("extensions") or []}
+    labels = []
+    for ext in ext_list:
+        ext = ext.strip()
+        if not ext:
+            continue
+        name = ext_names.get(ext, "")
+        labels.append(f"{ext} ({name})" if name else ext)
+    return labels
+
+
+def run_ring_group_test(data):
+    """Test calling a specific ring group."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
+    ring_groups = (data or {}).get("ringgroups") or []
+    if not ring_groups:
+        print(f"{Colors.RED}❌ No ring groups configured on this system.{Colors.RESET}")
+        return
+
+    print("\n🔔 Ring Group Call Test")
+    print(f"\n{Colors.CYAN}Ring groups configured on this system:{Colors.RESET}")
+    picked = _pick_from_list(
+        ring_groups,
+        lambda rg: f"{rg.get('grpnum')}  {rg.get('description', '')}",
+        "ring group to test",
+    )
+    grpnum = str(picked.get("grpnum"))
+    strategy = picked.get("strategy") or "ringall"
+    ringtime = picked.get("ringtime") or "?"
+    members = _resolve_ext_names((picked.get("grplist") or "").split("-"), data)
+
+    print(f"\n{Colors.CYAN}Strategy: {strategy}  Ring time: {ringtime}s{Colors.RESET}")
+    if members:
+        print(f"{Colors.CYAN}Expected to ring — watch these phones:{Colors.RESET}")
+        for m in members:
+            print(f"  📱 {m}")
+    else:
+        print(f"{Colors.YELLOW}⚠ No members configured on this ring group.{Colors.RESET}")
+
+    print_tip("3-5 digit internal extension, e.g. 963.")
+    source_ext = prompt("Source extension (shown as caller ID): ").strip() or "8884400123"
+
+    print(f"\n🚀 Testing ring group {grpnum} (caller ID: {source_ext})")
+    confirm = prompt("Continue? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Test cancelled.")
+        return
+
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--ring-group", grpnum, "--caller-id", source_ext, "--debug"]
+    rc = run_interactive(cmd)
+
+    if rc == 0:
+        print("✅ Ring group test completed!")
+    else:
+        print(f"❌ Ring group test failed (exit code {rc}).")
+
+
+def run_queue_test(data):
+    """Test calling a specific queue."""
+    if not os.path.isfile(CALL_SIMULATOR_SCRIPT):
+        print("❌ Call simulator not found. Please run deployment first.")
+        return
+
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠  LIVE CALL TEST — this will make a real call on the production system.{Colors.RESET}")
+    gate = prompt(f"{Colors.YELLOW}Continue? (y/N): {Colors.RESET}").strip().lower()
+    if gate != "y":
+        print("Cancelled.")
+        return
+
+    queues = (data or {}).get("queues") or []
+    if not queues:
+        print(f"{Colors.RED}❌ No queues configured on this system.{Colors.RESET}")
+        return
+
+    print("\n📞 Queue Call Test")
+    print(f"\n{Colors.CYAN}Queues configured on this system:{Colors.RESET}")
+    picked = _pick_from_list(
+        queues,
+        lambda q: f"{q.get('extension')}  {q.get('name', '')}",
+        "queue to test",
+    )
+    ext = str(picked.get("extension"))
+    strategy = picked.get("strategy") or "?"
+    timeout = picked.get("timeout") or "?"
+    members = _resolve_ext_names((picked.get("members") or "").split(","), data)
+
+    print(f"\n{Colors.CYAN}Strategy: {strategy}  Timeout: {timeout}s{Colors.RESET}")
+    if members:
+        print(f"{Colors.CYAN}Expected agent phones — watch these:{Colors.RESET}")
+        for m in members:
+            print(f"  📱 {m}")
+    else:
+        print(f"{Colors.YELLOW}⚠ No members configured on this queue.{Colors.RESET}")
+
+    print_tip("3-5 digit internal extension, e.g. 963.")
+    source_ext = prompt("Source extension (shown as caller ID): ").strip() or "8884400123"
+
+    print(f"\n🚀 Testing queue {ext} (caller ID: {source_ext})")
+    confirm = prompt("Continue? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Test cancelled.")
+        return
+
+    cmd = ["python3", CALL_SIMULATOR_SCRIPT, "--queue", ext, "--caller-id", source_ext, "--debug"]
+    rc = run_interactive(cmd)
+
+    if rc == 0:
+        print("✅ Queue test completed!")
+    else:
+        print(f"❌ Queue test failed (exit code {rc}).")
 
 
 def run_voicemail_test():
@@ -3492,6 +3642,18 @@ def _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls):
         add("Call Simulation", "Test audio playback (live)", "LIVE_CALL",
             lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--playback", defaults["playback_sound"],
                               "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
+        ring_groups = (data or {}).get("ringgroups") or []
+        if ring_groups:
+            first_grpnum = str(ring_groups[0].get("grpnum"))
+            add("Call Simulation", "Test ring group (live)", "LIVE_CALL",
+                lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--ring-group", first_grpnum,
+                                  "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
+        queues = (data or {}).get("queues") or []
+        if queues:
+            first_queue_ext = str(queues[0].get("extension"))
+            add("Call Simulation", "Test queue (live)", "LIVE_CALL",
+                lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--queue", first_queue_ext,
+                                  "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
         add("Call Simulation", "Comprehensive validation (many live calls)", "DESTRUCTIVE_OR_SLOW",
             lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--comprehensive", "--debug"], timeout=180))
         add("Call Simulation", "Monitor active call simulations", "INTERACTIVE_ONLY",
@@ -3982,7 +4144,7 @@ def main():
 
             elif choice == "11":
                 did_rows = list_dids(data)
-                run_call_simulation_menu(sock, did_rows)
+                run_call_simulation_menu(sock, did_rows, data)
                 print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
                 prompt()
 
