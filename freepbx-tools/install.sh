@@ -239,6 +239,29 @@ install_files() {
   mkdir -p "$INSTALL_DIR"  # Ensure install directory exists
   cp -a "$src_dir/." "$INSTALL_DIR/"  # Copy all files
 
+  # Stamp a VERSION file if the deploy pipeline didn't already include one.
+  # deploy_freepbx_tools.py generates one upstream and ships it as part of
+  # the file bundle when IT'S the one deploying — but code that reaches a
+  # box via a direct `git pull` + ./install.sh on the box itself never goes
+  # through that script at all, so nothing upstream ever stamps a version.
+  # Falls back to deriving one here, from whatever git checkout install.sh
+  # is being run from (if any) — never overwrites a VERSION already staged.
+  if [[ ! -f "$INSTALL_DIR/VERSION" ]] && command -v git >/dev/null 2>&1 \
+     && git -C "$src_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    commit="$(git -C "$src_dir" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -n "$commit" ]]; then
+      commit_date="$(git -C "$src_dir" log -1 --format=%cI 2>/dev/null || true)"
+      branch="$(git -C "$src_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+      {
+        echo "COMMIT=$commit"
+        echo "COMMIT_DATE=$commit_date"
+        echo "BRANCH=$branch"
+        echo "DEPLOYED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "DEPLOY_ID=install.sh-$(date -u +%Y%m%d%H%M%S)"
+      } > "$INSTALL_DIR/VERSION"
+      echo ">>> Stamped VERSION from local git checkout ($commit on $branch)"
+    fi
+  fi
 
   # Normalize Python entrypoints and make executables
   for rel in bin/freepbx_dump.py bin/freepbx_callflow_menu.py bin/freepbx_callflow_graph.py bin/freepbx_tc_status.py; do

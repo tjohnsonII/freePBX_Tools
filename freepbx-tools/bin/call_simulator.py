@@ -260,6 +260,44 @@ class FreePBXCallSimulator:
             return []
         return [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
 
+    def _query_cdr(self, sql):
+        """Run a query against asteriskcdrdb via the same local/SSH execution
+        path as everything else in this class."""
+        try:
+            result = self._run_command(
+                f'mysql -BN --user=root asteriskcdrdb -e "{sql}" 2>/dev/null',
+                timeout=10
+            )
+        except Exception:
+            return []
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return [ln.split('\t') for ln in result.stdout.strip().splitlines() if ln.strip()]
+
+    def _find_cdr_for_call(self, channel, since_dt, max_wait=20, poll_interval=3):
+        """Poll CDR for the record this test call produced. The spool-file
+        checks in execute_call_file() only confirm Asterisk *consumed* the
+        .call file, not that a call was actually placed and logged — CDR is
+        the authoritative signal a technician actually cares about. Polls
+        rather than checking once because Asterisk doesn't write the CDR
+        row until the call hangs up, which for an unanswered ring group/
+        queue/extension can be the full configured ring time away.
+        Returns the matching row as a dict, or None if nothing showed up
+        within max_wait seconds."""
+        cols = ["calldate", "src", "dst", "disposition", "duration", "billsec", "uniqueid", "linkedid"]
+        since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
+        sql = (f"SELECT {','.join(cols)} FROM cdr "
+               f"WHERE channel LIKE '{channel}%' AND calldate >= '{since_str}' "
+               f"ORDER BY calldate ASC LIMIT 1;")
+        deadline = time.time() + max_wait
+        while True:
+            rows = self._query_cdr(sql)
+            if rows:
+                return dict(zip(cols, rows[0]))
+            if time.time() >= deadline:
+                return None
+            time.sleep(poll_interval)
+
     def create_call_file(self, channel, caller_id, destination, context="from-internal",
                         priority=1, wait_time=30, max_retries=2, application=None, 
                         data=None, archive=False):
@@ -317,13 +355,21 @@ class FreePBXCallSimulator:
         
         return content
     
-    def execute_call_file(self, call_content, call_id=None):
+    def execute_call_file(self, call_content, call_id=None, channel=None, cdr_wait=20):
         """
         Execute a call file on the remote FreePBX server.
         Handles file creation, permission setting, moving to spool, and log retrieval.
         Args:
             call_content (str): The call file content.
             call_id (str): Optional unique call identifier.
+            channel (str): The origination channel this call file uses (e.g.
+                "Local/1002@from-internal") — when given, used to poll CDR
+                for the record this specific call produces, which is the
+                real signal that the call was actually placed and logged,
+                not just that Asterisk consumed the .call file.
+            cdr_wait (int): Max seconds to poll CDR for a match. Should be at
+                least the call file's own WaitTime plus a few seconds of
+                margin for Asterisk to write the CDR row after hangup.
         Returns:
             dict: Call execution results and logs.
         """
@@ -387,6 +433,7 @@ class FreePBXCallSimulator:
             # Move to spool directory (this triggers the call)
             # Using mv ensures file is moved (not copied) as required by Asterisk
             self.debug_print("Moving call file to spool directory (this triggers call)...", "INFO")
+            call_started_at = datetime.now()
             move_cmd = f"mv {temp_file} {target_file}"
             move_result = self._run_command(move_cmd, timeout=10)
             
@@ -450,18 +497,49 @@ class FreePBXCallSimulator:
             # Get call logs for this time period
             self.debug_print("Fetching recent call logs...", "INFO")
             call_logs = self._get_recent_call_logs(call_id)
-            
+
             if call_logs:
                 print(f"   {Colors.CYAN}📜 Retrieved {len(call_logs)} log entries{Colors.RESET}")
                 self.debug_print(f"Found {len(call_logs)} log entries", "SUCCESS")
-            
+
+            # Confirm the call actually shows up in CDR — the spool-file
+            # checks above only prove Asterisk consumed the .call file, not
+            # that a call was actually placed and recorded. CDR is the
+            # authoritative signal.
+            cdr_record = None
+            if channel:
+                self.debug_print(f"Polling CDR for this call (up to {cdr_wait}s)...", "INFO")
+                print(f"   {Colors.BLUE}⏳ Checking CDR for this call's record (up to {cdr_wait}s)...{Colors.RESET}")
+                cdr_record = self._find_cdr_for_call(channel, call_started_at, max_wait=cdr_wait)
+                if cdr_record:
+                    disp = cdr_record.get('disposition', '?')
+                    disp_color = Colors.GREEN if disp == 'ANSWERED' else Colors.YELLOW
+                    print(f"   {Colors.GREEN}✅ Found in CDR:{Colors.RESET} {cdr_record.get('calldate')}  "
+                          f"{cdr_record.get('src')} -> {cdr_record.get('dst')}  "
+                          f"{disp_color}{disp}{Colors.RESET}  "
+                          f"duration={cdr_record.get('duration')}s billsec={cdr_record.get('billsec')}s")
+                    self.debug_print(f"CDR record found: {cdr_record}", "SUCCESS")
+                    linkedid = cdr_record.get('linkedid')
+                    if linkedid and self.is_local_execution:
+                        leg_script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                   "freepbx_call_leg_analyzer.py")
+                        if os.path.isfile(leg_script):
+                            print(f"   {Colors.CYAN}📜 Full CEL/call-leg story:{Colors.RESET} "
+                                  f"python3 {leg_script} --linkedid {linkedid}")
+                else:
+                    print(f"   {Colors.RED}❌ No matching CDR record found after {cdr_wait}s — "
+                          f"the call may not have actually been placed/logged.{Colors.RESET}")
+                    self.debug_print("No CDR record found within poll window", "WARNING")
+
             print(f"{Colors.CYAN}╚{'═' * 68}╝{Colors.RESET}\n")
-            
+
             return {
                 'success': True,
                 'processed': processed,
                 'call_id': call_id,
                 'logs': call_logs,
+                'cdr_confirmed': bool(cdr_record) if channel else None,
+                'cdr_record': cdr_record,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -582,7 +660,7 @@ class FreePBXCallSimulator:
         
         # Execute the call
         call_id = f"did_{did}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=wait_time + 8)
         
         # Analyze results
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
@@ -646,7 +724,7 @@ class FreePBXCallSimulator:
         )
 
         call_id = f"ext_{extension}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=23)
         
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 EXTENSION TEST RESULTS{' ' * 39}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
@@ -689,7 +767,7 @@ class FreePBXCallSimulator:
         )
 
         call_id = f"rg_{grpnum}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=23)
 
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 RING GROUP TEST RESULTS{' ' * 38}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
@@ -732,7 +810,7 @@ class FreePBXCallSimulator:
         )
 
         call_id = f"queue_{extension}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=23)
 
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 QUEUE TEST RESULTS{' ' * 43}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
@@ -777,7 +855,7 @@ class FreePBXCallSimulator:
         )
         
         call_id = f"vm_{mailbox}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=28)
         
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 VOICEMAIL TEST RESULTS{' ' * 39}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
@@ -824,7 +902,7 @@ class FreePBXCallSimulator:
         )
         
         call_id = f"play_{sound_file}_{int(time.time())}"
-        result = self.execute_call_file(call_content, call_id)
+        result = self.execute_call_file(call_content, call_id, channel=channel, cdr_wait=18)
         
         print(f"\n{Colors.MAGENTA}╔{'═' * 68}╗{Colors.RESET}")
         print(f"{Colors.MAGENTA}║{Colors.YELLOW}{Colors.BOLD} 📊 PLAYBACK TEST RESULTS{' ' * 40}{Colors.RESET}{Colors.MAGENTA} ║{Colors.RESET}")
@@ -998,6 +1076,23 @@ class FreePBXCallSimulator:
         except Exception as e:
             print(f"\n{Colors.YELLOW}⚠️  Could not save results: {str(e)}{Colors.RESET}")
 
+
+def _exit_status(result):
+    """Process exit code for a single live-call test: 0 only if the call
+    file mechanics succeeded AND (when a CDR check was attempted) the call
+    was actually confirmed in CDR. cdr_confirmed is None when no channel
+    was passed for polling — treated as pass-through rather than a hard
+    requirement, so callers that don't opt into CDR checking aren't
+    affected. This is what makes option 16's self-test (which just checks
+    this process's exit code) an actual verification instead of only
+    proving the .call file was accepted."""
+    if not result or not result.get('success'):
+        return 1
+    if result.get('cdr_confirmed') is False:
+        return 1
+    return 0
+
+
 def main():
     """
     Main entry point for the FreePBX Call Simulator CLI.
@@ -1035,22 +1130,28 @@ def main():
     if args.comprehensive:
         simulator.run_comprehensive_test_suite()
     elif args.did:
-        simulator.simulate_did_call(args.did, destination=args.destination, caller_id=args.caller_id)
+        result = simulator.simulate_did_call(args.did, destination=args.destination, caller_id=args.caller_id)
+        sys.exit(_exit_status(result))
     elif args.extension:
         caller = args.caller_id or "8884400123"
-        simulator.test_extension_call(args.extension, caller)
+        result = simulator.test_extension_call(args.extension, caller)
+        sys.exit(_exit_status(result))
     elif args.ring_group:
         caller = args.caller_id or "8884400123"
-        simulator.test_ring_group_call(args.ring_group, caller)
+        result = simulator.test_ring_group_call(args.ring_group, caller)
+        sys.exit(_exit_status(result))
     elif args.queue:
         caller = args.caller_id or "8884400123"
-        simulator.test_queue_call(args.queue, caller)
+        result = simulator.test_queue_call(args.queue, caller)
+        sys.exit(_exit_status(result))
     elif args.voicemail:
         caller = args.caller_id or "8884400123"
-        simulator.test_voicemail_call(args.voicemail, caller)
+        result = simulator.test_voicemail_call(args.voicemail, caller)
+        sys.exit(_exit_status(result))
     elif args.playback:
         caller = args.caller_id or "8884400123"
-        simulator.test_playback_application(args.playback, caller)
+        result = simulator.test_playback_application(args.playback, caller)
+        sys.exit(_exit_status(result))
     else:
         # Print usage examples if no valid arguments provided
         print(f"\n{Colors.YELLOW}╔{'═' * 78}╗{Colors.RESET}")
