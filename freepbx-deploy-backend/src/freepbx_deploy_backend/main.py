@@ -25,6 +25,66 @@ Action = Literal["deploy", "uninstall", "clean_deploy", "connect_only", "upload_
 
 DEPLOY_SCRIPT_DIR = Path("/var/www/freePBX_Tools/archive/fleet")
 
+# Persistent deploy history — JOBS is in-memory only and is wiped on every
+# backend restart, so it can't answer "what deployed recently" once the
+# process cycles. One JSON object per line, appended when a job reaches a
+# terminal state; never includes credentials.
+DEPLOY_HISTORY_LOG = DEPLOY_SCRIPT_DIR.parent.parent / "var" / "logs" / "deploy_history.jsonl"
+
+
+def _append_job_history(job: "Job") -> None:
+    """Best-effort append of one completed job's summary to DEPLOY_HISTORY_LOG.
+    Never raises — a logging failure must not affect the job itself, which
+    has already finished by the time this runs."""
+    try:
+        started = job.started_at
+        finished = job.finished_at or datetime.now(timezone.utc)
+        duration = (finished - started).total_seconds() if started else None
+        record = {
+            "id": job.id,
+            "action": job.action,
+            "servers": job.servers,
+            "branch": job.branch,
+            "deployment_id": job.deployment_id,
+            "username": job.username,
+            "status": job.status,
+            "return_code": job.return_code,
+            "created_at": _iso(job.created_at),
+            "started_at": _iso(job.started_at),
+            "finished_at": _iso(job.finished_at),
+            "duration_seconds": duration,
+        }
+        DEPLOY_HISTORY_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(DEPLOY_HISTORY_LOG, "a") as f:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+    except Exception:
+        pass
+
+
+def _read_job_history(limit: int = 50) -> List[Dict[str, Any]]:
+    """Return up to `limit` most-recent entries from DEPLOY_HISTORY_LOG,
+    newest first. Missing file or unreadable lines are handled gracefully —
+    this is a diagnostic aid, not something that should ever 500."""
+    if not DEPLOY_HISTORY_LOG.is_file():
+        return []
+    try:
+        with open(DEPLOY_HISTORY_LOG, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    records: List[Dict[str, Any]] = []
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            continue
+        if len(records) >= limit:
+            break
+    return records
+
 
 def _split_server_entry(entry: str) -> tuple[str, Optional[str]]:
     """Split 'ip:password' into (ip, password). Returns (entry, None) if no password suffix."""
@@ -399,6 +459,7 @@ async def _run_job(job: Job) -> None:
         )
     finally:
         job.finished_at = datetime.now(timezone.utc)
+        _append_job_history(job)
 
 
 @app.get("/api/health")
@@ -581,6 +642,15 @@ async def remote_run(req: RemoteRunRequest) -> JobInfo:
 async def list_jobs() -> List[JobInfo]:
     async with JOBS_LOCK:
         return [_job_info(j) for j in JOBS.values()]
+
+
+@app.get("/api/jobs/history")
+async def job_history(limit: int = 50) -> List[Dict[str, Any]]:
+    """Persistent deploy history — survives backend restarts, unlike
+    /api/jobs which only reflects the current process's in-memory JOBS.
+    Registered before /api/jobs/{job_id} so "history" is never captured
+    as a job_id path parameter."""
+    return _read_job_history(limit=max(1, min(limit, 500)))
 
 
 @app.get("/api/jobs/{job_id}")
