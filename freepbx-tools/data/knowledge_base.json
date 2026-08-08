@@ -1,5 +1,61 @@
 [
   {
+    "id": "runbook-cordless-handset-setup-and-guide",
+    "category": "Runbook",
+    "title": "Cordless base/handset setup and end-user operation guide",
+    "tags": ["cordless", "handset", "base station", "training", "voicemail pin", "transfer", "call waiting"],
+    "body": "Setup: connect one end of the included Ethernet cable to the base station's Internet port, the other to the router/network; connect the base station's power adapter. It auto-downloads its config within a few minutes. For each handset: insert the battery, plug in the charging cradle's power adapter, optionally attach the belt clip, and place the handset in the cradle — charge 6 hours before first use for best battery life. Once operational, voicemail has a default greeting.\nVoicemail setup: Messages button > PIN + # (admin-assigned) > option 3 (personal options) > 1 to record your greeting, or 2 to change your PIN (enter new PIN, # to confirm).\nPlacing calls: pick up the handset, dial, press the green Call button. Second call while on one: Options softkey > down-arrow to Hold > OK (holds the first) > Line softkey > Dial softkey > dial the second number > green Call; end the second call and press Resume to return to the first.\nAnswering: pick up the handset or press Accept; for speakerphone, pick up then press Speaker.\nIgnore: Silence softkey sends the caller to voicemail. End call: red End Call button.\nHold: Options softkey > down-arrow to Hold > OK; Resume softkey to retrieve.\nBlind transfer: Options > Transfer > OK > dial destination > Transfer softkey — completes immediately.\nAttended transfer: Options > Transfer > OK > dial destination > green Call > announce the call once answered > Transfer softkey.\nMute: Mute button on the handset, press again to unmute.\nVoicemail shortcut: press and hold 1 on the keypad, or dial your own extension/number, then PIN + #.\nVolume: left/right arrows adjust in-call volume during a call, or ringer volume when idle.\nCall waiting: a beep tone plays on a second inbound call while busy — down-arrow to highlight it, Accept (holds the original) or Reject (sends it to voicemail); Swap softkey toggles between the two.\nSpeakerphone: press the Speakerphone button either to get dial tone when idle, or to move a live call from handset/headset to speaker.\nCall forwarding: OK > Call Features > OK > Call Forward > OK (twice) > choose Always/Busy/No Answer > enable via left/right arrow > arrow down to Target and enter the destination > Save."
+  },
+  {
+    "id": "runbook-intermedia-ascend-app-setup-android",
+    "category": "Runbook",
+    "title": "Installing the Intermedia Ascend softphone app on Android",
+    "tags": ["intermedia", "ascend", "android", "softphone", "install", "e911"],
+    "body": "In Teams (Android): More > Ascend > Sign In > enter company email > Next > enter password (or Forgot Password to reset) > Sign In. It then prompts to install the Ascend app from the Play Store — Download, then Install, then Open once installed.\nPermission prompts (recommend enabling all except where noted optional): Continue if prompted; Allow Ascend to Record Audio = While using the app; Allow to Send Notifications. Skip or browse the Welcome Tour. Agree to the Terms.\nEnter company email again at the Ascend prompt, then Ascend credentials again to log into the client itself. Accept Terms/Policies again. When prompted for Emergency Service Address (E911), select Provide — this step is required, not optional.\nOptional: merging Softphone contacts with the phone's personal contacts — Continue to enable, or \"Ask me later\" to skip. If merging: Allow Access to Contacts, Allow for \"Find nearby Devices,\" and Sync when prompted (Cancel skips the merge). When prompted for the emergency address here too, leave defaults, check the 911 Policy box, Save Changes.\nBattery optimization warning (common on Android): Learn More > Go to Battery Settings > App Battery Usage > Allow background usage > Unrestricted, so Android doesn't kill the app in the background and cause missed calls/notifications.\nOnce done, Ascend is available in Teams via the More tab."
+  },
+  {
+    "id": "runbook-yealink-t54w-end-user-guide",
+    "category": "Runbook",
+    "title": "Yealink T54W/T57W end-user operation guide (calls, transfer, DND, voicemail, forwarding)",
+    "tags": ["yealink", "t54w", "t57w", "end user", "training", "voicemail pin", "transfer", "dnd"],
+    "body": "Placing a call: pick up the handset or press Speakerphone for dial tone, or press Headset for headset mode (no dial tone, just dial). Mid-call, press Hold then New Call to start a second call, Resume to return to the first.\nAnswering: pick up the handset, press Headset (if connected), or press Speaker.\nReject vs Ignore: Reject sends the caller straight to voicemail; Silence (Ignore) just stops the ring on this phone — caller keeps hearing ringback until the configured No Answer Forwarding timeout.\nEnding a call: hang up the handset, or More > End Call (headset), or press Speakerphone (speaker mode).\nHold/Mute: Hold button or softkey to hold/retrieve (or Resume softkey); Mute button toggles mic mute.\nBlind transfer: Transfer button > dial destination > Transfer button again — completes immediately without waiting for an answer.\nAttended/warm transfer: Transfer button > dial destination > wait for them to answer and announce the call > Transfer button to complete.\nDND: DND softkey on the home screen toggles Do Not Disturb — while active, calls route straight to voicemail without ringing.\nVoicemail: Messages button, enter PIN + # (default PIN is 123 + extension number, e.g. 123100 for ext 100) — option 3 for personal options, then 1 to record your greeting or 2 to change your PIN.\nCall forwarding via phone menu: Menu softkey > right-arrow to Features > OK > Call Forward > OK/Enter. If \"Always Forward: Off\" is shown, OK then left/right arrow to enable, down-arrow to enter the destination number, Save. To disable, same path but \"Always Forward: On\" is shown — arrow to disable, Save. Busy Forward and No Answer Forward are set the same way, just different sub-options."
+  },
+  {
+    "id": "runbook-intermedia-ascend-app-setup",
+    "category": "Runbook",
+    "title": "Installing the Intermedia Ascend softphone app in Teams",
+    "tags": ["intermedia", "ascend", "teams", "softphone", "install", "e911"],
+    "body": "In Teams: Apps (left sidebar) > find Ascend > Add > Open > Sign In. Enter the user's 123NET email address, then use Forgot Password (not a normal password field) — check \"I'm not a robot\", Confirm, wait for a security-code email, enter the code and set a new password, Next.\nBack in Teams, Ascend should now offer \"Launch plugin\" — choose Download Ascend Teams Desktop plugin, which downloads ascend-teams.desktop-plugin.exe; run it with default options, then Run Ascend Teams Desktop Plugin and Finish (minimize the plugin window if it stays open). Teams should now show the Ascend app's details.\nIf an orange banner asks to set an emergency address (E911), select Provide, choose the default work address, check the 911 Policy box, and Save Changes — this step is required, not optional, for E911 compliance."
+  },
+  {
+    "id": "runbook-intermedia-ascend-voicemail",
+    "category": "Runbook",
+    "title": "Intermedia Ascend — accessing voicemail (Teams client and mobile app)",
+    "tags": ["intermedia", "ascend", "voicemail", "teams"],
+    "body": "Computer (Teams client): open the Ascend app in Teams, click the tape-icon voicemail tab in the left sidebar, click the row of the message you want to expand its player on the right, and hover over it for options (Report Spam, Block Number, Respond via SMS, Respond via phone call) — the same options also appear at the bottom of the playback window.\nMobile (Ascend app): Voicemail tab at the bottom of the screen, select the message row, and use on-screen playback options — Speakerphone, Return the Call, Delete, or more options."
+  },
+  {
+    "id": "runbook-intermedia-ascend-call-forwarding",
+    "category": "Runbook",
+    "title": "Intermedia Ascend (Teams app) — call forwarding / ring-all setup",
+    "tags": ["intermedia", "ascend", "teams", "call forwarding", "ring all", "sequential"],
+    "body": "In the Ascend app inside Teams: click the green circle with your initials > Call Settings > Call Forwarding > Default Profile, then choose a Call Handling Method: Ring All Destinations (every number rings simultaneously) or Sequential Destinations (rings one after another until answered).\nRing Teams first, then roll to cell: set the first Ring All destination to Ascend Teams, then Add sequential destination > Phone number and enter the cell number. Ring duration under ~20s rolls to Intermedia voicemail on no answer; use 60s instead if you want it to reach the destination's own voicemail (e.g. the cell's carrier voicemail) rather than Intermedia's.\nForward all calls straight to an outside number (e.g. cell phone): set the Ring All destination to just that phone number, and remove every other destination including all \"My device\" entries, then Save Changes."
+  },
+  {
+    "id": "runbook-yealink-manual-provisioning-intermedia",
+    "category": "Runbook",
+    "title": "Manually trigger provisioning on a Yealink phone (Intermedia)",
+    "tags": ["yealink", "manual provisioning", "intermedia", "auto provision"],
+    "body": "On the phone: Menu > Advanced. At the Admin Password prompt, switch keyboard mode to 123 (press the \"abc\" softkey a few times until it shows 123), then enter the standard fleet default admin password (08520852) and OK. Select option 4 (Auto Provision), arrow to option 5 (URL), and enter the Intermedia provisioning server: https://config.telecomsvc.com:6716/configServlet/Yealink — you may need to switch keyboard mode again (e.g. 2aB) to type letters/the colon/slashes correctly; the * key types a period. Save, confirm \"Provision Now?\" with OK, then back out to the home screen. The phone will auto-provision and will likely reboot as part of that."
+  },
+  {
+    "id": "runbook-grandstream-ht802v2-intermedia-import",
+    "category": "Runbook",
+    "title": "Fast Grandstream HT802 V2 config-file import method (Intermedia)",
+    "tags": ["grandstream", "ht802", "intermedia", "config import", "ata", "provisioning"],
+    "body": "Faster alternative to manually clicking through the HT802 V2 web UI when provisioning an ATA on Intermedia (org method, credit: Daniel Goldman — a V1 and two-line-order version were still being worked out as of this writing, so this specifically applies to a single-line V2):\n1. Create a regular Resource Line (not a Fax resource) for the new ATA on Intermedia.\n2. Create a new Grandstream Device, device profile = Other, Model = HT802.\n3. Assign the new Resource Extension to the device and Save.\n4. Reopen the device and click \"Get Credentials\" to generate its Authentication Info (UserID/AuthID/Secret/server).\n5. Take a known-good HT802 V2 config template and edit only its top ~10 lines to match the credentials just pulled — everything below that is just on/off flags for FXS Port 1 options and doesn't need to change. Field mapping (P-code meaning, not a literal value to reuse):\n   P3 / P35 / P36 = UserID/AuthID\n   P34 = Secret (the SIP auth password)\n   P40 = Port\n   P2 = Admin password for the ATA itself — must be included or the ATA may reject the whole file\n   P47 / P48 = Server name\n   P192 / P237 = Firmware update URL\n   (Line order in the file doesn't matter — the ATA's parser doesn't care.)\n6. On the ATA itself: log in with its current/default password and set a new one.\n7. Maintenance > Upgrade > Config File tab > Manual Configuration > Upload Configuration, select the edited file. (Don't have the file open in Notepad at the same time — the upload can fail if it's locked.)\n8. On success it prompts to reboot — accept. If everything was mapped correctly, it auto-connects and registers on reboot.\nSee also the general Grandstream HT802 fax pass-through entry in this knowledge base for the FXS/codec/fax-mode settings themselves."
+  },
+  {
     "id": "runbook-ucaas-add-customer",
     "category": "Runbook",
     "title": "Add a new customer domain on 123NET UCaaS",
