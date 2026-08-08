@@ -230,8 +230,9 @@ def load_ivr_options(ivr_id):
     )
 
 def load_rg(grpnum):
+    rt = "grptime" if has_col("ringgroups", "grptime") else "ringtime"
     return qone(
-        f"SELECT grpnum, description, grplist, strategy, ringtime, postdest "
+        f"SELECT grpnum, description, grplist, strategy, {rt} AS ringtime, postdest "
         f"FROM ringgroups WHERE grpnum='{grpnum}';",
         ["grpnum", "description", "grplist", "strategy", "ringtime", "postdest"]
     )
@@ -333,6 +334,43 @@ def _trace_dest(dest, indent, visited, branch_label=None):
 def _opt_label(sel):
     special = {"t": "timeout", "i": "invalid", "0": "0", "#": "#"}
     return special.get(sel, f"press {sel}")
+
+def _dest_leads_back_to_group(dest, target_grpnum, visited=None):
+    """Follow a no-answer/failover destination chain (ring group → IVR/TC/
+    ring group ...) and return True if it ever routes back into ring group
+    `target_grpnum` — i.e. a caller who doesn't get answered could end up
+    ringing the same group again, looping indefinitely."""
+    if visited is None:
+        visited = set()
+    if not dest or dest in visited:
+        return False
+    visited.add(dest)
+
+    parts = dest.split(",")
+    dtype = parts[0]
+    arg1  = parts[1] if len(parts) > 1 else ""
+
+    if dtype == "ext-group":
+        if arg1 == str(target_grpnum):
+            return True
+        rg = load_rg(arg1)
+        if rg and rg.get("postdest"):
+            return _dest_leads_back_to_group(rg["postdest"], target_grpnum, visited)
+        return False
+
+    if dtype == "timeconditions":
+        tc = load_tc(arg1)
+        if not tc:
+            return False
+        return (_dest_leads_back_to_group(tc.get("truedest", ""),  target_grpnum, visited) or
+                _dest_leads_back_to_group(tc.get("falsedest", ""), target_grpnum, visited))
+
+    ivr_id = dtype[4:] if dtype.startswith("ivr-") else (arg1 if dtype == "ivr" else None)
+    if ivr_id:
+        opts = load_ivr_options(ivr_id)
+        return any(_dest_leads_back_to_group(o["dest"], target_grpnum, visited) for o in opts)
+
+    return False
 
 # ── decode command ────────────────────────────────────────────────────────────
 
@@ -575,12 +613,41 @@ def cmd_validate(args):
         if not exists:
             issues.append(f"IVR {row['ivr_id']} opt {row['sel']}: points to ext {ext} which does NOT exist")
 
-    # 2. Ring groups with no members
-    rows = qrows("SELECT grpnum, description, grplist FROM ringgroups;",
-                 ["grpnum", "description", "grplist"])
+    # 2. Ring groups: no members, members pointing at missing extensions,
+    #    a zero/blank ring time with no failover, and no-answer destinations
+    #    that loop back into the same ring group.
+    rt_col = "grptime" if has_col("ringgroups", "grptime") else "ringtime"
+    rows = qrows(f"SELECT grpnum, description, grplist, {rt_col} AS ringtime, postdest FROM ringgroups;",
+                 ["grpnum", "description", "grplist", "ringtime", "postdest"])
     for rg in rows:
-        if not rg.get("grplist","").strip().strip("-"):
-            issues.append(f"Ring Group {rg['grpnum']} ({rg['description']}): no members")
+        grpnum  = rg["grpnum"]
+        label   = f"Ring Group {grpnum} ({rg['description']})"
+        members = [m for m in rg.get("grplist","").split("-") if m.strip()]
+
+        if not members:
+            issues.append(f"{label}: no members")
+        else:
+            for m in members:
+                ext = m.split("#")[0].strip()  # strip FollowMe-style "#" confirm suffix
+                if ext.isdigit():
+                    exists = qone(f"SELECT extension FROM users WHERE extension='{ext}';", ["extension"])
+                    if not exists:
+                        issues.append(f"{label}: member {ext} is not a valid extension")
+
+        try:
+            ringtime = int(rg.get("ringtime") or 0)
+        except ValueError:
+            ringtime = 0
+        postdest = rg.get("postdest","")
+        if ringtime <= 0 and not postdest:
+            issues.append(f"{label}: no ring time limit and no no-answer destination — "
+                           f"unanswered calls will ring indefinitely with nowhere to go")
+
+        if postdest:
+            if postdest.split(",")[0] == "ext-group" and postdest.split(",")[1] == str(grpnum):
+                issues.append(f"{label}: no-answer destination points directly back at itself (infinite ring loop)")
+            elif _dest_leads_back_to_group(postdest, grpnum):
+                issues.append(f"{label}: no-answer destination eventually loops back into this same ring group")
 
     # 3. Time conditions missing true or false destination
     col_n = "displayname" if has_col("timeconditions", "displayname") else "name"
@@ -632,6 +699,83 @@ def cmd_validate(args):
         print()
 
     return len(issues)
+
+# ── ring groups command ───────────────────────────────────────────────────────
+
+def cmd_ringgroups(args):
+    hdr("\n🔔  Ring Group Analysis — timeouts, members, no-answer routing\n")
+
+    if not has_table("ringgroups"):
+        err("No ringgroups table on this system.")
+        return 1
+
+    rt_col = "grptime" if has_col("ringgroups", "grptime") else "ringtime"
+    rows = qrows(
+        f"SELECT grpnum, description, grplist, strategy, {rt_col} AS ringtime, postdest "
+        f"FROM ringgroups ORDER BY grpnum;",
+        ["grpnum", "description", "grplist", "strategy", "ringtime", "postdest"]
+    )
+    if not rows:
+        warn("No ring groups configured.")
+        return 0
+
+    flagged = 0
+    for rg in rows:
+        grpnum  = rg["grpnum"]
+        members = [m for m in rg.get("grplist","").split("-") if m.strip()]
+        try:
+            ringtime = int(rg.get("ringtime") or 0)
+        except ValueError:
+            ringtime = 0
+        postdest = rg.get("postdest","")
+        strategy = rg.get("strategy","") or "(unset)"
+
+        print(f"  {C.GREEN}{C.BOLD}Ring Group {grpnum}{C.RESET} — {rg.get('description','')}")
+        print(f"    Strategy:   {strategy}")
+        print(f"    Ring time:  {ringtime}s" + ("  ⚠ no limit set" if ringtime <= 0 else ""))
+
+        if members:
+            labels = []
+            for m in members:
+                ext = m.split("#")[0].strip()
+                if ext.isdigit():
+                    row = qone(f"SELECT name FROM users WHERE extension='{ext}';", ["name"])
+                    name = row["name"] if row else None
+                    if not name:
+                        labels.append(f"{C.RED}{ext} (not a valid extension){C.RESET}")
+                        flagged += 1
+                    else:
+                        labels.append(f"{ext} ({name})")
+                else:
+                    labels.append(m)
+            print(f"    Members:    {', '.join(labels)}")
+        else:
+            print(f"    Members:    {C.RED}(none){C.RESET}")
+            flagged += 1
+
+        if postdest:
+            same_group = postdest.split(",")[0] == "ext-group" and postdest.split(",")[1] == str(grpnum)
+            loops_back = same_group or _dest_leads_back_to_group(postdest, grpnum)
+            print(f"    No answer → {decode(postdest)}")
+            if same_group:
+                print(f"    {C.RED}✗ points directly back at this same ring group — infinite ring loop{C.RESET}")
+                flagged += 1
+            elif loops_back:
+                print(f"    {C.RED}✗ eventually loops back into this same ring group{C.RESET}")
+                flagged += 1
+        else:
+            note = f"{C.RED}⚠ no ring time limit either — calls can ring forever{C.RESET}" if ringtime <= 0 else \
+                   "falls through to default destination when ring time expires"
+            print(f"    No answer → {C.YELLOW}(none set){C.RESET}  {note}")
+
+        print()
+
+    if flagged:
+        warn(f"{flagged} item(s) above may be worth reviewing.\n")
+    else:
+        ok("No timeout or loop issues found.\n")
+
+    return 0
 
 # ── set-ivr command ───────────────────────────────────────────────────────────
 
@@ -814,6 +958,9 @@ def main():
     # validate
     sub.add_parser("validate", help="Run health/consistency checks")
 
+    # ringgroups
+    sub.add_parser("ringgroups", help="Analyze ring groups: timeouts, members, no-answer loops")
+
     # set-ivr
     sp = sub.add_parser("set-ivr", help="Update an IVR option destination")
     sp.add_argument("--ivr",    required=True, type=int, help="IVR ID")
@@ -842,6 +989,7 @@ def main():
         "snapshot": cmd_snapshot,
         "rollback": cmd_rollback,
         "validate": cmd_validate,
+        "ringgroups": cmd_ringgroups,
         "set-ivr":  cmd_set_ivr,
         "ticket":   cmd_ticket,
     }

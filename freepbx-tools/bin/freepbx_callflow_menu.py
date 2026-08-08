@@ -437,6 +437,7 @@ def run_ops_menu(sock):
         print(Colors.CYAN + "║" + Colors.RESET + "  5) Validate  — health/consistency check " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  6) Set IVR option (dry-run / apply)     " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  7) Print ticket note                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  8) Ring group analysis (timeouts/loops) " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
@@ -502,6 +503,11 @@ def run_ops_menu(sock):
 
         elif ch == "7":
             subprocess.call(base_cmd + ["ticket"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "8":
+            subprocess.call(base_cmd + ["ringgroups"])
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             prompt()
 
