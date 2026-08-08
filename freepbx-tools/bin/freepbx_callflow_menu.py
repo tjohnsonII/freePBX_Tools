@@ -2527,7 +2527,7 @@ def display_system_dashboard(sock, data):
 
     # Dashboard Header with system info - full width, properly aligned
     header_text = f"📊 SYSTEM DASHBOARD  │  Host: {hostname[:25].ljust(25)}  │  FreePBX: {freepbx_ver[:15].ljust(15)}  │  Asterisk: {asterisk_ver[:30].ljust(30)}"
-    header_text += f"  │  Tools: {tool_ver or 'no VERSION stamp (pre-versioning install?)'}"
+    header_text += f"  │  freepbx-tools version: {tool_ver or 'no VERSION stamp (pre-versioning install?)'}"
     # Pad to full terminal width
     header_padding = " " * max(0, BOX_TOTAL - len(header_text) - 2)
     header_line = (Colors.BG_CYAN + Colors.WHITE + Colors.BOLD + 
