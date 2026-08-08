@@ -428,6 +428,32 @@ def _git_repo_root() -> Optional[Path]:
     return None
 
 
+def _generate_version_stamp(branch: str = "server", deployment_id: str = "") -> Optional[dict]:
+    """Return VERSION file fields for the deployed branch, or None on error.
+
+    The returned dict has keys COMMIT, COMMIT_DATE, DEPLOY_ID — written to
+    REMOTE_INSTALL_DIR/VERSION after a successful install so the on-server
+    menu dashboard can display them.
+    """
+    repo = _git_repo_root()
+    if not repo:
+        return None
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", f"origin/{branch}"],
+            capture_output=True, text=True, cwd=str(repo),
+        ).stdout.strip()
+        commit_date = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", f"origin/{branch}"],
+            capture_output=True, text=True, cwd=str(repo),
+        ).stdout.strip()
+        if not commit:
+            return None
+        return {"COMMIT": commit, "COMMIT_DATE": commit_date, "DEPLOY_ID": deployment_id}
+    except Exception:
+        return None
+
+
 def _fetch_server_branch_files(branch: str = "server") -> Optional[str]:
     """Fetch freepbx-tools/ from origin/<branch> and extract to a temp dir.
 
@@ -574,6 +600,8 @@ def deploy_to_server(
     dry_run=False,
     connect_only=False,
     upload_only=False,
+    branch="server",
+    deployment_id="",
 ):
     """
     Deploy all files to a single server via SSH/SFTP.
@@ -770,6 +798,26 @@ def deploy_to_server(
         if banner_ok and callflows_ok and dump_ok and tc_ok and (profile_ok or loginpath_ok):
             print_success(f"[{server_ip}] Installation completed successfully")
             result['success'] = True
+            stamp = _generate_version_stamp(branch, deployment_id)
+            if stamp:
+                version_content = (
+                    f"COMMIT={stamp['COMMIT']}\\n"
+                    f"COMMIT_DATE={stamp['COMMIT_DATE']}\\n"
+                    f"DEPLOY_ID={stamp['DEPLOY_ID']}\\n"
+                )
+                try:
+                    _run_as_root_via_su(
+                        ssh,
+                        root_password=root_password,
+                        workdir="/tmp",
+                        commands=[f"printf '{version_content}' > {REMOTE_INSTALL_DIR}/VERSION"],
+                        timeout=30,
+                        stream_output=False,
+                        stream_prefix=f"[{server_ip}] ",
+                    )
+                    print_info(f"[{server_ip}] VERSION stamp written: {stamp['COMMIT']} [deploy {stamp['DEPLOY_ID'] or 'no-id'}]")
+                except Exception as ve:
+                    print_warning(f"[{server_ip}] Could not write VERSION stamp: {ve}")
         else:
             print_warning(f"[{server_ip}] Installation did not meet post-install checks")
             result['success'] = False
@@ -832,6 +880,8 @@ def deploy_parallel(
     dry_run=False,
     connect_only=False,
     upload_only=False,
+    branch="server",
+    deployment_id="",
 ):
     """
     Deploy to multiple servers in parallel using ThreadPoolExecutor.
@@ -843,9 +893,9 @@ def deploy_parallel(
     if dry_run:
         print_warning("DRY RUN MODE - No actual changes will be made")
     print()
-    
+
     results = []
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all deployment tasks
         future_to_server = {
@@ -859,6 +909,8 @@ def deploy_parallel(
                 dry_run,
                 connect_only,
                 upload_only,
+                branch,
+                deployment_id,
             ): server
             for server in servers
         }
@@ -1010,6 +1062,8 @@ Examples:
         args.dry_run,
         args.connect_only,
         args.upload_only,
+        branch=args.branch,
+        deployment_id=args.deployment_id,
     )
     elapsed = time.time() - start_time
     # Print summary
