@@ -80,6 +80,9 @@ class JobCreate(BaseModel):
     password: str = ""
     root_password: str = ""
     bundle_name: str = "freepbx-tools-bundle.zip"
+    branch: str = Field("", description="Git branch to deploy from (fetched fresh from GitHub). Blank = local checkout.")
+    deployment_id: str = Field("", description="Caller-supplied ID for this deploy run, stamped into VERSION as "
+                                                "DEPLOY_ID. Blank = server generates one (defaults to the job ID).")
 
 
 class DiagnosticsSummaryRequest(BaseModel):
@@ -133,6 +136,8 @@ class Job:
     grab_dump: bool = False  # populated for remote_run action
     sub_choice: str = ""    # optional sub-menu choice for remote_run
     extra_params: List[str] = field(default_factory=list)  # optional extra params
+    branch: str = ""         # populated for deploy/clean_deploy actions
+    deployment_id: str = ""  # populated for deploy/clean_deploy actions
 
     status: str = "queued"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -240,6 +245,19 @@ def _python_exe() -> str:
     return sys.executable
 
 
+def _branch_and_deploy_id_args(job: Job) -> List[str]:
+    """--branch/--deployment-id flags for deploy_freepbx_tools.py, built from
+    the job's branch/deployment_id fields. Empty branch means "deploy from
+    this box's local checkout" (deploy_freepbx_tools.py's own default), so
+    it's simply omitted rather than passed as an empty string."""
+    extra: List[str] = []
+    if job.branch:
+        extra += ["--branch", job.branch]
+    if job.deployment_id:
+        extra += ["--deployment-id", job.deployment_id]
+    return extra
+
+
 async def _run_one(job: Job, args: List[str], title: str) -> int:
     await _append_line(job, "\n" + ("=" * 70) + "\n")
     await _append_line(job, f"{title}\n")
@@ -313,8 +331,10 @@ async def _run_job(job: Job) -> None:
             args = [_python_exe(), "deploy_freepbx_tools.py", "--workers", str(job.workers), "--servers", *job.servers]
             if job.action == "connect_only":
                 args.insert(2, "--connect-only")
-            elif job.action == "upload_only":
-                args.insert(2, "--upload-only")
+            else:
+                args += _branch_and_deploy_id_args(job)
+                if job.action == "upload_only":
+                    args.insert(2, "--upload-only")
             rc = await _run_one(job, args, "Deploy FreePBX Tools")
         elif job.action == "uninstall":
             if not job.servers:
@@ -331,7 +351,8 @@ async def _run_job(job: Job) -> None:
             )
             rc2 = await _run_one(
                 job,
-                [_python_exe(), "deploy_freepbx_tools.py", "--workers", str(job.workers), "--servers", *job.servers],
+                [_python_exe(), "deploy_freepbx_tools.py", "--workers", str(job.workers), "--servers", *job.servers]
+                + _branch_and_deploy_id_args(job),
                 "Step 2/2: Install",
             )
             rc = 0 if (rc1 == 0 and rc2 == 0) else (rc2 or rc1)
@@ -588,6 +609,10 @@ async def create_job(req: JobCreate) -> JobInfo:
         root_password=req.root_password,
         bundle_name=req.bundle_name,
         server_password_map=_build_server_password_map(req.servers),
+        branch=req.branch,
+        # Falls back to this job's own ID so every deploy is distinguishable
+        # on the dashboard even before a caller sends its own ID.
+        deployment_id=req.deployment_id or job_id,
     )
 
     async with JOBS_LOCK:

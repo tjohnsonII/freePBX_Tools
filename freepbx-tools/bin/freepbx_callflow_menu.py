@@ -366,10 +366,15 @@ def get_asterisk_version_live():
 def get_tool_version():
     """Read the VERSION file stamped at deploy time (see deploy_freepbx_tools.py's
     _generate_version_file()), so the dashboard can show at a glance whether this
-    install is current. Returns e.g. "ffb4016 (2026-08-01)", or None if this
-    install predates version stamping (older/manual installs — no VERSION file
-    shipped) or the file can't be parsed, so the header just omits it rather
-    than showing something broken."""
+    install is current. Returns e.g. "ffb4016 (2026-08-01) [deploy a1b2c3d4e5f6]",
+    or None if this install predates version stamping (older/manual installs —
+    no VERSION file shipped) or the file can't be parsed, so the header just
+    omits it rather than showing something broken.
+
+    DEPLOY_ID (shown in brackets) identifies the specific deploy *run*, not
+    just the code — redeploying the exact same commit still gets a different
+    DEPLOY_ID, so it's possible to tell "did my latest deploy actually land"
+    apart from "is this box still on an old commit"."""
     version_path = os.path.normpath(
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "VERSION")
     )
@@ -388,7 +393,11 @@ def get_tool_version():
         return None
     commit_date = info.get("COMMIT_DATE", "")
     date_short = commit_date[:10] if commit_date else ""
-    return commit + (f" ({date_short})" if date_short else "")
+    deploy_id = info.get("DEPLOY_ID", "")
+    result = commit + (f" ({date_short})" if date_short else "")
+    if deploy_id:
+        result += f" [deploy {deploy_id}]"
+    return result
 
 
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"

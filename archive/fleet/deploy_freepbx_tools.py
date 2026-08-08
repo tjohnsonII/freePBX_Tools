@@ -72,6 +72,7 @@ import hashlib
 import subprocess
 import tempfile
 import shutil
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -437,7 +438,7 @@ def read_server_list(filename):
         print_error(f"Error reading server list: {e}")
         return []
 
-def _generate_version_file(repo_root=None):
+def _generate_version_file(repo_root=None, deployment_id=None):
     """Stamp the exact repo commit being deployed into a VERSION file, so the
     installed tool can show on its dashboard whether it's current or stale
     without anyone having to remember to bump a version number by hand.
@@ -446,6 +447,13 @@ def _generate_version_file(repo_root=None):
     overridden when deploying from a --branch fetch, so the VERSION file
     reflects the branch actually being deployed, not wherever this script
     happens to live.
+
+    deployment_id identifies this specific deploy *run* — distinct from
+    COMMIT, which only changes when the code does. Redeploying the exact
+    same commit twice (e.g. while chasing a flaky install) still gets two
+    different deployment_ids, so "did my latest click actually land" is
+    answerable from the dashboard alone. Pass one in (e.g. from the caller
+    that kicked off this deploy) or leave it unset to auto-generate one.
 
     Returns the path to a temp file to include in the deploy (rel_path
     "VERSION", landing at the root of the install dir), or None if this isn't
@@ -475,12 +483,14 @@ def _generate_version_file(repo_root=None):
     commit_date = _git("log", "-1", "--format=%cI") or ""
     branch = _git("rev-parse", "--abbrev-ref", "HEAD") or ""
     deployed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    deployment_id = deployment_id or uuid.uuid4().hex[:12]
 
     content = (
         f"COMMIT={commit}\n"
         f"COMMIT_DATE={commit_date}\n"
         f"BRANCH={branch}\n"
         f"DEPLOYED={deployed_at}\n"
+        f"DEPLOY_ID={deployment_id}\n"
     )
 
     fd, path = tempfile.mkstemp(prefix="freepbx_tools_version_", suffix=".txt")
@@ -530,7 +540,7 @@ def cleanup_branch_fetch():
     _branch_fetch_tmpdir = None
 
 
-def get_local_files(branch=None):
+def get_local_files(branch=None, deployment_id=None):
     """
     Recursively collect all files to deploy.
     Skips __pycache__, .git, .vscode, docs, and test files.
@@ -584,7 +594,7 @@ def get_local_files(branch=None):
 
     # Stamp the exact commit being deployed so the installed tool can show
     # its own version on the dashboard (see _generate_version_file()).
-    version_file = _generate_version_file(repo_root=repo_root)
+    version_file = _generate_version_file(repo_root=repo_root, deployment_id=deployment_id)
     if version_file:
         files_to_deploy.append((version_file, "VERSION"))
 
@@ -1025,6 +1035,11 @@ Examples:
                          help="Deploy from a specific git branch, freshly fetched from GitHub, instead of "
                               "this script's local checkout (e.g. --branch lab-timsablab for a beta/test "
                               "deploy). Anything other than 'server' prints a loud development-deploy warning.")
+    parser.add_argument('--deployment-id', metavar='ID',
+                         help="Identifier for this specific deploy run, stamped into VERSION as DEPLOY_ID and "
+                              "shown on the installed tool's dashboard. Lets two deploys of the exact same "
+                              "commit be told apart (e.g. a caller-supplied ID from whatever kicked off this "
+                              "deploy). Auto-generated if not given.")
     args = parser.parse_args()
 
     if args.connect_only and args.upload_only:
@@ -1039,7 +1054,7 @@ Examples:
     try:
         # Offline bundle mode (no network, no servers required)
         if args.bundle:
-            files = get_local_files(branch=args.branch)
+            files = get_local_files(branch=args.branch, deployment_id=args.deployment_id)
             if not files:
                 print_error("No files found to bundle")
                 sys.exit(1)
@@ -1069,7 +1084,7 @@ Examples:
         if args.connect_only:
             files = []
         else:
-            files = get_local_files(branch=args.branch)
+            files = get_local_files(branch=args.branch, deployment_id=args.deployment_id)
             if not files:
                 print_error("No files found to deploy")
                 sys.exit(1)
