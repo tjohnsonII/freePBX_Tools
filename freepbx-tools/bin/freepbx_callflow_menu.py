@@ -420,6 +420,7 @@ CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.
 CALL_LEG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_call_leg_analyzer.py"
 OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
 CERT_CHECK_SCRIPT  = "/usr/local/123net/freepbx-tools/bin/freepbx_cert_check.py"
+KB_SCRIPT          = "/usr/local/123net/freepbx-tools/bin/freepbx_kb.py"
 SMTP_CONFIG_PATH   = "/etc/123net-freepbx-tools/smtp.json"
 SELF_TEST_DIR       = os.path.join(OUT_DIR, "self_test")
 
@@ -517,6 +518,60 @@ def run_ops_menu(sock):
 
         elif ch == "8":
             subprocess.call(base_cmd + ["ringgroups"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        else:
+            print(Colors.RED + "Invalid choice." + Colors.RESET)
+
+
+def run_kb_menu():
+    """Interactive submenu for freepbx_kb (search/show/list the internal
+    terminology + hardware-provisioning knowledge base)."""
+    if not os.path.isfile(KB_SCRIPT):
+        print(Colors.RED + "\n❌ freepbx_kb.py not found at " + KB_SCRIPT + Colors.RESET)
+        print(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+        prompt()
+        return
+
+    base_cmd = ["python3", KB_SCRIPT]
+
+    while True:
+        print(f"\n{Colors.CYAN}Main Menu › Knowledge Base{Colors.RESET}")
+        print(Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "║   📚  Knowledge Base                     ║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  1) Search  — terminology + runbooks     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  2) Show one entry in full                " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  3) List all entries by category         " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
+        ch = prompt("\n" + Colors.YELLOW + "Choose (0/b=back): " + Colors.RESET).strip()
+
+        if ch == "0" or ch.lower() == "b":
+            break
+
+        elif ch == "1":
+            term = prompt(Colors.YELLOW + "Search term (e.g. fax, ring group, grandstream): " + Colors.RESET).strip()
+            if term:
+                subprocess.call(base_cmd + ["search", term])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "2":
+            key = prompt(Colors.YELLOW + "Entry id or title (from search results): " + Colors.RESET).strip()
+            if key:
+                subprocess.call(base_cmd + ["show", key])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "3":
+            category = prompt(Colors.YELLOW + "Category filter (Enter for all — Glossary/Runbook/Feature Code): " + Colors.RESET).strip()
+            cmd = base_cmd + ["list"]
+            if category:
+                cmd += ["--category", category]
+            subprocess.call(cmd)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             prompt()
 
@@ -4059,6 +4114,7 @@ def main():
             print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
             print(menu_line("18", "Phone/Endpoint Analysis"))
             print(menu_line("21", "Certificate Status (web GUI + SIP TLS)"))
+            print(menu_line("22", "Search knowledge base (terminology + hardware runbooks)"))
             print(menu_section("Ops Tools"))
             print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
             print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
@@ -4196,6 +4252,9 @@ def main():
 
             elif choice == "20":
                 run_ops_menu(sock)
+
+            elif choice == "22":
+                run_kb_menu()
 
             elif choice == "19":
                 print("Bye.")

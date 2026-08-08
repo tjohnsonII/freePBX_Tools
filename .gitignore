@@ -133,6 +133,7 @@ webscraper/output/**/cookies*.txt
 data/
 !traceroute-visualizer-main/traceroute-visualizer-main/src/app/data/
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/src/data/
+!freepbx-tools/data/
 webscraper/output/
 webscraper/ticket-discovery-output/
 freepbx-tools/bin/123net_internal_docs/
@@ -159,6 +160,7 @@ cookies*.json
 *.csv
 *.json
 !pyrightconfig.json
+!freepbx-tools/data/knowledge_base.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.app.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.node.json
 ENV_VARS.txt

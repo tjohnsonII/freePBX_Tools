@@ -342,6 +342,7 @@ install_symlinks() {
   ln -sf "$INSTALL_DIR/bin/freepbx_version_aware_ascii_callflow.py" "$BIN_DIR/freepbx-ascii-callflow" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/callflow_validator.py" "$BIN_DIR/callflow-validator" 2>/dev/null || true
   ln -sf "$INSTALL_DIR/bin/freepbx_ops.py"       "$BIN_DIR/freepbx-ops"       2>/dev/null || true
+  ln -sf "$INSTALL_DIR/bin/freepbx_kb.py"        "$BIN_DIR/freepbx-kb"        2>/dev/null || true
 
   # Legacy names required by menu/scripts
   ln -sf "$INSTALL_DIR/bin/freepbx_dump.py"             "$BIN_DIR/freepbx_dump.py"             2>/dev/null || true
