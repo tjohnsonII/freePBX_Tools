@@ -1,5 +1,68 @@
 [
   {
+    "id": "runbook-ucaas-add-customer",
+    "category": "Runbook",
+    "title": "Add a new customer domain on 123NET UCaaS",
+    "tags": ["ucaas", "call harbor", "new customer", "domain"],
+    "body": "At https://phones.123.net (login with your admin credentials): Domains > Add Domain. Basic tab: Name = the domain (e.g. company.com), Description = company name, Email Sender = notification@123.net. Defaults tab: Area Code = main line's area code, Caller Name = main DID's CNAM, Caller ID = main DID, Preferred Server Location = DTW. Emergency tab: Emergency Caller ID = the main DID. Press Add to finish."
+  },
+  {
+    "id": "runbook-asternic-access",
+    "category": "Runbook",
+    "title": "Accessing Asternic (Call Center Stats) for a customer",
+    "tags": ["asternic", "call center", "queue stats"],
+    "body": "Check the default VPBX customer list — customers with Asternic show \"Yes\" (highlighted green) under the Call Center column. Access at pbx-handle.123.net/stats, pbx.handle.123.net/stats, or IPofPBX/stats. Default username is i123net (password is per-customer, not a shared default — check that customer's VPBX Site Notes). Vendor docs: https://www.asternic.net/docs/ — a shared demo instance also exists at asternic.net/demo (user/password: demo/demo) if you want to explore the UI without touching a real customer's data."
+  },
+  {
+    "id": "glossary-hosted-platforms",
+    "category": "Glossary",
+    "title": "123.Net's three Hosted PBX platforms (FreePBX, FusionPBX, 123NET UCaaS)",
+    "tags": ["platform", "ucaas", "call harbor", "netsapiens", "fusionpbx", "freepbx"],
+    "body": "123.Net runs customers on one of three different platforms depending on package/history — always confirm which one a given customer is on before assuming a tool or procedure applies:\n  - FreePBX/Asterisk — the standard Hosted platform; this is what freepbx-tools (and everything else in this knowledge base unless noted otherwise) targets.\n  - FusionPBX — used for Basic Hosted Packages (~3 phones or less), multi-tenant, shares a single SIP trunk across customers. See the FusionPBX entries in this knowledge base for feature codes and troubleshooting.\n  - 123NET UCaaS — built on the Call Harbor platform (NetSapiens-based). Org naming policy: always refer to it internally and externally as \"123NET UCaaS\" or \"123NET Unified Communications\" — never as \"Call Harbor\" or \"Netsapiens\" by name. A UCaaS customer has their own VPBX page like standard Hosted customers, identifiable by \"123NET UCaaS\" appearing in that customer's VPBX \"FreePBX Version\" field. Access URL: https://phones.123.net/. Public docs: callharbor.com, netsapiens.com, and Call Harbor's support KB at support.callharbor.com/kb/. None of freepbx-tools' Asterisk-specific diagnostics apply to a UCaaS customer — it's a different platform entirely."
+  },
+  {
+    "id": "featurecodes-fusionpbx-basic",
+    "category": "Feature Code",
+    "title": "FusionPBX Feature Codes: Basic",
+    "tags": ["fusionpbx", "*1", "*2", "*4", "*411", "*3472", "*67", "*69", "*732", "*870", "*78", "*79", "*72", "*73", "*74", "*21"],
+    "body": "FusionPBX (not FreePBX — codes differ from the FreePBX list): *1 Call Transfer. *2 Record active call. *4 Attended call transfer (enter extension, then #). *411 Directory (dial by name). *3472+PIN DISA (dialtone to call out). *67<number> Call privacy. *69 Call return (redial last incoming). *732+PIN Record a message. *8[ext] Extension intercom/page. *870 Redial. *9171/*9170/*9172 Talking date/time/both. *925 Schedule a wakeup call. *78/*79 Enable/disable DND. *9888 FreeSWITCH conference (Cluecon Weekly). *0[ext] Speed dial. *21 Set Follow Me number. *72/*73/*74 Enable/disable/toggle Call Forward. Admin PIN for *3472/*732 is the Recordings PIN in FusionPBX's Administrative PIN page. Full reference: https://docs.fusionpbx.com/en/latest/additional_information/feature_codes.html"
+  },
+  {
+    "id": "featurecodes-fusionpbx-other",
+    "category": "Feature Code",
+    "title": "FusionPBX Feature Codes: Parking, Advanced, Voicemail, Misc",
+    "tags": ["fusionpbx", "*5900", "*33", "*97", "*98", "*4000", "*99", "eavesdrop", "intercept", "valet park"],
+    "body": "Call Parking: *5900 Valet Park (attended transfer to park, plays back the park extension); *5901-*5999 Valet Un-Park (retrieve). Advanced: *8[ext] Extension intercom/page; *33<ext> Eavesdrop (1=remote audio, 2=local audio, 3=full conversation, 0=mute); **<ext> Intercept a specific extension. Voicemail: *97 Voicemail (system detects your extension, prompts for password); *98 or *4000 Check any voicemail box (prompts for extension + password); *99<extension> Send a call directly to that extension's voicemail. Misc: *9192 Info to console, *9193/*9194 Video record/playback, *9195 Delay echo, *9196 Echo test, *9197 Milliwatt tone, *9664 Test MoH."
+  },
+  {
+    "id": "runbook-fusionpbx-basics",
+    "category": "Runbook",
+    "title": "FusionPBX basics (alternate platform for Basic Hosted Packages)",
+    "tags": ["fusionpbx", "basic hosted", "registrations"],
+    "body": "FusionPBX is used for Basic Hosted Packages (typically 3 phones or less) — a multi-tenant PBX sharing a single SIP trunk across customers, unlike FreePBX/Asterisk's one-trunk-per-customer model. If a customer's PBX doesn't look like FreePBX at all, confirm whether they're actually on FusionPBX before assuming something is broken — freepbx-tools targets FreePBX/Asterisk specifically and doesn't apply the same way here.\nDocs: https://docs.fusionpbx.com/en/latest/ (manual: https://docs.fusionpbx.com/en/latest/manual.html)\nCheck if phones are registered: select the customer's domain (tenant) in the FusionPBX admin, then Status > Registrations to see all currently-registered endpoints."
+  },
+  {
+    "id": "glossary-vpbx-page",
+    "category": "Glossary",
+    "title": "VPBX Page",
+    "tags": ["vpbx", "admin", "billing", "site notes"],
+    "body": "The VPBX Page (https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi) is the per-customer admin reference: PBX access (click the IP in the IP column to reach that customer's FreePBX GUI), device/seat tracking for billing, and Site Notes — always check Site Notes for that customer's specific customizations and any credential info before troubleshooting. Any device listed on this page is being billed; remove test/temporary devices when done to avoid billing the customer for them."
+  },
+  {
+    "id": "runbook-stretto-softphone-provisioning",
+    "category": "Runbook",
+    "title": "123NET Softphone (Bria/Stretto) account provisioning",
+    "tags": ["softphone", "stretto", "bria", "alianza", "counterpath"],
+    "body": "The 123NET basic softphone client runs on the Alianza (formerly Counterpath/Bria Stretto) platform. Portal: https://ccs3.cloudprovisioning.com:18083/stretto/sam.html — this is where all softphone accounts are created and managed.\n\nProvisioning steps: find the Customer's Group folder (usually the domain of the customer's email address; if they only have a generic address like Gmail, the group folder is likely created under the customer's handle instead). Expand it, select Users, then +New to create a User, and set:\n  Provisioning Username / Provisioning Password — what the customer logs into the softphone app with (distinct from their SIP credentials).\n  Email Address — used for notifications.\n  account1Sip.credentials.authorizationName = extension number\n  account1Sip.credentials.displayName = extension number\n  account1Sip.credentials.username = extension number\n  account1Sip.credentials.password = that extension's secret from FreePBX\n  account1Sip.domain = the PBX's domain\n\nA free softphone account only applies to an Extension that already has physical hardware — a Standalone Softphone entry must be created on the customer's VPBX page for billing if it's a new Extension with no physical phone. Extensions with a physical phone can't reassign their \"free\" softphone slot to a different Extension."
+  },
+  {
+    "id": "runbook-softphone-attended-transfer",
+    "category": "Runbook",
+    "title": "123NET Softphone app — attended (warm) transfer",
+    "tags": ["softphone", "transfer", "attended", "warm transfer", "android", "ios"],
+    "body": "Two ways to do a warm/attended transfer on the 123NET Softphone app (Android/iOS):\n1. (Vendor-recommended) Tap Hold to hold the current call, tap + to add a call, dial the destination, and once you've spoken with them tap More > Transfer.\n2. Dial *2 while on the call — the attendant prompts for a transfer destination; dial it, and once you've finished speaking with them, hang up to complete the transfer. If you hang up before the destination answers, the call returns to the extension that started the transfer."
+  },
+  {
     "id": "runbook-tls-srtp-configuration",
     "category": "Runbook",
     "title": "TLS/SRTP configuration (FreePBX + Polycom + Yealink + Stretto softphone)",
