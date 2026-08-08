@@ -613,9 +613,9 @@ class FreePBXCallSimulator:
             caller_id=caller_id,
             destination=extension,
             wait_time=15,
-            max_retries=1
+            max_retries=0
         )
-        
+
         call_id = f"ext_{extension}_{int(time.time())}"
         result = self.execute_call_file(call_content, call_id)
         
@@ -656,7 +656,7 @@ class FreePBXCallSimulator:
             caller_id=caller_id,
             destination=grpnum,
             wait_time=15,
-            max_retries=1
+            max_retries=0
         )
 
         call_id = f"rg_{grpnum}_{int(time.time())}"
@@ -699,7 +699,7 @@ class FreePBXCallSimulator:
             caller_id=caller_id,
             destination=extension,
             wait_time=15,
-            max_retries=1
+            max_retries=0
         )
 
         call_id = f"queue_{extension}_{int(time.time())}"

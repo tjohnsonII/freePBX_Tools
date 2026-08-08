@@ -169,7 +169,6 @@ cookies*.json
 !pyrightconfig.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.app.json
 !PolycomYealinkMikrotikSwitchConfig-main/PolycomYealinkMikrotikSwitchConfig-main/tsconfig.node.json
-!HomeLab_NetworkMapping/grafana-provisioning/dashboards/**/*.json
 ENV_VARS.txt
 *VERSION*.txt
 *_TREE*.txt
