@@ -944,6 +944,8 @@ Examples:
     parser.add_argument('--bundle', metavar='ZIP', help='Create an offline zip bundle of deployable files and exit')
     parser.add_argument('--branch', default='server',
         help='Git branch to fetch freepbx-tools/ from (default: server)')
+    parser.add_argument('--deployment-id', default='',
+        help='Human-readable deploy identifier logged at start of run (e.g. tjohnson-20260808-1830)')
     args = parser.parse_args()
 
     if args.connect_only and args.upload_only:
@@ -982,6 +984,9 @@ Examples:
     if not servers:
         print_error("No servers specified")
         sys.exit(1)
+
+    if args.deployment_id:
+        print_info(f"Deployment ID: {args.deployment_id}")
 
     # Get files to deploy
     files = get_local_files(args.branch)

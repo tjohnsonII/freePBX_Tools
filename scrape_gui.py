@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any
@@ -2513,6 +2514,7 @@ class ScrapeManagerApp(ctk.CTk):
         branch: str = "server",
     ) -> None:
         w = self._deploy_w
+        deployment_id = f"{username}-{datetime.now():%Y%m%d-%H%M%S}"
         self.after(0, lambda: w["btn_start"].configure(state="disabled", text="Running…"))
         self.after(0, lambda: w["btn_cancel"].configure(state="normal"))
         try:
@@ -2521,6 +2523,7 @@ class ScrapeManagerApp(ctk.CTk):
                 "username": username, "password": password,
                 "root_password": root_password, "bundle_name": bundle_name,
                 "branch": branch,
+                "deployment_id": deployment_id,
             })
             self._deploy_active_job = data
             jid = data.get("id", "")
