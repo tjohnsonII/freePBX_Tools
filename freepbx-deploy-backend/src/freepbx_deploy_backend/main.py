@@ -579,7 +579,7 @@ async def create_job(req: JobCreate) -> JobInfo:
         root_password=req.root_password,
         bundle_name=req.bundle_name,
         branch=req.branch,
-        deployment_id=req.deployment_id,
+        deployment_id=req.deployment_id or job_id,
     )
 
     async with JOBS_LOCK:

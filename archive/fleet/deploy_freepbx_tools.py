@@ -431,10 +431,11 @@ def _git_repo_root() -> Optional[Path]:
 def _generate_version_stamp(branch: str = "server", deployment_id: str = "") -> Optional[dict]:
     """Return VERSION file fields for the deployed branch, or None on error.
 
-    The returned dict has keys COMMIT, COMMIT_DATE, DEPLOY_ID — written to
-    REMOTE_INSTALL_DIR/VERSION after a successful install so the on-server
-    menu dashboard can display them.
+    Matches the server-side format: COMMIT, COMMIT_DATE, BRANCH, DEPLOYED, DEPLOY_ID.
+    DEPLOY_ID falls back to a uuid4 hex when the caller passes nothing, so the
+    VERSION file always has a distinguishing value even without an explicit ID.
     """
+    import uuid as _uuid
     repo = _git_repo_root()
     if not repo:
         return None
@@ -449,7 +450,13 @@ def _generate_version_stamp(branch: str = "server", deployment_id: str = "") -> 
         ).stdout.strip()
         if not commit:
             return None
-        return {"COMMIT": commit, "COMMIT_DATE": commit_date, "DEPLOY_ID": deployment_id}
+        return {
+            "COMMIT": commit,
+            "COMMIT_DATE": commit_date,
+            "BRANCH": branch,
+            "DEPLOYED": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "DEPLOY_ID": deployment_id or _uuid.uuid4().hex,
+        }
     except Exception:
         return None
 
@@ -803,6 +810,8 @@ def deploy_to_server(
                 version_content = (
                     f"COMMIT={stamp['COMMIT']}\\n"
                     f"COMMIT_DATE={stamp['COMMIT_DATE']}\\n"
+                    f"BRANCH={stamp['BRANCH']}\\n"
+                    f"DEPLOYED={stamp['DEPLOYED']}\\n"
                     f"DEPLOY_ID={stamp['DEPLOY_ID']}\\n"
                 )
                 try:
@@ -815,7 +824,7 @@ def deploy_to_server(
                         stream_output=False,
                         stream_prefix=f"[{server_ip}] ",
                     )
-                    print_info(f"[{server_ip}] VERSION stamp written: {stamp['COMMIT']} [deploy {stamp['DEPLOY_ID'] or 'no-id'}]")
+                    print_info(f"[{server_ip}] VERSION stamp written: {stamp['COMMIT']} [deploy {stamp['DEPLOY_ID']}]")
                 except Exception as ve:
                     print_warning(f"[{server_ip}] Could not write VERSION stamp: {ve}")
         else:
