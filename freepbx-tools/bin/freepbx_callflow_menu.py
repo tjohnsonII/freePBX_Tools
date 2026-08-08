@@ -1033,10 +1033,10 @@ def run_queue_test(data):
     print(f"\n{Colors.CYAN}Queues configured on this system:{Colors.RESET}")
     picked = _pick_from_list(
         queues,
-        lambda q: f"{q.get('extension')}  {q.get('name', '')}",
+        lambda q: f"{q.get('queue')}  {q.get('queue_name', '')}",
         "queue to test",
     )
-    ext = str(picked.get("extension"))
+    ext = str(picked.get("queue"))
     strategy = picked.get("strategy") or "?"
     timeout = picked.get("timeout") or "?"
     members = _resolve_ext_names((picked.get("members") or "").split(","), data)
@@ -1152,8 +1152,9 @@ def run_comprehensive_validation():
     print(f"\n{Colors.RED}{Colors.BOLD}{'═' * 70}")
     print(f"⚠  COMPREHENSIVE LIVE CALL TEST")
     print(f"   This will create MULTIPLE real calls across the production system:")
-    print(f"   DID routing tests, extension tests, voicemail tests,")
-    print(f"   application tests, and performance measurement.")
+    print(f"   DID routing, extension, voicemail, application, ring group,")
+    print(f"   and queue tests — ring groups/queues are discovered from this")
+    print(f"   PBX's own config, so every configured group/queue will ring.")
     print(f"   DO NOT run this on a live customer system during business hours.")
     print(f"{'═' * 70}{Colors.RESET}")
     print()
@@ -3656,7 +3657,7 @@ def _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls):
                                   "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
         queues = (data or {}).get("queues") or []
         if queues:
-            first_queue_ext = str(queues[0].get("extension"))
+            first_queue_ext = str(queues[0].get("queue"))
             add("Call Simulation", "Test queue (live)", "LIVE_CALL",
                 lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--queue", first_queue_ext,
                                   "--caller-id", defaults["caller_id"], "--debug"], timeout=45))

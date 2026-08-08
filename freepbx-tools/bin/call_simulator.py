@@ -47,7 +47,7 @@ See function docstrings for additional details on arguments and return values.
                 * test_extension_call       : Simulate a call to a specific extension
                 * test_voicemail_call       : Simulate a call directly to a voicemail box
                 * test_playback_application : Simulate a call that plays a sound file (Playback app)
-                * run_comprehensive_test_suite: Run a full suite of DID, extension, voicemail, and playback tests
+                * run_comprehensive_test_suite: Run a full suite of DID, extension, voicemail, playback, ring group, and queue tests
                 * generate_test_summary     : Print and save a summary report of all test results
 
         main
@@ -230,8 +230,37 @@ class FreePBXCallSimulator:
             elapsed = time.time() - start_time
             self.debug_print(f"Command exception after {elapsed:.2f}s: {str(e)}", "ERROR")
             raise
-        
-    def create_call_file(self, channel, caller_id, destination, context="from-internal", 
+
+    def _query_ring_group_numbers(self):
+        """Discover configured ring group numbers on the target PBX so the
+        comprehensive suite exercises what's actually configured there,
+        rather than a hardcoded list. Uses the same local/SSH execution
+        path as everything else in this class."""
+        try:
+            result = self._run_command(
+                'mysql -BN --user=root asterisk -e "SELECT grpnum FROM ringgroups;" 2>/dev/null',
+                timeout=10
+            )
+        except Exception:
+            return []
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+
+    def _query_queue_extensions(self):
+        """Discover configured queue extensions on the target PBX."""
+        try:
+            result = self._run_command(
+                'mysql -BN --user=root asterisk -e "SELECT extension FROM queues_config;" 2>/dev/null',
+                timeout=10
+            )
+        except Exception:
+            return []
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+
+    def create_call_file(self, channel, caller_id, destination, context="from-internal",
                         priority=1, wait_time=30, max_retries=2, application=None, 
                         data=None, archive=False):
         """
@@ -815,7 +844,10 @@ class FreePBXCallSimulator:
     def run_comprehensive_test_suite(self, test_dids=None):
         """
         Run a comprehensive suite of call simulation tests.
-        Runs DID, extension, voicemail, and application tests, then prints a summary.
+        Runs DID, extension, voicemail, application, ring group, and queue
+        tests, then prints a summary. Ring groups and queues are discovered
+        from the target PBX's own database rather than hardcoded, so this
+        exercises whatever's actually configured there.
         Args:
             test_dids (list): List of DIDs to test. Uses defaults if None.
         """
@@ -870,7 +902,33 @@ class FreePBXCallSimulator:
         for sound in test_sounds:
             self.test_playback_application(sound)
             time.sleep(3)
-        
+
+        # Test 5: Ring group tests — whatever's actually configured on this PBX
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 🔔 TEST 5: RING GROUP SIMULATION{' ' * 45}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+
+        ring_groups = self._query_ring_group_numbers()
+        if ring_groups:
+            for grpnum in ring_groups:
+                self.test_ring_group_call(grpnum, caller_id="test")
+                time.sleep(3)
+        else:
+            print(f"{Colors.YELLOW}   No ring groups found on this system — skipping.{Colors.RESET}")
+
+        # Test 6: Queue tests — whatever's actually configured on this PBX
+        print(f"\n{Colors.CYAN}╔{'═' * 78}╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.BOLD}{Colors.YELLOW} 📞 TEST 6: QUEUE SIMULATION{' ' * 50}{Colors.RESET}{Colors.CYAN} ║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚{'═' * 78}╝{Colors.RESET}")
+
+        queue_extensions = self._query_queue_extensions()
+        if queue_extensions:
+            for ext in queue_extensions:
+                self.test_queue_call(ext, caller_id="test")
+                time.sleep(3)
+        else:
+            print(f"{Colors.YELLOW}   No queues found on this system — skipping.{Colors.RESET}")
+
         # Generate summary report
         self.generate_test_summary()
     
