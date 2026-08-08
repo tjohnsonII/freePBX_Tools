@@ -5,9 +5,8 @@ Config-as-code for the Grafana instance on monitoring01 (192.168.99.21).
 ## Layout
 
 ```
-datasources/       - Prometheus + Loki datasource definitions
+datasources/       - Prometheus + Loki datasource definitions (classic file provisioning)
 dashboards/
-  dashboards.yaml   - provider config (foldersFromFilesStructure: true)
   Network/          - SNMP interfaces, Node Exporter Full
   Wireless/         - UniFi AP dashboard
   Virtualization/   - Proxmox VMs dashboard
@@ -15,31 +14,45 @@ dashboards/
   Home/             - Landing page / home dashboard
 ```
 
-The subfolder names under `dashboards/` map directly to Grafana folder names via `foldersFromFilesStructure: true` — adding a new subfolder here creates a new Grafana folder automatically.
+Each subfolder under `dashboards/` becomes its own top-level Grafana folder.
 
-## Deploying on monitoring01
+## How this syncs to Grafana
 
-This repo is cloned to `/etc/grafana/homelab-dashboards` on the server, and Grafana's
-provisioning configs point at it directly:
+**Dashboards** sync via Grafana's native Git Sync feature (Administration → General →
+Provisioning), not classic file provisioning:
 
-- `/etc/grafana/provisioning/datasources/*.yaml` — copies of `datasources/*.yaml` here
-- `/etc/grafana/provisioning/dashboards/dashboards.yaml` — copy of `dashboards/dashboards.yaml` here (points `path` at `/etc/grafana/homelab-dashboards`)
+- **Connection**: `TimsabLab Sync` — a GitHub App (`timsablab-grafana-sync`, App ID
+  `4524523`) installed on this repo only, with Contents/Pull requests/Webhooks all
+  set to Read & write
+- **Repository**: `TimsabLab Homelab Grafana` — points at
+  `HomeLab_NetworkMapping/grafana-provisioning/dashboards` on `main`, syncs every
+  10s, and has a live webhook registered so pushes trigger an immediate sync
+  (no waiting on the poll interval)
+- **Workflow**: `write` — this is bidirectional. Editing a dashboard in Grafana's UI
+  writes the change back to this repo, not just the other way around
 
-To pull in changes made here:
+**Datasources** (Prometheus, Loki) still use classic file provisioning — Grafana's
+Git Sync app doesn't manage datasources, only dashboards/folders. Those are cloned
+to `/etc/grafana/homelab-dashboards` on the server and read via
+`/etc/grafana/provisioning/datasources/*.yaml`. To pull datasource changes:
 
 ```bash
 cd /etc/grafana/homelab-dashboards
 sudo git pull
+sudo systemctl restart grafana-server   # required for datasource changes
 ```
 
-Grafana re-scans the dashboards directory every 30s (`updateIntervalSeconds`), so changes
-show up automatically — no restart needed for dashboard JSON changes. Datasource changes
-do require a `sudo systemctl restart grafana-server`.
+## Important: don't delete dashboards via the Grafana API/UI while `write` is enabled
+
+Because the workflow is bidirectional, deleting a dashboard in Grafana propagates
+that deletion back to this repo — it will remove the file on the next sync. If you
+want to remove a dashboard, delete the JSON file here and push instead of deleting
+it in Grafana.
 
 ## Not covered by provisioning
 
-Grafana has no file-provisioning support for these — they stay database-only,
-managed via the UI or the API:
+Neither classic file provisioning nor Git Sync supports these — they stay
+database-only, managed via the UI or the API:
 
 - Alert rules (5 rules: SNMP device down, Proxmox down, UniFi poller down, disk/CPU thresholds)
 - The "Homelab NOC Rotation" playlist
