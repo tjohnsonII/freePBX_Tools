@@ -1,0 +1,214 @@
+{
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "up{job=\"snmp\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Device Reachability (SNMP up)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "ifOperStatus{instance=~\"$instance\"} == 1",
+          "legendFormat": "{{instance}} - {{ifAlias}}{{ifDescr}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Interface Operational Status (0=down,1=up)",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "rate(ifHCInOctets{instance=~\"$instance\"}[5m]) * 8",
+          "legendFormat": "{{instance}} - {{ifAlias}}{{ifDescr}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Inbound Traffic (bits/sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "rate(ifHCOutOctets{instance=~\"$instance\"}[5m]) * 8",
+          "legendFormat": "{{instance}} - {{ifAlias}}{{ifDescr}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Outbound Traffic (bits/sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "rate(ifInErrors{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{instance}} in-err {{ifAlias}}{{ifDescr}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(ifOutErrors{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{instance}} out-err {{ifAlias}}{{ifDescr}}",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(ifInDiscards{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{instance}} in-disc {{ifAlias}}{{ifDescr}}",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(ifOutDiscards{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{instance}} out-disc {{ifAlias}}{{ifDescr}}",
+          "refId": "D"
+        }
+      ],
+      "title": "Errors + Discards (per sec)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "network",
+    "snmp"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "000000001"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "instance",
+        "query": {
+          "query": "label_values(ifOperStatus, instance)",
+          "refId": "instance"
+        },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Network Devices - SNMP Interfaces",
+  "uid": "snmp-net-interfaces",
+  "version": 1
+}

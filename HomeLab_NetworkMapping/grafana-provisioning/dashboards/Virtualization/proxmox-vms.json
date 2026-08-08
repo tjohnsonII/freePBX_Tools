@@ -1,0 +1,288 @@
+{
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pve_up{id=\"node/proxmox\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Node Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(pve_up{id=~\"qemu/.*|lxc/.*\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "VMs/CTs Running",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pve_uptime_seconds{id=\"node/proxmox\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Node Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "pve_guest_info",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "pve_up{id=~\"qemu/.*|lxc/.*\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "pve_cpu_usage_ratio{id=~\"qemu/.*|lxc/.*\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "pve_memory_usage_bytes{id=~\"qemu/.*|lxc/.*\"} / pve_memory_size_bytes{id=~\"qemu/.*|lxc/.*\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        }
+      ],
+      "title": "VMs and Containers",
+      "transformations": [
+        {
+          "id": "seriesToColumns",
+          "options": {
+            "byField": "id"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "tags": true,
+              "template": true
+            },
+            "renameByName": {
+              "Value #A": "Status?",
+              "Value #B": "Up",
+              "Value #C": "CPU",
+              "Value #D": "Mem %"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "pve_cpu_usage_ratio{id=~\"qemu/.*|lxc/.*\"} * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Usage per Guest",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "(pve_memory_usage_bytes{id=~\"qemu/.*|lxc/.*\"} / pve_memory_size_bytes{id=~\"qemu/.*|lxc/.*\"}) * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Usage per Guest",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "rate(pve_disk_read_bytes_total{id=~\"qemu/.*|lxc/.*\"}[5m]) * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}} read",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(pve_disk_write_bytes_total{id=~\"qemu/.*|lxc/.*\"}[5m]) * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}} write",
+          "refId": "B"
+        }
+      ],
+      "title": "Disk Read/Write (all guests)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "000000001"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "rate(pve_network_receive_bytes_total{id=~\"qemu/.*|lxc/.*\"}[5m]) * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}} rx",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(pve_network_transmit_bytes_total{id=~\"qemu/.*|lxc/.*\"}[5m]) * on(id) group_left(name) pve_guest_info",
+          "legendFormat": "{{name}} tx",
+          "refId": "B"
+        }
+      ],
+      "title": "Network In/Out (all guests)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "virtualization",
+    "proxmox"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Proxmox VMs",
+  "uid": "proxmox-vms",
+  "version": 1
+}
