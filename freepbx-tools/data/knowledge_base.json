@@ -1,0 +1,422 @@
+[
+  {
+    "id": "runbook-cordless-handset-setup-and-guide",
+    "category": "Runbook",
+    "title": "Cordless base/handset setup and end-user operation guide",
+    "tags": ["cordless", "handset", "base station", "training", "voicemail pin", "transfer", "call waiting"],
+    "body": "Setup: connect one end of the included Ethernet cable to the base station's Internet port, the other to the router/network; connect the base station's power adapter. It auto-downloads its config within a few minutes. For each handset: insert the battery, plug in the charging cradle's power adapter, optionally attach the belt clip, and place the handset in the cradle — charge 6 hours before first use for best battery life. Once operational, voicemail has a default greeting.\nVoicemail setup: Messages button > PIN + # (admin-assigned) > option 3 (personal options) > 1 to record your greeting, or 2 to change your PIN (enter new PIN, # to confirm).\nPlacing calls: pick up the handset, dial, press the green Call button. Second call while on one: Options softkey > down-arrow to Hold > OK (holds the first) > Line softkey > Dial softkey > dial the second number > green Call; end the second call and press Resume to return to the first.\nAnswering: pick up the handset or press Accept; for speakerphone, pick up then press Speaker.\nIgnore: Silence softkey sends the caller to voicemail. End call: red End Call button.\nHold: Options softkey > down-arrow to Hold > OK; Resume softkey to retrieve.\nBlind transfer: Options > Transfer > OK > dial destination > Transfer softkey — completes immediately.\nAttended transfer: Options > Transfer > OK > dial destination > green Call > announce the call once answered > Transfer softkey.\nMute: Mute button on the handset, press again to unmute.\nVoicemail shortcut: press and hold 1 on the keypad, or dial your own extension/number, then PIN + #.\nVolume: left/right arrows adjust in-call volume during a call, or ringer volume when idle.\nCall waiting: a beep tone plays on a second inbound call while busy — down-arrow to highlight it, Accept (holds the original) or Reject (sends it to voicemail); Swap softkey toggles between the two.\nSpeakerphone: press the Speakerphone button either to get dial tone when idle, or to move a live call from handset/headset to speaker.\nCall forwarding: OK > Call Features > OK > Call Forward > OK (twice) > choose Always/Busy/No Answer > enable via left/right arrow > arrow down to Target and enter the destination > Save."
+  },
+  {
+    "id": "runbook-intermedia-ascend-app-setup-android",
+    "category": "Runbook",
+    "title": "Installing the Intermedia Ascend softphone app on Android",
+    "tags": ["intermedia", "ascend", "android", "softphone", "install", "e911"],
+    "body": "In Teams (Android): More > Ascend > Sign In > enter company email > Next > enter password (or Forgot Password to reset) > Sign In. It then prompts to install the Ascend app from the Play Store — Download, then Install, then Open once installed.\nPermission prompts (recommend enabling all except where noted optional): Continue if prompted; Allow Ascend to Record Audio = While using the app; Allow to Send Notifications. Skip or browse the Welcome Tour. Agree to the Terms.\nEnter company email again at the Ascend prompt, then Ascend credentials again to log into the client itself. Accept Terms/Policies again. When prompted for Emergency Service Address (E911), select Provide — this step is required, not optional.\nOptional: merging Softphone contacts with the phone's personal contacts — Continue to enable, or \"Ask me later\" to skip. If merging: Allow Access to Contacts, Allow for \"Find nearby Devices,\" and Sync when prompted (Cancel skips the merge). When prompted for the emergency address here too, leave defaults, check the 911 Policy box, Save Changes.\nBattery optimization warning (common on Android): Learn More > Go to Battery Settings > App Battery Usage > Allow background usage > Unrestricted, so Android doesn't kill the app in the background and cause missed calls/notifications.\nOnce done, Ascend is available in Teams via the More tab."
+  },
+  {
+    "id": "runbook-yealink-t54w-end-user-guide",
+    "category": "Runbook",
+    "title": "Yealink T54W/T57W end-user operation guide (calls, transfer, DND, voicemail, forwarding)",
+    "tags": ["yealink", "t54w", "t57w", "end user", "training", "voicemail pin", "transfer", "dnd"],
+    "body": "Placing a call: pick up the handset or press Speakerphone for dial tone, or press Headset for headset mode (no dial tone, just dial). Mid-call, press Hold then New Call to start a second call, Resume to return to the first.\nAnswering: pick up the handset, press Headset (if connected), or press Speaker.\nReject vs Ignore: Reject sends the caller straight to voicemail; Silence (Ignore) just stops the ring on this phone — caller keeps hearing ringback until the configured No Answer Forwarding timeout.\nEnding a call: hang up the handset, or More > End Call (headset), or press Speakerphone (speaker mode).\nHold/Mute: Hold button or softkey to hold/retrieve (or Resume softkey); Mute button toggles mic mute.\nBlind transfer: Transfer button > dial destination > Transfer button again — completes immediately without waiting for an answer.\nAttended/warm transfer: Transfer button > dial destination > wait for them to answer and announce the call > Transfer button to complete.\nDND: DND softkey on the home screen toggles Do Not Disturb — while active, calls route straight to voicemail without ringing.\nVoicemail: Messages button, enter PIN + # (default PIN is 123 + extension number, e.g. 123100 for ext 100) — option 3 for personal options, then 1 to record your greeting or 2 to change your PIN.\nCall forwarding via phone menu: Menu softkey > right-arrow to Features > OK > Call Forward > OK/Enter. If \"Always Forward: Off\" is shown, OK then left/right arrow to enable, down-arrow to enter the destination number, Save. To disable, same path but \"Always Forward: On\" is shown — arrow to disable, Save. Busy Forward and No Answer Forward are set the same way, just different sub-options."
+  },
+  {
+    "id": "runbook-intermedia-ascend-app-setup",
+    "category": "Runbook",
+    "title": "Installing the Intermedia Ascend softphone app in Teams",
+    "tags": ["intermedia", "ascend", "teams", "softphone", "install", "e911"],
+    "body": "In Teams: Apps (left sidebar) > find Ascend > Add > Open > Sign In. Enter the user's 123NET email address, then use Forgot Password (not a normal password field) — check \"I'm not a robot\", Confirm, wait for a security-code email, enter the code and set a new password, Next.\nBack in Teams, Ascend should now offer \"Launch plugin\" — choose Download Ascend Teams Desktop plugin, which downloads ascend-teams.desktop-plugin.exe; run it with default options, then Run Ascend Teams Desktop Plugin and Finish (minimize the plugin window if it stays open). Teams should now show the Ascend app's details.\nIf an orange banner asks to set an emergency address (E911), select Provide, choose the default work address, check the 911 Policy box, and Save Changes — this step is required, not optional, for E911 compliance."
+  },
+  {
+    "id": "runbook-intermedia-ascend-voicemail",
+    "category": "Runbook",
+    "title": "Intermedia Ascend — accessing voicemail (Teams client and mobile app)",
+    "tags": ["intermedia", "ascend", "voicemail", "teams"],
+    "body": "Computer (Teams client): open the Ascend app in Teams, click the tape-icon voicemail tab in the left sidebar, click the row of the message you want to expand its player on the right, and hover over it for options (Report Spam, Block Number, Respond via SMS, Respond via phone call) — the same options also appear at the bottom of the playback window.\nMobile (Ascend app): Voicemail tab at the bottom of the screen, select the message row, and use on-screen playback options — Speakerphone, Return the Call, Delete, or more options."
+  },
+  {
+    "id": "runbook-intermedia-ascend-call-forwarding",
+    "category": "Runbook",
+    "title": "Intermedia Ascend (Teams app) — call forwarding / ring-all setup",
+    "tags": ["intermedia", "ascend", "teams", "call forwarding", "ring all", "sequential"],
+    "body": "In the Ascend app inside Teams: click the green circle with your initials > Call Settings > Call Forwarding > Default Profile, then choose a Call Handling Method: Ring All Destinations (every number rings simultaneously) or Sequential Destinations (rings one after another until answered).\nRing Teams first, then roll to cell: set the first Ring All destination to Ascend Teams, then Add sequential destination > Phone number and enter the cell number. Ring duration under ~20s rolls to Intermedia voicemail on no answer; use 60s instead if you want it to reach the destination's own voicemail (e.g. the cell's carrier voicemail) rather than Intermedia's.\nForward all calls straight to an outside number (e.g. cell phone): set the Ring All destination to just that phone number, and remove every other destination including all \"My device\" entries, then Save Changes."
+  },
+  {
+    "id": "runbook-yealink-manual-provisioning-intermedia",
+    "category": "Runbook",
+    "title": "Manually trigger provisioning on a Yealink phone (Intermedia)",
+    "tags": ["yealink", "manual provisioning", "intermedia", "auto provision"],
+    "body": "On the phone: Menu > Advanced. At the Admin Password prompt, switch keyboard mode to 123 (press the \"abc\" softkey a few times until it shows 123), then enter the standard fleet default admin password (08520852) and OK. Select option 4 (Auto Provision), arrow to option 5 (URL), and enter the Intermedia provisioning server: https://config.telecomsvc.com:6716/configServlet/Yealink — you may need to switch keyboard mode again (e.g. 2aB) to type letters/the colon/slashes correctly; the * key types a period. Save, confirm \"Provision Now?\" with OK, then back out to the home screen. The phone will auto-provision and will likely reboot as part of that."
+  },
+  {
+    "id": "runbook-grandstream-ht802v2-intermedia-import",
+    "category": "Runbook",
+    "title": "Fast Grandstream HT802 V2 config-file import method (Intermedia)",
+    "tags": ["grandstream", "ht802", "intermedia", "config import", "ata", "provisioning"],
+    "body": "Faster alternative to manually clicking through the HT802 V2 web UI when provisioning an ATA on Intermedia (org method, credit: Daniel Goldman — a V1 and two-line-order version were still being worked out as of this writing, so this specifically applies to a single-line V2):\n1. Create a regular Resource Line (not a Fax resource) for the new ATA on Intermedia.\n2. Create a new Grandstream Device, device profile = Other, Model = HT802.\n3. Assign the new Resource Extension to the device and Save.\n4. Reopen the device and click \"Get Credentials\" to generate its Authentication Info (UserID/AuthID/Secret/server).\n5. Take a known-good HT802 V2 config template and edit only its top ~10 lines to match the credentials just pulled — everything below that is just on/off flags for FXS Port 1 options and doesn't need to change. Field mapping (P-code meaning, not a literal value to reuse):\n   P3 / P35 / P36 = UserID/AuthID\n   P34 = Secret (the SIP auth password)\n   P40 = Port\n   P2 = Admin password for the ATA itself — must be included or the ATA may reject the whole file\n   P47 / P48 = Server name\n   P192 / P237 = Firmware update URL\n   (Line order in the file doesn't matter — the ATA's parser doesn't care.)\n6. On the ATA itself: log in with its current/default password and set a new one.\n7. Maintenance > Upgrade > Config File tab > Manual Configuration > Upload Configuration, select the edited file. (Don't have the file open in Notepad at the same time — the upload can fail if it's locked.)\n8. On success it prompts to reboot — accept. If everything was mapped correctly, it auto-connects and registers on reboot.\nSee also the general Grandstream HT802 fax pass-through entry in this knowledge base for the FXS/codec/fax-mode settings themselves."
+  },
+  {
+    "id": "runbook-ucaas-add-customer",
+    "category": "Runbook",
+    "title": "Add a new customer domain on 123NET UCaaS",
+    "tags": ["ucaas", "call harbor", "new customer", "domain"],
+    "body": "At https://phones.123.net (login with your admin credentials): Domains > Add Domain. Basic tab: Name = the domain (e.g. company.com), Description = company name, Email Sender = notification@123.net. Defaults tab: Area Code = main line's area code, Caller Name = main DID's CNAM, Caller ID = main DID, Preferred Server Location = DTW. Emergency tab: Emergency Caller ID = the main DID. Press Add to finish."
+  },
+  {
+    "id": "runbook-asternic-access",
+    "category": "Runbook",
+    "title": "Accessing Asternic (Call Center Stats) for a customer",
+    "tags": ["asternic", "call center", "queue stats"],
+    "body": "Check the default VPBX customer list — customers with Asternic show \"Yes\" (highlighted green) under the Call Center column. Access at pbx-handle.123.net/stats, pbx.handle.123.net/stats, or IPofPBX/stats. Default username is i123net (password is per-customer, not a shared default — check that customer's VPBX Site Notes). Vendor docs: https://www.asternic.net/docs/ — a shared demo instance also exists at asternic.net/demo (user/password: demo/demo) if you want to explore the UI without touching a real customer's data."
+  },
+  {
+    "id": "glossary-hosted-platforms",
+    "category": "Glossary",
+    "title": "123.Net's three Hosted PBX platforms (FreePBX, FusionPBX, 123NET UCaaS)",
+    "tags": ["platform", "ucaas", "call harbor", "netsapiens", "fusionpbx", "freepbx"],
+    "body": "123.Net runs customers on one of three different platforms depending on package/history — always confirm which one a given customer is on before assuming a tool or procedure applies:\n  - FreePBX/Asterisk — the standard Hosted platform; this is what freepbx-tools (and everything else in this knowledge base unless noted otherwise) targets.\n  - FusionPBX — used for Basic Hosted Packages (~3 phones or less), multi-tenant, shares a single SIP trunk across customers. See the FusionPBX entries in this knowledge base for feature codes and troubleshooting.\n  - 123NET UCaaS — built on the Call Harbor platform (NetSapiens-based). Org naming policy: always refer to it internally and externally as \"123NET UCaaS\" or \"123NET Unified Communications\" — never as \"Call Harbor\" or \"Netsapiens\" by name. A UCaaS customer has their own VPBX page like standard Hosted customers, identifiable by \"123NET UCaaS\" appearing in that customer's VPBX \"FreePBX Version\" field. Access URL: https://phones.123.net/. Public docs: callharbor.com, netsapiens.com, and Call Harbor's support KB at support.callharbor.com/kb/. None of freepbx-tools' Asterisk-specific diagnostics apply to a UCaaS customer — it's a different platform entirely."
+  },
+  {
+    "id": "featurecodes-fusionpbx-basic",
+    "category": "Feature Code",
+    "title": "FusionPBX Feature Codes: Basic",
+    "tags": ["fusionpbx", "*1", "*2", "*4", "*411", "*3472", "*67", "*69", "*732", "*870", "*78", "*79", "*72", "*73", "*74", "*21"],
+    "body": "FusionPBX (not FreePBX — codes differ from the FreePBX list): *1 Call Transfer. *2 Record active call. *4 Attended call transfer (enter extension, then #). *411 Directory (dial by name). *3472+PIN DISA (dialtone to call out). *67<number> Call privacy. *69 Call return (redial last incoming). *732+PIN Record a message. *8[ext] Extension intercom/page. *870 Redial. *9171/*9170/*9172 Talking date/time/both. *925 Schedule a wakeup call. *78/*79 Enable/disable DND. *9888 FreeSWITCH conference (Cluecon Weekly). *0[ext] Speed dial. *21 Set Follow Me number. *72/*73/*74 Enable/disable/toggle Call Forward. Admin PIN for *3472/*732 is the Recordings PIN in FusionPBX's Administrative PIN page. Full reference: https://docs.fusionpbx.com/en/latest/additional_information/feature_codes.html"
+  },
+  {
+    "id": "featurecodes-fusionpbx-other",
+    "category": "Feature Code",
+    "title": "FusionPBX Feature Codes: Parking, Advanced, Voicemail, Misc",
+    "tags": ["fusionpbx", "*5900", "*33", "*97", "*98", "*4000", "*99", "eavesdrop", "intercept", "valet park"],
+    "body": "Call Parking: *5900 Valet Park (attended transfer to park, plays back the park extension); *5901-*5999 Valet Un-Park (retrieve). Advanced: *8[ext] Extension intercom/page; *33<ext> Eavesdrop (1=remote audio, 2=local audio, 3=full conversation, 0=mute); **<ext> Intercept a specific extension. Voicemail: *97 Voicemail (system detects your extension, prompts for password); *98 or *4000 Check any voicemail box (prompts for extension + password); *99<extension> Send a call directly to that extension's voicemail. Misc: *9192 Info to console, *9193/*9194 Video record/playback, *9195 Delay echo, *9196 Echo test, *9197 Milliwatt tone, *9664 Test MoH."
+  },
+  {
+    "id": "runbook-fusionpbx-basics",
+    "category": "Runbook",
+    "title": "FusionPBX basics (alternate platform for Basic Hosted Packages)",
+    "tags": ["fusionpbx", "basic hosted", "registrations"],
+    "body": "FusionPBX is used for Basic Hosted Packages (typically 3 phones or less) — a multi-tenant PBX sharing a single SIP trunk across customers, unlike FreePBX/Asterisk's one-trunk-per-customer model. If a customer's PBX doesn't look like FreePBX at all, confirm whether they're actually on FusionPBX before assuming something is broken — freepbx-tools targets FreePBX/Asterisk specifically and doesn't apply the same way here.\nDocs: https://docs.fusionpbx.com/en/latest/ (manual: https://docs.fusionpbx.com/en/latest/manual.html)\nCheck if phones are registered: select the customer's domain (tenant) in the FusionPBX admin, then Status > Registrations to see all currently-registered endpoints."
+  },
+  {
+    "id": "glossary-vpbx-page",
+    "category": "Glossary",
+    "title": "VPBX Page",
+    "tags": ["vpbx", "admin", "billing", "site notes"],
+    "body": "The VPBX Page (https://secure.123.net/cgi-bin/web_interface/admin/vpbx.cgi) is the per-customer admin reference: PBX access (click the IP in the IP column to reach that customer's FreePBX GUI), device/seat tracking for billing, and Site Notes — always check Site Notes for that customer's specific customizations and any credential info before troubleshooting. Any device listed on this page is being billed; remove test/temporary devices when done to avoid billing the customer for them."
+  },
+  {
+    "id": "runbook-stretto-softphone-provisioning",
+    "category": "Runbook",
+    "title": "123NET Softphone (Bria/Stretto) account provisioning",
+    "tags": ["softphone", "stretto", "bria", "alianza", "counterpath"],
+    "body": "The 123NET basic softphone client runs on the Alianza (formerly Counterpath/Bria Stretto) platform. Portal: https://ccs3.cloudprovisioning.com:18083/stretto/sam.html — this is where all softphone accounts are created and managed.\n\nProvisioning steps: find the Customer's Group folder (usually the domain of the customer's email address; if they only have a generic address like Gmail, the group folder is likely created under the customer's handle instead). Expand it, select Users, then +New to create a User, and set:\n  Provisioning Username / Provisioning Password — what the customer logs into the softphone app with (distinct from their SIP credentials).\n  Email Address — used for notifications.\n  account1Sip.credentials.authorizationName = extension number\n  account1Sip.credentials.displayName = extension number\n  account1Sip.credentials.username = extension number\n  account1Sip.credentials.password = that extension's secret from FreePBX\n  account1Sip.domain = the PBX's domain\n\nA free softphone account only applies to an Extension that already has physical hardware — a Standalone Softphone entry must be created on the customer's VPBX page for billing if it's a new Extension with no physical phone. Extensions with a physical phone can't reassign their \"free\" softphone slot to a different Extension."
+  },
+  {
+    "id": "runbook-softphone-attended-transfer",
+    "category": "Runbook",
+    "title": "123NET Softphone app — attended (warm) transfer",
+    "tags": ["softphone", "transfer", "attended", "warm transfer", "android", "ios"],
+    "body": "Two ways to do a warm/attended transfer on the 123NET Softphone app (Android/iOS):\n1. (Vendor-recommended) Tap Hold to hold the current call, tap + to add a call, dial the destination, and once you've spoken with them tap More > Transfer.\n2. Dial *2 while on the call — the attendant prompts for a transfer destination; dial it, and once you've finished speaking with them, hang up to complete the transfer. If you hang up before the destination answers, the call returns to the extension that started the transfer."
+  },
+  {
+    "id": "runbook-tls-srtp-configuration",
+    "category": "Runbook",
+    "title": "TLS/SRTP configuration (FreePBX + Polycom + Yealink + Stretto softphone)",
+    "tags": ["tls", "srtp", "encryption", "pjsip", "polycom", "yealink", "stretto", "certificate"],
+    "body": "Org policy: engage a Hosted Engineer before implementing. Only fully tested on Yealink models — treat Polycom/Stretto as less proven.\n\nFreePBX side: Admin > Certificate Manager — generate (or reuse) a Let's Encrypt certificate and set it as Default; the built-in default cert can't be used for this. Settings > Asterisk SIP Settings > SIP Settings [chan_pjsip] tab: in TLS/SSL/SRTP Settings, pick that Let's Encrypt cert in Certificate Manager, SSL Method = tlsv1_2, Verify Client = No, Verify Server = Yes. In Transports, set tls - 0.0.0.0 - All = Yes, and confirm the 0.0.0.0 (tls) port is 5061. On the General SIP Settings tab, set Allow Anonymous Inbound SIP Calls and Allow SIP Guests both to No. Restart Asterisk (fwconsole stop, fwconsole start). Per extension needing TLS, on the Advanced tab: Transport = Auto or 0.0.0.0-tls, Media Encryption = SRTP via in-SDP (recommended), Allow Non-Encrypted Media (Opportunistic SRTP) = No, Direct Media = No, DTLS disabled.\n\nPolycom endpoint attributes (replace DOMAIN_OF_CUSTOMER_PBX with the actual PBX FQDN, e.g. pbxtest.123.net):\n  device.sec.TLS.prov.strictCertCommonNameValidation=0\n  device.sec.TLS.prov.strictCertCommonNameValidation.set=1\n  sec.srtp.offer=1\n  voIpProt.server.1.address=DOMAIN_OF_CUSTOMER_PBX\n  voIpProt.server.1.port=5061\n  voIpProt.server.1.transport=TLS\n  reg.1.server.1.address=DOMAIN_OF_CUSTOMER_PBX\n  reg.1.server.1.port=5061\n  reg.1.server.1.transport=TLS\n  reg.1.srtp.enable=1\n  reg.1.srtp.offer=1\n\nYealink endpoint attributes:\n  account.1.sip_server.1.address=DOMAIN_OF_CUSTOMER_PBX\n  account.1.sip_server.1.port=5061\n  account.1.sip_server.1.transport_type=2\n  account.1.srtp_encryption=2\n  security.default_ssl_method=3\n  static.security.dev_cert=1\n  static.security.trust_certificates=0\n\n123NET Softphone (Stretto) — set per-User/Extension, or in sip.only to apply to all:\n  account1Sip.domain = customer PBX domain\n  account1Sip.ignoreTlsCertVerify = False\n  account1Sip.proxy = customer PBX domain\n  desk.network.transport.encryptAudioOption = True\n  desk.network.transport.option = 2\n  mob.network.siptransport.encryptAudio = 1\n  mob.network.siptransport.option = 2\n\nIf TLS registration is failing after this, the certificate itself (expired/wrong CN/not set as Default) is the most common cause — check with the Certificate Status tool before re-checking every endpoint attribute."
+  },
+  {
+    "id": "runbook-algo-8301-paging-adapter",
+    "category": "Runbook",
+    "title": "ALGO 8301 paging adapter provisioning",
+    "tags": ["algo", "8301", "paging", "overhead", "multicast"],
+    "body": "Standard 123.Net ALGO 8301 paging adapter setup:\n1. Default web login: admin / algo.\n2. Upgrade firmware from the GUI (auto-check/download — no progress bar, just a ~20 minute countdown). Note: auto-update sometimes fails from very old firmware (seen on v3.3.3) — if so, manually load an intermediate firmware file first (v3.4.4), then auto-update should proceed normally to the latest (e.g. v4.1.1).\n3. Basic Settings > SIP: enter the PBX IP as SIP Domain/Proxy Server, and the paging extension's number/Authentication ID/password. Leave Ring/Alert Mode = None unless a specific ring-monitor behavior is wanted. The device auto-answers inbound calls to this extension and pages out audio (and multicast if configured).\n4. Advanced Settings > Provisioning: set Provisioning Mode = Disabled, otherwise settings get wiped on reboot.\n5. Basic Settings > Multicast: set Multicast Mode = Transmitter (Sender) for a standard single-zone overhead paging setup; pick Zone Selection Mode (DTMF Selectable vs Single Zone) and Multicast Type (Regular RTP is compatible with the widest range of endpoints).\n6. Advanced Settings > Time: set the correct time zone.\n7. Change the admin password from the default (standard fleet default: 08520852).\n8. System > Maintenance: download the config and attach it to the asset record for tracking."
+  },
+  {
+    "id": "glossary-ring-group",
+    "category": "Glossary",
+    "title": "Ring Group",
+    "tags": ["ring group", "ringgroup", "grpnum"],
+    "body": "Ring Groups are groups of dialing-enabled entities (Extensions, other Ring Groups, Queues, phone numbers, etc.) that ring together when the Ring Group number is dialed. A Ring Group is assigned a number just like an extension. Settings (strategy, ring time, no-answer destination) control how it behaves."
+  },
+  {
+    "id": "glossary-queue",
+    "category": "Glossary",
+    "title": "Queue",
+    "tags": ["queue", "call center", "asternic"],
+    "body": "Call Queues are similar to Ring Groups but offer more features. Callers are placed on hold in a virtual queue until an agent is available, hearing hold music/announcements/ringing per configuration. Queues can relay approximate hold time and position, and support a breakout IVR. Often used in call centers with limited staff handling high call volume."
+  },
+  {
+    "id": "glossary-ivr",
+    "category": "Glossary",
+    "title": "IVR (Interactive Voice Response / Auto Attendant)",
+    "tags": ["ivr", "auto attendant"],
+    "body": "An IVR gathers caller input via keypad or voice response and routes the call based on the option selected — to an extension, ring group, or other destination. Also known as an Auto Attendant."
+  },
+  {
+    "id": "glossary-ata",
+    "category": "Glossary",
+    "title": "ATA (Analog Telephone Adapter)",
+    "tags": ["ata", "fax", "grandstream", "cisco spa"],
+    "body": "An ATA bridges an analog device (phone or fax machine) onto the SIP/PBX network, registering as a normal extension. Common models: Grandstream HT802, Cisco/Linksys SPA122. A DID routed to an extension whose registered device is an ATA with a physical fax machine attached is a very common real-world fax setup — the PBX has no way to distinguish this from a regular phone extension except by naming convention. See the Grandstream/Cisco ATA fax-provisioning entries for the exact settings that make fax actually work over one of these."
+  },
+  {
+    "id": "glossary-did",
+    "category": "Glossary",
+    "title": "DID (Direct Inward Dial)",
+    "tags": ["did", "inbound route"],
+    "body": "A DID is a phone number routed directly to an Extension (as opposed to a Ring Group, IVR, or other destination). Configured via FreePBX's Inbound Routes module."
+  },
+  {
+    "id": "glossary-time-condition",
+    "category": "Glossary",
+    "title": "Time Conditions / Time Groups",
+    "tags": ["time condition", "time group", "schedule"],
+    "body": "Time Conditions control call routing based on a Time Group or Calendar (open/closed hours). Time Groups define the actual periods of time, selected within Time Conditions or Outbound Routes."
+  },
+  {
+    "id": "glossary-extension",
+    "category": "Glossary",
+    "title": "Extension",
+    "tags": ["extension", "hosted seat"],
+    "body": "An Extension is a 3+ digit identifier an endpoint uses to communicate with FreePBX. Can be assigned to physical phones, softphones, ATAs, paging devices (Algo), or virtual voicemail. From a Hosted billing standpoint, any such provisioned entity is a \"Hosted Seat.\""
+  },
+  {
+    "id": "glossary-transfer-types",
+    "category": "Glossary",
+    "title": "Attended vs Blind Transfer",
+    "tags": ["transfer", "attended", "blind", "unattended"],
+    "body": "Attended Transfer: the transferring agent stays on the line to speak with the receiving agent before completing the transfer. Blind/Unattended Transfer: the call is transferred without speaking to the receiving party first."
+  },
+  {
+    "id": "glossary-hold-park",
+    "category": "Glossary",
+    "title": "Hold vs Park",
+    "tags": ["hold", "park", "blf"],
+    "body": "Hold only holds the call on that specific phone — it must be transferred or Parked for another extension to pick it up. Park Lines are BLF buttons for quickly parking a call and picking it up from any phone by dialing the parking lot number or pressing the same Park Line button."
+  },
+  {
+    "id": "glossary-dnd",
+    "category": "Glossary",
+    "title": "DND (Do Not Disturb)",
+    "tags": ["dnd", "do not disturb"],
+    "body": "DND puts an extension in an Unavailable state, forcing calls to the extension's Unavailable destination. The endpoint does not ring while DND is enabled."
+  },
+  {
+    "id": "glossary-network-recommendations",
+    "category": "Glossary",
+    "title": "Network recommendations for hosted PBX phones",
+    "tags": ["network", "nat", "sip alg", "udp timeout", "dhcp options"],
+    "body": "Open all ports TO/FROM the PBX IP (phones register on 5060 then get reassigned a random port). Increase UDP timeout to 90s+ — lower values risk registration drops. Avoid double-NAT. Disable SIP ALG — known to cause issues. DHCP Options: Time Offset (opt 2, hex), Time Server (opt 42), Provisioning server (opt 66/160, http://provisioner.123.net). Provisioning server ICMP is disabled by design — don't rely on ping to check it."
+  },
+  {
+    "id": "glossary-ports-hosted",
+    "category": "Glossary",
+    "title": "Ports to open for Hosted PBX",
+    "tags": ["ports", "firewall", "sip", "rtp"],
+    "body": "UDP/TCP 5060-5061 (SIP signaling). UDP 10000-32767 (RTP media, provider-side range may vary — check current provider docs before assuming a fixed range on new deployments)."
+  },
+  {
+    "id": "runbook-ring-group-blf-monitor",
+    "category": "Runbook",
+    "title": "Monitor a Ring Group via BLF",
+    "tags": ["ring group", "blf", "monitor", "extensions_custom.conf"],
+    "body": "In extensions_custom.conf, add a hint line mapping the ring group number to its member channels, e.g.:\n  exten=>1001,hint,PJSIP/2001&PJSIP/2002&PJSIP/2003\n(replace 1001 with the actual ring group number and PJSIP/xxxx with its member extensions). Then on each phone add a BLF resource list key pointing at that ring group number — consult the phone's provisioning template for the exact attendant.resourcelist.* / linekey.* syntax for that model."
+  },
+  {
+    "id": "runbook-email-missed-call",
+    "category": "Runbook",
+    "title": "Email notification on missed call",
+    "tags": ["missed call", "email", "extensions_custom.conf", "trysystem"],
+    "body": "In extensions_custom.conf, a TrySystem() step can shell out to `mail` on a missed-call leg to notify an address, before falling through to voicemail, e.g.:\n  exten => 101,1,TrySystem(echo \"Missed Call - From: ${CALLERID(name)} ${CALLERID(number)} received at ${STRFTIME(${EPOCH},,%l:%M:%S %p %Z on %A %B %e)}\" | mail -s \"PBX Alert - Missed Call\" -r \"PBX Alerts<FROM_ADDRESS>\" TO_ADDRESS)\n  exten => 101,n,Goto(ext-local,vmu101,1)\nNote: this disables the busy greeting if applicable, and the extension will get two emails if Voicemail-to-Email is also enabled on it. Replace FROM_ADDRESS/TO_ADDRESS with real addresses — never commit real customer email addresses into shared dialplan snippets."
+  },
+  {
+    "id": "runbook-chanspy-monitor",
+    "category": "Runbook",
+    "title": "Live call monitoring / listen-in (ChanSpy)",
+    "tags": ["chanspy", "spy", "monitor", "555"],
+    "body": "Dial 555 from any internal phone, authenticate with that PBX's monitor PIN (site-specific — check /etc/asterisk/monitor_pin.conf on that box, don't assume a shared default), then enter the target extension to listen in on. Press 9 to enter a new extension at any time, or * for the next available call. Mute yourself on the spy channel if you don't want the monitored party to hear you."
+  },
+  {
+    "id": "runbook-module-updates",
+    "category": "Runbook",
+    "title": "Server and module updates",
+    "tags": ["yum update", "fwconsole ma upgradeall", "updates"],
+    "body": "`yum update` for OS/package updates. `fwconsole ma upgradeall` for FreePBX module updates."
+  },
+  {
+    "id": "runbook-repair-permissions",
+    "category": "Runbook",
+    "title": "Repair permissions / \"Tampered File\" error",
+    "tags": ["tampered file", "permissions", "refreshsignatures"],
+    "body": "`fwconsole ma refreshsignatures` re-signs/repairs module files when FreePBX reports a tampered-file error."
+  },
+  {
+    "id": "runbook-vpbx-extension-sync",
+    "category": "Runbook",
+    "title": "FreePBX-to-VPBX extension sync (billing/device tracking)",
+    "tags": ["vpbx", "provisioner", "billing sync"],
+    "body": "A provisioner cron job on the internal provisioning host periodically pulls extension/device data from customer PBXs (via a scoped read-only MySQL grant on that PBX's `asterisk` database) to keep the VPBX billing/device-tracking page in sync. Setting this up on a new PBX requires an internal provisioning-host config change plus a GRANT SELECT on that PBX's asterisk DB for the provisioner's source IP — this is an internal 123.Net process, not something freepbx-tools automates; credentials for it must never be hardcoded anywhere."
+  },
+  {
+    "id": "concept-comedian-mail",
+    "category": "Glossary",
+    "title": "\"Comedian Mail\" voicemail prompt",
+    "tags": ["comedian mail", "voicemail", "history"],
+    "body": "\"Comedian Mail\" is a historical Asterisk/FreePBX voicemail prompt name, inherited from an early open-source voicemail system called \"Comedian Mailbox.\" It's just tradition/leftover branding — the prompts/recordings can be fully customized per-system if a customer wants different wording."
+  },
+  {
+    "id": "concept-fcc-n11",
+    "category": "Glossary",
+    "title": "N11 short codes (211-911) and extension conflicts",
+    "tags": ["fcc", "n11", "211", "911"],
+    "body": "The FCC reserves N11 short codes (e.g. 211 for social services, 911 for emergency) for specific services. An internal extension can't reuse one of these numbers — dialing or transferring to it would just reach the public N11 service instead of the internal destination."
+  },
+  {
+    "id": "featurecodes-blacklist",
+    "category": "Feature Code",
+    "title": "Feature Codes: Blacklist",
+    "tags": ["*30", "*31", "*32", "blacklist"],
+    "body": "*30 Blacklist a number. *32 Blacklist the last caller. *31 Remove a number from the blacklist."
+  },
+  {
+    "id": "featurecodes-callforward",
+    "category": "Feature Code",
+    "title": "Feature Codes: Call Forward",
+    "tags": ["*72", "*73", "*93", "*74", "*90", "*91", "*94", "*92", "*52", "*53", "*95", "*96", "call forward"],
+    "body": "*72 Activate Call Forward All. *73 Deactivate Call Forward All. *93 Activate Call Forward All (prompting). *74 Deactivate Call Forward All (prompting). *90 Activate Call Forward Busy. *91 Deactivate Call Forward Busy. *94 Activate Call Forward Busy (prompting). *92 Deactivate Call Forward Busy (prompting). *52 Activate Call Forward No Answer/Unavailable. *53 Deactivate Call Forward No Answer/Unavailable. *95 Activate Call Forward No Answer/Unavailable (prompting). *96 Toggle Call Forward."
+  },
+  {
+    "id": "featurecodes-misc",
+    "category": "Feature Code",
+    "title": "Feature Codes: Call Waiting, Conferences, Contact Manager",
+    "tags": ["*70", "*71", "*87", "*10", "call waiting", "conference status", "speed dial"],
+    "body": "Call Waiting: *70 activate, *71 deactivate. Conferences: *87 conference status. Contact Manager: *10 speed dials."
+  },
+  {
+    "id": "featurecodes-core",
+    "category": "Feature Code",
+    "title": "Feature Codes: Core (pickup, transfer, recording, ChanSpy)",
+    "tags": ["*8", "555", "**", "*2", "##", "*1", "7777", "pickup", "transfer", "recording", "chanspy"],
+    "body": "*8 General call pickup. 555 ChanSpy. ** Directed call pickup / in-call disconnect. *2 In-call attended transfer. ## In-call blind transfer. *1 Toggle call recording (in-call). 7777 Simulate an incoming call."
+  },
+  {
+    "id": "featurecodes-dictate-dnd",
+    "category": "Feature Code",
+    "title": "Feature Codes: Dictation and Do Not Disturb",
+    "tags": ["*35", "*34", "*78", "*79", "*76", "dictate", "dnd"],
+    "body": "Dictation: *34 perform dictation, *35 email completed dictation. DND: *78 activate, *79 deactivate, *76 toggle."
+  },
+  {
+    "id": "featurecodes-fax-findme-wakeup",
+    "category": "Feature Code",
+    "title": "Feature Codes: Fax, Find Me/Follow, Wake Up Calls",
+    "tags": ["666", "*21", "*68", "fax", "findme", "wakeup"],
+    "body": "666 Dial the System FAX extension. *21 Toggle Find Me/Follow. *68 Set a wake-up call (hotel/PMS use)."
+  },
+  {
+    "id": "featurecodes-info-services",
+    "category": "Feature Code",
+    "title": "Feature Codes: Info Services",
+    "tags": ["*69", "*43", "*65", "*60", "call trace", "echo test", "speaking clock"],
+    "body": "*69 Call trace. *43 Echo test. *65 Speak your extension number. *60 Speaking clock."
+  },
+  {
+    "id": "featurecodes-paging-parking",
+    "category": "Feature Code",
+    "title": "Feature Codes: Paging and Parking",
+    "tags": ["*80", "*54", "*55", "*88", "*85", "*86", "paging", "parking", "intercom"],
+    "body": "Paging: *80 intercom prefix, *54 allow user intercom, *55 disallow user intercom. Parking: *88 park to your assigned lot, *85 pickup-parked-call prefix, *86 force park into a private lot (Parking Pro)."
+  },
+  {
+    "id": "featurecodes-queues-directory-speeddial-vm",
+    "category": "Feature Code",
+    "title": "Feature Codes: Queues, Directory, Speed Dial, Voicemail",
+    "tags": ["*45", "*47", "*46", "411", "*75", "*0", "*98", "*97", "queue", "directory", "voicemail"],
+    "body": "Queues: *45 dynamic-member login/logout toggle, *47 playback queue caller count, *46 queue pause toggle. Directory: 411 dial-by-name. Speed Dial: *75 set user speed dial, *0 speed dial prefix. Voicemail: *98 dial voicemail, * direct dial prefix, *97 my voicemail."
+  },
+  {
+    "id": "runbook-create-pjsip-extension",
+    "category": "Runbook",
+    "title": "Create a standard PJSIP extension",
+    "tags": ["extension", "pjsip", "quick create", "voicemail pin"],
+    "body": "Applications > Extensions > Quick Create Extension. Enter extension number, name, outbound caller ID (org support-line CID for internal support extensions), email address. Next. Set Voicemail PIN to 123+extension#. Finish. Then edit the new extension: Voicemail tab -> Email Attachment = Yes. Advanced tab -> Max Contacts = 10, Account Code = the extension number. Submit, then click Apply Config."
+  },
+  {
+    "id": "runbook-letsencrypt-cert",
+    "category": "Runbook",
+    "title": "Create a Let's Encrypt certificate on a customer PBX",
+    "tags": ["letsencrypt", "certificate", "https", "ssl", "tls"],
+    "body": "Admin > Certificate Management > +New Certificate > Generate Let's Encrypt Certificate. Owner's Email: hosted@123.net (org standard). Country: United States. State: Michigan. Check \"Remove DST Root CA X3\", then Generate Certificate. Then Admin > System Admin > HTTPS Setup > Settings tab: pick the new cert under Certificate Manager, Import, then Save and Restart Apache. Port Management: force Admin port 80 -> 443, Update Now. Connectivity > Firewall > Services: Web Management = Local only, Web Management (Secure) = Internet and Local. Apply Config."
+  },
+  {
+    "id": "runbook-yealink-alternate-ringtone",
+    "category": "Runbook",
+    "title": "Configure alternate ringtones on Yealink phones",
+    "tags": ["yealink", "ringtone", "alert info", "ring group", "queue", "inbound route"],
+    "body": "Yealinks have built-in tone files Ring1.wav-Ring13.wav (viewable on-phone under Sounds, or web GUI under Settings > Preference). To assign a specific ringtone to a Ring Group, Queue, or Inbound Route: on the FreePBX side, find that function's \"Alert Info\" field, choose Custom, and enter \"ringtone-RingN.wav\" (case-sensitive, e.g. \"ringtone-Ring3.wav\" for Ring3.wav). For a fully custom sound, export as WAV/8000Hz (Audacity works), upload it to the phone itself via its web GUI (it must be stored locally on the device, filename case-sensitive), then reference that filename the same way in Alert Info."
+  },
+  {
+    "id": "runbook-ata-grandstream-ht802-fax",
+    "category": "Runbook",
+    "title": "Grandstream HT802 ATA provisioning (incl. fax pass-through)",
+    "tags": ["grandstream", "ht802", "ata", "fax", "fxs"],
+    "body": "Standard 123.Net Grandstream HT802 ATA provisioning steps:\n1. On first login, change the admin password (standard fleet default: 08520852123Net) via System Settings > Security Settings > User Info Management.\n2. Disable auto-provisioning: Maintenance > Upgrade — uncheck \"Allow DHCP Option 43/66/100 to Override Server\" and \"Auto Provision\", set Automatic Upgrade = No, Firmware Upgrade/Provisioning = Always Skip the Firmware Check.\n3. Disable TR-069: System Settings > Management Settings — uncheck Enable TR-069.\n4. Time zone: System Settings > Time and Language — GMT-05:00 (Eastern).\n5. DHCP hostname: Network Settings > Ethernet Settings > General Settings — Host Name (Option 12) = CustomerHandle_ATA.\n6. Per FXS port (Port Settings > FXS Port): set Primary SIP Server to the PBX IP, SIP User ID / Authenticate ID to the extension number, Authenticate Password to that extension's secret. Under Call Settings, disable Call Waiting / Call Waiting Caller ID / Call Waiting Tone, set Ring Timeout = 90. Under Codec Settings: all vocoder choices (1-8) = PCMU, Fax Mode = Pass Through, Re-Invite After Fax Tone Detected = Enabled, Jitter Buffer Type = Adaptive, Jitter Buffer Length = High. Under Analog Signal Line Configuration: TX gain -6dB, RX default, Line Echo Canceller (LEC) disabled. Under Call Feature Settings: Enable Local/Call Features = No.\nFAX MODE + RE-INVITE ON FAX TONE are the two settings that most directly affect whether a physical fax machine behind this ATA actually completes faxes — check these first when troubleshooting a fax DID that resolves to a Grandstream ATA."
+  },
+  {
+    "id": "runbook-cisco-3550-phone-boot-loop",
+    "category": "Runbook",
+    "title": "Phones boot-looping on a Cisco Catalyst 3550 PoE switch",
+    "tags": ["cisco", "3550", "boot loop", "poe", "vvx"],
+    "body": "Known issue: a Cisco Catalyst 3550 PoE switch can cause phones (Polycom VVX and others) to boot-loop instead of powering up cleanly. Fix: on the interfaces the phones are connected to, run:\n  power inline delay shutdown 20 initial 300\nReference: Digium/Sangoma support article on Catalyst 3550 PoE causing phones not to boot correctly."
+  },
+  {
+    "id": "runbook-ata-cisco-spa122-fax",
+    "category": "Runbook",
+    "title": "Cisco SPA122 ATA provisioning (incl. fax pass-through)",
+    "tags": ["cisco", "spa122", "ata", "fax", "fxs"],
+    "body": "Standard 123.Net Cisco SPA122 ATA provisioning steps:\n1. Factory reset via the physical Reset button.\n2. Log in locally (default admin/admin) via the ATA's Ethernet port at 192.168.15.1 (Web Access is disabled by default until configured). Administration > Firmware Upgrade first.\n3. Administration > User List — edit admin user, set password to the standard fleet default (08520852), submit.\n4. Administration > Web Access Management — enable Remote Management.\n5. Network Setup > Internet Settings — Host Name = CustomerHandle + ATA (or similar identifier).\n6. Network Setup > Time Settings — Eastern time zone.\n7. Voice > Provisioning — set Provisioning Enable = No.\n8. Voice > Line 1: Network Settings — Jitter Buffer Adjustment = No, Network Jitter Level = Very High. Proxy and Registration — PBX IP. Subscriber Information — extension number in Display Name/User ID/Auth ID. Supplementary Service Subscription — Call Waiting/Three Way Conf/Service Announcement Serv = No. Audio Configuration — Second Preferred Codec = G711a; set G729a Enable, G726a Enable, FAX V21 Detect Enable, FAX CNG Detect Enable, FAX Codec Symmetric, FAX Process NSE, FAX Disable ECAN, FAX T38 ECM Enable, Modem Line, Use Pref Codec Only, FAX Enable T38 all = Yes; FAX Passthru Method = ReINVITE; Echo Canc Enable = No; FAX Tone Detect Mode = Caller or Callee.\nThe FAX T38/passthru and FAX tone-detect settings are the ones to check first when a fax DID resolving to a Cisco SPA122 isn't completing faxes reliably."
+  },
+  {
+    "id": "runbook-polycom-provisioning-and-fixes",
+    "category": "Runbook",
+    "title": "Polycom common config fixes (NTP, DND, URL dialing, hold ringback, hard reprovision)",
+    "tags": ["polycom", "poly", "vvx", "ntp", "dnd", "url dialing", "provisioning"],
+    "body": "NTP/date-time: override via device.sntp.gmtoffsetcityid / device.sntp.servername (north-america.pool.ntp.org) and tcpipapp.sntp.* attributes in the phone/site config; org standard NTP target is Google's 216.239.35.12 rather than an internal PBX IP.\nRemove DND lockout: set feature.doNotDisturb.enable = 0.\nUnexpected \"URL dialing\" behavior on incoming calls (address shown as sip:number@ip instead of caller ID): set feature.urlDialing.enabled = 0 in Global Config.\nEnable hold ringback (reminder tone while a call is on hold): add <holdReminder call.hold.localReminder.enabled=\"1\"/> to the site/phone config above the closing </polycomConfig> tag.\nHard reprovision from the phone itself: Home > Settings > Advanced (password 08520852, fallback 456) > Administration Settings > Network Configuration > Provisioning Server — set Boot Server = Static, Server Type = HTTP, Server Address = provisioner.123.net. Then in Network Configuration > DNS Server, set 8.8.8.8. Let the phone reboot/reprovision fully (may reboot more than once)."
+  },
+  {
+    "id": "runbook-polycom-d230-provisioning",
+    "category": "Runbook",
+    "title": "Polycom D230 wireless phone provisioning (discontinued — replace with Yealink W60/56H)",
+    "tags": ["polycom", "d230", "wireless", "dect"],
+    "body": "D230 was discontinued in 2022 — any D230 having issues should be replaced with a Yealink W60/56H rather than repaired, per org policy. If provisioning one anyway: it's a standalone extension, no VVX sync needed, PoE or external power. Must be manually added to the VPBX page (template, MAC, name, extension, secret) for billing/tracking — no working auto-provisioning template exists for this model. Firmware must be 7.1.1+. Basestation web UI default login is admin/admin, then set a new password on first login. Key config: WAN Settings time service = Eastern; Auto Provisioning server URL = provisioner.123.net; ITSP Profile A digit map and SIP proxy/registrar = the target PBX IP; X_CallParkMethod = REFER, X_DirectedCallPickupMethod = INVITE+Replaces, X_CallParkStatusMethod = Dialog/BLF; feature codes Directed Pickup=**, Pickup=*8, Park=*88; SP1 AuthUserName/AuthPassword = the extension number/secret; voicemail check code = *97; Call Park Extensions = 71-79; disable the OBiTALK service; DECT Wireless basename/handset name = extension. Troubleshooting: reset config via System Management > Device Update > Reset Configuration (basestation) or Settings > Factory Reset (handset); swap power supply/battery/basestation/handset individually to isolate a hardware fault."
+  },
+  {
+    "id": "runbook-polycom-parkline-attributes",
+    "category": "Runbook",
+    "title": "Polycom park line (BLF) attribute indexes by VVX model",
+    "tags": ["polycom", "park", "blf", "vvx400", "vvx500", "vvx600"],
+    "body": "Park lines are configured as attendant.resourcelist.N BLF entries (address=parking-lot-ext@pbx-ip, calladdress=*85 + lot-ext@pbx-ip, type=automata) paired with a matching linekey.N.category=BLF/linekey.N.index=N — but the starting index N differs by model since lower indexes are used by the phone's own line keys first: VVX400 park lines typically start at index 7, VVX500 at index 9, VVX600 at index 13. Always confirm against that specific phone's existing linekey usage before assuming the model-default starting index, since a phone with extra provisioned features may already occupy some of those slots."
+  },
+  {
+    "id": "runbook-polycom-efk-linekey-prompt",
+    "category": "Runbook",
+    "title": "Polycom Enhanced Feature Key (EFK) linekey with user prompt",
+    "tags": ["polycom", "efk", "linekey", "intercom", "feature code"],
+    "body": "To build a phone button that dials a feature code plus a user-entered value (e.g. an Intercom button that prompts for a target extension), enable feature.enhancedFeatureKeys.enabled=1 and feature.EFKLineKey.enabled=1, then define an efk.efklist.X entry (mname/label = button text, action.string = the feature code with a $PxN4$ placeholder for the prompted digits, e.g. *80$P2N4$$Tinvite$ for Intercom) plus a matching efk.efkprompt.Y (label = prompt text, type=numeric), and bind it with linekey.LINENUM.category=EFK / linekey.LINENUM.index=X. The Intercom example: efk.efklist.2 action.string=*80$P2N4$$Tinvite$, efkprompt.2 label=Extension, linekey.2 category=EFK index=2."
+  },
+  {
+    "id": "runbook-yealink-standard-template",
+    "category": "Runbook",
+    "title": "Yealink standard provisioning template (non-EOL models)",
+    "tags": ["yealink", "t46u", "t48u", "t54w", "t57w", "provisioning", "template"],
+    "body": "Standard 123.Net Yealink config for current (non-EOL) models T46U/T48U/T54W/T57W: static DNS 8.8.8.8/8.8.4.4, MWI subscribed, caller-ID source from network, remote phonebook enabled (1hr refresh), NTP via pool.ntp.org with Eastern time zone (-5, DST auto), voicemail number = *97, auto-provision server = http://provisioner.123.net/ (protected from override), admin password set to the standard fleet default (08520852). Programmable key 2 defaults to Directory. Useful as a comparison baseline when a Yealink's behavior (wrong time, no MWI, phonebook not loading, not reprovisioning) doesn't match what a freshly-provisioned phone should look like."
+  },
+  {
+    "id": "runbook-mikrotik-hosted-template",
+    "category": "Runbook",
+    "title": "MikroTik standard on-net Hosted router template",
+    "tags": ["mikrotik", "vlan", "dhcp", "firewall", "router"],
+    "body": "Standard 123.Net MikroTik template for an on-net Hosted install: separate VLANs for uplink/management (102) and phones (202, its own DHCP pool e.g. 172.16.123.10-250). DHCP option set for phones includes GMT offset (opt 2), NTP (opt 42), and dual provisioning-server options (opt 66 and opt 160, both http://provisioner.123.net) plus a phone-VLAN option (opt 128). Firewall allow-lists 123.Net's own PBX/provisioning network ranges plus the local management and phone VLANs, drops everything else inbound except established/related; NATs the phone VLAN out; disables unused exposed services (ftp/tftp/h323/sip/pptp) on the router itself. System clock set to America/Detroit with NTP client enabled against 123.Net's NTP servers. Useful as a reference when a customer's on-net router config looks non-standard and phones aren't provisioning/registering correctly — compare against this template's VLAN/DHCP-option/firewall structure rather than guessing."
+  }
+]

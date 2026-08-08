@@ -125,6 +125,10 @@ def get_columns(table, **kw):
     lines = run_mysql(f"DESCRIBE `{table}`;", **kw).splitlines()
     return set([ln.split("\t",1)[0] for ln in lines if ln.strip()])
 
+def did_col(tbl, **kw):
+    """Return the DID column name — 'did' (newer FreePBX) or 'extension' (older)."""
+    return "did" if "did" in get_columns(tbl, **kw) else "extension"
+
 # ---------------------------
 # Paging Analysis Functions
 # ---------------------------
@@ -323,6 +327,101 @@ def analyze_fax_configuration(**kw):
     
     return config
 
+_FAX_NAME_RE = re.compile(r'fax|facsimile', re.IGNORECASE)
+
+def _extract_dest_extension(dest):
+    """Best-effort extraction of a destination extension number from a raw
+    FreePBX destination string (e.g. 'from-did-direct,205,1' -> '205').
+    Only resolves the direct-to-extension case — a DID routed through an
+    IVR/ring group/queue isn't a single physical device, so it's out of
+    scope for this check."""
+    if not dest:
+        return None
+    parts = dest.split(",")
+    if len(parts) < 2:
+        return None
+    context, ext = parts[0], parts[1].strip()
+    if context in ("from-did-direct", "ext-local", "from-internal") and ext:
+        return ext
+    return None
+
+def _get_native_fax_extensions(**kw):
+    """Extensions FreePBX's own Fax module is actively handling."""
+    exts = set()
+    if has_table("fax_users", **kw):
+        rows = rows_as_dicts("SELECT user FROM fax_users;", ["user"], **kw)
+        exts.update(r["user"] for r in rows if r.get("user"))
+    if has_table("fax_incoming", **kw):
+        rows = rows_as_dicts("SELECT extension FROM fax_incoming;", ["extension"], **kw)
+        exts.update(r["extension"] for r in rows if r.get("extension"))
+    return exts
+
+def analyze_fax_routing_by_did(**kw):
+    """Classify each fax-relevant DID's handling path in the order a
+    technician would actually check it:
+      1. native_fax      — FreePBX's own Fax module is configured for the
+                            destination extension.
+      2. likely_ata_fax   — not on the native Fax module, but the
+                            destination extension's name says "fax"/
+                            "facsimile" — almost certainly a physical fax
+                            machine behind an ATA registered as that
+                            extension (the PBX can't tell a phone from a
+                            fax machine on the wire; this is a naming
+                            signal only).
+      3. check_aggregate  — the DID itself is labeled as fax, but nothing
+                            in FreePBX's own config explains how it's
+                            handled (no destination extension resolved, or
+                            the extension it resolves to doesn't look
+                            fax-related either) — the external fax
+                            aggregate/FTP service is the next place to
+                            check for this DID.
+
+    A DID only appears here at all if either its own label or its
+    destination extension's name mentions fax — otherwise this would just
+    list every ordinary voice DID under "check_aggregate", which isn't
+    useful to anyone troubleshooting a fax problem.
+    """
+    result = {"native_fax": [], "likely_ata_fax": [], "check_aggregate": []}
+
+    tbl = "incoming" if has_table("incoming", **kw) else ("inbound_routes" if has_table("inbound_routes", **kw) else None)
+    if not tbl or not has_table("users", **kw):
+        return result
+
+    dc = did_col(tbl, **kw)
+    dids = rows_as_dicts(
+        f"SELECT {dc}, description, destination FROM {tbl};",
+        ["did", "description", "destination"], **kw
+    )
+
+    native_fax_exts = _get_native_fax_extensions(**kw)
+
+    for row in dids:
+        did = row["did"]
+        did_label = row.get("description", "") or ""
+        dest = row.get("destination", "") or ""
+        ext = _extract_dest_extension(dest)
+
+        ext_name = ""
+        if ext:
+            r = rows_as_dicts(f"SELECT name FROM users WHERE extension='{ext}';", ["name"], **kw)
+            ext_name = r[0]["name"] if r else ""
+
+        did_says_fax = bool(_FAX_NAME_RE.search(did_label))
+        ext_says_fax = bool(ext_name and _FAX_NAME_RE.search(ext_name))
+        if not (did_says_fax or ext_says_fax):
+            continue
+
+        entry = {"did": did, "did_label": did_label, "extension": ext or "", "extension_name": ext_name}
+
+        if ext and ext in native_fax_exts:
+            result["native_fax"].append(entry)
+        elif ext_says_fax:
+            result["likely_ata_fax"].append(entry)
+        else:
+            result["check_aggregate"].append(entry)
+
+    return result
+
 def get_asterisk_fax_modules():
     """Check which Asterisk fax modules are loaded."""
     modules = {}
@@ -401,6 +500,7 @@ def main():
         "paging_pro": analyze_paging_pro(**kw),
         "overhead_paging": analyze_overhead_paging(**kw),
         "fax_config": analyze_fax_configuration(**kw),
+        "fax_routing_by_did": analyze_fax_routing_by_did(**kw),
         "asterisk_fax_modules": get_asterisk_fax_modules(),
         "dialplan_features": analyze_dial_plan_features(**kw)
     }
@@ -562,7 +662,53 @@ def print_analysis_report(analysis):
         print(Colors.YELLOW + "║  " + Colors.ENDC + Colors.RED + Colors.BOLD + "❌ Module Status: NOT CONFIGURED".ljust(75) + Colors.YELLOW + " ║" + Colors.ENDC)
     
     print(Colors.YELLOW + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
-    
+
+    # Fax Routing By DID — where each fax-relevant DID is actually handled:
+    # FreePBX's native Fax module, an ATA-connected extension (name-based
+    # signal only), or neither — in which case the external fax aggregate
+    # service is the next place to check.
+    routing = analysis.get("fax_routing_by_did", {})
+    native = routing.get("native_fax", [])
+    ata = routing.get("likely_ata_fax", [])
+    aggregate = routing.get("check_aggregate", [])
+    total_fax_dids = len(native) + len(ata) + len(aggregate)
+
+    print("\n" + Colors.MAGENTA + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "║" + " 📠 FAX ROUTING BY DID".center(78) + "║" + Colors.ENDC)
+    print(Colors.MAGENTA + Colors.BOLD + "╠" + "═" * 78 + "╣" + Colors.ENDC)
+
+    if total_fax_dids == 0:
+        line = 'No DIDs or extensions with "fax" in their name/label found.'
+        print(Colors.MAGENTA + "║  " + Colors.ENDC + Colors.YELLOW + line.ljust(75) + Colors.MAGENTA + " ║" + Colors.ENDC)
+    else:
+        def _tier(title, entries, note, icon):
+            count_line = f"{title}: {len(entries)}"
+            print(Colors.MAGENTA + "║  " + Colors.ENDC + icon + " " + Colors.BOLD +
+                  count_line.ljust(74) + Colors.ENDC + Colors.MAGENTA + " ║" + Colors.ENDC)
+            for e in entries[:10]:
+                detail = (f"  {e['did']} ({e['did_label'] or 'no label'}) -> "
+                          f"ext {e['extension'] or '?'} ({e['extension_name'] or 'no name'})")
+                print(Colors.MAGENTA + "║  " + Colors.ENDC + detail[:76].ljust(76) + Colors.MAGENTA + " ║" + Colors.ENDC)
+            if len(entries) > 10:
+                more = f"  ... +{len(entries) - 10} more"
+                print(Colors.MAGENTA + "║  " + Colors.ENDC + more.ljust(76) + Colors.MAGENTA + " ║" + Colors.ENDC)
+            if entries:
+                print(Colors.MAGENTA + "║  " + Colors.ENDC + Colors.YELLOW +
+                      ("  " + note)[:76].ljust(76) + Colors.ENDC + Colors.MAGENTA + " ║" + Colors.ENDC)
+                print(Colors.MAGENTA + "║" + " " * 78 + "║" + Colors.ENDC)
+
+        _tier("Native FreePBX Fax module", native,
+              "Handled by FreePBX's Fax module -- check fax_users/fax_incoming.",
+              Colors.GREEN + "✓" + Colors.ENDC)
+        _tier("Likely ATA-connected fax (name-based)", ata,
+              "No native Fax module -- verify the ATA is registered and working.",
+              Colors.CYAN + "●" + Colors.ENDC)
+        _tier("No FreePBX handling found", aggregate,
+              "Check the external fax aggregate/FTP service for this site next.",
+              Colors.RED + "✗" + Colors.ENDC)
+
+    print(Colors.MAGENTA + Colors.BOLD + "╚" + "═" * 78 + "╝" + Colors.ENDC)
+
     # Dialplan Features with dramatic table
     features = analysis["dialplan_features"]
     print("\n" + Colors.CYAN + Colors.BOLD + "╔" + "═" * 78 + "╗" + Colors.ENDC)

@@ -366,10 +366,15 @@ def get_asterisk_version_live():
 def get_tool_version():
     """Read the VERSION file stamped at deploy time (see deploy_freepbx_tools.py's
     _generate_version_file()), so the dashboard can show at a glance whether this
-    install is current. Returns e.g. "ffb4016 (2026-08-01)", or None if this
-    install predates version stamping (older/manual installs — no VERSION file
-    shipped) or the file can't be parsed, so the header just omits it rather
-    than showing something broken."""
+    install is current. Returns e.g. "ffb4016 (2026-08-01) [deploy a1b2c3d4e5f6]",
+    or None if this install predates version stamping (older/manual installs —
+    no VERSION file shipped) or the file can't be parsed, so the header just
+    omits it rather than showing something broken.
+
+    DEPLOY_ID (shown in brackets) identifies the specific deploy *run*, not
+    just the code — redeploying the exact same commit still gets a different
+    DEPLOY_ID, so it's possible to tell "did my latest deploy actually land"
+    apart from "is this box still on an old commit"."""
     version_path = os.path.normpath(
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "VERSION")
     )
@@ -388,7 +393,11 @@ def get_tool_version():
         return None
     commit_date = info.get("COMMIT_DATE", "")
     date_short = commit_date[:10] if commit_date else ""
-    return commit + (f" ({date_short})" if date_short else "")
+    deploy_id = info.get("DEPLOY_ID", "")
+    result = commit + (f" ({date_short})" if date_short else "")
+    if deploy_id:
+        result += f" [deploy {deploy_id}]"
+    return result
 
 
 DUMP_SCRIPT   = "/usr/local/bin/freepbx_dump.py"
@@ -411,6 +420,7 @@ CDR_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_cdr_analyzer.
 CALL_LEG_ANALYZER_SCRIPT = "/usr/local/123net/freepbx-tools/bin/freepbx_call_leg_analyzer.py"
 OPS_SCRIPT         = "/usr/local/123net/freepbx-tools/bin/freepbx_ops.py"
 CERT_CHECK_SCRIPT  = "/usr/local/123net/freepbx-tools/bin/freepbx_cert_check.py"
+KB_SCRIPT          = "/usr/local/123net/freepbx-tools/bin/freepbx_kb.py"
 SMTP_CONFIG_PATH   = "/etc/123net-freepbx-tools/smtp.json"
 SELF_TEST_DIR       = os.path.join(OUT_DIR, "self_test")
 
@@ -437,6 +447,7 @@ def run_ops_menu(sock):
         print(Colors.CYAN + "║" + Colors.RESET + "  5) Validate  — health/consistency check " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  6) Set IVR option (dry-run / apply)     " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  7) Print ticket note                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  8) Ring group analysis (timeouts/loops) " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
         print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
         print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
@@ -502,6 +513,65 @@ def run_ops_menu(sock):
 
         elif ch == "7":
             subprocess.call(base_cmd + ["ticket"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "8":
+            subprocess.call(base_cmd + ["ringgroups"])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        else:
+            print(Colors.RED + "Invalid choice." + Colors.RESET)
+
+
+def run_kb_menu():
+    """Interactive submenu for freepbx_kb (search/show/list the internal
+    terminology + hardware-provisioning knowledge base)."""
+    if not os.path.isfile(KB_SCRIPT):
+        print(Colors.RED + "\n❌ freepbx_kb.py not found at " + KB_SCRIPT + Colors.RESET)
+        print(Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+        prompt()
+        return
+
+    base_cmd = ["python3", KB_SCRIPT]
+
+    while True:
+        print(f"\n{Colors.CYAN}Main Menu › Knowledge Base{Colors.RESET}")
+        print(Colors.CYAN + Colors.BOLD + "╔══════════════════════════════════════════╗" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "║   📚  Knowledge Base                     ║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  1) Search  — terminology + runbooks     " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  2) Show one entry in full                " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  3) List all entries by category         " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + "╠══════════════════════════════════════════╣" + Colors.RESET)
+        print(Colors.CYAN + "║" + Colors.RESET + "  0) Back to main menu                    " + Colors.CYAN + "║" + Colors.RESET)
+        print(Colors.CYAN + Colors.BOLD + "╚══════════════════════════════════════════╝" + Colors.RESET)
+        ch = prompt("\n" + Colors.YELLOW + "Choose (0/b=back): " + Colors.RESET).strip()
+
+        if ch == "0" or ch.lower() == "b":
+            break
+
+        elif ch == "1":
+            term = prompt(Colors.YELLOW + "Search term (e.g. fax, ring group, grandstream): " + Colors.RESET).strip()
+            if term:
+                subprocess.call(base_cmd + ["search", term])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "2":
+            key = prompt(Colors.YELLOW + "Entry id or title (from search results): " + Colors.RESET).strip()
+            if key:
+                subprocess.call(base_cmd + ["show", key])
+            print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
+            prompt()
+
+        elif ch == "3":
+            category = prompt(Colors.YELLOW + "Category filter (Enter for all — Glossary/Runbook/Feature Code): " + Colors.RESET).strip()
+            cmd = base_cmd + ["list"]
+            if category:
+                cmd += ["--category", category]
+            subprocess.call(cmd)
             print("\n" + Colors.YELLOW + "Press ENTER to continue..." + Colors.RESET)
             prompt()
 
@@ -1027,10 +1097,10 @@ def run_queue_test(data):
     print(f"\n{Colors.CYAN}Queues configured on this system:{Colors.RESET}")
     picked = _pick_from_list(
         queues,
-        lambda q: f"{q.get('extension')}  {q.get('name', '')}",
+        lambda q: f"{q.get('queue')}  {q.get('queue_name', '')}",
         "queue to test",
     )
-    ext = str(picked.get("extension"))
+    ext = str(picked.get("queue"))
     strategy = picked.get("strategy") or "?"
     timeout = picked.get("timeout") or "?"
     members = _resolve_ext_names((picked.get("members") or "").split(","), data)
@@ -1146,8 +1216,9 @@ def run_comprehensive_validation():
     print(f"\n{Colors.RED}{Colors.BOLD}{'═' * 70}")
     print(f"⚠  COMPREHENSIVE LIVE CALL TEST")
     print(f"   This will create MULTIPLE real calls across the production system:")
-    print(f"   DID routing tests, extension tests, voicemail tests,")
-    print(f"   application tests, and performance measurement.")
+    print(f"   DID routing, extension, voicemail, application, ring group,")
+    print(f"   and queue tests — ring groups/queues are discovered from this")
+    print(f"   PBX's own config, so every configured group/queue will ring.")
     print(f"   DO NOT run this on a live customer system during business hours.")
     print(f"{'═' * 70}{Colors.RESET}")
     print()
@@ -2456,8 +2527,7 @@ def display_system_dashboard(sock, data):
 
     # Dashboard Header with system info - full width, properly aligned
     header_text = f"📊 SYSTEM DASHBOARD  │  Host: {hostname[:25].ljust(25)}  │  FreePBX: {freepbx_ver[:15].ljust(15)}  │  Asterisk: {asterisk_ver[:30].ljust(30)}"
-    if tool_ver:
-        header_text += f"  │  Tools: {tool_ver}"
+    header_text += f"  │  Tools: {tool_ver or 'no VERSION stamp (pre-versioning install?)'}"
     # Pad to full terminal width
     header_padding = " " * max(0, BOX_TOTAL - len(header_text) - 2)
     header_line = (Colors.BG_CYAN + Colors.WHITE + Colors.BOLD + 
@@ -3083,6 +3153,25 @@ def run_log_analysis_menu():
         prompt()
 
 
+def _prompt_cdr_window(default_hours="24"):
+    """Ask for a search window as either 'N hours back' or an explicit date/
+    date-range, returning the CLI args to append to freepbx_cdr_analyzer.py
+    or freepbx_call_leg_analyzer.py. Tickets usually reference a specific
+    past date rather than "how many hours ago", so a bare number is treated
+    as hours, one date is a start (through now), and date:date is a range."""
+    print_tip("Enter a number of hours (e.g. 72), or a date/range for a ticket "
+              "referencing a specific past date, e.g. 2026-08-05 or 2026-08-05:2026-08-06.")
+    raw = prompt(f"{Colors.YELLOW}Search window (default: {default_hours}h): {Colors.RESET}").strip()
+    if not raw:
+        return ["--hours", default_hours]
+    if raw.isdigit():
+        return ["--hours", raw]
+    if ":" in raw:
+        start, end = raw.split(":", 1)
+        return ["--start", start.strip(), "--end", end.strip()]
+    return ["--start", raw]
+
+
 def run_cdr_analysis_menu(sock):
     """Interactive CDR/CEL call log analysis menu."""
     if not os.path.isfile(CDR_ANALYZER_SCRIPT):
@@ -3118,13 +3207,15 @@ def run_cdr_analysis_menu(sock):
             print_tip("Formatted numbers work too — dashes, parens, and a leading 1 are all fine.")
             number = prompt(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
             if number:
-                hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
-                if not hours.isdigit():
-                    hours = "72"
+                window_args = _prompt_cdr_window("72")
                 if os.path.isfile(CDR_ANALYZER_SCRIPT):
-                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number, "--hours", hours])
+                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number] + window_args)
                 else:
-                    # Inline fallback: direct MySQL query
+                    # Inline fallback: direct MySQL query (hours-only — the
+                    # script above is what implements date-range search)
+                    hours = "72"
+                    if "--hours" in window_args:
+                        hours = window_args[window_args.index("--hours") + 1]
                     digits = re.sub(r"\D", "", number)
                     sql = (f"SELECT calldate, src, dst, disposition, duration, billsec "
                            f"FROM cdr WHERE (src LIKE '%{digits}%' OR dst LIKE '%{digits}%') "
@@ -3160,39 +3251,38 @@ def run_cdr_analysis_menu(sock):
                         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
                         prompt()
                         continue
-                    leg_hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
-                    cmd += ["--number", number, "--hours", leg_hours]
+                    cmd += ["--number", number] + _prompt_cdr_window("72")
                 fmt = prompt(f"{Colors.YELLOW}Format tree/summary/json (default: tree): {Colors.RESET}").strip() or "tree"
                 cmd += ["--format", fmt]
                 run_interactive(cmd)
         elif choice == "13":
             break
         else:
-            hours = None
+            window_args = []
             if choice in ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11']:
-                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
+                window_args = _prompt_cdr_window("24")
             if choice == "2":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive"] + window_args)
             elif choice == "3":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics"] + window_args)
             elif choice == "4":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers"] + window_args)
             elif choice == "5":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations"] + window_args)
             elif choice == "6":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour"] + window_args)
             elif choice == "7":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions"] + window_args)
             elif choice == "8":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed"] + window_args)
             elif choice == "9":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage"] + window_args)
             elif choice == "10":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist"] + window_args)
             elif choice == "11":
                 filename = prompt(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
                 filename = filename or "/tmp/cdr_export.json"
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename] + window_args)
                 maybe_email_file(filename, default_subject="freepbx-tools: CDR export")
             else:
                 print(f"{Colors.RED}❌ Invalid choice. Please select 1-13.{Colors.RESET}")
@@ -3650,7 +3740,7 @@ def _build_self_test_cases(sock, data, did_rows, defaults, include_live_calls):
                                   "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
         queues = (data or {}).get("queues") or []
         if queues:
-            first_queue_ext = str(queues[0].get("extension"))
+            first_queue_ext = str(queues[0].get("queue"))
             add("Call Simulation", "Test queue (live)", "LIVE_CALL",
                 lambda: _st_run(["python3", CALL_SIMULATOR_SCRIPT, "--queue", first_queue_ext,
                                   "--caller-id", defaults["caller_id"], "--debug"], timeout=45))
@@ -4044,6 +4134,7 @@ def main():
             print(menu_line("17", "CDR/CEL Call Log Analysis (find by number)"))
             print(menu_line("18", "Phone/Endpoint Analysis"))
             print(menu_line("21", "Certificate Status (web GUI + SIP TLS)"))
+            print(menu_line("22", "Search knowledge base (terminology + hardware runbooks)"))
             print(menu_section("Ops Tools"))
             print(menu_line("20", "Call-Flow Ops (trace / decode / find / snapshot / validate / set-IVR / ticket)"))
             print(Colors.CYAN + "╠" + "═" * menu_width + "╣" + Colors.RESET)
@@ -4181,6 +4272,9 @@ def main():
 
             elif choice == "20":
                 run_ops_menu(sock)
+
+            elif choice == "22":
+                run_kb_menu()
 
             elif choice == "19":
                 print("Bye.")
