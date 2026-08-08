@@ -3153,6 +3153,25 @@ def run_log_analysis_menu():
         prompt()
 
 
+def _prompt_cdr_window(default_hours="24"):
+    """Ask for a search window as either 'N hours back' or an explicit date/
+    date-range, returning the CLI args to append to freepbx_cdr_analyzer.py
+    or freepbx_call_leg_analyzer.py. Tickets usually reference a specific
+    past date rather than "how many hours ago", so a bare number is treated
+    as hours, one date is a start (through now), and date:date is a range."""
+    print_tip("Enter a number of hours (e.g. 72), or a date/range for a ticket "
+              "referencing a specific past date, e.g. 2026-08-05 or 2026-08-05:2026-08-06.")
+    raw = prompt(f"{Colors.YELLOW}Search window (default: {default_hours}h): {Colors.RESET}").strip()
+    if not raw:
+        return ["--hours", default_hours]
+    if raw.isdigit():
+        return ["--hours", raw]
+    if ":" in raw:
+        start, end = raw.split(":", 1)
+        return ["--start", start.strip(), "--end", end.strip()]
+    return ["--start", raw]
+
+
 def run_cdr_analysis_menu(sock):
     """Interactive CDR/CEL call log analysis menu."""
     if not os.path.isfile(CDR_ANALYZER_SCRIPT):
@@ -3188,13 +3207,15 @@ def run_cdr_analysis_menu(sock):
             print_tip("Formatted numbers work too — dashes, parens, and a leading 1 are all fine.")
             number = prompt(f"{Colors.YELLOW}Enter number to search (partial ok, e.g. 5551234): {Colors.RESET}").strip()
             if number:
-                hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
-                if not hours.isdigit():
-                    hours = "72"
+                window_args = _prompt_cdr_window("72")
                 if os.path.isfile(CDR_ANALYZER_SCRIPT):
-                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number, "--hours", hours])
+                    run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--find-number", number] + window_args)
                 else:
-                    # Inline fallback: direct MySQL query
+                    # Inline fallback: direct MySQL query (hours-only — the
+                    # script above is what implements date-range search)
+                    hours = "72"
+                    if "--hours" in window_args:
+                        hours = window_args[window_args.index("--hours") + 1]
                     digits = re.sub(r"\D", "", number)
                     sql = (f"SELECT calldate, src, dst, disposition, duration, billsec "
                            f"FROM cdr WHERE (src LIKE '%{digits}%' OR dst LIKE '%{digits}%') "
@@ -3230,39 +3251,38 @@ def run_cdr_analysis_menu(sock):
                         print(f"\n{Colors.YELLOW}Press ENTER to continue...{Colors.RESET}")
                         prompt()
                         continue
-                    leg_hours = prompt(f"{Colors.YELLOW}Search last N hours (default: 72): {Colors.RESET}").strip() or "72"
-                    cmd += ["--number", number, "--hours", leg_hours]
+                    cmd += ["--number", number] + _prompt_cdr_window("72")
                 fmt = prompt(f"{Colors.YELLOW}Format tree/summary/json (default: tree): {Colors.RESET}").strip() or "tree"
                 cmd += ["--format", fmt]
                 run_interactive(cmd)
         elif choice == "13":
             break
         else:
-            hours = None
+            window_args = []
             if choice in ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11']:
-                hours = prompt(f"{Colors.YELLOW}Analyze last N hours (default: 24): {Colors.RESET}").strip() or "24"
+                window_args = _prompt_cdr_window("24")
             if choice == "2":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--comprehensive"] + window_args)
             elif choice == "3":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--statistics"] + window_args)
             elif choice == "4":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-callers"] + window_args)
             elif choice == "5":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--top-destinations"] + window_args)
             elif choice == "6":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--by-hour"] + window_args)
             elif choice == "7":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--dispositions"] + window_args)
             elif choice == "8":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--failed"] + window_args)
             elif choice == "9":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--trunk-usage"] + window_args)
             elif choice == "10":
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist", "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--duration-dist"] + window_args)
             elif choice == "11":
                 filename = prompt(f"{Colors.YELLOW}Output filename (default: auto-generated): {Colors.RESET}").strip()
                 filename = filename or "/tmp/cdr_export.json"
-                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename, "--hours", hours])
+                run_interactive(["python3", CDR_ANALYZER_SCRIPT, "--export-json", filename] + window_args)
                 maybe_email_file(filename, default_subject="freepbx-tools: CDR export")
             else:
                 print(f"{Colors.RED}❌ Invalid choice. Please select 1-13.{Colors.RESET}")
